@@ -2,19 +2,21 @@ import { IUser, IPermission, IPreferences } from "@/models/auth"
 import { defineStore } from "pinia"
 import axios from "axios"
 import { handleRequest } from "@/composables/promise"
+import { setAuthToken } from "@/services/http"
+import { notifyError } from "@/services/notify"
+import { readJson, STORAGE_KEYS, removeKey, writeJson, writeString } from "@/services/storage"
 
 
-let currentUser: IUser | null
+let currentUser: IUser | null = null
 
 export function setUser(user: IUser) {
     currentUser = user
-    localStorage.setItem("user", JSON.stringify(user))
+    writeJson(STORAGE_KEYS.user, user)
 }
 
 export function getUser() {
     if (currentUser) return currentUser
-    const stored = localStorage.getItem("user")
-    currentUser = stored ? JSON.parse(stored) : null
+    currentUser = readJson<IUser | null>(STORAGE_KEYS.user, null)
     return currentUser
 }
 
@@ -24,37 +26,14 @@ export function isAuthenticated() {
 
 export function logout() {
     currentUser = null
-    localStorage.removeItem("token");
-    localStorage.removeItem("user")
-    localStorage.removeItem("project")
+    removeKey(STORAGE_KEYS.token)
+    removeKey(STORAGE_KEYS.user)
+    removeKey(STORAGE_KEYS.project)
+    setAuthToken(null)
 }
 
 export function setProjectName(name: string) {
-    localStorage.setItem("project", name)
-}
-
-const errorNotification = (message: string = "", title: string = "Error", duration: number = 3000) => {
-    window.$notification.error({
-        title: title,
-        content: message,
-        duration: duration,
-    })
-}
-
-const warningNotification = (message: string = "", title: string = "Warning", duration: number = 3000) => {
-    window.$notification.warning({
-        title: title,
-        content: message,
-        duration: duration,
-    })
-}
-
-const successNotification = (message: string = "", title: string = "Success", duration: number = 3000) => {
-    window.$notification.success({
-        title: title,
-        content: message,
-        duration: 3000,
-    })
+    writeString(STORAGE_KEYS.project, name)
 }
 
 export const useUserStore = defineStore(
@@ -76,7 +55,7 @@ export const useUserStore = defineStore(
                 this.user = user
                 this.permissions = user.permissions
                 this.preferences = user.preferences
-                localStorage.setItem("user", JSON.stringify(user))
+                writeJson(STORAGE_KEYS.user, user)
             },
             checkPermission(permissionName: string) {
                 return this.permissions.some(permission => permission.codename == permissionName)
@@ -93,7 +72,7 @@ export const useUserStore = defineStore(
                         window.$message.success("Preferences updated successfully.")
                     },
                     (errorMsg) => {
-                        errorNotification(errorMsg)
+                        notifyError(errorMsg)
                         console.log(errorMsg)
                     },
                     () => this.loading = false

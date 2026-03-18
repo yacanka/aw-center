@@ -1,15 +1,25 @@
-from wmi import WMI
 import subprocess
 import os
-from win32com.client import GetActiveObject, Dispatch
-from win32com.client.gencache import EnsureDispatch
 from time import sleep
-#import win32com.client as wc
+
+try:
+    from wmi import WMI
+except ImportError:
+    WMI = None
+
+try:
+    from win32com.client import GetActiveObject, Dispatch
+except ImportError:
+    GetActiveObject = None
+    Dispatch = None
 
 #wc.gencache.is_readonly = False
 #wc.gencache.Rebuild()
 
 def is_process_running(process_name):
+    if WMI is None:
+        return False
+
     c = WMI()
     for process in c.Win32_Process():
         if process.Name.lower() == process_name.lower():
@@ -25,6 +35,9 @@ def start_exe(exe_path, params):
         print(f"Error while starting {exe_name}: {e}")
         
 def get_or_run(com_name, executable, params, max_wait=15, sleep_interval=1):
+    if GetActiveObject is None or Dispatch is None:
+        raise RuntimeError("COM automation is only supported on Windows environments.")
+
     exe_name = os.path.basename(executable)
     if is_process_running(exe_name):
         #doors = EnsureDispatch(com_name)

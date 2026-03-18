@@ -1,3 +1,6 @@
+import { setAuthToken } from "@/services/http"
+import { notifyWarning } from "@/services/notify"
+import { removeKey, STORAGE_KEYS } from "@/services/storage"
 import { isPlainObject } from "@/utils/general"
 import { isJsonString } from "@/utils/text"
 
@@ -14,19 +17,17 @@ export async function handleRequest<T>(request: Promise<any>, onSuccess: (data: 
             throw new Error(res.data?.message || "Request failed with status: " + res.status);
         }
     } catch (err: any) {
-        let data = err.response.data
+        const data = err?.response?.data || {}
         let errorRepresentation = "Something went wrong."
 
         if (data.detail) {
             errorRepresentation = data.detail
-            if (err.status == 401 && data.detail == "Invalid token.") {
-                logout()
-                delete axios.defaults.headers.common["Authorization"]
-                window.$notification.warning({
-                    title: "Invalid Token",
-                    content: "Login required.",
-                    duration: 3000,
-                })
+            if (err?.response?.status == 401 && data.detail == "Invalid token.") {
+                removeKey(STORAGE_KEYS.token)
+                removeKey(STORAGE_KEYS.user)
+                removeKey(STORAGE_KEYS.project)
+                setAuthToken(null)
+                notifyWarning("Login required.", "Invalid Token")
             }
         }
         else if (data.message) {

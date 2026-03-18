@@ -6,6 +6,7 @@ import router from './router'
 
 import './assets/main.css'
 import { useUserStore } from './stores/user'
+import { bootstrapHttpAuth } from './services/http'
 
 const pinia = createPinia()
 const app = createApp(App)
@@ -14,6 +15,7 @@ app.use(router)
 app.use(naive)
 
 async function init() {
+    bootstrapHttpAuth()
     try {
         await useUserStore().fetchCurrentUser()
         const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light"
@@ -26,7 +28,6 @@ async function init() {
 }
 
 init()
-
 
 
 
