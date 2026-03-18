@@ -1,0 +1,160 @@
+# ========================
+# Python (Django) Specific
+# ========================
+
+# Virtual Environment
+venv/
+env/
+.venv/
+env.bak/
+venv.bak/
+.venv.bak/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.hypothesis/
+
+# Django specific
+*.log
+db.sqlite3
+db.sqlite3-journal
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.example
+.DS_Store
+.gitignore
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+.tox/
+.coverage
+.coverage.*
+.mypy_cache/
+.pytest_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+.mypy_cache/
+.pytest_cache/
+
+# Django migrations
+migrations/
+!.gitignore
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Media and static files
+media/
+assets/
+staticfiles/
+static/
+*.docx
+*.crt
+*.key
+*.txt
+*.html
+
+# AI Models
+models/
+
+# ========================
+# Vue3 (Frontend) Specific
+# ========================
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+.pnpm-debug.log*
+.pnpm-lock.yaml
+.pnpm-lock.yaml.lock
+.pnpm
+.pnpm-lock.yaml
+.pnpm-debug.log*
+.pnpm-error.log*
+.pnpm-store/
+.npm/
+.npmrc
+
+# Build files
+dist/
+build/
+out/
+dist/
+public/dist/
+public/build/
+public/static/
+
+# Vue specific
+*.log
+*.log.*
+.nuxt/
+.cache/
+.vuerc
+.vuerc.json
+.env.local
+.env
+.env.development
+.env.production
+.env.test
+.env.example
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+.docker/
+.dockerignore
+.docker/
+.dockerignore
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.production.local
+.env.test.local
+
+# IDE & OS specific
+*.log
+*.tmp
+*.temp
+*.backup
+*~
