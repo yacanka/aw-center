@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from corsheaders.defaults import default_headers, default_methods
+from django.core.exceptions import ImproperlyConfigured
 import environ
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,10 +24,16 @@ env.read_env(BASE_DIR / ".env")
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-xb7gy)dm9v%0j!fa%+7&nnjb(n#4&or+sqqew(e49#yxzn1=(o'
+SECRET_KEY = env.str("SECRET_KEY", default="")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env.bool("DEBUG")
+DEBUG = env.bool("DEBUG", default=False)
+
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "dev-insecure-secret-key-change-me"
+    else:
+        raise ImproperlyConfigured("SECRET_KEY must be defined when DEBUG is False.")
 
 IPV4_ADDRESS = env.str("IPV4_ADDRESS")
 PORT = env.int("PORT")
@@ -43,11 +50,14 @@ AW_PASSWORD = env.str("AW_PASSWORD", "")
 CERTIFICATES_DIR = BASE_DIR / "certificates"
 CUSTOM_TEMPLATE_DIR = BASE_DIR / "custom_templates"
 
-FRONTEND_RESET_URL = f"http{'s' if not DEBUG else ''}://{IPV4_ADDRESS if not DEBUG else 'localhost'}:{PORT if not DEBUG else 5173}/app/login"
+FRONTEND_RESET_URL = env.str(
+    "FRONTEND_RESET_URL",
+    default=f"http{'s' if not DEBUG else ''}://{IPV4_ADDRESS if not DEBUG else 'localhost'}:{PORT if not DEBUG else 5173}/app/login"
+)
 
-ALLOWED_HOSTS = [
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[
     IPV4_ADDRESS, "127.0.0.1", "localhost"
-]
+])
 
 # Application definition
 
@@ -98,9 +108,18 @@ MIDDLEWARE = [
 if not DEBUG:
     MIDDLEWARE += ['awcenter.middleware.RequestUserLogMiddleware']
 
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_HEADERS = list(default_headers) + ['*']
-CORS_ALLOW_METHODS = list(default_methods) + ['*']
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+    CORS_ALLOWED_ORIGINS = []
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+    if not CORS_ALLOWED_ORIGINS:
+        raise ImproperlyConfigured("CORS_ALLOWED_ORIGINS must be set when DEBUG is False.")
+
+CORS_ALLOW_HEADERS = list(default_headers)
+CORS_ALLOW_METHODS = list(default_methods)
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 ROOT_URLCONF = 'awcenter.urls'
 
@@ -164,7 +183,7 @@ AUTH_PASSWORD_VALIDATORS = [
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Europe/Istanbul'
 
-USE_I10N = True
+USE_I18N = True
 USE_TZ = True
 
 DATE_INPUT_FORMATS = ['%d.%m.%Y', '%d/%m/%Y', '%Y-%m-%d']
@@ -177,7 +196,7 @@ DATE_FORMAT = 'd.m.Y'
 STATIC_URL = '/core/'
 STATIC_ROOT = BASE_DIR / 'static'
 STATICFILES_DIRS = [BASE_DIR / 'core']
-STATICFILES_STORAGE = 'whitenoise.stroge.CompressedManifestStaticFilesStorage'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -214,3 +233,9 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
+    X_FRAME_OPTIONS = "DENY"

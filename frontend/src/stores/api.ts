@@ -5,57 +5,25 @@ import { IDcc } from "@/models/dcc"
 import { IJira } from "@/models/jira"
 import { IEcd } from "@/models/ecd"
 import { IDdf } from "@/models/ddf"
-import { IUser, IPermission } from "@/models/auth"
 import { IPerson, IPanel, IProject, IResponsible } from "@/models/orgs"
-import { setUser, logout } from "./user"
 import { toTitleCase } from '@/utils/text'
 import { nullCheck } from '@/utils/general'
 import { getDaysDifference, parseDateFlex, getTodayEUFormat } from '@/utils/time'
 import { createEmpty } from "./datatable"
 import { useUserStore } from "./user"
 import { handleRequest } from "@/composables/promise"
+import { API_BASE_URL } from "@/services/http"
+import { notifyError, notifySuccess } from "@/services/notify"
 
-const BASE_URL = import.meta.env.VITE_API_URL
+const BASE_URL = API_BASE_URL
 const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 
-axios.defaults.baseURL = BASE_URL
-let accessToken = localStorage.getItem("token");
-if (accessToken) {
-  axios.defaults.headers.common["Authorization"] = `Token ${accessToken}`
-}
-
-const errorNotification = ( message: string = "", title: string = "Error", duration: number = 3000) => {
-  window.$notification.error({
-    title: title,
-    content: message,
-    duration: duration,
-  })
-}
-
-const warningNotification = (message: string = "", title: string = "Warning", duration: number = 3000) => {
-  window.$notification.warning({
-    title: title,
-    content: message,
-    duration: duration,
-  })
-}
-
-const successNotification = (message: string = "", title: string = "Success", duration: number = 3000) => {
-  window.$notification.success({
-    title: title,
-    content: message,
-    duration: 3000,
-  })
-}
-
-const errorMessage = (message: string) => {
-  window.$message.error(message)
-}
+const errorNotification = notifyError
+const successNotification = notifySuccess
 
 const API_PATHS = {
   compdocs: "compdocs",
   dcc: "dcc/api",
-  auth: "auth",
   doors: "doors",
   ddf: "ddf",
   docproof: "docproof",
@@ -450,158 +418,7 @@ export const useDccStore = defineStore(
   }
 )
 
-
-export const useAuthStore = defineStore(
-  "auth",
-  {
-    state: () => ({
-      me: {} as IUser,
-      token: "" as string,
-      users: [] as IUser[],
-      permissions: [] as IPermission[],
-      loading: false,
-      ipAddress: axios.defaults.baseURL
-    }),
-    getters: {
-      getMe: (state) => state.me,
-      getUsers: (state) => state.users,
-      getToken: (state) => state.token,
-      getPermissions: (state) => state.permissions,
-      isLoading: (state) => state.loading,
-    },
-    actions: {
-      clearList() {
-        this.users = []
-      },
-      async login(credentials: any) {
-        this.loading = true
-        let token
-        await handleRequest<any>(
-          axios.post(`${API_PATHS.auth}/token/`, credentials),
-          (data) => {
-            token = data.token
-            axios.defaults.headers.common["Authorization"] = `Token ${token}`
-            localStorage.setItem("token", token);
-            successNotification("Login successful")
-          },
-          (errorMsg) => {
-            let description = errorMsg.includes(": ") ? errorMsg.split(": ")[1] : errorMsg
-            errorNotification(description)
-            console.log(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return token
-      },
-      async fetchUsers() {
-        this.loading = true
-        await handleRequest<any>(
-          axios.get("auth/users/"),
-          (data) => {
-            console.log(data)
-            this.users = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      },
-      async updateUser(userId: Number, updatedData: IUser) {
-        this.loading = true
-        await handleRequest<any>(
-          axios.patch(`auth/users/${userId}/`, updatedData),
-          (data) => {
-            const existingIndex = this.users.findIndex(user => user.id === userId);
-            if (existingIndex !== -1) {
-              this.users[existingIndex] = { ...this.users[existingIndex], ...data }; // Update with new data
-            }
-            successNotification("Updated successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      },
-      async deleteUser(userId: Number) {
-        this.loading = true;
-        await handleRequest<void>( // Void response expected
-          axios.delete(`auth/users/${userId}/`),
-          () => {
-            this.users = this.users.filter((user: IUser) => user.id !== userId);
-            successNotification("Deleted successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        );
-      },
-      async signup(credentials: any) {
-        this.loading = true
-        await handleRequest<any>(
-          axios.post("auth/users/", credentials),
-          (data) => {
-            console.log(data)
-            successNotification("Registration successful")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      },
-      async logout() {
-        this.loading = true
-        await handleRequest<any>(
-          axios.post(`${API_PATHS.auth}/logout/`),
-          (data) => {
-            console.log(data)
-            successNotification("Logout successful")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        delete axios.defaults.headers.common["Authorization"]
-      },
-      async fetchPermissions() {
-        this.loading = true
-        await handleRequest<any>(
-          axios.get(`${API_PATHS.auth}/permissions/`),
-          (data) => {
-            console.log(data)
-            this.permissions = data
-          },
-          (errorMsg) => {
-            console.log(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      },
-      async changePassword(password: any) {
-        this.loading = true
-        await handleRequest<any>(
-          axios.post(`${API_PATHS.auth}/change_password/`, password),
-          (data) => {
-            successNotification(data)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      }
-    }
-  }
-)
+export { useAuthStore } from "./auth"
 
 export const useDoorsStore = defineStore(
   "doors",

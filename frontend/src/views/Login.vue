@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { h, ref, onMounted, watch } from 'vue'
-import { NButton, NDataTable, NSpace, NTag, NSpin, NUpload, FormRules } from 'naive-ui'
+import { ref } from 'vue'
+import { FormRules } from 'naive-ui'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/api'
 import { validateForm } from '@/composables/forms'
@@ -87,18 +87,16 @@ const passwordConfirmRules: FormRules = {
   ]
 }
 
-const store = useAuthStore()
+const authStore = useAuthStore()
 async function handleLogin() {
   if (!await validateForm(loginForm.value)) return
-  store.login(loginCredentials.value).then((token) => {
-    if (token) {
-      useUserStore().fetchCurrentUser().then(() => {
-        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light"
-        document.documentElement.setAttribute('data-theme', useUserStore().getPreferences.theme || systemTheme)
-        router.push({ name: "home" })
-      })
-    }
-  })
+  const token = await authStore.login(loginCredentials.value)
+  if (!token) return
+
+  await useUserStore().fetchCurrentUser()
+  const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light"
+  document.documentElement.setAttribute('data-theme', useUserStore().getPreferences.theme || systemTheme)
+  router.push({ name: "home" })
 }
 
 async function handleSignup() {

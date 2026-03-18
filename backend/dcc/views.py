@@ -27,14 +27,18 @@ from pathlib import Path
 from base64 import b64decode, b64encode
 import json
 from enum import Enum
-import pdfplumber
 import requests
 import re
 import time
 import uuid
 from datetime import datetime
 import os
-import pandas as pd
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
 from bs4 import BeautifulSoup
 from awcenter.enums import Projects
 
@@ -456,12 +460,12 @@ def send_mail(request):
         if project == Projects.HYS:
             raw_dcc_path = r"\\vds\projects\Prj300\14-Uçuşa_Elverişlilik_ve_Sertifikasyon\08_Design Change Management\02-ECD Takip\Design Change Classification Forms\2025"
             cc_list = "orcunozan.afsar@tai.com.tr; kemalbahadir.potuk1@tai.com.tr"
-            mail_placeholder["{{DCC_PATH}}"] = f"{raw_dcc_path}\{issue_f.customfield_45002}"
+            mail_placeholder["{{DCC_PATH}}"] = f"{raw_dcc_path}\\{issue_f.customfield_45002}"
             mail_title = f"[HYS] CCB-{ccb_no} toplantı gündemi"
         elif project == Projects.OZGUR:
             raw_dcc_path = r"\\vds\projects\Prj071\Sertifikasyon\08-Design Change Management\02-ECD Takip Arch\Design Change Classification Forms\2025"
             cc_list = "mustafaalp.eren@tai.com.tr; kemalbahadir.potuk1@tai.com.tr"
-            mail_placeholder["{{DCC_PATH}}"] = f"{raw_dcc_path}\{issue_f.customfield_45002} ({issue_f.customfield_45000} {issue_f.customfield_45001})"
+            mail_placeholder["{{DCC_PATH}}"] = f"{raw_dcc_path}\\{issue_f.customfield_45002} ({issue_f.customfield_45000} {issue_f.customfield_45001})"
             mail_title = f"[Ozgur] CCB-{ccb_no} toplantı gündemi"
         else:
             return Response({"message": "Something went wrong, not supported project. Process stopped."}, status=400)
@@ -621,6 +625,10 @@ def create_subtask_excel_action(uuid):
                     return
             else:
                 yield f'data: {json.dumps({"status": "error", "content": "JSESSIONID not found in request."})}\n\n'
+                return
+
+            if pd is None:
+                yield f'data: {json.dumps({"status": "error", "content": "pandas is required for excel import."})}\n\n'
                 return
 
             df = pd.read_excel(BytesIO(obj["file"]))
