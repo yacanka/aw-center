@@ -1,6 +1,15 @@
-import pdfplumber
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+
+
+def _require_pdfplumber():
+    if pdfplumber is None:
+        raise ImportError("pdfplumber is required to parse ECD files.")
 
 def ecd_parser_0(ecd_file):
+    _require_pdfplumber()
     pdf = pdfplumber.open(ecd_file)
     page = pdf.pages[0] 
     raw_tables = page.extract_tables()
@@ -74,6 +83,7 @@ def ecd_parser_0(ecd_file):
     return ecd
 
 def ecd_parser_1(ecd_file):
+    _require_pdfplumber()
     for i in range(2):
         try:
             pdf = pdfplumber.open(ecd_file)
@@ -111,6 +121,7 @@ def ecd_parser_1(ecd_file):
     raise ValueError("Can not parse ECD")
 
 def ecd_parser_2(ecd_file):
+    _require_pdfplumber()
     for i in range(2):
         try:
             pdf = pdfplumber.open(ecd_file)
