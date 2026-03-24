@@ -9,7 +9,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView 
 from rest_framework import status
 
-import pythoncom
+try:
+    import pythoncom
+except ImportError:
+    pythoncom = None
 import pandas as pd
 import json
 
@@ -60,6 +63,9 @@ def run_dxl(request):
         
         dxl_code = get_req_poc_linker(ref_module_name, link_module_name, target_module_name, ref_attr_poc, ref_attr_req, target_attr_poc, start_index, text_length, direction, activeness)
     try:
+        if pythoncom is None:
+            return Response({"detail": "DOORS automation is not available on this environment."}, status=400)
+
         pythoncom.CoInitialize()
         doors = get_doors_process()
         #doors = win32com.client.Dispatch("DOORS.Application")

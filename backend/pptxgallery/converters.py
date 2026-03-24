@@ -5,8 +5,13 @@ from pathlib import Path
 from PIL import Image
 from django.conf import settings
 from .models import Presentation, Slide
-import win32com.client
-import pythoncom
+
+try:
+    import win32com.client  # type: ignore
+    import pythoncom  # type: ignore
+except ImportError:
+    win32com = None
+    pythoncom = None
 
 # Gereksinimler:
 # - LibreOffice (soffice)
@@ -36,6 +41,9 @@ def convert_pptx_to_images(presentation: Presentation, dpi: int = 150):
 
 def convert_pptx_with_powerpoint(presentation: Presentation):
     """PowerPoint COM kullanarak PPTX'i slayt görsellerine dönüştürür"""
+    if win32com is None or pythoncom is None:
+        raise RuntimeError("PowerPoint COM conversion requires a Windows environment.")
+
     pptx_path = Path(presentation.file.path)
     slides_dir = Path(settings.MEDIA_ROOT) / "slides"
     thumbs_dir = slides_dir / "thumbs"
