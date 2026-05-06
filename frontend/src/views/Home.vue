@@ -150,33 +150,12 @@
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
-import { ref, onMounted, onUnmounted, reactive } from 'vue'
-import { useCompdocStore} from '@/stores/api'
-import { randomArray } from '@/utils/array'
-import { Pie, Bar, Line, Scatter } from 'vue-chartjs'
+import { ref, onMounted } from 'vue'
+import { useCompdocStore } from '@/stores/api'
+import { Pie, Line } from 'vue-chartjs'
 import 'chartjs-adapter-date-fns'
-import Outlabels from 'chartjs-plugin-piechart-outlabels'
-import annotationPlugin from 'chartjs-plugin-annotation'
 import { statusOptions, statusColors } from '@/stores/datatable'
 import { calculateBarChart, calculateLineChart, calculatePieChart, getLineChartOptions, getPieChartOptionsLabel } from '@/stores/chartStore'
-
-import {
-    Chart as ChartJS,
-    Title,
-    Tooltip,
-    Legend,
-    LineElement,
-    BarElement,
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    ArcElement,
-    TimeScale
-} from 'chart.js'
-import { ICompDoc } from '@/models/compdocs'
-import { DataTableColumns } from 'naive-ui'
-ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement, PointElement, LineElement, TimeScale, Outlabels, annotationPlugin)
 
 const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 const appTitle = import.meta.env.VITE_APP_TITLE
@@ -365,6 +344,21 @@ const barChartOptions = {
 
 let statusCounter = ref<Record<string, any>>({})
 
+function buildPieDataset(source: Record<string, number>) {
+    const dataset = [
+        (source['to_be_issued'] || 0) + (SHOW_DELAYED_COMPDOCS ? 0 : (source['delayed'] || 0)),
+        source['airworthiness_review'] || 0,
+        source['to_be_re-submitted'] || 0,
+        source['to_be_updated'] || 0,
+        source['authority_review'] || 0,
+        source['authority_approved'] || 0
+    ]
+
+    if (SHOW_DELAYED_COMPDOCS) dataset.push(source['delayed'] || 0)
+    return dataset
+}
+
+
 const rowHoverID = ref(null)
 const rowPropsAttr = (rowData: Record<string, any>, rowIndex: number) => {
     return {
@@ -374,13 +368,11 @@ const rowPropsAttr = (rowData: Record<string, any>, rowIndex: number) => {
         },
         onDblclick: () => {
             if (rowHoverID.value == rowIndex) {
-                pieChartData.value.datasets[0].data = [(statusCounter.value['to_be_issued'] || 0) + (SHOW_DELAYED_COMPDOCS ? 0 : (statusCounter.value['delayed'] || 0)), statusCounter.value['airworthiness_review'], statusCounter.value['to_be_re-submitted'], statusCounter.value['to_be_updated'], statusCounter.value['authority_review'], statusCounter.value['authority_approved']]
-                if (SHOW_DELAYED_COMPDOCS) pieChartData.value.datasets[0].data.push(statusCounter.value['delayed'])
+                pieChartData.value.datasets[0].data = buildPieDataset(statusCounter.value)
                 rowHoverID.value = null
             } else {
                 console.log(rowData)
-                pieChartData.value.datasets[0].data = [(rowData['to_be_issued'] || 0) + (SHOW_DELAYED_COMPDOCS ? 0 : (rowData['delayed'] || 0)), rowData['airworthiness_review'], rowData['to_be_re-submitted'], rowData['to_be_updated'], rowData['authority_review'], rowData['authority_approved']]
-                if (SHOW_DELAYED_COMPDOCS) pieChartData.value.datasets[0].data.push(rowData['delayed'])
+                pieChartData.value.datasets[0].data = buildPieDataset(rowData)
                 rowHoverID.value = rowIndex
             }
         },
@@ -400,11 +392,7 @@ function calculate(compdocs: ICompDoc[]) {
     statusCounter.value = calculatePieChart(compdocs)
     statusCounter.value['total'] = Object.values(statusCounter.value).reduce((a, b) => a + b, 0)
 
-    if (SHOW_DELAYED_COMPDOCS) {
-        pieChartData.value.datasets[0].data = [statusCounter.value['to_be_issued'], statusCounter.value['airworthiness_review'], statusCounter.value['to_be_re-submitted'], statusCounter.value['to_be_updated'], statusCounter.value['authority_review'], statusCounter.value['authority_approved'], statusCounter.value['delayed']]
-    } else {
-        pieChartData.value.datasets[0].data = [statusCounter.value['to_be_issued'] + statusCounter.value['delayed'], statusCounter.value['airworthiness_review'], statusCounter.value['to_be_re-submitted'], statusCounter.value['to_be_updated'], statusCounter.value['authority_review'], statusCounter.value['authority_approved']]
-    }
+    pieChartData.value.datasets[0].data = buildPieDataset(statusCounter.value)
 
     calculatedLineChart.value = calculateLineChart(compdocs)
     lineChartData.value.datasets[0].data = calculatedLineChart.value["today"]
