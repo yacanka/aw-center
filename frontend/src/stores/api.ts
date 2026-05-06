@@ -6,6 +6,7 @@ import { IJira } from "@/models/jira"
 import { IEcd } from "@/models/ecd"
 import { IDdf } from "@/models/ddf"
 import { IPerson, IPanel, IProject, IResponsible } from "@/models/orgs"
+import { IMsg } from "@/models/outlook"
 import { toTitleCase } from '@/utils/text'
 import { nullCheck } from '@/utils/general'
 import { getDaysDifference, parseDateFlex, getTodayEUFormat } from '@/utils/time'
