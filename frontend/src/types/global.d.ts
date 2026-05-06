@@ -2,6 +2,7 @@ import { useDccStore, useAuthStore, useDdfStore, useCompdocStore, useDocproofSto
 import { useUserStore } from '@/stores/user'
 
 declare global {
+
   interface Window {
     $message: import("naive-ui").MessageApi
     $dialog: import("naive-ui").DialogApi
