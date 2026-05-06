@@ -5,6 +5,48 @@ import { parse } from 'date-fns'
 import { useUserStore } from './user'
 
 
+import {
+    ArcElement,
+    BarElement,
+    CategoryScale,
+    Chart as ChartJS,
+    Legend,
+    LinearScale,
+    LineElement,
+    PointElement,
+    TimeScale,
+    Title,
+    Tooltip
+} from "chart.js"
+import annotationPlugin from "chartjs-plugin-annotation"
+import Outlabels from "@energiency/chartjs-plugin-piechart-outlabels"
+
+let isChartRegistered = false
+
+/**
+ * Registers Chart.js elements and plugins exactly once for the whole application.
+ */
+export function registerChartPlugins() {
+    if (isChartRegistered) return
+
+    ChartJS.register(
+        Title,
+        Tooltip,
+        Legend,
+        BarElement,
+        CategoryScale,
+        LinearScale,
+        ArcElement,
+        PointElement,
+        LineElement,
+        TimeScale,
+        annotationPlugin,
+        Outlabels
+    )
+
+    isChartRegistered = true
+}
+
 const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 
 export function calculateBarChart(compdocs) {
