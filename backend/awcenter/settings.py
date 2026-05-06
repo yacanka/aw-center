@@ -119,6 +119,7 @@ else:
 
 CORS_ALLOW_HEADERS = list(default_headers)
 CORS_ALLOW_METHODS = list(default_methods)
+CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 ROOT_URLCONF = 'awcenter.urls'
@@ -210,8 +211,7 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 
 REST_FRAMEWORK = {
      'DEFAULT_AUTHENTICATION_CLASSES': [
-         #'rest_framework_simplejwt.authentication.JWTAuthentication',
-         'rest_framework.authentication.TokenAuthentication',
+         'awcenter.authentication.CookieTokenAuthentication',
      ],
      'DEFAULT_PERMISSION_CLASSES': [
          'rest_framework.permissions.IsAuthenticated',

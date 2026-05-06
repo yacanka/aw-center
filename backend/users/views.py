@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Permission, update_last_login
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.authtoken.models import Token
@@ -19,6 +20,7 @@ from .serializers import (
 )
 
 User = get_user_model()
+AUTH_COOKIE_NAME = "auth_token"
 
 
 class UserView(APIView):
@@ -73,11 +75,20 @@ class CustomAuthToken(ObtainAuthToken):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
+        token, _ = Token.objects.get_or_create(user=user)
         update_last_login(None, user)
+        response = Response({"detail": "Login successful."}, status=status.HTTP_200_OK)
+        response.set_cookie(
+            AUTH_COOKIE_NAME,
+            token.key,
+            httponly=True,
+            samesite="Lax",
+            secure=not settings.DEBUG,
+            max_age=60 * 60 * 24 * 14,
+        )
         return response
 
 
@@ -89,7 +100,9 @@ class LogoutView(APIView):
             request.user.auth_token.delete()
         except Token.DoesNotExist:
             pass
-        return Response("Logout successful.", status=status.HTTP_200_OK)
+        response = Response("Logout successful.", status=status.HTTP_200_OK)
+        response.delete_cookie(AUTH_COOKIE_NAME)
+        return response
 
 
 class MeView(APIView):

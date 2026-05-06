@@ -90,8 +90,8 @@ const passwordConfirmRules: FormRules = {
 const authStore = useAuthStore()
 async function handleLogin() {
   if (!await validateForm(loginForm.value)) return
-  const token = await authStore.login(loginCredentials.value)
-  if (!token) return
+  const isLoggedIn = await authStore.login(loginCredentials.value)
+  if (!isLoggedIn) return
 
   await useUserStore().fetchCurrentUser()
   const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light"
