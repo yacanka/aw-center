@@ -4,7 +4,7 @@ import { IUser, IPermission } from "@/models/auth"
 import { handleRequest } from "@/composables/promise"
 import { setAuthToken } from "@/services/http"
 import { notifyError, notifySuccess } from "@/services/notify"
-import { removeKey, STORAGE_KEYS, writeString } from "@/services/storage"
+import { removeKey, STORAGE_KEYS } from "@/services/storage"
 
 const API_PATH = "auth"
 
@@ -32,15 +32,13 @@ export const useAuthStore = defineStore(
       },
       async login(credentials: any) {
         this.loading = true
-        let token = ""
+        let loggedIn = false
         await handleRequest<any>(
           axios.post(`${API_PATH}/token/`, credentials),
-          (data) => {
-            token = data.token
-            this.token = token
-            setAuthToken(token)
-            writeString(STORAGE_KEYS.token, token)
+          () => {
+            this.token = "cookie-auth"
             notifySuccess("Login successful")
+            loggedIn = true
           },
           (errorMsg) => {
             const description = errorMsg.includes(": ") ? errorMsg.split(": ")[1] : errorMsg
@@ -51,7 +49,7 @@ export const useAuthStore = defineStore(
             this.loading = false
           }
         )
-        return token
+        return loggedIn
       },
       async fetchUsers() {
         this.loading = true
