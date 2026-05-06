@@ -88,6 +88,8 @@ static/
 
 # AI Models
 models/
+!frontend/src/models/
+!frontend/src/models/*.ts
 
 # ========================
 # Vue3 (Frontend) Specific

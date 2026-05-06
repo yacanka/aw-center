@@ -71,6 +71,7 @@ import { ISubtaskItem, IUser } from '@/models/jira';
 import EcrUploadPopup from './EcrUploadPopup.vue';
 import SubtaskList from '../jira/SubtaskList.vue';
 import { toTitleCase } from '@/utils/text';
+import { IMsg, IPopup, TaskItem } from '@/models/outlook';
 
 interface IEcdCheckItem extends IEcd {
     approved?: boolean

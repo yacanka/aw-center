@@ -4,6 +4,7 @@ import { NUpload, NUploadDragger, NButton, NCard, NDataTable, useMessage, NSwitc
 import { useOutlookStore } from '@/stores/api'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
+import { IAttachment, IMsg } from '@/models/outlook'
 
 const router = useRouter()
 const store = useOutlookStore()
