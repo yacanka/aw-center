@@ -33,7 +33,7 @@ def start_exe(exe_path, params):
         print(f"'{exe_name}' started.")
     except Exception as e:
         print(f"Error while starting {exe_name}: {e}")
-        
+
 def get_or_run(com_name, executable, params, max_wait=15, sleep_interval=1):
     if GetActiveObject is None or Dispatch is None:
         raise RuntimeError("COM automation is only supported on Windows environments.")

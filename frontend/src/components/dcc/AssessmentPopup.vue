@@ -68,7 +68,7 @@ function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions
       title: 'Error',
       description: 'Error while reading ECR.',
       duration: 3000
-    })    
+    })
     window.$loadingBar.error()
   }).finally(()=>{
     showUploadModal.value = false;

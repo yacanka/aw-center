@@ -22,7 +22,7 @@
                         :processing="loadingBar.status == 'default' ? true : false">
                     </n-progress>
                 </n-grid-item>
-                
+
                 <n-grid-item span=6>
                     <subtask-list v-model:list="generator.list" />
                 </n-grid-item>

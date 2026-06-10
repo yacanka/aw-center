@@ -10,7 +10,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.views import APIView 
+from rest_framework.views import APIView
 from rest_framework import status
 
 from pypdf import PdfReader, PdfWriter
@@ -94,25 +94,25 @@ def split_pdf_zip(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def compare_pdf(request):    
+def compare_pdf(request):
     first_pdf = request.FILES["first"]
     second_pdf = request.FILES["second"]
-    
+
     if not first_pdf or not second_pdf:
         return Response("Pdf not found.", status=400)
-    
+
     try:
         result = comparator.compare(BytesIO(first_pdf.read()), BytesIO(second_pdf.read()))
         summary = result.summary
-        
+
         output = BytesIO()
         if output:
             generator = HTMLReportGenerator()
             generator.save_report(result, output)
-        
+
         resp = HttpResponse(output.getvalue(), content_type="text/html")
         return resp
-        
+
     except Exception as e:
         print(f"Error while comparing pdf: {str(e)}")
         return Response({"message": str(e)}, status=400)

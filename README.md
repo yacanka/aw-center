@@ -1,6 +1,6 @@
 # 🌐 AW Center – Automated Workflows & Compliance Center
 
-> **AW Center** is a centralized automation and compliance management platform designed to streamline engineering documentation, change management, and traceability processes across JIRA, DOORS, Excel, and Word environments.  
+> **AW Center** is a centralized automation and compliance management platform designed to streamline engineering documentation, change management, and traceability processes across JIRA, DOORS, Excel, and Word environments.
 > Built for certification readiness (TC/STC), it integrates with legacy systems to reduce manual effort, improve audit readiness, and accelerate project delivery.
 
 ---

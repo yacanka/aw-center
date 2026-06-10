@@ -7,7 +7,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.views import APIView 
+from rest_framework.views import APIView
 from rest_framework import status
 
 import pandas as pd
@@ -53,7 +53,7 @@ def get_excel_columns(request):
         excel_file = request.FILES["file"]
         df = pd.read_excel(excel_file)
         return Response(df.columns.tolist())
-    
+
     return Response("Something went wrong.", status=400)
 
 @api_view(["POST"])
@@ -178,7 +178,7 @@ def create_queue(request):
         data["parameters"] = request.data.get("parameters", None)
     else:
         data = request.data
-        
+
     new_uuid = str(uuid.uuid4())
     cache.set(new_uuid, data)
     return Response(new_uuid)
@@ -199,31 +199,31 @@ def excel_to_cover_pages_action(uuid):
             if len(missing_elements) > 0:
                 print(f"Missing column names exist: {missing_elements}")
                 raise ValueError(missing_elements)
-            
+
             yield f'data: {json.dumps({"status": "info", "content": "[]"})}\n\n'
-            
+
             df = df.dropna(subset=["Cover Page Number", "Cover Page Issue"], how="any")
             cover_page_numbers = df["Cover Page Number"]
-            
+
             if not cover_page_numbers.empty:
                 cover_page_number = cover_page_numbers.iloc[0]
                 print(cover_page_number)
             else:
                 yield f'data: {json.dumps({"status": "success", "content": "Cannot detect project type from cover page numbers."})}\n\n'
                 return
-            
+
             if "B30" in cover_page_number:
                 project_name = "F-16 Block-30 ÖZGÜR-2 Block-30 Özgür-2 Work Package"
             else:
                 project_name = "Unkown"
-            
+
             placeholders = [str(column).strip().lower().replace(' ', '_') for column in df.columns]
-            
+
             loader_percentage = 0
             yield f'data: {json.dumps({"status": "progress", "percentage": loader_percentage, "content": "Starting..."})}\n\n'
             cover_page_count = len(df)
             inc_size = int(100 / cover_page_count)
-            
+
             d = DocxTemplate("cover_page_template.docx")
             zip_buffer = BytesIO()
             with ZipFile(zip_buffer, mode="w", compression=ZIP_DEFLATED) as zf:
@@ -237,12 +237,12 @@ def excel_to_cover_pages_action(uuid):
                     d.save(cover_page_buf)
                     cover_page_buf.seek(0)
                     zf.writestr(cover_filename, cover_page_buf.read())
-                    
+
                     loader_percentage += inc_size
                     res_content = f"{row['cover_page_number']} - {row['disciplines']} - {row['technical_document_name']}"
                     yield f'data: {json.dumps({"status": "progress", "percentage": loader_percentage, "content": res_content})}\n\n'
                     sleep(0.1)
-                    
+
             encoded = b64encode(zip_buffer.getvalue()).decode()
             yield f'data: {json.dumps({"status": "success", "content": encoded})}\n\n'
         except ValueError as e:
@@ -252,5 +252,5 @@ def excel_to_cover_pages_action(uuid):
         except Exception as e:
             print(f"Error: {e}")
             yield f'data: {json.dumps({"status": "error", "content": f"Something went wrong: {e}"})}\n\n'
-    
+
     return Response("Something went wrong.", status=400)

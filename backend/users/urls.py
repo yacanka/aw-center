@@ -14,7 +14,7 @@ urlpatterns = [
     path('preferences/reset/', views.ResetPreferencesView.as_view(), name='reset-preferences'),
     path('preferences/extra/', views.ExtraSettingView.as_view(), name='extra-settings'),
     path('preferences/extra/<str:key>/', views.ExtraSettingView.as_view(), name='extra-setting-detail'),
-    
+
     path("password-reset/", views.PasswordResetRequestAPIView.as_view(), name="api_password_reset"),
     path("password-reset/confirm/", views.PasswordResetConfirmAPIView.as_view(), name="api_password_reset_confirm"),
 ]

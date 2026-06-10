@@ -12,11 +12,11 @@ CERTIFICATE_FILE = settings.CERTIFICATES_DIR / "JIRA_Chain.crt"
 
 def ISO_time_to_string(date_str):
     try:
-        dt = datetime.fromisoformat(date_str) 
+        dt = datetime.fromisoformat(date_str)
     except ValueError:
-        dt = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f') 
+        dt = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f')
     return f"{dt.day:02}.{dt.month:02}.{dt.year}"
-    
+
 
 def split_text_by_chracter(text, character):
     index = text.find(character)
@@ -35,7 +35,7 @@ def parseJiraError(e):
 
 class JiraConnector:
     def __init__(self, server_url: str, username = None, password = None, jira_session_id=None) -> None:
-        
+
         cert_path = CERTIFICATE_FILE if CERTIFICATE_FILE.exists() else False
         options = {"server": server_url, "verify": cert_path}
         try:
@@ -48,7 +48,7 @@ class JiraConnector:
             self.jira = None
             print(f"Error while connecting JIRA server: {parseJiraError(e)}")
             raise e
-        
+
     def check_issue_key(self):
         if self.issue_key is None:
             raise ValueError("Set a issue key in JIRAConnector")
@@ -99,11 +99,11 @@ class JiraConnector:
         }
 
         if assignee:
-            subtask_dict['assignee'] = {'name': assignee} 
+            subtask_dict['assignee'] = {'name': assignee}
 
         if priority:
-            subtask_dict['priority'] = {'name': priority} 
-        
+            subtask_dict['priority'] = {'name': priority}
+
         if due_date:
             if isinstance(due_date, int):
                 today = datetime.now()
@@ -119,7 +119,7 @@ class JiraConnector:
         except JIRAError as e:
             print(f"Error while creating issue: {parseJiraError(e)}")
             raise e
-        
+
     def update_issue(self: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         try:
             self.check_issue_key()
@@ -130,7 +130,7 @@ class JiraConnector:
         except JIRAError as e:
             print(f"Error while updating issue: {parseJiraError(e)}")
             raise e
-    
+
     def explore_issue_fields(self, none_filter=True):
         try:
             self.check_issue_key()
@@ -152,7 +152,7 @@ class JiraConnector:
     def get_open_subtask(self):
         try:
             self.check_issue_key()
-            
+
             issue = self.jira.issue(self.issue_key)
             subtask_list = []
             for subtask in issue.fields.subtasks:
