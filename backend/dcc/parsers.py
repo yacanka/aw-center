@@ -11,7 +11,7 @@ def _require_pdfplumber():
 def ecd_parser_0(ecd_file):
     _require_pdfplumber()
     pdf = pdfplumber.open(ecd_file)
-    page = pdf.pages[0] 
+    page = pdf.pages[0]
     raw_tables = page.extract_tables()
     table = [[x for x in row if x is not None] for row in raw_tables[0]]
 
@@ -87,7 +87,7 @@ def ecd_parser_1(ecd_file):
     for i in range(2):
         try:
             pdf = pdfplumber.open(ecd_file)
-            page = pdf.pages[i] 
+            page = pdf.pages[i]
             raw_tables = page.extract_tables()
             table = [[x for x in row if x is not None] for row in raw_tables[0]]
 
@@ -113,11 +113,11 @@ def ecd_parser_1(ecd_file):
             ecd["proposed_solution"] = table[16][1].replace("\n", " ")
             ecd["consequence"] = table[17][1].replace("\n", " ")
             ecd["impacted_groups"] = table[18][1].replace("\n", ", ")
-            
+
             return ecd
         except IndexError as e:
             continue
-    
+
     raise ValueError("Can not parse ECD")
 
 def ecd_parser_2(ecd_file):
@@ -125,7 +125,7 @@ def ecd_parser_2(ecd_file):
     for i in range(2):
         try:
             pdf = pdfplumber.open(ecd_file)
-            page = pdf.pages[i] 
+            page = pdf.pages[i]
             raw_tables = page.extract_tables()
             table = [[x for x in row if x is not None] for row in raw_tables[0]]
 
@@ -135,7 +135,7 @@ def ecd_parser_2(ecd_file):
             ecd["change_type"] = str(table[4][3]).replace("\n", " ")
             ecd["effectivity"] = table[9][1]
             ecd["ecd_title"] = str(table[2][0]).replace("\n", " ")
-            ecd["ecd_no"] = str(table[4][0]).replace("\n", " ").split(ecd["ecd_title"])[0][:-1] 
+            ecd["ecd_no"] = str(table[4][0]).replace("\n", " ").split(ecd["ecd_title"])[0][:-1]
             ecd["record_of_change"] = table[7][0]
             ecd["requestor"] = table[12][1]
             ecd["originator"] = table[14][1]
@@ -151,24 +151,24 @@ def ecd_parser_2(ecd_file):
             ecd["proposed_solution"] = table[17][1].replace("\n", " ")
             ecd["consequence"] = table[18][1].replace("\n", " ")
             ecd["impacted_groups"] = table[19][1].replace("\n", ", ")
-            
+
             return ecd
         except IndexError as e:
             continue
-    
+
     raise ValueError("Can not parse ECD")
-    
+
 def safe_ecd_parse(ecd):
     try:
         result = ecd_parser_1(ecd)
         return result
     except ValueError as e:
         pass
-    
+
     try:
         result = ecd_parser_2(ecd)
         return result
     except ValueError as e:
         pass
-    
+
     raise ValueError(f"No parser can parse.")

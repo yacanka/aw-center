@@ -7,7 +7,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.views import APIView 
+from rest_framework.views import APIView
 from rest_framework import status
 
 import pandas as pd
@@ -278,7 +278,7 @@ def compare(request):
     equal_ratio = parameters["equal_ratio"]
     weak_equal_ratio = parameters["weak_equal_ratio"]
     output_type = parameters["output_type"]
-    
+
     lines1 = read_docx_lines_with_index(file1)
     lines2 = read_docx_lines_with_index(file2)
 
@@ -341,7 +341,7 @@ def compare(request):
         res = HttpResponse(buffer.getvalue(), content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         res["Content-Disposition"] = 'attachment; filename="Comparison Result.docx"'
         return res
-        
+
 
     if output_type == "excel":
         # Excel
@@ -377,7 +377,7 @@ def write_excel_report_openpyxl(out_excel, excel_rows, summary_stats, table_rows
         "A_Len","B_Len","Similarity",
         "ListFlag","ListLevel_A","ListLevel_B","ListTag"
     ]
-    
+
     # Automatically create if no fields exist
     if excel_rows and not any(("ListFlag" in r) for r in excel_rows):
         for r in excel_rows:
@@ -537,7 +537,7 @@ def create_queue(request):
         data["parameters"] = request.data.get("parameters", None)
     else:
         data = request.data
-        
+
     new_uuid = str(uuid.uuid4())
     cache.set(new_uuid, data)
     return Response(new_uuid)
@@ -555,21 +555,21 @@ def translate_action(uuid):
             if not obj["file"]:
                 yield f'data: {json.dumps({"status": "error", "content": "File not found."})}\n\n'
                 return
-            
+
             if obj["parameters"]:
                 parameters = json.loads(obj["parameters"])
             else:
                 yield f'data: {json.dumps({"status": "error", "content": "Parameters not found."})}\n\n'
                 return
-            
+
             translate_type = parameters["translate_type"]
-            
+
             yield f'data: {json.dumps({"status": "progress", "percentage": 0, "content": f"Preparing to translate..."})}\n\n'
             translator = get_text_generator(translate_type)
             translated_docx = translator.translate_docx_req(BytesIO(obj["file"]["content"]))
-            
+
             filename = obj["file"]["name"]
-            
+
             for (status, item) in translated_docx:
                 if status == "progress":
                     index, total, ptype = item
@@ -578,7 +578,7 @@ def translate_action(uuid):
                 elif status == "result":
                     encoded = b64encode(item.getvalue()).decode()
                     yield f'data: {json.dumps({"status": "success", "content": encoded, "filename": f"[{translate_type.upper()}] {filename}"})}\n\n'
-                    
+
             return
         except ValueError as e:
             yield f'data: {json.dumps({"status": "error", "content": str(e)})}\n\n'
@@ -587,4 +587,4 @@ def translate_action(uuid):
             yield f'data: {json.dumps({"status": "error", "content": "Something went wrong."})}\n\n'
     else:
         yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
-        
+

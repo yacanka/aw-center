@@ -43,7 +43,7 @@ def login():
         print(f"General request error while connecting to Docproof: {e}")
     except Exception as e:
         print(f"Unexpected error while connecting to Docproof: {e}")
-        
+
 login()
 #for cookie in session.cookies:
 #    print(f"{cookie.name} = {cookie.value}")
@@ -62,7 +62,7 @@ def search(request):
         return Response({"detail": "Document number required."}, status=400)
 
     document_no = document_no.split("/")[0]
-    
+
 
     try:
         search_result_raw = session.get(f"{DOCPROOF_URL}/realtime-queries/dprf_search_proof_readin?inline=true&input_document_number={document_no}")
@@ -80,16 +80,16 @@ def search(request):
                 object_id = entry["content"]["properties"]["id"]
         if not object_id:
             return Response({"message": f"Can not find published document in EDMS: {document_no}"}, status=400)
-        
+
         doc_object_raw = session.get(f"{DOCPROOF_URL}/folders/dprf_proof_reading/{object_id}/objects?inline=true")
         doc_object = doc_object_raw.json()
-        
+
         issue_no = 0
         for entry in doc_object["entries"]:
             if (entry["content"]["type"] == "dprf_technical_document" or entry["content"]["type"] == "dprf_cdcp_document"):
                 issue_no = entry["content"]["properties"]["issue"]
                 break
-        
+
         return Response(issue_no, status=200)
     except requests.exceptions.HTTPError as e:
         print("Trying login DocProof again...")

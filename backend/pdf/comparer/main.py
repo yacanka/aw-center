@@ -23,26 +23,26 @@ def run_cli(file1: str, file2: str, output: str = None):
     """Komut satırı modunda çalıştır"""
     from text_comparator import PDFComparator, ComparisonOptions
     from report_generator import HTMLReportGenerator
-    
+
     print("🔍 PDF Karşılaştırıcı Pro - CLI Modu")
     print("=" * 50)
-    
+
     if not Path(file1).exists():
         print(f"❌ Dosya bulunamadı: {file1}")
         sys.exit(1)
     if not Path(file2).exists():
         print(f"❌ Dosya bulunamadı: {file2}")
         sys.exit(1)
-    
+
     print(f"📄 Dosya 1: {file1}")
     print(f"📄 Dosya 2: {file2}")
     print()
     print("⏳ Karşılaştırılıyor...")
-    
+
     try:
         comparator = PDFComparator()
         result = comparator.compare(file1, file2)
-        
+
         summary = result.summary
         print()
         print("📊 Sonuçlar:")
@@ -52,17 +52,17 @@ def run_cli(file1: str, file2: str, output: str = None):
         print(f"  Silinen:       -{summary['deletions']} satır")
         print(f"  Değişen:       ~{summary['modifications']} satır")
         print(f"  Toplam Sayfa:  {summary['total_pages_1']} / {summary['total_pages_2']}")
-        
+
         if output:
             print()
             print(f"📝 HTML rapor oluşturuluyor: {output}")
             generator = HTMLReportGenerator()
             generator.save_report(result, output)
             print("✅ Rapor oluşturuldu!")
-        
+
         print()
         print("✅ Karşılaştırma tamamlandı!")
-        
+
     except Exception as e:
         print(f"❌ Hata: {str(e)}")
         sys.exit(1)
@@ -73,13 +73,13 @@ def main():
     parser = argparse.ArgumentParser(
         description="PDF Karşılaştırıcı Pro - Gelişmiş PDF karşılaştırma aracı"
     )
-    
+
     parser.add_argument("--cli", action="store_true", help="Komut satırı modunda çalıştır")
     parser.add_argument("files", nargs="*", help="Karşılaştırılacak PDF dosyaları")
     parser.add_argument("-o", "--output", help="HTML rapor çıktı dosyası")
-    
+
     args = parser.parse_args()
-    
+
     if args.cli:
         if len(args.files) != 2:
             print("❌ CLI modunda 2 dosya belirtmelisiniz!")

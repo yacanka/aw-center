@@ -1,4 +1,4 @@
-import os 
+import os
 from cheroot import wsgi
 from cheroot.ssl.builtin import BuiltinSSLAdapter
 from django.core.wsgi import get_wsgi_application

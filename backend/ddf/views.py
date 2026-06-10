@@ -25,7 +25,7 @@ DDFObjView = view_set_obj_factory(DDF, DDFSerializer, [AllowAny])
 
 class UploadForm(forms.Form):
     file = forms.FileField()
-            
+
 @api_view(["POST"])
 def upload_ddf(request):
     form = UploadForm(request.POST, request.FILES)
@@ -42,7 +42,7 @@ def upload_ddf(request):
                 row_data = [cell.text.strip().replace("\n", " ") for cell in row.cells]
                 row_data = list(OrderedDict.fromkeys(row_data))
                 content.append(row_data)
-        
+
         ddf["project"] = content[0][1]
         ddf["doc_name"] = content[1][1]
         ddf["doc_no"] = content[2][1]
@@ -64,16 +64,7 @@ def ddf_assessment(request):
 
         authority_comments = [f"\n{i+1}) {comment[2]}\n" for i, comment in enumerate(ddf_data['comments'])]
 
-        prompt = f"""Use the configured external DDF assessment policy.
-        Değerlendirmeler, 4 farklı görüş kapsamında verilir:
-        1. Teknik Görüş: Format, veri yapılandırması, prosedür ve standartlar, teknik uyumluluk gibi teknik açıdan değerlendirmeyi kapsar.
-        2. Bilgi Görüşü: Dokümanın bilgi doğruluğu, kapsamlılığı, konuya uygunluğu ve eksiklik/yanlışlıkları odak noktasıdır. Alan uzmanlığı önemlidir.
-        3. Editöryel Görüş: Dil kullanımı, anlaşılırlık, düzen, stil kılavuzlarına uygunluk, genel yazım ve imla gibi editöryel açıdan değerlendirmeyi içerir.
-        4. Panel Ekleme/Çıkarma Görüşü: Projenin gereksinim temeline, panelin ekleneceğini ya da çıkarılacağını bildirir.
-
-        Sen DDF görüşlerini sınıflandırma uzmanısın. Sana verilen görüşlerin, 4 görüş tipinden hangisine uygun olduğunu söyleyeceksin. Her görüş için, yalnızca görüş tipini yaz. Her görüş tipini yazarken arasına virgül koy. Açıklama yapma. Yorum yapma. Sadece 4 görüş tipinden birini yaz.
-        Görüşler aşağıdaki şekilde numara numara eklenmiştir: 
-        {authority_comments}"""
+        prompt = f"""Use the configured external DDF assessment policy.{authority_comments}"""
 
         url = "http://172.27.160.138:5100/ask"
         data = {
@@ -105,11 +96,11 @@ def ddf_assessment(request):
                     text = line.decode("utf-8", errors="replace")
                     review_types = text.split(",")
                     review_types = [review_type.strip() for review_type in review_types]
-        
+
         print(review_types)
         result = []
         for i, review in enumerate(review_types):
-            result.append(f"[{review}] {ddf_data['comments'][i][2]}") 
+            result.append(f"[{review}] {ddf_data['comments'][i][2]}")
 
         DDF.objects.filter(id=ddf_data['id']).update(comment_types=review_types)
 

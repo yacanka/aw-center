@@ -6,7 +6,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.views import APIView 
+from rest_framework.views import APIView
 from rest_framework import status
 
 try:
@@ -60,7 +60,7 @@ def run_dxl(request):
         text_length = request.data["text_length"]
         direction = request.data["direction"]
         activeness = request.data["activeness"]
-        
+
         dxl_code = get_req_poc_linker(ref_module_name, link_module_name, target_module_name, ref_attr_poc, ref_attr_req, target_attr_poc, start_index, text_length, direction, activeness)
     try:
         if pythoncom is None:
@@ -70,10 +70,10 @@ def run_dxl(request):
         doors = get_doors_process()
         #doors = win32com.client.Dispatch("DOORS.Application")
         #doors = win32com.client.gencache.EnsureDispatch("DOORS.Application")
-        
+
         if doors:
             result = doors.runStr(dxl_code)
-        
+
         if os.path.exists(DXL_OUTPUT_PATH):
             with open(DXL_OUTPUT_PATH, "r") as file:
                 lines = file.read()
@@ -141,5 +141,5 @@ for (i = 0; i < {length}; i++){{
             return Response(dxl_script)
         except Exception as e:
             return Response(f"Error while creating script: {e}", status=400)
-    
+
     return Response("Not a valid form.")

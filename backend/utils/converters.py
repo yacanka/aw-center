@@ -5,7 +5,7 @@ def date_parser(date: str, toString=True):
         if toString:
             return str(date.date())
         return date
-    
+
     possible_formats = [
         "%d.%m.%Y",
         "%d/%m/%Y",
@@ -15,7 +15,7 @@ def date_parser(date: str, toString=True):
         "%d %B %Y",
         "%d %b %Y"
     ]
-    
+
     for fmt in possible_formats:
         try:
             date_obj = datetime.strptime(date, fmt)
@@ -25,6 +25,6 @@ def date_parser(date: str, toString=True):
                 return date_obj
         except ValueError:
             continue
-    
+
     print(f"Warning: Invalid date format -> {date}")
     return None
