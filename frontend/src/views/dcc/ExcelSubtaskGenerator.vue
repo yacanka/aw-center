@@ -69,7 +69,7 @@ import { useDoorsStore, useExcelStore } from '@/stores/api'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
 
 type ListItem = {
-  excel: string, 
+  excel: string,
   jira: string | null
 }
 

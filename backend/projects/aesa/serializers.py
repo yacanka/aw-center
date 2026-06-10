@@ -25,24 +25,24 @@ class HistorySerializer(HistorySerializerBase):
 
 class CompDocSerializer(CompDocSerializerBase):
     def create(self, validated_data):
-        
+
         cover_page_no = validated_data.get("cover_page_no")
         """cover_page_issue = validated_data.get("cover_page_issue")
         if pd.notna(cover_page_issue):
             validated_data["cover_page_issue"] = int(float(cover_page_issue))
-        
+
         tech_doc_no = validated_data.get("tech_doc_no")
         if pd.notna(tech_doc_no):
             tech_doc_numbers = [line.strip() for line in tech_doc_no.strip().splitlines() if line.strip()]
             validated_data["tech_doc_no"] = safe_get(tech_doc_numbers, 0)
             validated_data["tech_doc_no_2"] = safe_get(tech_doc_numbers, 1)
-        
+
         tech_doc_issue = validated_data.get("tech_doc_issue")
         if pd.notna(tech_doc_issue):
             tech_doc_issues = [int(float(line.strip())) for line in tech_doc_issue.strip().splitlines() if line.strip()]
             validated_data["tech_doc_issue"] = safe_get(tech_doc_issues, 0)
             validated_data["tech_doc_issue_2"] = safe_get(tech_doc_issues, 1)
-        
+
         delivered_tech_doc_issue = validated_data.get("delivered_tech_doc_issue")
         if pd.notna(delivered_tech_doc_issue):
             delivered_tech_doc_issues = [int(float(line.strip())) for line in delivered_tech_doc_issue.strip().splitlines() if line.strip()]

@@ -9,7 +9,7 @@ def history_serializer_factory(model_class):
         class Meta:
             model = model_class.history.model
             fields = ['history_id', 'history_date', 'history_type', 'history_user']
-    
+
     return DynamicHistorySerializer
 
 def serializer_factory(model_class):
@@ -18,5 +18,5 @@ def serializer_factory(model_class):
         class Meta:
             model = model_class
             fields = '__all__'
-    
+
     return DynamicSerializer

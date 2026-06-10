@@ -308,7 +308,7 @@ async function createJiraTaskProgress() {
             item.status = "error"
             return
         }
-        
+
         item.events.SuccessEvent()
     } catch (e) {
         item.events.ErrorEvent()

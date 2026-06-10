@@ -25,7 +25,7 @@
       </n-tab-pane>
     </n-tabs>
 
-    </n-flex> 
+    </n-flex>
 </template>
 <script setup>
 import { ref, onMounted } from 'vue';

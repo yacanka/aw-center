@@ -25,9 +25,9 @@ class HistorySerializer(HistorySerializerBase):
 
 class CompDocSerializer(CompDocSerializerBase):
     def create(self, validated_data):
-        
+
         cover_page_no = validated_data.get("cover_page_no")
-     
+
         #instance = CompDoc.objects.create(**validated_data)
         instance, created = CompDoc.objects.update_or_create(
             cover_page_no=cover_page_no,

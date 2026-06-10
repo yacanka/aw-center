@@ -40,7 +40,7 @@ class CompDocBase(models.Model):
         ]
     )
     name = models.CharField(max_length=256)
-    
+
     cover_page_no = models.CharField(unique=True, default=uuid.uuid4, max_length=32)
     cover_page_issue = models.CharField(null=True, blank=True)
     tech_doc_no = models.CharField(max_length=64, null=True, blank=True)
@@ -95,7 +95,7 @@ class Titles(models.TextChoices):
 class ResponsibleBase(models.Model):
     class Meta:
         abstract = True
-    
+
     person_id = models.CharField(max_length=6)
     name = models.CharField()
     email = models.EmailField()

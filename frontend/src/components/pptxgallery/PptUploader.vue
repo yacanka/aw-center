@@ -14,7 +14,7 @@ async function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestO
     const form = new FormData()
     form.append('title', title.value || file.name.replace(/\.pptx?$/i, ''))
     form.append('file', file.file)
-    
+
     try {
         const data = await store.uploadPresentation(form)
         onFinish()

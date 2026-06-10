@@ -47,7 +47,7 @@ async function handleUploadReq({ file }: UploadCustomRequestOptions) {
 
   const formData = new FormData()
   formData.append('file', file.file)
-  
+
   window.$loadingBar.start()
   try {
     const res = await store.uploadPeople(formData)
