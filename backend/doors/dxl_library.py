@@ -46,9 +46,9 @@ Module refModule
 
 if (__activeness__ && "__direction__" == "ref2tar"){
 	refModule = edit(refModuleName, false, true, true)
- 	if (!isEdit refModule){
+	if (!isEdit refModule){
 		output << "The module cannot be opened in edit mode: " refModuleName "\n"
-  		halt
+		halt
     }
 }else{
 	refModule = read(refModuleName, false, true)
@@ -64,9 +64,9 @@ Module targetModule
 
 if (__activeness__ && "__direction__" == "tar2ref"){
 	targetModule = edit(targetModuleName, false, true, true)
- 	if (!isEdit targetModule){
+	if (!isEdit targetModule){
 		output << "The module cannot be opened in edit mode: " targetModuleName "\n"
-  		halt
+		halt
     }
 }else{
 	targetModule = read(targetModuleName, false, true)
@@ -140,7 +140,7 @@ for skipElement in root do {
 				if ("__direction__" == "ref2tar"){
 					objElement->linkModuleName->o
 				}
-    			else if ("__direction__" == "tar2ref"){
+			else if ("__direction__" == "tar2ref"){
 					o->linkModuleName->objElement
 				}
 			}
@@ -167,5 +167,5 @@ close(targetModule)
     req_poc_linker = req_poc_linker.replace("__text_length__", text_length)
     req_poc_linker = req_poc_linker.replace("__direction__", direction)
     req_poc_linker = req_poc_linker.replace("__activeness__", activeness)
-    
+
     return req_poc_linker

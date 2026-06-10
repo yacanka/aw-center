@@ -35,7 +35,7 @@ import MarkdownIt from "markdown-it";
 const store = useReleaseNotesStore();
 
 const md = new MarkdownIt({
-    html: false, 
+    html: false,
     linkify: true,
     breaks: true,
 });

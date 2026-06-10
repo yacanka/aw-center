@@ -14,7 +14,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'slug': {'read_only': True}
         }
-    
+
     def create(self, validated_data):
         name = validated_data.get("name", "")
         validated_data["slug"] = slugify(name)
@@ -24,7 +24,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         if "name" in validated_data:
             name = validated_data.get("name", "")
             validated_data["slug"] = slugify(name)
-        
+
         return super().update(instance, validated_data)
 
 class PanelSerializer(serializers.ModelSerializer):
@@ -41,7 +41,7 @@ class PanelSerializer(serializers.ModelSerializer):
                 message="This ATA chapter already exists."
             )
         ]
-    
+
     def create(self, validated_data):
         name = validated_data.get("name", "")
         validated_data["slug"] = slugify(name)
@@ -51,7 +51,7 @@ class PanelSerializer(serializers.ModelSerializer):
         if "name" in validated_data:
             name = validated_data.get("name", "")
             validated_data["slug"] = slugify(name)
-        
+
         return super().update(instance, validated_data)
 
 class ResponsibleSerializer(serializers.ModelSerializer):

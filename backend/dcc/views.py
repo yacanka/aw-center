@@ -1,5 +1,5 @@
 from django.http import JsonResponse, StreamingHttpResponse
-from django.shortcuts import get_object_or_404 
+from django.shortcuts import get_object_or_404
 from django.core.cache import cache
 from django.conf import settings
 
@@ -7,7 +7,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.views import APIView 
+from rest_framework.views import APIView
 from rest_framework import status
 
 from .serializers import JIRA_DCC_Serializer
@@ -43,7 +43,7 @@ from bs4 import BeautifulSoup
 from awcenter.enums import Projects
 
 TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
-JIRA_URL = settings.JIRA_BTB_URL    
+JIRA_URL = settings.JIRA_BTB_URL
 
 def check_filename(path, filename):
     for name in os.listdir(path):
@@ -57,7 +57,7 @@ def find_keyword_list2d(data, keyword):
     for row_index, row in enumerate(data):
         for col_index, item in enumerate(row):
             if keyword == item:
-                return (row_index, col_index)  
+                return (row_index, col_index)
     return None
 
 def check_panel_text(metin):
@@ -66,7 +66,7 @@ def check_panel_text(metin):
 
 def extract_text_from_text(text, search_text1="", search_text2=""):
     if search_text1 == "":
-        end_point = text.find(search_text2) 
+        end_point = text.find(search_text2)
         result = text[:end_point]
     elif search_text2 == "":
         end_point = len(text)
@@ -88,35 +88,35 @@ def make_surname_upper(fullname):
 def parse_labels(text: str):
     if not text:
         return []
-    
+
     labels = [l.strip() for l in text.split(";") if l.strip()]
-    
+
     labels = [
         l.lower().replace(" ", "_")
         for l in labels
     ]
-    
+
     return labels
 
 def parse_multiselect(text: str):
     if not text:
         return []
-    
+
     items = []
     seen = set()
-    
+
     for part in text.split(";"):
         value = part.strip()
         if not value:
             continue
-        
+
         key = value.lower()
         if key in seen:
             continue
         seen.add(key)
-        
+
         items.append({"value": value})
-        
+
     return items
 
 def multiselect_to_text(values) -> str:
@@ -167,7 +167,7 @@ def classify_dcc(classification_list):
         if priority:
             if dominant is None or priority < priority_map[dominant[0]]:
                 dominant = classification
-    
+
     if dominant:
         return dominant[0], dominant[1]
     return None, None
@@ -254,8 +254,8 @@ def get_issue(request):
             _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=data["JSESSIONID"])
         else:
             return Response({"message": "JSESSIONID not found in request."}, status=400)
-                
-        
+
+
         _jira.set_issue(data["issue"])
         issue = _jira.get_issue()
 
@@ -264,7 +264,7 @@ def get_issue(request):
             issue.raw["dcc_unsigned_path"] = check_filename(data["dcc_path"], f"{clear_name}.docx")
             issue.raw["dcc_signed_path"] =  check_filename(data["dcc_path"], f"{clear_name}.pdf")
             issue.raw["ecd_path"] = check_filename(data["dcc_path"], issue.fields.customfield_45000)
-        
+
         return Response(issue.raw, status=200)
     except json.JSONDecodeError as e:
         return Response(f"Error while loads json: {e}", status=400)
@@ -277,20 +277,20 @@ def create_issue(request):
     try:
         data = request.data
         session_id = data.get("JSESSIONID", None)
-        
+
         if session_id is None:
             return Response({"message": "No session ID found."}, status=400)
-        
+
         _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=session_id)
-        
+
         if _jira is None:
             return Response({"message": "Client error while connecting."}, status=400)
-        
+
         try:
             project = Projects.from_jira_component(data.get("project"))
         except ValueError as e:
             return Response({"message": "Unsupported project."})
-        
+
         issue_fields = {
             "project": "CHN",
             'summary': data["ecd_title"],
@@ -317,7 +317,7 @@ def create_issue(request):
         if serializer.is_valid():
             serializer.save(created_by=request.user)
             return Response(serializer.data, status=201)
-        
+
         return Response(serializer.errors, status=400)
     except json.JSONDecodeError as e:
         return Response({"message": f"Error while loads json: {e}"}, status=400)
@@ -353,7 +353,7 @@ def upload_ecd(request):
             return Response({"message": f"Something went wrong: {e}"}, 400)
 
     return Response({"message": "Can not parse ECR."}, status=400)
-        
+
 
 @api_view(["POST"])
 def ecd_assessment(request):
@@ -364,8 +364,8 @@ def ecd_assessment(request):
         Konuyu 9 farklı panel (disiplin) için ayrı ayrı özel olarak değerlendirmeni istiyorum.
         Paneller isimleri: Structural Panel Assessment, Software Panel Assessment, Systems Engineering Assessment, Avionics & Electrical & E3 Panel Assessment, Flight Panel Assessment, Mission Systems Assessment, Safety Panel Assessment, Human Factors Panel Assessment, ICA (Instructions for Continued Airworthiness) Panel Assessment
         Bu paneller kapsamında ayrı ayrı değerlendirme yaparak part21 standartına göre sınıflandırma yapacaksın. Sınıflandırma türleri: "Major", "Minor additional work", "Minor no effect" olabilir.
-        Yanıt formatın her zaman şu şekilde olacak: <Sıra nuamarası>: <Panel Adı>: <Panel Sınıflandırması> - <Açıklama> 
-        Değerlendireceğin ECD bilgileri aşağıdadır. Türkçe dilinde yanıt ver. Sadece değerlendirmeni yaz, yalın ve sade ol. Ekstra cümle yazma ve emoji kullanma. 
+        Yanıt formatın her zaman şu şekilde olacak: <Sıra nuamarası>: <Panel Adı>: <Panel Sınıflandırması> - <Açıklama>
+        Değerlendireceğin ECD bilgileri aşağıdadır. Türkçe dilinde yanıt ver. Sadece değerlendirmeni yaz, yalın ve sade ol. Ekstra cümle yazma ve emoji kullanma.
         ECD adi: {data.get('ecd_title', 'Unknown')}
         ECD Initiator: {data.get('ecd_initiator', 'Unknown')}
         ATA / IDA: {data.get('ata', 'Unknown')}
@@ -418,12 +418,12 @@ def ecd_assessment(request):
 def send_mail(request):
     try:
         data = request.data
-        
+
         if data["JSESSIONID"]:
             _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=data["JSESSIONID"])
         else:
             return Response({"message": "JSESSIONID not found in request."}, status=400)
-        
+
         _jira.set_issue(data["issue"])
         ccb_no = str(data["ccb_no"])
         due_date = data["due_date"]
@@ -444,7 +444,7 @@ def send_mail(request):
         cc_list = ""
         raw_dcc_path = ""
         html_file_path = ""
-            
+
         mail_placeholder = {
             "{{ECD_NAME}}": issue_f.summary,
             "{{ECD_NO}}": f"{issue_f.customfield_45000} / {issue_f.customfield_45001}",
@@ -454,7 +454,7 @@ def send_mail(request):
             "{{CCB_NO}}": ccb_no,
             "{{DUE_DATE}}": due_date,
         }
-        
+
         html_file_path = TEMPLATE_DIR / project.mail_jira_template_name
 
         if project == Projects.HYS:
@@ -491,13 +491,13 @@ def send_mail(request):
 def add_new_dcc(request):
     try:
         data = request.data
-        
+
         if not "JSESSIONID" in data:
             return Response({"message": "JSESSIONID not found in request."}, status=400)
-        
+
         _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=data["JSESSIONID"])
         _jira.set_issue(data["url"])
-        
+
         user_dcc_list = request.user.dcc.values_list("issue", flat=True)
         print(user_dcc_list, _jira.get_issue_key())
         if _jira.get_issue_key() in user_dcc_list:
@@ -530,12 +530,12 @@ def add_attachment(request):
     if form.is_valid():
         try:
             data = request.data
-            
+
             file = data.get("file", None)
-            
+
             if not file:
                 return Response({"message": "File not found."}, status=400)
-                
+
             _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=data["JSESSIONID"])
             _jira.set_issue(data["issue_key"])
             _jira.add_attachment(file, filename=file.name)
@@ -545,7 +545,7 @@ def add_attachment(request):
             return Response({"message": f"Jira Error: {e.response.text}"}, status=400)
         except Exception as e:
             return Response({"message": f"Something went wrong while adding attachment: {e}"}, status=400)
-        
+
     return Response({"message": "Form is not valid"}, status=400)
 
 def create_subtask_action(uuid):
@@ -570,7 +570,7 @@ def create_subtask_action(uuid):
             if issue.fields.issuetype.subtask:
                 yield f'data: {json.dumps({"status": "error", "content": "You can not add subtask to subtask."})}\n\n'
                 return
-            
+
             subtasks = obj.get("list", [])
             if subtasks:
                 percentage = 0
@@ -591,7 +591,7 @@ def create_subtask_action(uuid):
             yield f'data: {json.dumps({"status": "error", "content": "Something went wrong."})}\n\n'
     else:
         yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
-        
+
 
 
 def create_subtask_stream(request, uuid):
@@ -616,7 +616,7 @@ def create_subtask_excel_action(uuid):
             parameters = json.loads(obj["parameters"])
             if parameters["JSESSIONID"]:
                 _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=parameters["JSESSIONID"])
-                
+
                 current_user = _jira.myself()
                 if current_user:
                     yield f'data: {json.dumps({"status": "info", "content": current_user})}\n\n'
@@ -633,46 +633,46 @@ def create_subtask_excel_action(uuid):
 
             df = pd.read_excel(BytesIO(obj["file"]))
             df = df.where(pd.notnull(df), None)
-            
+
             _jira.set_issue(parameters["url"])
             issue = _jira.get_issue()
             if issue.fields.issuetype.subtask:
                 yield f'data: {json.dumps({"status": "error", "content": "You can not add subtask to subtask."})}\n\n'
-                
+
             step_size = int(100/len(df))
             match_list = parameters["list"]
 
             summary_index = find_index_by_key(match_list, "jira", "summary")
             description_index = find_index_by_key(match_list, "jira", "description")
-            
+
             if summary_index == -1 or description_index == -1:
                 yield f'data: {json.dumps({"status": "error", "content": "Summary and description are required."})}\n\n'
                 return
-            
+
             summary_col = match_list[summary_index]["excel"]
             description_col = match_list[description_index]["excel"]
-            
+
             assignee_index = find_index_by_key(match_list, "jira", "assignee")
             if assignee_index == -1:
                 assignee_col = None
             else:
                 assignee_col = match_list[assignee_index]["excel"]
-            
+
             duedate_index = find_index_by_key(match_list, "jira", "duedate")
             if duedate_index == -1:
                 duedate_col = None
             else:
                 duedate_col = match_list[duedate_index]["excel"]
-            
+
             for index, row in df.iterrows():
                 summary = str(row[summary_col])
                 description = str(row[description_col])
-                
+
                 if assignee_col and row[assignee_col]:
                     assignee = str(row[assignee_col])
                 else:
                     assignee = None
-                
+
                 if duedate_col and row[duedate_col]:
                     duedate = date_parser(str(row[duedate_col]))
                 else:
@@ -732,7 +732,7 @@ def create_queue(request):
         data["parameters"] = request.data.get("parameters", None)
     else:
         data = request.data
-        
+
     new_uuid = str(uuid.uuid4())
     cache.set(new_uuid, data)
     return Response(new_uuid)
@@ -743,7 +743,7 @@ def create_dcc_action(uuid):
         try:
             if obj["JSESSIONID"]:
                 _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=obj["JSESSIONID"])
-                
+
                 current_user = _jira.myself()
                 if current_user:
                     yield f'data: {json.dumps({"status": "info", "content": current_user})}\n\n'
@@ -753,7 +753,7 @@ def create_dcc_action(uuid):
             else:
                 yield f'data: {json.dumps({"status": "error", "content": "JSESSIONID not found in request."})}\n\n'
                 return
-            
+
             _jira.set_issue(obj["url"])
 
             loader_percentage = 0
@@ -775,11 +775,11 @@ def create_dcc_action(uuid):
                     project = Projects.from_jira_component(c.name)
                 except ValueError as e:
                     continue
-            
+
             if project is None:
                 yield f'data: {json.dumps({"status": "error", "type": "text", "content": "Unsupported project."})}\n\n'
                 return
-            
+
             dcc_placeholder = {}
 
             loader_percentage += 20
@@ -821,13 +821,13 @@ def create_dcc_action(uuid):
 
                 if sf.customfield_45008:
                     dcc_placeholder[f"Design_Change_Assessment_{index+1}"] = sf.customfield_45008
-                
+
                 splitText = sf.summary.split("Panel")
                 if len(splitText) == 2:
                     panel_name = splitText[0].strip()
                 else:
                     panel_name = "this"
-                    
+
                 if project.dcc_label == "GJ":
                     if panel_name == "Flight" and clean_as_name != "Utku İnanç Pehlivan":
                         dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"Utku İnanç PEHLİVAN, {dcc_placeholder[f'Panel_AS_Name_{index+1}']}"
@@ -836,7 +836,7 @@ def create_dcc_action(uuid):
                     elif panel_name == "Electrical Systems/E3" and clean_as_name != "Merve Helvacı":
                         dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"Merve HELVACI, {dcc_placeholder[f'Panel_AS_Name_{index+1}']}"
 
-                
+
                 if sf.customfield_45004:
                     classification_list.append((sf.customfield_45004.value, sf.assignee))
                 else:
@@ -846,7 +846,7 @@ def create_dcc_action(uuid):
                 if issue_f.components[0].name == "Gökbey Jandarma" and comments:
                     soup = BeautifulSoup(comments[0].body, 'html.parser')
 
-                    extracted_text = soup.get_text(separator='\n', strip=True).replace('\n', ' ')                
+                    extracted_text = soup.get_text(separator='\n', strip=True).replace('\n', ' ')
                     certification_change_classification = extract_text_from_text(extracted_text, "(According to GM 21.A.91): ", " Affected Requirements")
                     affected_requirements = extract_text_from_text(extracted_text, "Compliance Documents: ", " Further Compliance Study for Design Change:")
                     further_compliance_study = extract_text_from_text(extracted_text, " Further Compliance Study for Design Change: ", " Design Change Assessment:")
@@ -865,13 +865,13 @@ def create_dcc_action(uuid):
             classified_type, responsible_as = classify_dcc(classification_list)
             if classified_type and not "Design_Change_Classification" in dcc_placeholder :
                 dcc_placeholder["Design_Change_Classification"] = classified_type
-            
+
             if sf.customfield_45005 is not None:
                 dcc_placeholder["Responsible_AS"] = sf.customfield_45005
             elif responsible_as:
                 dcc_placeholder["Responsible_AS"] = make_surname_upper(split_text_by_chracter(responsible_as.displayName, "("))
 
-            
+
             d = DocxTemplate(TEMPLATE_DIR / project.dcc_template_name)
 
             loader_percentage = 80

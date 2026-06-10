@@ -6,7 +6,6 @@ class CompDoc(CompDocBase):
 
 class Panel(PanelBase):
     pass
-    
+
 class Responsible(ResponsibleBase):
     panel = models.ForeignKey(Panel, on_delete=models.CASCADE, related_name="responsibles", null=True, blank=True)
-    

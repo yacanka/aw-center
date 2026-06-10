@@ -9,7 +9,7 @@ class UserPreferencesInline(admin.StackedInline):
     can_delete = False
     verbose_name = 'Preferences'
     verbose_name_plural = 'Preferences'
-    
+
     fieldsets = (
         ('Appearance', {
             'fields': ('theme', 'language', 'timezone'),
@@ -52,14 +52,14 @@ class CustomUserAdmin(UserAdmin):
         'get_language'
     )
     list_filter = UserAdmin.list_filter + ('preferences__theme', 'preferences__language')
-    
+
     def get_theme(self, obj):
         if hasattr(obj, 'preferences'):
             return obj.preferences.get_theme_display()
         return '-'
     get_theme.short_description = 'Theme'
     get_theme.admin_order_field = 'preferences__theme'
-    
+
     def get_language(self, obj):
         if hasattr(obj, 'preferences'):
             return obj.preferences.get_language_display()

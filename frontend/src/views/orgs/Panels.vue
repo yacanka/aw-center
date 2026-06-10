@@ -107,7 +107,7 @@ const columns = [
             }
           },
           { default: () => null }
-        ) 
+        )
         ]
       })
     }
