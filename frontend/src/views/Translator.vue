@@ -46,6 +46,7 @@ import { useExcelStore } from '@/stores/api'
 import { popupStore } from '@/stores/popupStore';
 import { Document24Regular } from '@vicons/fluent';
 import { toTitleCase } from '@/utils/text';
+import { formatApiError } from '@/services/apiError'
 
 const store = useExcelStore()
 const uploadForm = ref(); // UploadForm'a erişim için
@@ -141,7 +142,7 @@ function translate() {
     console.error(err)
     window.$notification.error({
       title: 'Error',
-      description: `Error while uploading file: ${err.response.data.message}`,
+      description: `Error while uploading file: ${formatApiError(err)}`,
     })
   }).finally(() => {
 

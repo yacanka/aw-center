@@ -5,6 +5,9 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL
 axios.defaults.baseURL = API_BASE_URL
 axios.defaults.withCredentials = true
 
+/**
+ * Sets or clears the shared Axios token header for authenticated API calls.
+ */
 export function setAuthToken(token: string | null) {
   if (token) {
     axios.defaults.headers.common["Authorization"] = `Token ${token}`
@@ -14,4 +17,7 @@ export function setAuthToken(token: string | null) {
   delete axios.defaults.headers.common["Authorization"]
 }
 
+/**
+ * Reserved bootstrap hook for future HTTP authentication initialization.
+ */
 export function bootstrapHttpAuth() {}

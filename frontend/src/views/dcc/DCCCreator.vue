@@ -28,6 +28,7 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { useRoute } from 'vue-router'
+import { formatApiError } from '@/services/apiError'
 
 const route = useRoute()
 const generator = ref({
@@ -111,7 +112,7 @@ function createDcc() {
         console.error(err)
         window.$notification.error({
             title: 'Error',
-            description: `Error while uploading file: ${err.response.data.message}`,
+            description: `Error while uploading file: ${formatApiError(err)}`,
         })
     }).finally(() => {
         console.log("END")
