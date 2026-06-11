@@ -61,7 +61,7 @@ This file provides project-specific instructions for AI agents and maintainers w
 
 ### Backend
 
-- Python with Django 5.2 settings header.
+- Python 3.14-compatible backend dependency set with Django 6.0 declared in `requirements.txt`.
 - Django REST Framework.
 - DRF token authentication.
 - SQLite.
@@ -71,7 +71,7 @@ This file provides project-specific instructions for AI agents and maintainers w
 - django-environ.
 - Cheroot HTTPS serving script.
 - File/data processing imports found in backend code include Pandas, NumPy, openpyxl, python-docx/docxtpl/docx2txt, PyPDF2/pypdf/pdfplumber, BeautifulSoup, Pillow, requests, JIRA, and Office/Windows automation libraries.
-- Root `requirements.txt` is committed for backend Python dependencies. There is no `pyproject.toml`, `Pipfile`, or lock file committed for backend Python dependencies.
+- Root `requirements.txt` is committed for backend Python dependencies and targets Python 3.14 compatibility. There is no `pyproject.toml`, `Pipfile`, or lock file committed for backend Python dependencies.
 
 ### Frontend
 
@@ -347,7 +347,7 @@ Used via `import.meta.env` in frontend code:
 ## Common Pitfalls
 
 - Backend commands can fail immediately if required `.env` variables are missing, even for checks/tests. `python scripts/starter.py install` creates a local ignored development `.env` when absent.
-- Backend dependencies are listed in root `requirements.txt`; update it when backend imports/settings require new packages.
+- Backend dependencies are listed in root `requirements.txt`; update it when backend imports/settings require new packages, keeping the Python 3.14-compatible dependency bounds current.
 - `frontend/package.json` defines `deploy` and `start`, but the referenced `scripts/deploy.sh` and `server.js` are not present in the current repository tree.
 - Frontend build requires a Vite entry file such as `frontend/index.html`; that file is not present in the current repository tree, so `npm run build` fails until the entry file is restored or Vite is reconfigured.
 - Frontend build post-processing assumes Django template/static target directories exist.
@@ -355,6 +355,47 @@ Used via `import.meta.env` in frontend code:
 - SQLite database files are ignored and should not be used as source-of-truth fixtures unless a committed fixture strategy is added.
 - `run_cheroot.py` uses relative certificate filenames, so its working directory matters.
 - The repository contains many project-specific apps with similar structure. Make changes in the exact project app requested; do not assume all projects should change together.
+
+## User-Provided Custom Instructions
+
+### Agent Identity
+
+- Act as a 25+ years experienced Senior Software Architect.
+- Apply Clean Code, Design Patterns, and SOLID expertise.
+- Use a security-first approach.
+- Stay performance-aware in development decisions.
+
+### Working Principles
+
+1. Understand first, then write.
+2. Explain the reason for every change.
+3. State trade-offs.
+4. Suggest alternative approaches where useful.
+5. Never compromise security.
+6. Produce production-ready code.
+7. Do not deliver code without tests or documented checks.
+
+### Code Writing Rules
+
+- Maximum function length: 20 lines.
+- Maximum file length: 200 lines.
+- Maximum cyclomatic complexity: 10.
+- Maximum nesting depth: 3.
+- Document every public function.
+- Use meaningful names with full words.
+- Write code and identifiers in English.
+
+### Response Format
+
+For each task, structure responses with these sections when applicable:
+
+1. Current state analysis.
+2. Prioritized to-do list.
+3. Code changes, including complete file contents when requested or appropriate.
+4. Test files.
+5. Change explanation.
+6. Points requiring attention.
+7. Suggested next steps.
 
 ## Agent Checklist
 
