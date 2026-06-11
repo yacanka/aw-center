@@ -52,6 +52,7 @@ import axios from 'axios'
 import { useRoute } from 'vue-router'
 import { useDoorsStore, useExcelStore } from '@/stores/api'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
+import { formatApiError } from '@/services/apiError'
 
 type ListItem = {
   excel: string,
@@ -232,7 +233,7 @@ function handleUploadReq() {
     console.error(err)
     window.$notification.error({
       title: 'Error',
-      description: `Error while uploading file: ${err.response.data.message}`,
+      description: `Error while uploading file: ${formatApiError(err)}`,
     })
   }).finally(() => {
     console.log("END")

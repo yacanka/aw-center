@@ -98,6 +98,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'awcenter.api_errors.ApiErrorContractMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -215,7 +216,8 @@ REST_FRAMEWORK = {
      ],
      'DEFAULT_PERMISSION_CLASSES': [
          'rest_framework.permissions.IsAuthenticated',
-     ]
+     ],
+     'EXCEPTION_HANDLER': 'awcenter.api_errors.api_exception_handler',
 }
 
 CACHES = {

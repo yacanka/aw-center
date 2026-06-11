@@ -47,6 +47,7 @@ import { useExcelStore } from '@/stores/api'
 import { popupStore } from '@/stores/popupStore';
 import { Document24Regular, ImageAltText16Filled } from '@vicons/fluent';
 import { toTitleCase } from '@/utils/text';
+import { formatApiError } from '@/services/apiError'
 
 type CheckItem = {
   title: string
@@ -142,7 +143,7 @@ function compareWords() {
     loadingBar.value.status = "error"
     window.$notification.error({
       title: 'Error',
-      description: `Error while uploading file: ${err.response.data.message}`,
+      description: `Error while uploading file: ${formatApiError(err)}`,
     })
   }).finally(() => {
 
