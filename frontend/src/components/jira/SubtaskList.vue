@@ -117,7 +117,8 @@ function handleTabUpdate(name: string | number) {
 }
 
 function createListItem(index: number) {
-    subtaskLists.value[activeListTab.value].list.push({} as ISubtaskItem)
+    //subtaskLists.value[activeListTab.value].list.push({} as ISubtaskItem)
+    subtaskLists.value[activeListTab.value].list.splice(index, 0, {} as ISubtaskItem)
 
     activateSave()
 }

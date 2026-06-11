@@ -233,9 +233,10 @@ const columns: any[] = [
 
 const store = useDccStore()
 const orgstore = useOrgsStore()
+const jiraServer = import.meta.env.VITE_JIRA_SERVER || "https://jira.com"
 
 function goPage(url: string) {
-  url = "https://taijiraprod.dmntai.intra/browse/" + url
+  url = `${jiraServer}/browse/${url}`
   const newWindow = window.open(url, '_blank');
   if (newWindow !== null) {
     newWindow.focus();

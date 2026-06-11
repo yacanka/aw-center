@@ -22,6 +22,7 @@ import { isAuthenticated } from '@/stores/user'
 import EcrTask from '@/components/outlook/EcrTask.vue'
 import PdfCompare from '@/views/compare/PdfCompare.vue'
 import Translator from '@/views/Translator.vue'
+import DocAnalyzer from '@/views/compdoc/DocAnalyzer.vue'
 
 
 const router = createRouter({
@@ -138,6 +139,11 @@ const router = createRouter({
       path: '/compdocs/coverpagecreator',
       name: 'coverpagecreator',
       component: CoverPageCreator,
+    },
+    {
+      path: '/compdocs/docAnalyzer',
+      name: 'docAnalyzer',
+      component: DocAnalyzer,
     },
     {
       path: '/settings',

@@ -308,7 +308,7 @@ async function createJiraTaskProgress() {
             item.status = "error"
             return
         }
-
+        
         item.events.SuccessEvent()
     } catch (e) {
         item.events.ErrorEvent()
@@ -382,6 +382,10 @@ async function createJiraSubTaskProgress() {
 
     for (let index = 0; index < createdIssueList.length; index++) {
         const createdIssue = createdIssueList[index];
+        if(!createdIssue){
+            continue
+        }
+
         const payload = {
             "JSESSIONID": sessionPopup.value.input,
             "url": createdIssue,

@@ -26,12 +26,13 @@ import { ref, onMounted } from 'vue';
 import {NSpace, NCard} from 'naive-ui';
 import { IJira } from '@/models/jira';
 
+const jiraServer = import.meta.env.VITE_JIRA_SERVER || "https://jira.com"
 const props = defineProps(['dcc'])
-const jiraInfo = ref<IJira>({} as IJira)
+const jiraInfo = ref<IJira>({} as IJira) 
 
 function goPage(url: string){
-  url = "https://taijiraprod.dmntai.intra/browse/" + url
-  const newWindow = window.open(url, '_blank');
+  url = `${jiraServer}/browse/${url}`
+  const newWindow = window.open(url, '_blank'); 
   if (newWindow !== null) {
     newWindow.focus();
   }
@@ -42,6 +43,6 @@ onMounted(() => {
   jiraInfo.value.dcc_unsigned_path = props.dcc.dcc_unsigned_path
   jiraInfo.value.dcc_signed_path = props.dcc.dcc_signed_path
   jiraInfo.value.ecd_path = props.dcc.ecd_path
-  jiraInfo.value.generalStatus = !jiraInfo.value.subtasks.some(item => item.fields.status.name === "Open");
+  jiraInfo.value.generalStatus = !jiraInfo.value.subtasks.some(item => item.fields.status.name === "Open"); 
 });
 </script>
