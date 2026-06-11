@@ -197,7 +197,7 @@ class PasswordResetRequestSerializer(serializers.Serializer):
         reset_link = f"{settings.FRONTEND_RESET_URL}?uid={uid}&token={token}"
 
         mail_placeholder = {
-            "{{RESET_LINK}}": reset_link,
+            "RESET_LINK": reset_link,
         }
 
         html_file_path = TEMPLATE_DIR / "mail_password_reset_request_template.html"
