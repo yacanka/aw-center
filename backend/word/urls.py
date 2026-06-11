@@ -5,4 +5,5 @@ urlpatterns = [
     path('compare/', views.compare, name='compare'),
     path('create_queue/', views.create_queue, name='create_queue'),
     path('translate/<uuid:uuid>/', views.translate, name='translate'),
+    path('analyze/<uuid:uuid>/', views.analyze, name='analyze'),
 ]

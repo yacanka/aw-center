@@ -7,7 +7,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.views import APIView
+from rest_framework.views import APIView 
 from rest_framework import status
 
 import pandas as pd
@@ -33,6 +33,7 @@ import uuid
 from base64 import b64decode, b64encode
 
 from word.service.translator import get_text_generator
+from word.service.paraphrase import ExplainableDocxRetriever
 
 # Utils
 
@@ -278,7 +279,7 @@ def compare(request):
     equal_ratio = parameters["equal_ratio"]
     weak_equal_ratio = parameters["weak_equal_ratio"]
     output_type = parameters["output_type"]
-
+    
     lines1 = read_docx_lines_with_index(file1)
     lines2 = read_docx_lines_with_index(file2)
 
@@ -341,7 +342,7 @@ def compare(request):
         res = HttpResponse(buffer.getvalue(), content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         res["Content-Disposition"] = 'attachment; filename="Comparison Result.docx"'
         return res
-
+        
 
     if output_type == "excel":
         # Excel
@@ -377,7 +378,7 @@ def write_excel_report_openpyxl(out_excel, excel_rows, summary_stats, table_rows
         "A_Len","B_Len","Similarity",
         "ListFlag","ListLevel_A","ListLevel_B","ListTag"
     ]
-
+    
     # Automatically create if no fields exist
     if excel_rows and not any(("ListFlag" in r) for r in excel_rows):
         for r in excel_rows:
@@ -537,7 +538,7 @@ def create_queue(request):
         data["parameters"] = request.data.get("parameters", None)
     else:
         data = request.data
-
+        
     new_uuid = str(uuid.uuid4())
     cache.set(new_uuid, data)
     return Response(new_uuid)
@@ -555,21 +556,21 @@ def translate_action(uuid):
             if not obj["file"]:
                 yield f'data: {json.dumps({"status": "error", "content": "File not found."})}\n\n'
                 return
-
+            
             if obj["parameters"]:
                 parameters = json.loads(obj["parameters"])
             else:
                 yield f'data: {json.dumps({"status": "error", "content": "Parameters not found."})}\n\n'
                 return
-
+            
             translate_type = parameters["translate_type"]
-
+            
             yield f'data: {json.dumps({"status": "progress", "percentage": 0, "content": f"Preparing to translate..."})}\n\n'
             translator = get_text_generator(translate_type)
             translated_docx = translator.translate_docx_req(BytesIO(obj["file"]["content"]))
-
+            
             filename = obj["file"]["name"]
-
+            
             for (status, item) in translated_docx:
                 if status == "progress":
                     index, total, ptype = item
@@ -578,7 +579,7 @@ def translate_action(uuid):
                 elif status == "result":
                     encoded = b64encode(item.getvalue()).decode()
                     yield f'data: {json.dumps({"status": "success", "content": encoded, "filename": f"[{translate_type.upper()}] {filename}"})}\n\n'
-
+                    
             return
         except ValueError as e:
             yield f'data: {json.dumps({"status": "error", "content": str(e)})}\n\n'
@@ -587,4 +588,86 @@ def translate_action(uuid):
             yield f'data: {json.dumps({"status": "error", "content": "Something went wrong."})}\n\n'
     else:
         yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
+        
 
+def analyze(request, uuid):
+    response = StreamingHttpResponse(analyze_action(str(uuid)), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+def analyze_action(uuid):
+    obj = cache.get(uuid, None)
+    if obj:
+        try:
+            if not obj["file"]:
+                yield f'data: {json.dumps({"status": "error", "content": "File not found."})}\n\n'
+                return
+            
+            MODEL_PATH = r"C:\Users\t02077\Desktop\Code\Models\paraphrase-multilingual-MiniLM-L12-v2"  # bi-encoder klasörü
+            CROSS_ENCODER_MODEL = r"C:\Users\t02077\Desktop\Code\Models\ms-marco-MiniLM-L6-v2"
+
+            yield f'data: {json.dumps({"status": "progress", "percentage": 0, "content": f"Encoding document..."})}\n\n'
+
+            engine = ExplainableDocxRetriever(
+                model_path=MODEL_PATH,
+                cross_encoder_model=CROSS_ENCODER_MODEL,
+                #backend="openvino",   # None / "onnx" / "openvino"
+                content_mode="both",
+                use_heading_weight=True
+            )
+
+            engine.add_docx_file(
+                BytesIO(obj["file"]["content"]),
+                obj["file"]["name"]
+            )
+
+            engine.build_index()
+
+            queries = [
+                "Does the document contain a list of compliance documents?",
+                "Does the document contain an abbreviations table?",
+                "Does the document contain attachments table?"
+            ]
+
+            queries_length = len(queries)
+            for i, q in enumerate(queries):
+                yield f'data: {json.dumps({"status": "progress", "percentage": i/queries_length*100, "content": f"[{i+1}/{queries_length}] Searching query: {q}"})}\n\n'
+                
+                result = engine.search(q)
+                print("=" * 120)
+                print("QUERY      :", result["query"])
+                print("BEST SCORE :", f"{result['best_score']:.4f}")
+                print("EXPLANATION:")
+                print(result["explanation"])
+                print("-" * 120)
+
+                for i, item in enumerate(result["results"][:3], start=1):
+                    md = item["metadata"]
+                    print(
+                        f"[{i}] final={item['final_score']:.4f} "
+                        f"bi={item['bi_score']:.4f} "
+                        f"cross={item['cross_score_norm']:.4f} "
+                        f"lexical={item['lexical_score']:.4f}"
+                    )
+                    print("file       :", md.get("file_name"))
+                    print("source_type:", md.get("source_type"))
+                    print("heading    :", md.get("heading"))
+                    print("text       :", item["text"][:300])
+                    print("-" * 120)
+                
+                yield f'data: {json.dumps({"status": "info", "content": json.dumps(result)})}\n\n'
+            
+            yield f'data: {json.dumps({"status": "progress", "percentage": 100, "content": f"Success"})}\n\n'
+            
+            yield f'data: {json.dumps({"status": "success", "content": "Process End"})}\n\n'
+                 
+            return
+        except ValueError as e:
+            yield f'data: {json.dumps({"status": "error", "content": str(e)})}\n\n'
+        except Exception as e:
+            print(e)
+            yield f'data: {json.dumps({"status": "error", "content": "Something went wrong."})}\n\n'
+    else:
+        yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
+        

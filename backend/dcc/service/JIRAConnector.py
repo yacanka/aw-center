@@ -12,11 +12,11 @@ CERTIFICATE_FILE = settings.CERTIFICATES_DIR / "JIRA_Chain.crt"
 
 def ISO_time_to_string(date_str):
     try:
-        dt = datetime.fromisoformat(date_str)
+        dt = datetime.fromisoformat(date_str) 
     except ValueError:
-        dt = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f')
+        dt = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f') 
     return f"{dt.day:02}.{dt.month:02}.{dt.year}"
-
+    
 
 def split_text_by_chracter(text, character):
     index = text.find(character)
@@ -35,7 +35,7 @@ def parseJiraError(e):
 
 class JiraConnector:
     def __init__(self, server_url: str, username = None, password = None, jira_session_id=None) -> None:
-
+        
         cert_path = CERTIFICATE_FILE if CERTIFICATE_FILE.exists() else False
         options = {"server": server_url, "verify": cert_path}
         try:
@@ -47,8 +47,8 @@ class JiraConnector:
         except JIRAError as e:
             self.jira = None
             print(f"Error while connecting JIRA server: {parseJiraError(e)}")
-            raise e
-
+            raise
+        
     def check_issue_key(self):
         if self.issue_key is None:
             raise ValueError("Set a issue key in JIRAConnector")
@@ -63,7 +63,7 @@ class JiraConnector:
                 raise ValueError("Can not resolve issue.")
         except ValueError as e:
             print(e)
-            raise e
+            raise
 
     def get_issue_key(self):
         return self.issue_key
@@ -79,7 +79,7 @@ class JiraConnector:
             print(e)
         except JIRAError as e:
             print(f"Error while getting issue: {parseJiraError(e)}")
-            raise e
+            raise
 
     def create_issue(self, issue_dict):
         try:
@@ -87,9 +87,9 @@ class JiraConnector:
             return created_issue
         except JIRAError as e:
             print(f"Error while creating issue: {parseJiraError(e)}")
-            raise e
+            raise
 
-    def create_subtask(self, summary, description="", assignee=None, priority=None, due_date=None):
+    def create_subtask(self, summary, description="", assignee=None, priority=None, duedate=None):
         subtask_dict = {
             "project": self.issue_key.split('-')[0],
             'summary': summary,
@@ -98,28 +98,56 @@ class JiraConnector:
             'parent': {"key": self.issue_key}
         }
 
-        if assignee:
-            subtask_dict['assignee'] = {'name': assignee}
-
         if priority:
-            subtask_dict['priority'] = {'name': priority}
-
-        if due_date:
-            if isinstance(due_date, int):
+            subtask_dict['priority'] = {'name': priority} 
+        
+        if duedate != None:
+            if isinstance(duedate, int):
                 today = datetime.now()
-                future_date = today + timedelta(days=due_date)
+                future_date = today + timedelta(days=duedate)
                 formatted_date = future_date.isoformat()
                 subtask_dict['duedate'] = formatted_date
-            elif isinstance(due_date, str):
-                subtask_dict['duedate'] = due_date
+            elif isinstance(duedate, str):
+                subtask_dict['duedate'] = duedate
+
+        if not assignee:
+            try:
+                return self.jira.create_issue(fields=subtask_dict)
+            except JIRAError as e:
+                print(f"Error while updating Sub-task: {parseJiraError(e)}")
+                raise
+            
+        subtask_with_assignee = {
+            **subtask_dict, 
+            'assignee': {'name': assignee}
+        }
 
         try:
-            created_issue = self.jira.create_issue(fields=subtask_dict)
-            return created_issue
+            return self.jira.create_issue(fields=subtask_with_assignee)
         except JIRAError as e:
-            print(f"Error while creating issue: {parseJiraError(e)}")
-            raise e
-
+            error_text = str(e).lower()
+            assignee_not_allowed = (
+                "assignee" in error_text 
+                or "field" in error_text and "screen" in error_text
+                or "field" in error_text and "unknown" in error_text
+            )
+            
+            if not assignee_not_allowed:
+                print(f"Error while creating Sub-task: {parseJiraError(e)}")
+                raise
+        
+        subtask_with_custom_assignee = {
+            **subtask_dict,
+            'customfield_28701': {'name': assignee}
+        }
+        
+        try:
+            return self.jira.create_issue(fields=subtask_with_custom_assignee)
+        except JIRAError as e:
+            print(f"Error while creating Sub-task with custom field: {parseJiraError(e)}")
+            raise
+        
+        
     def update_issue(self: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         try:
             self.check_issue_key()
@@ -129,8 +157,8 @@ class JiraConnector:
             print(e)
         except JIRAError as e:
             print(f"Error while updating issue: {parseJiraError(e)}")
-            raise e
-
+            raise
+    
     def explore_issue_fields(self, none_filter=True):
         try:
             self.check_issue_key()
@@ -147,12 +175,12 @@ class JiraConnector:
             print(e)
         except JIRAError as e:
             print(f"Error while exploring issue: {parseJiraError(e)}")
-            raise e
+            raise
 
     def get_open_subtask(self):
         try:
             self.check_issue_key()
-
+            
             issue = self.jira.issue(self.issue_key)
             subtask_list = []
             for subtask in issue.fields.subtasks:
@@ -165,7 +193,7 @@ class JiraConnector:
             print(e)
         except JIRAError as e:
             print(f"Error while getting subtasks: {parseJiraError(e)}")
-            raise e
+            raise
 
     def add_attachment(self, file, filename=None):
         try:
@@ -176,7 +204,7 @@ class JiraConnector:
             print(e)
         except JIRAError as e:
             print(f"Error while adding attachment: {parseJiraError(e)}")
-            raise e
+            raise
 
     def save_attachment(self, save_path):
         try:
@@ -193,7 +221,7 @@ class JiraConnector:
             print(e)
         except JIRAError as e:
             print(f"Error while getting attachment: {parseJiraError(e)}")
-            raise e
+            raise
 
     def myself(self):
         try:
