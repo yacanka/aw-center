@@ -134,6 +134,10 @@ This file provides project-specific instructions for AI agents and maintainers w
         └── views/                  # Routed view components
 ```
 
+## Plan and Memory
+
+If plan.md file exist, read the plan file and update it based on the changes you've made. If you need to add new plans or you have any recommendation in the future, update to the plan.md file.
+
 ## Setup Instructions
 
 ### Backend Setup
