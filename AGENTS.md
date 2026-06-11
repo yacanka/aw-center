@@ -71,7 +71,7 @@ This file provides project-specific instructions for AI agents and maintainers w
 - django-environ.
 - Cheroot HTTPS serving script.
 - File/data processing imports found in backend code include Pandas, NumPy, openpyxl, python-docx/docxtpl/docx2txt, PyPDF2/pypdf/pdfplumber, BeautifulSoup, Pillow, requests, JIRA, and Office/Windows automation libraries.
-- **Verify in repository:** There is no root `requirements.txt`, `pyproject.toml`, `Pipfile`, or lock file committed for backend Python dependencies.
+- Root `requirements.txt` is committed for backend Python dependencies. There is no `pyproject.toml`, `Pipfile`, or lock file committed for backend Python dependencies.
 
 ### Frontend
 
@@ -144,7 +144,11 @@ This file provides project-specific instructions for AI agents and maintainers w
    cd backend
    ```
 
-2. Install backend Python dependencies using the environment's documented process. **Verify in repository:** The repository does not commit a backend dependency manifest, so no exact backend install command can be derived from repository files.
+2. Install backend Python dependencies from the committed root manifest:
+
+   ```bash
+   python -m pip install -r ../requirements.txt
+   ```
 
 3. Create `backend/.env` with the environment variables listed below. Do not commit `.env` files.
 
@@ -153,6 +157,19 @@ This file provides project-specific instructions for AI agents and maintainers w
    ```bash
    python manage.py migrate
    ```
+
+### Project Starter
+
+From the repository root, use the cross-platform starter for package checks, installation, and concurrent Django/Vite development servers:
+
+```bash
+python scripts/starter.py check
+python scripts/starter.py install
+python scripts/starter.py check-backend
+python scripts/starter.py start
+```
+
+The starter creates `.venv`, installs `requirements.txt`, installs frontend packages with `npm ci` when `package-lock.json` is present, writes a local ignored `backend/.env` with safe development placeholders when absent, and sets `VITE_API_URL` for the Vite process.
 
 ### Frontend Setup
 
@@ -178,6 +195,7 @@ Run from `backend/`:
 | Create migrations | `python manage.py makemigrations` | Use only after intentional model changes. Review generated migration files carefully. |
 | Run backend tests | `python manage.py test` | App-level `tests.py` files are present. Requires backend dependencies and env vars. |
 | Django system check | `python manage.py check` | Useful before committing backend changes. |
+| Cross-platform starter check | `python ../scripts/starter.py check-backend` | Uses root `.venv`, ensures local dev env, then runs Django checks. |
 | Cheroot HTTPS server | `python run_cheroot.py` | Uses `IPV4_ADDRESS`, `PORT`, `AWCenter.crt`, and `AWCenter.key`. |
 | Copy users management command | `python manage.py copy_users` | Command exists at `backend/common/management/commands/copy_users.py`. Confirm behavior before running against real data. |
 
@@ -328,8 +346,8 @@ Used via `import.meta.env` in frontend code:
 
 ## Common Pitfalls
 
-- Backend commands can fail immediately if required `.env` variables are missing, even for checks/tests.
-- No backend dependency manifest is committed; dependency installation must be verified outside the repository.
+- Backend commands can fail immediately if required `.env` variables are missing, even for checks/tests. `python scripts/starter.py install` creates a local ignored development `.env` when absent.
+- Backend dependencies are listed in root `requirements.txt`; update it when backend imports/settings require new packages.
 - `frontend/package.json` defines `deploy` and `start`, but the referenced `scripts/deploy.sh` and `server.js` are not present in the current repository tree.
 - Frontend build requires a Vite entry file such as `frontend/index.html`; that file is not present in the current repository tree, so `npm run build` fails until the entry file is restored or Vite is reconfigured.
 - Frontend build post-processing assumes Django template/static target directories exist.
