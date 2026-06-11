@@ -1,0 +1,37 @@
+# Backend Python dependencies for AW Center.
+# Keep this file synchronized with backend imports and Django settings.
+Django==5.2.*
+djangorestframework>=3.15,<4
+django-cors-headers>=4.7,<5
+django-simple-history>=3.8,<4
+django-environ>=0.12,<1
+django-extensions>=4.1,<5
+whitenoise>=6.9,<7
+cheroot>=10.0,<11
+
+# Integrations and HTTP clients
+jira>=3.8,<4
+requests>=2.32,<3
+
+# Office, PDF, and document processing
+beautifulsoup4>=4.13,<5
+docx2txt>=0.8,<1
+docxtpl>=0.20,<1
+extract-msg>=0.55,<1
+numpy>=2.2,<3
+openpyxl>=3.1,<4
+pandas>=2.2,<3
+pdfplumber>=0.11,<1
+Pillow>=11.2,<12
+pypdf>=5.5,<6
+PyPDF2>=3.0,<4
+python-dateutil>=2.9,<3
+python-docx>=1.1,<2
+
+# NLP-assisted Word tooling
+sentence-transformers>=4.1,<5
+transformers>=4.52,<5
+
+# Windows-only automation used by DOORS, Outlook, and PowerPoint helpers
+pywin32>=310; sys_platform == "win32"
+WMI>=1.5; sys_platform == "win32"
