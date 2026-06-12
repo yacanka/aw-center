@@ -48,6 +48,7 @@ import { useRoute } from 'vue-router'
 import { useDoorsStore, useExcelStore } from '@/stores/api'
 import { getFileNameAndExt } from '@/utils/text'
 import { UploadFileInfo } from 'naive-ui'
+import { formatApiError } from '@/services/apiError'
 const route = useRoute()
 
 const splitter = ref({
@@ -108,7 +109,7 @@ function splitPdf() {
     console.error(err)
     window.$notification.error({
       title: 'Error',
-      description: `Error while uploading file: ${err.response.data.message}`,
+      description: `Error while uploading file: ${formatApiError(err)}`,
     })
   }).finally(() => {
     console.log("END")

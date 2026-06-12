@@ -5,6 +5,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/api'
 import { validateForm } from '@/composables/forms'
 import { useUserStore } from '@/stores/user'
+import { formatApiError } from '@/services/apiError'
 
 const route = useRoute()
 const router = useRouter()
@@ -137,7 +138,7 @@ async function handleUpdatePassword() {
     console.log(res)
     window.$message.success("Password updated successfully.", { duration: 5000 })
   } catch (error: any) {
-    window.$message.error(error.detail, { duration: 5000 })
+    window.$message.error(formatApiError(error), { duration: 5000 })
   }
 
 }
