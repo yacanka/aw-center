@@ -46,6 +46,7 @@ import { toTitleCase } from '@/utils/text'
 import { NotificationType } from 'naive-ui'
 import { dateDaysOffset } from '@/utils/time'
 import { nullCheck } from '@/utils/general'
+import { formatApiError } from '@/services/apiError'
 
 type Generator = {
     JSESSIONID: string,
@@ -130,7 +131,7 @@ function createSubtasks() {
         console.error(err)
         window.$notification.error({
             title: 'Error',
-            description: `Error while uploading file: ${err.response.data.message}`,
+            description: `Error while uploading file: ${formatApiError(err)}`,
         })
     }).finally(() => {
         console.log("END")
