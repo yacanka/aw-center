@@ -819,15 +819,11 @@ def create_dcc_action(uuid):
                 else:
                     panel_name = "this"
                     
-                if project.dcc_label == "GJ":
-                    if panel_name == "Flight" and clean_as_name != "Utku İnanç Pehlivan":
-                        dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"Utku İnanç PEHLİVAN, {dcc_placeholder[f'Panel_AS_Name_{index+1}']}"
-                    elif panel_name == "Human Factor" and clean_as_name != "Aslı Alpsoy":
-                        dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"Aslı ALPSOY, {dcc_placeholder[f'Panel_AS_Name_{index+1}']}"
-                    elif panel_name == "Electrical Systems/E3" and clean_as_name != "Merve Helvacı":
-                        dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"Merve HELVACI, {dcc_placeholder[f'Panel_AS_Name_{index+1}']}"
+                candidate_assignee = sf.customfield_45421
+                if candidate_assignee:
+                    candidate_as_name = make_surname_upper(split_text_by_chracter(candidate_assignee.displayName, "("))
+                    dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"{dcc_placeholder[f'Panel_AS_Name_{index+1}']}, {candidate_as_name}"
 
-                
                 if sf.customfield_45004:
                     classification_list.append((sf.customfield_45004.value, sf.assignee))
                 else:
