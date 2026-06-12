@@ -812,12 +812,6 @@ def create_dcc_action(uuid):
 
                 if sf.customfield_45008:
                     dcc_placeholder[f"Design_Change_Assessment_{index+1}"] = sf.customfield_45008
-                
-                splitText = sf.summary.split("Panel")
-                if len(splitText) == 2:
-                    panel_name = splitText[0].strip()
-                else:
-                    panel_name = "this"
                     
                 candidate_assignee = sf.customfield_45421
                 if candidate_assignee:
