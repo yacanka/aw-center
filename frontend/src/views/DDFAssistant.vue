@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { h, ref, onMounted, onUnmounted } from 'vue'
-import { NButton, NDataTable, NSpace, NTag, NUpload, NIcon, NEllipsis, DataTableColumns } from 'naive-ui'
+import { computed, h, ref, onMounted, onUnmounted } from 'vue'
+import { NButton, NDataTable, NSpace, NIcon, DataTableColumns, PaginationInfo } from 'naive-ui'
 import { useDdfStore } from '@/stores/api'
 import { setProjectName } from '@/stores/user'
 import { popupStore } from '@/stores/popupStore'
@@ -26,18 +26,27 @@ const filterValue = ref<Record<string, any>>({});
 
 setProjectName(route.params.project as string)
 
-const pagination = {
-  pageSize: 10
-}
+const page = ref(1)
+const pageSize = ref(10)
+
+const pagination = computed<Partial<PaginationInfo>>(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  itemCount: store.pagination.count,
+  showSizePicker: true,
+  pageSizes: [10, 25, 50, 100]
+}))
 
 const onFilter = (attrib: string, filterData: any) => {
   filterValue.value[attrib] = filterData
-  filterAttr()
+  page.value = 1
+  fetchDdf()
 }
 
 const onClean = (attrib: string) => {
   filterValue.value[attrib] = null
-  filterAttr()
+  page.value = 1
+  fetchDdf()
 }
 
 const columns: DataTableColumns<IDdf> = [
@@ -208,8 +217,23 @@ const columns: DataTableColumns<IDdf> = [
   }
 ]
 
-function filterAttr() {
-  table.value.filter(filterValue.value)
+function fetchDdf() {
+  return store.fetchDdf({
+    ...filterValue.value,
+    page: page.value,
+    page_size: pageSize.value
+  })
+}
+
+function handlePageUpdate(newPage: number) {
+  page.value = newPage
+  fetchDdf()
+}
+
+function handlePageSizeUpdate(newPageSize: number) {
+  pageSize.value = newPageSize
+  page.value = 1
+  fetchDdf()
 }
 
 function showpUploadForm() {
@@ -218,10 +242,6 @@ function showpUploadForm() {
 
 function rowKey(row: IDdf) {
   return row.id
-}
-
-function handleFilterUpdate() {
-  filterAttr()
 }
 
 function showAddDdfForm(mode: string) {
@@ -255,7 +275,7 @@ function deleteAllDdfs() {
 }
 
 onMounted(() => {
-  store.fetchDdf()
+  fetchDdf()
 })
 
 
@@ -305,11 +325,12 @@ onUnmounted(() => {
   </n-space>
   <n-flex justify="end">
     <n-text>
-      <strong>Total: </strong>{{ store.getList.length }}
+      <strong>Total: </strong>{{ store.pagination.count }}
     </n-text>
   </n-flex>
   <n-data-table :loading="store.isLoading" striped type='expand' :tree='true' :columns="columns" :data="store.getList"
-    :pagination="pagination" ref="table" :row-key="rowKey" />
+    remote :pagination="pagination" ref="table" :row-key="rowKey" @update:page="handlePageUpdate"
+    @update:page-size="handlePageSizeUpdate" />
   <UpdateForm ref="viewPopup" />
   <UploadPopup ref="uploadPopup" :uploadUrl="store.getUploadUrl" />
   <Graph ref="graph" />

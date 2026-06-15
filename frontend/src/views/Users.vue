@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { h, ref, onMounted, onUnmounted } from 'vue'
-import { DataTableColumns, NButton, NDataTable, NSpace, NTag, NUpload } from 'naive-ui'
+import { computed, h, ref, onMounted, onUnmounted } from 'vue'
+import { DataTableColumns, NButton, NDataTable, PaginationInfo } from 'naive-ui'
 import { useAuthStore } from '@/stores/api'
 import { IUser, IPermission } from '@/models/auth'
 import UpdateForm from '@/components/user/UserPopup.vue';
@@ -11,12 +11,18 @@ import { useUserStore } from '@/stores/user';
 import { isoToTurkishDateTime } from '@/utils/time'
 import { getStringFilterFunc, getStringFilterMenuFunc } from '@/stores/datatable';
 
-const pagination = {
-  pageSize: 12
-}
-
 const store = useAuthStore()
 const userStore = useUserStore()
+const page = ref(1)
+const pageSize = ref(12)
+
+const pagination = computed<Partial<PaginationInfo>>(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  itemCount: store.usersPagination.count,
+  showSizePicker: true,
+  pageSizes: [12, 25, 50, 100]
+}))
 
 const popupComponent = ref()
 const tableRef = ref()
@@ -26,7 +32,8 @@ const hasPermission = ref(userStore.hasRole("auth", "view_user"))
 
 const onFilter = (attrib: string, filterData: any) => {
   filterValue.value[attrib] = filterData
-  filterAttr()
+  page.value = 1
+  fetchUsers()
 }
 
 const columns: DataTableColumns<IUser> = [
@@ -133,14 +140,32 @@ const columns: DataTableColumns<IUser> = [
   }
 ]
 
-function filterAttr() {
-  tableRef.value.filter(filterValue.value)
+function fetchUsers() {
+  return store.fetchUsers({
+    page: page.value,
+    page_size: pageSize.value,
+    username: filterValue.value.username,
+    email: filterValue.value.email,
+    first_name: filterValue.value.first_name,
+    last_name: filterValue.value.last_name
+  })
+}
+
+function handlePageUpdate(newPage: number) {
+  page.value = newPage
+  fetchUsers()
+}
+
+function handlePageSizeUpdate(newPageSize: number) {
+  pageSize.value = newPageSize
+  page.value = 1
+  fetchUsers()
 }
 
 onMounted(() => {
   if (hasPermission.value) {
-    store.fetchUsers()
-    store.fetchPermissions()
+    fetchUsers()
+    store.fetchPermissions({ page_size: 200 })
   }
 })
 
@@ -153,10 +178,11 @@ onUnmounted(() => {
 <template>
   <div v-if="hasPermission">
     <n-flex justify="end">
-      <n-text><strong>Total: </strong>{{ store.getUsers.length }}</n-text>
+      <n-text><strong>Total: </strong>{{ store.usersPagination.count }}</n-text>
     </n-flex>
     <n-data-table ref="tableRef" :loading="store.isLoading" striped :columns="columns" :data="store.getUsers"
-      :pagination="pagination" :row-key="(row: IUser) => row.id" />
+      remote :pagination="pagination" :row-key="(row: IUser) => row.id" @update:page="handlePageUpdate"
+      @update:page-size="handlePageSizeUpdate" />
     <UpdateForm ref="popupComponent" />
   </div>
   <div v-else>

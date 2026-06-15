@@ -5,6 +5,7 @@ import { handleRequest } from "@/composables/promise"
 import { setAuthToken } from "@/services/http"
 import { notifyError, notifySuccess } from "@/services/notify"
 import { removeKey, STORAGE_KEYS } from "@/services/storage"
+import { compactPaginationQuery, getPaginationMeta, PaginationMeta, PaginationQuery } from '@/services/pagination'
 
 const API_PATH = "auth"
 
@@ -16,6 +17,8 @@ export const useAuthStore = defineStore(
       token: "" as string,
       users: [] as IUser[],
       permissions: [] as IPermission[],
+      usersPagination: { count: 0, next: null, previous: null } as PaginationMeta,
+      permissionsPagination: { count: 0, next: null, previous: null } as PaginationMeta,
       loading: false,
       ipAddress: axios.defaults.baseURL,
     }),
@@ -51,10 +54,10 @@ export const useAuthStore = defineStore(
         )
         return loggedIn
       },
-      async fetchUsers() {
+      async fetchUsers(query: PaginationQuery = {}) {
         this.loading = true
-        await handleRequest<any>(
-          axios.get(`${API_PATH}/users/`),
+        const response = await handleRequest<IUser[]>(
+          axios.get(`${API_PATH}/users/`, { params: compactPaginationQuery(query) }),
           (data) => {
             this.users = data
           },
@@ -66,6 +69,7 @@ export const useAuthStore = defineStore(
             this.loading = false
           }
         )
+        this.usersPagination = getPaginationMeta<IUser>(response) || this.usersPagination
       },
       async updateUser(userId: Number, updatedData: IUser) {
         this.loading = true
@@ -140,10 +144,10 @@ export const useAuthStore = defineStore(
         setAuthToken(null)
         removeKey(STORAGE_KEYS.token)
       },
-      async fetchPermissions() {
+      async fetchPermissions(query: PaginationQuery = {}) {
         this.loading = true
-        await handleRequest<any>(
-          axios.get(`${API_PATH}/permissions/`),
+        const response = await handleRequest<IPermission[]>(
+          axios.get(`${API_PATH}/permissions/`, { params: compactPaginationQuery(query) }),
           (data) => {
             this.permissions = data
           },
@@ -154,6 +158,7 @@ export const useAuthStore = defineStore(
             this.loading = false
           }
         )
+        this.permissionsPagination = getPaginationMeta<IPermission>(response) || this.permissionsPagination
       },
       async changePassword(password: any) {
         this.loading = true

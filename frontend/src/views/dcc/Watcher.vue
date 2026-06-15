@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { h, ref, onMounted } from 'vue'
+import { computed, h, ref, onMounted } from 'vue'
 import axios from 'axios'
-import { NButton, NDataTable, NSpace, NTag, NSpin, NUpload, DataTableColumn, NTable } from 'naive-ui'
+import { NButton, NDataTable, NSpace, NTag, NSpin, PaginationInfo } from 'naive-ui'
 import { useDccStore, useOrgsStore } from '@/stores/api'
 import { IDcc } from '@/models/dcc'
 import UpdateForm from '@/components/dcc/UpdatePopup.vue';
@@ -15,9 +15,18 @@ import { IEcd } from '@/models/ecd'
 import { getBooleanFilterMenuFunc, getStringFilterFunc, getStringFilterMenuFunc } from '@/stores/datatable'
 
 
-const pagination = {
-  pageSize: 12
-}
+const store = useDccStore()
+const orgstore = useOrgsStore()
+const page = ref(1)
+const pageSize = ref(12)
+
+const pagination = computed<Partial<PaginationInfo>>(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  itemCount: store.pagination.count,
+  showSizePicker: true,
+  pageSizes: [12, 25, 50, 100]
+}))
 
 const issueStats = ref<Record<string, any>>({})
 const updatePopup = ref()
@@ -36,7 +45,8 @@ let sessionID: string
 
 const onFilter = (attrib: string, filterData: any) => {
   filterValue.value[attrib] = filterData
-  filterAttr()
+  page.value = 1
+  fetchDcc()
 }
 
 const columns: any[] = [
@@ -231,8 +241,6 @@ const columns: any[] = [
   }
 ]
 
-const store = useDccStore()
-const orgstore = useOrgsStore()
 const jiraServer = import.meta.env.VITE_JIRA_SERVER || "https://jira.com"
 
 function goPage(url: string) {
@@ -243,8 +251,23 @@ function goPage(url: string) {
   }
 }
 
-function filterAttr() {
-  table.value?.filter(filterValue.value)
+function fetchDcc() {
+  return store.fetchDcc({
+    ...filterValue.value,
+    page: page.value,
+    page_size: pageSize.value
+  })
+}
+
+function handlePageUpdate(newPage: number) {
+  page.value = newPage
+  fetchDcc()
+}
+
+function handlePageSizeUpdate(newPageSize: number) {
+  pageSize.value = newPageSize
+  page.value = 1
+  fetchDcc()
 }
 
 function showpUploadForm() {
@@ -252,8 +275,7 @@ function showpUploadForm() {
 }
 
 onMounted(async () => {
-  filterAttr()
-  await store.fetchDcc()
+  await fetchDcc()
   const storedSessionID = localStorage.getItem("jira>session_id")
   sessionID = storedSessionID ? storedSessionID : ""
 })
@@ -354,11 +376,12 @@ function onUpdateExpandedRowKeys(keys: Array<string | number>) {
       </n-button>
     </n-space>
     <n-flex justify="end">
-      <n-text><strong>Total: </strong>{{ store.getDccList.length }}</n-text>
+      <n-text><strong>Total: </strong>{{ store.pagination.count }}</n-text>
     </n-flex>
 
     <n-data-table ref="table" :loading="store.isLoading" striped :columns="columns" :data="store.getDccList"
-      :pagination="pagination" :row-key="(row) => row.id" size="small" :expanded-row-keys="expandedRowKeys"
+      remote :pagination="pagination" :row-key="(row) => row.id" size="small" :expanded-row-keys="expandedRowKeys"
+      @update:page="handlePageUpdate" @update:page-size="handlePageSizeUpdate"
       @update:expanded-row-keys="onUpdateExpandedRowKeys" :row-props="rowPropsAttr" />
   </n-card>
 

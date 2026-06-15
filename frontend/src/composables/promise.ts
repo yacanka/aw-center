@@ -3,6 +3,7 @@ import { formatApiError } from '@/services/apiError'
 import { setAuthToken } from '@/services/http'
 import { notifyWarning } from '@/services/notify'
 import { removeKey, STORAGE_KEYS } from '@/services/storage'
+import { isPaginatedResponse } from '@/services/pagination'
 
 type ErrorPayload = Record<string, unknown> | string | null | undefined
 
@@ -41,7 +42,8 @@ export async function handleRequest<T>(
 ) {
   try {
     const data = handleSuccessfulResponse(await request)
-    onSuccess((data as { message?: T })?.message || data)
+    const successData = isPaginatedResponse(data) ? data.results : (data as { message?: T })?.message || data
+    onSuccess(successData as T)
     return data
   } catch (error) {
     const axiosError = error as AxiosError<ErrorPayload>

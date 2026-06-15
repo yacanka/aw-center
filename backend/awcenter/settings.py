@@ -218,6 +218,8 @@ REST_FRAMEWORK = {
          'rest_framework.permissions.IsAuthenticated',
      ],
      'EXCEPTION_HANDLER': 'awcenter.api_errors.api_exception_handler',
+     'DEFAULT_PAGINATION_CLASS': 'awcenter.pagination.StandardResultsSetPagination',
+     'PAGE_SIZE': 50,
 }
 
 CACHES = {
