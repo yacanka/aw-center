@@ -11,7 +11,6 @@ from .serializers import ProjectSerializer, PanelSerializer, ResponsibleSerializ
 from .models import  Project, Panel, Responsible, People
 
 from utils.arrays import find_missing_elements
-import pandas as pd
 
 class ProjectViewSet(ModelViewSet):
     permission_classes = [AllowAny]
@@ -96,6 +95,8 @@ class UploadPeople(APIView):
         form = UploadForm(request.POST, request.FILES)
         if form.is_valid():
             excel_file = request.FILES["file"]
+            import pandas as pd
+
             df = pd.read_excel(excel_file)
 
             missing_elements = find_missing_elements(df.columns, reference_list, ignore_case=True)

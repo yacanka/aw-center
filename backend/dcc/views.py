@@ -20,8 +20,6 @@ from .forms import UploadForm
 from .parsers import safe_ecd_parse
 from utils.converters import date_parser
 
-from jira import JIRAError
-from docxtpl import DocxTemplate
 from io import BytesIO
 from pathlib import Path
 from base64 import b64decode, b64encode
@@ -34,12 +32,6 @@ import uuid
 from datetime import datetime
 import os
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
-
-from bs4 import BeautifulSoup
 from awcenter.enums import Projects
 from common.views import paginated_response
 
@@ -283,6 +275,8 @@ def get_issue(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def create_issue(request):
+    from jira import JIRAError
+
     try:
         data = request.data
         session_id = data.get("JSESSIONID", None)
@@ -524,6 +518,8 @@ def add_new_dcc(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def add_attachment(request):
+    from jira import JIRAError
+
     print(request.data)
     form = UploadForm(request.POST, request.FILES)
     if form.is_valid():
@@ -548,6 +544,8 @@ def add_attachment(request):
     return Response({"message": "Form is not valid"}, status=400)
 
 def create_subtask_action(uuid):
+    from jira import JIRAError
+
     obj = cache.get(uuid, None)
     if obj:
         try:
@@ -602,6 +600,8 @@ def create_subtask_stream(request, uuid):
 
 
 def create_subtask_excel_action(uuid):
+    from jira import JIRAError
+
     def find_index_by_key(dizi, key, target_value):
         for index, item in enumerate(dizi):
             if key in item and item[key] == target_value:
@@ -627,9 +627,7 @@ def create_subtask_excel_action(uuid):
                 yield f'data: {json.dumps({"status": "error", "content": "JSESSIONID not found in request."})}\n\n'
                 return
 
-            if pd is None:
-                yield f'data: {json.dumps({"status": "error", "content": "pandas is required for excel import."})}\n\n'
-                return
+            import pandas as pd
 
             df = pd.read_excel(BytesIO(obj["file"]))
             df = df.where(pd.notnull(df), None)
@@ -704,6 +702,8 @@ def create_subtask_excel_stream(request, uuid):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def check_session(request):
+    from jira import JIRAError
+
     try:
         session_id = request.GET.get('sessionId', None)
         if session_id:
@@ -738,6 +738,9 @@ def create_queue(request):
     return Response(new_uuid)
 
 def create_dcc_action(uuid):
+    from bs4 import BeautifulSoup
+    from docxtpl import DocxTemplate
+
     obj = cache.get(uuid, None)
     if obj:
         try:

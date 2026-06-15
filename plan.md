@@ -184,3 +184,10 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. Cookie authentication now treats invalid cookie tokens as anonymous instead of raising immediately; protected endpoints still return 401 through `IsAuthenticated`.
 3. Header token failures remain strict because explicit `Authorization` headers are caller-controlled credentials and should fail closed.
 4. Login overwrites stale cookies with a fresh HttpOnly token cookie after valid username/password verification.
+
+## 22. Endpoint-specific lazy import cleanup
+
+1. Heavy optional libraries (`pandas`, `openpyxl`, `docxtpl`, `docx`, `jira`, `bs4`) were moved out of the inspected view modules' import path and into the endpoints/actions that actually execute those workflows.
+2. Lightweight Django/DRF imports remain top-level so URL/view discovery stays simple and stable.
+3. Circular-import exposure is reduced because the moved imports are third-party libraries loaded only at request/action execution time, not during Django app boot.
+4. Backend boot timing should be re-measured in a dependency-complete environment with `python manage.py check`; the current container is missing Django, so only Python compilation could be verified here.
