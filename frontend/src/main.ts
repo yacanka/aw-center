@@ -17,17 +17,23 @@ app.use(naive)
 
 registerChartPlugins()
 
+function getPreferredTheme(systemTheme: string) {
+    const storedTheme = useUserStore().getPreferences.theme
+    return typeof storedTheme === 'string' ? storedTheme : systemTheme
+}
+
 async function init() {
     bootstrapHttpAuth()
-    try {
-        await useUserStore().fetchCurrentUser()
-        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light"
-        document.documentElement.setAttribute('data-theme', useUserStore().getPreferences.theme || systemTheme)
-    } catch (err) {
-        router.push({ name: "login" })
-    } finally {
-        app.mount('#app')
-    }
+    const userStore = useUserStore()
+    const isLoaded = await userStore.fetchCurrentUser({
+        allowCachedFallback: true,
+        suppressAuthenticationWarning: true
+    })
+    if (!isLoaded) router.push({ name: "login" })
+
+    const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light"
+    document.documentElement.setAttribute('data-theme', getPreferredTheme(systemTheme))
+    app.mount('#app')
 }
 
 init()
