@@ -89,14 +89,20 @@ const passwordConfirmRules: FormRules = {
 }
 
 const authStore = useAuthStore()
+
+function getPreferredTheme(systemTheme: string) {
+  const storedTheme = userStore.getPreferences.theme
+  return typeof storedTheme === 'string' ? storedTheme : systemTheme
+}
+
 async function handleLogin() {
   if (!await validateForm(loginForm.value)) return
-  const isLoggedIn = await authStore.login(loginCredentials.value)
-  if (!isLoggedIn) return
+  const authenticatedUser = await authStore.login(loginCredentials.value)
+  if (!authenticatedUser) return
 
-  await useUserStore().fetchCurrentUser()
+  userStore.setUser(authenticatedUser)
   const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light"
-  document.documentElement.setAttribute('data-theme', useUserStore().getPreferences.theme || systemTheme)
+  document.documentElement.setAttribute('data-theme', getPreferredTheme(systemTheme))
   router.push({ name: "home" })
 }
 

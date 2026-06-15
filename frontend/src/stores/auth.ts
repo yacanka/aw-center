@@ -11,6 +11,7 @@ const API_PATH = "auth"
 
 type LoginResponse = {
   detail: string
+  user: IUser
 }
 
 export const useAuthStore = defineStore(
@@ -39,15 +40,16 @@ export const useAuthStore = defineStore(
       },
       async login(credentials: any) {
         this.loading = true
-        let loggedIn = false
+        let authenticatedUser: IUser | null = null
         setAuthToken(null)
         removeKey(STORAGE_KEYS.token)
         await handleRequest<LoginResponse>(
           axios.post(`${API_PATH}/token/`, credentials),
           (data) => {
+            this.me = data.user
             this.token = "cookie-auth"
+            authenticatedUser = data.user
             notifySuccess(data.detail || "Login successful")
-            loggedIn = true
           },
           (errorMessage) => {
             notifyError(errorMessage)
@@ -56,7 +58,7 @@ export const useAuthStore = defineStore(
             this.loading = false
           }
         ).catch(() => undefined)
-        return loggedIn
+        return authenticatedUser
       },
       async fetchUsers(query: PaginationQuery = {}) {
         this.loading = true

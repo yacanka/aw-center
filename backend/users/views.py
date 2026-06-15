@@ -91,7 +91,13 @@ class CustomAuthToken(ObtainAuthToken):
         user = serializer.validated_data["user"]
         token, _ = Token.objects.get_or_create(user=user)
         update_last_login(None, user)
-        response = Response({"detail": "Login successful."}, status=status.HTTP_200_OK)
+        response = Response(
+            {
+                "detail": "Login successful.",
+                "user": UserSerializer(user, context={"request": request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
         response.set_cookie(
             settings.AUTH_COOKIE_NAME,
             token.key,

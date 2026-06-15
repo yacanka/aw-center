@@ -55,7 +55,7 @@ export const useUserStore = defineStore(
                 this.user = user
                 this.permissions = user.permissions
                 this.preferences = user.preferences
-                writeJson(STORAGE_KEYS.user, user)
+                setUser(user)
             },
             checkPermission(permissionName: string) {
                 return this.permissions.some(permission => permission.codename == permissionName)
