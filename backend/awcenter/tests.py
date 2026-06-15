@@ -1,11 +1,14 @@
 """Tests for AW Center API error contract enforcement."""
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
 
+from awcenter.pagination import StandardResultsSetPagination
+from common.views import filtered_queryset
 from awcenter.api_errors import (
     ApiErrorContractMiddleware,
     ErrorCodes,
@@ -106,3 +109,67 @@ class ApiErrorContractTests(TestCase):
 
         self.assertEqual(normalized.data["detail"], "Plain failure.")
         self.assertEqual(normalized.data["code"], ErrorCodes.VALIDATION_ERROR)
+
+
+class ContractPaginationView(APIView):
+    """Test-only view that returns paginated list data."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        """Return numbers using the standard pagination contract."""
+
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(list(range(3)), request)
+        return paginator.get_paginated_response(page)
+
+
+class ApiPaginationContractTests(TestCase):
+    """Verify that list responses follow the shared pagination contract."""
+
+    def setUp(self):
+        """Create a reusable request factory for pagination tests."""
+
+        self.factory = APIRequestFactory()
+
+    def test_standard_pagination_contract_keys(self):
+        """Paginated responses include count, next, previous, and results."""
+
+        response = ContractPaginationView.as_view()(self.factory.get("/contract/"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            set(response.data.keys()),
+            {"count", "next", "previous", "results"},
+        )
+        self.assertEqual(response.data["count"], 3)
+        self.assertEqual(response.data["results"], [0, 1, 2])
+
+
+class ServerSideFilterTests(TestCase):
+    """Verify safe queryset filtering for paginated list endpoints."""
+
+    def setUp(self):
+        """Create model rows and request factory for filter tests."""
+
+        self.factory = APIRequestFactory()
+        self.user_model = get_user_model()
+        self.user_model.objects.create_user(username="alice", password="secret")
+        self.user_model.objects.create_user(username="bob", password="secret")
+
+    def test_filtered_queryset_applies_model_field_filters(self):
+        """Allowed model fields are filtered using server-side query params."""
+
+        request = self.factory.get("/users/", {"username": "ali", "page": 1})
+        queryset = filtered_queryset(request, self.user_model.objects.all())
+
+        self.assertEqual(list(queryset.values_list("username", flat=True)), ["alice"])
+
+    def test_filtered_queryset_applies_repeated_value_filters(self):
+        """Repeated params are converted to safe field __in lookups."""
+
+        request = self.factory.get("/users/", {"username": ["alice", "bob"]})
+        queryset = filtered_queryset(request, self.user_model.objects.order_by("username"))
+
+        self.assertEqual(list(queryset.values_list("username", flat=True)), ["alice", "bob"])

@@ -41,6 +41,14 @@ except ImportError:
 
 from bs4 import BeautifulSoup
 from awcenter.enums import Projects
+from common.views import paginated_response
+
+
+class ValuesListSerializer:
+    """Expose queryset value dictionaries through the serializer data API."""
+
+    def __init__(self, rows, many=True, **kwargs):
+        self.data = list(rows)
 
 TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
 JIRA_URL = settings.JIRA_BTB_URL    
@@ -182,10 +190,11 @@ class JIRA_DCC_ViewSet(APIView):
             dcc = get_object_or_404(JIRA_DCC, pk=pk)
             serializer = JIRA_DCC_Serializer(dcc)
             return Response(serializer.data)
-        dccs = JIRA_DCC.objects.filter(created_by=request.user)
-        #dccs = JIRA_DCC.objects.all()
-        serializer = JIRA_DCC_Serializer(dccs, many=True)
-        return Response(serializer.data)
+        dccs = JIRA_DCC.objects.filter(created_by=request.user).order_by("-id")
+        issue = request.query_params.get("issue")
+        if issue:
+            dccs = dccs.filter(issue__icontains=issue)
+        return paginated_response(request, dccs, JIRA_DCC_Serializer)
 
     def post(self, request):
         serializer = JIRA_DCC_Serializer(data=request.data)
@@ -241,8 +250,8 @@ def sse_test(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_issue_list(request):
-    issues = JIRA_DCC.objects.values("issue")
-    return Response(issues)
+    issues = JIRA_DCC.objects.values("issue").order_by("issue")
+    return paginated_response(request, issues, ValuesListSerializer)
 
 @api_view(["POST"])
 @permission_classes([AllowAny])

@@ -25,9 +25,16 @@ const columnSettings = ref<{ visible: boolean, list: IColumnSetting[] }>({
   list: []
 })
 
-const pagination = ref<Partial<PaginationInfo>>({
-  pageSize: parseInt(localStorage.getItem("compdocs>page_size") || "8")
-})
+const page = ref(1)
+const pageSize = ref(parseInt(localStorage.getItem("compdocs>page_size") || "8"))
+
+const pagination = computed<Partial<PaginationInfo>>(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  itemCount: store.pagination.count,
+  showSizePicker: true,
+  pageSizes: [8, 25, 50, 100]
+}))
 
 const filterValue = ref<Record<string, any>>({});
 const techIssueList = ref<Record<string, any>>({})
@@ -52,12 +59,14 @@ const filterIconPopover: PopoverProps = {
 
 const onFilter = (attrib: string, filterData: any) => {
   filterValue.value[attrib] = filterData
-  filterAttr()
+  page.value = 1
+  fetchCompdocs()
 }
 
 const onClean = (attrib: string) => {
   filterValue.value[attrib] = null
-  filterAttr()
+  page.value = 1
+  fetchCompdocs()
 }
 
 const columns = ref<DataTableColumns<ICompDoc>>([
@@ -364,7 +373,8 @@ const columns = ref<DataTableColumns<ICompDoc>>([
 watch(() => route.params.project,
   (new_value, old_value) => {
     store.setProjectName(new_value as string)
-    store.fetchCompdocs().then(() => {
+    page.value = 1
+    fetchCompdocs().then(() => {
       //applyColumnSettings()
     })
 
@@ -384,8 +394,28 @@ watch(() => route.params.project,
 
 
 
-function filterAttr() {
-  table.value.filter(filterValue.value)
+function buildCompdocQuery() {
+  return {
+    ...filterValue.value,
+    page: page.value,
+    page_size: pageSize.value
+  }
+}
+
+function fetchCompdocs() {
+  return store.fetchCompdocs(buildCompdocQuery())
+}
+
+function handlePageUpdate(newPage: number) {
+  page.value = newPage
+  fetchCompdocs()
+}
+
+function handleTablePageSizeUpdate(newPageSize: number) {
+  pageSize.value = newPageSize
+  page.value = 1
+  localStorage.setItem("compdocs>page_size", newPageSize.toString())
+  fetchCompdocs()
 }
 
 function showpUploadForm() {
@@ -494,8 +524,7 @@ function deleteAllCompDocs() {
 
 function handlePageSizeInput(number: number) {
   if (number) {
-    pagination.value.pageSize = number
-    localStorage.setItem("compdocs>page_size", number.toString())
+    handleTablePageSizeUpdate(number)
   }
 }
 
@@ -566,6 +595,8 @@ function handleFilterChange(filters: any) {
   for (let filter in filters) {
     filterValue.value[filter] = filters[filter]
   }
+  page.value = 1
+  fetchCompdocs()
 }
 
 function loadColumnSettings() {
@@ -652,11 +683,11 @@ onUnmounted(() => {
   <n-flex justify="end" style="margin: 16px 0 4px 0">
     <n-space>
       <strong>Page Size: </strong>
-      <n-input-number :value="pagination.pageSize" size="tiny" placeholder="Value" style="width: 50px"
+      <n-input-number :value="pageSize" size="tiny" placeholder="Value" style="width: 50px"
         :show-button="false" @update:value="handlePageSizeInput" />
     </n-space>
     <n-text>
-      <strong>Total: </strong>{{ getFilteredTable().length }}
+      <strong>Total: </strong>{{ store.pagination.count }}
     </n-text>
     <n-button size="tiny" @click="openColumnSettings" :focusable="false">
       <template #icon>
@@ -666,7 +697,8 @@ onUnmounted(() => {
   </n-flex>
 
   <n-data-table ref="table" :loading="store.isLoading" striped :columns="currentColumns" :data="store.getCompdocs"
-    :pagination="pagination" :row-key="rowKey" @update:filters="handleFilterChange"
+    remote :pagination="pagination" :row-key="rowKey" @update:filters="handleFilterChange"
+    @update:page="handlePageUpdate" @update:page-size="handleTablePageSizeUpdate"
     :filterIconPopoverProps="filterIconPopover" size="medium" />
 
   <UpdateForm ref="popupComponent" />
