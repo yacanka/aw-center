@@ -59,6 +59,42 @@ class UserSecurityTests(TestCase):
         self.assertFalse(created_user.is_superuser)
         self.assertEqual(created_user.user_permissions.count(), 0)
 
+    def test_login_sets_http_only_cookie_without_exposing_token(self):
+        response = self.client.post(
+            "/auth/token/",
+            {"username": "u10001", "password": "StrongPass!123"},
+            format="json",
+        )
+
+        auth_cookie = response.cookies["auth_token"]
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("token", response.data)
+        self.assertEqual(auth_cookie["httponly"], True)
+        self.assertEqual(auth_cookie["samesite"], "Lax")
+
+    def test_me_accepts_cookie_after_login(self):
+        self.client.post(
+            "/auth/token/",
+            {"username": "u10001", "password": "StrongPass!123"},
+            format="json",
+        )
+
+        response = self.client.get("/auth/me/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["username"], "u10001")
+
+    def test_invalid_login_returns_readable_validation_error(self):
+        response = self.client.post(
+            "/auth/token/",
+            {"username": "u10001", "password": "wrong-password"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("detail", response.data)
+        self.assertIn("code", response.data)
+
     def test_regular_user_cannot_escalate_permissions_via_me_endpoint(self):
         self.client.force_authenticate(user=self.regular_user)
 

@@ -9,6 +9,10 @@ import { compactPaginationQuery, getPaginationMeta, PaginationMeta, PaginationQu
 
 const API_PATH = "auth"
 
+type LoginResponse = {
+  detail: string
+}
+
 export const useAuthStore = defineStore(
   "auth",
   {
@@ -36,22 +40,22 @@ export const useAuthStore = defineStore(
       async login(credentials: any) {
         this.loading = true
         let loggedIn = false
-        await handleRequest<any>(
+        setAuthToken(null)
+        removeKey(STORAGE_KEYS.token)
+        await handleRequest<LoginResponse>(
           axios.post(`${API_PATH}/token/`, credentials),
-          () => {
+          (data) => {
             this.token = "cookie-auth"
-            notifySuccess("Login successful")
+            notifySuccess(data.detail || "Login successful")
             loggedIn = true
           },
-          (errorMsg) => {
-            const description = errorMsg.includes(": ") ? errorMsg.split(": ")[1] : errorMsg
-            notifyError(description)
-            console.log(errorMsg)
+          (errorMessage) => {
+            notifyError(errorMessage)
           },
           () => {
             this.loading = false
           }
-        )
+        ).catch(() => undefined)
         return loggedIn
       },
       async fetchUsers(query: PaginationQuery = {}) {

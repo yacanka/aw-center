@@ -21,7 +21,6 @@ from .serializers import (
 )
 
 User = get_user_model()
-AUTH_COOKIE_NAME = "auth_token"
 
 
 class UserView(APIView):
@@ -94,12 +93,12 @@ class CustomAuthToken(ObtainAuthToken):
         update_last_login(None, user)
         response = Response({"detail": "Login successful."}, status=status.HTTP_200_OK)
         response.set_cookie(
-            AUTH_COOKIE_NAME,
+            settings.AUTH_COOKIE_NAME,
             token.key,
             httponly=True,
-            samesite="Lax",
-            secure=not settings.DEBUG,
-            max_age=60 * 60 * 24 * 14,
+            samesite=settings.AUTH_COOKIE_SAMESITE,
+            secure=settings.AUTH_COOKIE_SECURE,
+            max_age=settings.AUTH_COOKIE_MAX_AGE,
         )
         return response
 
@@ -113,7 +112,7 @@ class LogoutView(APIView):
         except Token.DoesNotExist:
             pass
         response = Response("Logout successful.", status=status.HTTP_200_OK)
-        response.delete_cookie(AUTH_COOKIE_NAME)
+        response.delete_cookie(settings.AUTH_COOKIE_NAME)
         return response
 
 
