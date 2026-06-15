@@ -140,3 +140,10 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. The login page initializes the user store from that safe payload instead of calling `/auth/me/` immediately after login.
 3. `/auth/me/` remains the bootstrap/session validation endpoint for page refresh and existing sessions, not the critical post-login transition dependency.
 4. This avoids false login failures when the browser has not made the new HttpOnly cookie available to the next request yet or when cookie policy debugging is still in progress.
+
+## 16. Refresh bootstrap cache fallback
+
+1. Startup `/auth/me/` calls can now suppress auth-warning side effects during bootstrap.
+2. If `/auth/me/` fails during page refresh but a cached user exists, the frontend restores that user state and keeps the user in the app instead of forcing a login redirect.
+3. Backend APIs remain the security boundary; cached frontend state only prevents false UI logout and does not grant server access.
+4. Normal authenticated API calls still clear auth state and warn on 401, so expired/invalid cookies are handled outside the bootstrap fallback path.

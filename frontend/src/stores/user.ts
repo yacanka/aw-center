@@ -7,6 +7,11 @@ import { notifyError } from "@/services/notify"
 import { readJson, STORAGE_KEYS, removeKey, writeJson, writeString } from "@/services/storage"
 
 
+type CurrentUserOptions = {
+    allowCachedFallback?: boolean
+    suppressAuthenticationWarning?: boolean
+}
+
 let currentUser: IUser | null = null
 
 export function setUser(user: IUser) {
@@ -53,15 +58,15 @@ export const useUserStore = defineStore(
         actions: {
             setUser(user: IUser) {
                 this.user = user
-                this.permissions = user.permissions
-                this.preferences = user.preferences
+                this.permissions = user.permissions || []
+                this.preferences = user.preferences || {}
                 setUser(user)
             },
             checkPermission(permissionName: string) {
                 return this.permissions.some(permission => permission.codename == permissionName)
             },
             hasRole(app: string, role: string) {
-                return this.permissions.some((permission: IPermission) => permission.content_type.app_label == app && permission.codename == role)
+                return this.permissions.some((permission: IPermission) => permission.content_type?.app_label == app && permission.codename == role)
             },
             async updatePreference(preferencesData: IPreferences) {
                 this.loading = true;
@@ -78,18 +83,34 @@ export const useUserStore = defineStore(
                     () => this.loading = false
                 )
             },
-            async fetchCurrentUser() {
+            async fetchCurrentUser(options: CurrentUserOptions = {}) {
                 this.loading = true
+                let isLoaded = false
+                let requestError: Error | null = null
                 await handleRequest<IUser>(
                     axios.get(`auth/me/`),
                     (data) => {
                         this.setUser(data)
+                        isLoaded = true
                     },
                     (errorMsg) => {
-                        console.log(errorMsg)
+                        isLoaded = this.restoreCachedUser(options)
+                        if (!isLoaded) console.log(errorMsg)
                     },
-                    () => this.loading = false
-                )
+                    () => this.loading = false,
+                    { suppressAuthenticationWarning: options.suppressAuthenticationWarning }
+                ).catch((error) => {
+                    requestError = error
+                })
+                if (!isLoaded && requestError && !options.allowCachedFallback) throw requestError
+                return isLoaded
+            },
+            restoreCachedUser(options: CurrentUserOptions) {
+                const cachedUser = getUser()
+                if (!options.allowCachedFallback || !cachedUser) return false
+
+                this.setUser(cachedUser)
+                return true
             },
             async resetPasswordRequest(payload: object) {
                 this.loading = true
