@@ -7,6 +7,10 @@ import { isPaginatedResponse } from '@/services/pagination'
 
 type ErrorPayload = Record<string, unknown> | string | null | undefined
 
+type RequestOptions = {
+  suppressAuthenticationWarning?: boolean
+}
+
 function clearStoredAuthentication() {
   removeKey(STORAGE_KEYS.token)
   removeKey(STORAGE_KEYS.user)
@@ -18,8 +22,12 @@ function isAuthenticationFailure(error: AxiosError<ErrorPayload>) {
   return error.response?.status === 401
 }
 
-function handleAuthenticationFailure(error: AxiosError<ErrorPayload>) {
+function handleAuthenticationFailure(
+  error: AxiosError<ErrorPayload>,
+  options: RequestOptions
+) {
   if (!isAuthenticationFailure(error)) return
+  if (options.suppressAuthenticationWarning) return
 
   clearStoredAuthentication()
   notifyWarning('Login required.', 'Authentication Required')
@@ -38,7 +46,8 @@ export async function handleRequest<T>(
   request: Promise<AxiosResponse<T>>,
   onSuccess: (data: T) => void,
   onError: (errorMsg: string) => void,
-  onFinally?: () => void
+  onFinally?: () => void,
+  options: RequestOptions = {}
 ) {
   try {
     const data = handleSuccessfulResponse(await request)
@@ -48,8 +57,9 @@ export async function handleRequest<T>(
   } catch (error) {
     const axiosError = error as AxiosError<ErrorPayload>
     const errorMessage = formatApiError(axiosError.response?.data)
-    handleAuthenticationFailure(axiosError)
-    onError(errorMessage)
+    const isAuthFailure = isAuthenticationFailure(axiosError)
+    handleAuthenticationFailure(axiosError, options)
+    if (!isAuthFailure || options.suppressAuthenticationWarning) onError(errorMessage)
     throw new Error(errorMessage)
   } finally {
     onFinally?.()
