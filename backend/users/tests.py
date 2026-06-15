@@ -87,6 +87,19 @@ class UserSecurityTests(TestCase):
         self.assertEqual(auth_cookie["samesite"], "None")
         self.assertEqual(auth_cookie["secure"], True)
 
+    def test_login_ignores_stale_auth_cookie(self):
+        self.client.cookies["auth_token"] = "stale-token"
+
+        response = self.client.post(
+            "/auth/token/",
+            {"username": "u10001", "password": "StrongPass!123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["user"]["username"], "u10001")
+        self.assertNotEqual(response.cookies["auth_token"].value, "stale-token")
+
     def test_login_response_user_does_not_include_sensitive_fields(self):
         response = self.client.post(
             "/auth/token/",
