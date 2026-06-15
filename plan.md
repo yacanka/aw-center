@@ -161,3 +161,10 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. If a valid authenticated user is present, logout deletes the server-side DRF token before clearing the cookie.
 3. The frontend suppresses auth-required warnings during logout and always clears local auth state after the logout attempt.
 4. Regression tests cover anonymous stale-cookie logout and authenticated server-token deletion.
+
+## 19. Cross-origin cookie and auth notification cleanup
+
+1. Production auth cookie `SameSite` default is now `None` while development stays `Lax`; this supports HTTPS cross-origin SPA deployments where Lax cookies are not sent on XHR/fetch requests.
+2. `AUTH_COOKIE_SECURE` remains enabled by default outside DEBUG, matching browser requirements for `SameSite=None` cookies.
+3. Shared request handling no longer calls endpoint-level error callbacks for default 401 handling, preventing duplicate `Login required` plus backend credential notifications.
+4. Tests cover both local Lax cookie policy and secure cross-site cookie policy.

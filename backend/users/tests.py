@@ -60,6 +60,7 @@ class UserSecurityTests(TestCase):
         self.assertFalse(created_user.is_superuser)
         self.assertEqual(created_user.user_permissions.count(), 0)
 
+    @override_settings(AUTH_COOKIE_SAMESITE="Lax", AUTH_COOKIE_SECURE=False)
     def test_login_sets_http_only_cookie_without_exposing_token(self):
         response = self.client.post(
             "/auth/token/",
@@ -73,6 +74,18 @@ class UserSecurityTests(TestCase):
         self.assertEqual(response.data["user"]["username"], "u10001")
         self.assertEqual(auth_cookie["httponly"], True)
         self.assertEqual(auth_cookie["samesite"], "Lax")
+
+    @override_settings(AUTH_COOKIE_SAMESITE="None", AUTH_COOKIE_SECURE=True)
+    def test_login_can_set_cross_site_secure_cookie_policy(self):
+        response = self.client.post(
+            "/auth/token/",
+            {"username": "u10001", "password": "StrongPass!123"},
+            format="json",
+        )
+
+        auth_cookie = response.cookies["auth_token"]
+        self.assertEqual(auth_cookie["samesite"], "None")
+        self.assertEqual(auth_cookie["secure"], True)
 
     def test_login_response_user_does_not_include_sensitive_fields(self):
         response = self.client.post(
