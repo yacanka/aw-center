@@ -10,12 +10,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 
-import pandas as pd
 import uuid
 import json
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
-from docxtpl import DocxTemplate
 from base64 import b64decode, b64encode
 from time import sleep
 from utils.arrays import find_missing_elements
@@ -24,6 +22,8 @@ class UploadForm(forms.Form):
     file = forms.FileField()
 
 def read_excel_first_sheet(path):
+    import pandas as pd
+
     df = pd.read_excel(path, dtype=str)
     df.columns = [str(c).strip() for c in df.columns]
     df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
@@ -51,6 +51,8 @@ def get_excel_columns(request):
     form = UploadForm(request.POST, request.FILES)
     if form.is_valid():
         excel_file = request.FILES["file"]
+        import pandas as pd
+
         df = pd.read_excel(excel_file)
         return Response(df.columns.tolist())
 
@@ -59,6 +61,8 @@ def get_excel_columns(request):
 @api_view(["POST"])
 def compare(request):
     try:
+        import pandas as pd
+
         first_excel = request.FILES["first"]
         second_excel = request.FILES["second"]
         parameters = json.loads(request.data["json"])
@@ -190,6 +194,9 @@ def excel_to_cover_pages_stream(request, uuid):
     return response
 
 def excel_to_cover_pages_action(uuid):
+    import pandas as pd
+    from docxtpl import DocxTemplate
+
     obj = cache.get(uuid, None)
     if obj:
         try:
