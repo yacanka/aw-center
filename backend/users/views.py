@@ -21,7 +21,6 @@ from .serializers import (
 )
 
 User = get_user_model()
-AUTH_COOKIE_NAME = "auth_token"
 
 
 class UserView(APIView):
@@ -92,29 +91,39 @@ class CustomAuthToken(ObtainAuthToken):
         user = serializer.validated_data["user"]
         token, _ = Token.objects.get_or_create(user=user)
         update_last_login(None, user)
-        response = Response({"detail": "Login successful."}, status=status.HTTP_200_OK)
+        response = Response(
+            {
+                "detail": "Login successful.",
+                "user": UserSerializer(user, context={"request": request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
         response.set_cookie(
-            AUTH_COOKIE_NAME,
+            settings.AUTH_COOKIE_NAME,
             token.key,
             httponly=True,
-            samesite="Lax",
-            secure=not settings.DEBUG,
-            max_age=60 * 60 * 24 * 14,
+            samesite=settings.AUTH_COOKIE_SAMESITE,
+            secure=settings.AUTH_COOKIE_SECURE,
+            max_age=settings.AUTH_COOKIE_MAX_AGE,
         )
         return response
 
 
 class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request):
+        if request.user.is_authenticated:
+            self._delete_user_token(request.user)
+        response = Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
+        response.delete_cookie(settings.AUTH_COOKIE_NAME)
+        return response
+
+    def _delete_user_token(self, user):
         try:
-            request.user.auth_token.delete()
+            user.auth_token.delete()
         except Token.DoesNotExist:
             pass
-        response = Response("Logout successful.", status=status.HTTP_200_OK)
-        response.delete_cookie(AUTH_COOKIE_NAME)
-        return response
 
 
 class MeView(APIView):

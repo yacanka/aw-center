@@ -9,6 +9,11 @@ import { compactPaginationQuery, getPaginationMeta, PaginationMeta, PaginationQu
 
 const API_PATH = "auth"
 
+type LoginResponse = {
+  detail: string
+  user: IUser
+}
+
 export const useAuthStore = defineStore(
   "auth",
   {
@@ -35,24 +40,25 @@ export const useAuthStore = defineStore(
       },
       async login(credentials: any) {
         this.loading = true
-        let loggedIn = false
-        await handleRequest<any>(
+        let authenticatedUser: IUser | null = null
+        setAuthToken(null)
+        removeKey(STORAGE_KEYS.token)
+        await handleRequest<LoginResponse>(
           axios.post(`${API_PATH}/token/`, credentials),
-          () => {
+          (data) => {
+            this.me = data.user
             this.token = "cookie-auth"
-            notifySuccess("Login successful")
-            loggedIn = true
+            authenticatedUser = data.user
+            notifySuccess(data.detail || "Login successful")
           },
-          (errorMsg) => {
-            const description = errorMsg.includes(": ") ? errorMsg.split(": ")[1] : errorMsg
-            notifyError(description)
-            console.log(errorMsg)
+          (errorMessage) => {
+            notifyError(errorMessage)
           },
           () => {
             this.loading = false
           }
-        )
-        return loggedIn
+        ).catch(() => undefined)
+        return authenticatedUser
       },
       async fetchUsers(query: PaginationQuery = {}) {
         this.loading = true
@@ -128,21 +134,21 @@ export const useAuthStore = defineStore(
         this.loading = true
         await handleRequest<any>(
           axios.post(`${API_PATH}/logout/`),
-          () => {
-            notifySuccess("Logout successful")
-          },
-          (errorMsg) => {
-            notifyError(errorMsg)
-            console.log(errorMsg)
-          },
+          () => undefined,
+          () => undefined,
           () => {
             this.loading = false
-          }
-        )
+          },
+          { suppressAuthenticationWarning: true }
+        ).catch(() => undefined)
 
+        this.me = {} as IUser
         this.token = ""
         setAuthToken(null)
         removeKey(STORAGE_KEYS.token)
+        removeKey(STORAGE_KEYS.user)
+        removeKey(STORAGE_KEYS.project)
+        notifySuccess("Logout successful")
       },
       async fetchPermissions(query: PaginationQuery = {}) {
         this.loading = true

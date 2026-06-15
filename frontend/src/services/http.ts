@@ -5,6 +5,11 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL
 axios.defaults.baseURL = API_BASE_URL
 axios.defaults.withCredentials = true
 
+axios.interceptors.request.use((config) => {
+  config.withCredentials = true
+  return config
+})
+
 /**
  * Sets or clears the shared Axios token header for authenticated API calls.
  */
@@ -18,6 +23,6 @@ export function setAuthToken(token: string | null) {
 }
 
 /**
- * Reserved bootstrap hook for future HTTP authentication initialization.
+ * Keeps startup auth cookie-only; legacy token headers are intentionally not restored.
  */
 export function bootstrapHttpAuth() {}

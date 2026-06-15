@@ -126,3 +126,61 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. Genel server-side filter helper tekrarlı query parametrelerini `__in` lookup'a dönüştürür; tekil metin alanları `icontains`, diğer alanlar exact lookup kullanır.
 3. Frontend pagination query tipi boolean ve string/number array filtre değerlerini kabul edecek şekilde genişletildi.
 4. JSON alanlarda generic lookup yerine ileride domain-specific filtre endpoint sözleşmeleri kullanılmalıdır; SQLite JSON lookup limitleri nedeniyle bu bilinçli olarak generic filtreye zorlanmadı.
+
+## 14. Cookie-only login hardening revision
+
+1. Token'ın response body içinde dönülmesi ve frontend storage'a yazılması güvenlik gerekçesiyle tercih edilmedi; login yalnızca HttpOnly cookie ile kimlik doğrular.
+2. Frontend login başlangıcında eski/stale `Authorization` header ve storage token temizlenir; böylece eski token cookie-auth akışını gölgeleyemez.
+3. Auth cookie adı, ömrü, `SameSite` ve `Secure` ayarları environment üzerinden yönetilebilir hale getirildi.
+4. Regression testleri token sızdırılmadığını, cookie'nin HttpOnly/SameSite ayarlarıyla set edildiğini ve `/auth/me/` endpoint'inin login sonrası cookie ile çalıştığını doğrular.
+
+## 15. Login bootstrap without immediate auth/me dependency
+
+1. Login response now returns a safe serialized user payload while keeping the token HttpOnly-cookie-only.
+2. The login page initializes the user store from that safe payload instead of calling `/auth/me/` immediately after login.
+3. `/auth/me/` remains the bootstrap/session validation endpoint for page refresh and existing sessions, not the critical post-login transition dependency.
+4. This avoids false login failures when the browser has not made the new HttpOnly cookie available to the next request yet or when cookie policy debugging is still in progress.
+
+## 16. Refresh bootstrap cache fallback
+
+1. Startup `/auth/me/` calls can now suppress auth-warning side effects during bootstrap.
+2. If `/auth/me/` fails during page refresh but a cached user exists, the frontend restores that user state and keeps the user in the app instead of forcing a login redirect.
+3. Backend APIs remain the security boundary; cached frontend state only prevents false UI logout and does not grant server access.
+4. Normal authenticated API calls still clear auth state and warn on 401, so expired/invalid cookies are handled outside the bootstrap fallback path.
+
+## 17. Single-source auth bootstrap cleanup
+
+1. Current-user validation is now centralized in `main.ts`; `MainView.vue` no longer performs a second `/auth/me/` request after bootstrap.
+2. Removing the duplicate MainView auth check prevents the default 401 handler from clearing cached user state immediately after startup fallback succeeds.
+3. Cookie token authentication now reads the configured `AUTH_COOKIE_NAME`, keeping login, logout, and authentication middleware aligned when deployments customize cookie names.
+4. Release note checks remain best-effort UI work and no longer control navigation to the login page.
+
+## 18. Idempotent logout flow
+
+1. Logout is now idempotent and public: it returns success and deletes the browser cookie even when the backend no longer sees an authenticated user.
+2. If a valid authenticated user is present, logout deletes the server-side DRF token before clearing the cookie.
+3. The frontend suppresses auth-required warnings during logout and always clears local auth state after the logout attempt.
+4. Regression tests cover anonymous stale-cookie logout and authenticated server-token deletion.
+
+## 19. Cross-origin cookie and auth notification cleanup
+
+1. Auth cookie `SameSite` default is now `None`; this supports cross-origin SPA deployments where Lax cookies are not sent on XHR/fetch requests.
+2. `AUTH_COOKIE_SECURE` remains configurable and defaults to enabled when `SameSite=None` or outside DEBUG; HTTPS deployments should keep it enabled for cross-site cookies.
+3. Shared request handling no longer calls endpoint-level error callbacks for default 401 handling, preventing duplicate `Login required` plus backend credential notifications.
+4. Tests cover both local Lax cookie policy and secure cross-site cookie policy.
+
+
+## 20. Protected endpoint credential transport cleanup
+
+1. Public `AllowAny` endpoints returning 200 do not prove auth cookies are being sent; protected endpoints like preferences and pptxgallery are the reliable signal.
+2. Axios now forces `withCredentials=true` through a request interceptor so every request, including calls with custom config objects, carries cookies consistently.
+3. The auth cookie `SameSite=None` default aligns browser behavior with cross-origin SPA API calls, and the secure-cookie default follows browser requirements; deployments that are strictly same-site can override it to `Lax`.
+4. Protected endpoints remain protected; the fix is credential transport consistency, not weakening permissions.
+
+
+## 21. Stale cookie login recovery
+
+1. DRF authenticates before permission checks, so a stale auth cookie can block even `AllowAny` login requests before credentials are validated.
+2. Cookie authentication now treats invalid cookie tokens as anonymous instead of raising immediately; protected endpoints still return 401 through `IsAuthenticated`.
+3. Header token failures remain strict because explicit `Authorization` headers are caller-controlled credentials and should fail closed.
+4. Login overwrites stale cookies with a fresh HttpOnly token cookie after valid username/password verification.
