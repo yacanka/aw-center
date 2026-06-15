@@ -1,5 +1,6 @@
 from django.conf import settings
 from rest_framework.authentication import TokenAuthentication
+from rest_framework.exceptions import AuthenticationFailed
 
 
 class CookieTokenAuthentication(TokenAuthentication):
@@ -14,4 +15,7 @@ class CookieTokenAuthentication(TokenAuthentication):
         if not raw_token:
             return None
 
-        return self.authenticate_credentials(raw_token)
+        try:
+            return self.authenticate_credentials(raw_token)
+        except AuthenticationFailed:
+            return None

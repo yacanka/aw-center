@@ -176,3 +176,11 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. Axios now forces `withCredentials=true` through a request interceptor so every request, including calls with custom config objects, carries cookies consistently.
 3. The auth cookie `SameSite=None` default aligns browser behavior with cross-origin SPA API calls, and the secure-cookie default follows browser requirements; deployments that are strictly same-site can override it to `Lax`.
 4. Protected endpoints remain protected; the fix is credential transport consistency, not weakening permissions.
+
+
+## 21. Stale cookie login recovery
+
+1. DRF authenticates before permission checks, so a stale auth cookie can block even `AllowAny` login requests before credentials are validated.
+2. Cookie authentication now treats invalid cookie tokens as anonymous instead of raising immediately; protected endpoints still return 401 through `IsAuthenticated`.
+3. Header token failures remain strict because explicit `Authorization` headers are caller-controlled credentials and should fail closed.
+4. Login overwrites stale cookies with a fresh HttpOnly token cookie after valid username/password verification.
