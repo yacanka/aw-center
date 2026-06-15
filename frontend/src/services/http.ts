@@ -18,6 +18,6 @@ export function setAuthToken(token: string | null) {
 }
 
 /**
- * Reserved bootstrap hook for future HTTP authentication initialization.
+ * Keeps startup auth cookie-only; legacy token headers are intentionally not restored.
  */
 export function bootstrapHttpAuth() {}
