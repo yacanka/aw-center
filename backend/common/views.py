@@ -10,18 +10,11 @@ from awcenter.pagination import StandardResultsSetPagination
 
 from dateutil import parser
 from datetime import datetime, date
-import pandas as pd
-import numpy as np
 import json
 from io import BytesIO
 from pprint import pprint
 
 import math
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import PatternFill, Alignment, Font
-from openpyxl.formatting.rule import FormulaRule
-from openpyxl import Workbook
-
 from utils.arrays import safe_get
 
 PAGINATION_QUERY_PARAMETERS = {"page", "page_size"}
@@ -172,6 +165,11 @@ list_cols = ["Signature Panel", "Requirements", "Status Flow"]
 def excel_creator_factory(model, serializer_class, view_permission_classes):
     class ExcelCreator(APIView):
         def get(self, request):
+            import pandas as pd
+            from openpyxl.formatting.rule import FormulaRule
+            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.utils import get_column_letter
+
             objs = model.objects.all()
             serializer = serializer_class(objs, many=True)
             df = pd.DataFrame(serializer.data)
@@ -301,6 +299,8 @@ def upload_compdoc_factory(model, serializer_class, view_permission_classes):
             form = UploadForm(request.POST, request.FILES)
             if form.is_valid():
                 excel_file = request.FILES["file"]
+                import pandas as pd
+
                 df = pd.read_excel(excel_file)
 
                 missing_elements = find_missing_elements(df.columns, reference_list)
