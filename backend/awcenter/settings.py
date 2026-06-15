@@ -125,8 +125,11 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 AUTH_COOKIE_NAME = env.str("AUTH_COOKIE_NAME", default="auth_token")
 AUTH_COOKIE_MAX_AGE = env.int("AUTH_COOKIE_MAX_AGE", default=60 * 60 * 24 * 14)
-AUTH_COOKIE_SAMESITE = env.str("AUTH_COOKIE_SAMESITE", default="Lax" if DEBUG else "None")
-AUTH_COOKIE_SECURE = env.bool("AUTH_COOKIE_SECURE", default=not DEBUG)
+AUTH_COOKIE_SAMESITE = env.str("AUTH_COOKIE_SAMESITE", default="None")
+AUTH_COOKIE_SECURE = env.bool(
+    "AUTH_COOKIE_SECURE",
+    default=AUTH_COOKIE_SAMESITE.lower() == "none" or not DEBUG,
+)
 
 ROOT_URLCONF = 'awcenter.urls'
 

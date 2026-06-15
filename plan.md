@@ -164,7 +164,15 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 
 ## 19. Cross-origin cookie and auth notification cleanup
 
-1. Production auth cookie `SameSite` default is now `None` while development stays `Lax`; this supports HTTPS cross-origin SPA deployments where Lax cookies are not sent on XHR/fetch requests.
-2. `AUTH_COOKIE_SECURE` remains enabled by default outside DEBUG, matching browser requirements for `SameSite=None` cookies.
+1. Auth cookie `SameSite` default is now `None`; this supports cross-origin SPA deployments where Lax cookies are not sent on XHR/fetch requests.
+2. `AUTH_COOKIE_SECURE` remains configurable and defaults to enabled when `SameSite=None` or outside DEBUG; HTTPS deployments should keep it enabled for cross-site cookies.
 3. Shared request handling no longer calls endpoint-level error callbacks for default 401 handling, preventing duplicate `Login required` plus backend credential notifications.
 4. Tests cover both local Lax cookie policy and secure cross-site cookie policy.
+
+
+## 20. Protected endpoint credential transport cleanup
+
+1. Public `AllowAny` endpoints returning 200 do not prove auth cookies are being sent; protected endpoints like preferences and pptxgallery are the reliable signal.
+2. Axios now forces `withCredentials=true` through a request interceptor so every request, including calls with custom config objects, carries cookies consistently.
+3. The auth cookie `SameSite=None` default aligns browser behavior with cross-origin SPA API calls, and the secure-cookie default follows browser requirements; deployments that are strictly same-site can override it to `Lax`.
+4. Protected endpoints remain protected; the fix is credential transport consistency, not weakening permissions.
