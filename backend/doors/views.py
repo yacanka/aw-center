@@ -13,7 +13,6 @@ try:
     import pythoncom
 except ImportError:
     pythoncom = None
-import pandas as pd
 import json
 
 import os
@@ -89,6 +88,8 @@ def create_script(request):
     if form.is_valid():
         try:
             excel_file = request.FILES["file"]
+            import pandas as pd
+
             data = json.loads(request.POST["json"])
 
             target_index = next((i for i, item in enumerate(data) if item["search"] == True), None)

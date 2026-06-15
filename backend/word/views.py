@@ -10,21 +10,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView 
 from rest_framework import status
 
-import pandas as pd
 import json
 from io import BytesIO
 
 import re
 import unicodedata
 import docx2txt
-import pandas as pd
 from difflib import SequenceMatcher
-from docx import Document
-from docx.shared import Pt
-from openpyxl.styles import Font, Alignment, PatternFill
-from openpyxl.formatting.rule import CellIsRule, FormulaRule, ColorScaleRule, DataBarRule
-from openpyxl.utils import get_column_letter
-from docx.enum.text import WD_COLOR_INDEX
 
 from pathlib import Path
 import sys
@@ -185,7 +177,7 @@ def style_normal(run):
     run.font.strike = False
     run.font.underline = False
 
-def add_legend(doc: Document):
+def add_legend(doc):
     p = doc.add_paragraph()
     r = p.add_run("Legend: ")
     r.bold = True
@@ -219,7 +211,7 @@ def write_word_diff(par, a_text: str, b_text: str):
             for t in a_tokens[i1:i2]: add(t, style_deleted)
             for t in b_tokens[j1:j2]: add(t, style_added)
 
-def write_sentence_aware_diff_with_ids(doc: Document, a_idx, a_text, b_idx, b_text):
+def write_sentence_aware_diff_with_ids(doc, a_idx, a_text, b_idx, b_text):
     hdr = doc.add_paragraph()
     hdr_run = hdr.add_run(f"[A#{a_idx if a_idx is not None else '-'} | B#{b_idx if b_idx is not None else '-'}]")
     hdr_run.italic = True
@@ -271,6 +263,8 @@ def write_sentence_aware_diff_with_ids(doc: Document, a_idx, a_text, b_idx, b_te
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def compare(request):
+    import pandas as pd
+    from docx import Document
 
     file1 = request.FILES["first"]
     file2 = request.FILES["second"]
@@ -372,6 +366,11 @@ def compare(request):
 
 
 def write_excel_report_openpyxl(out_excel, excel_rows, summary_stats, table_rows=None):
+    import pandas as pd
+    from openpyxl.formatting.rule import FormulaRule
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
     # DataFrames
     diff_cols = [
         "Tag","A_Index","B_Index","A_Text","B_Text",
