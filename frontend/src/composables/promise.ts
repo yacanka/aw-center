@@ -57,8 +57,9 @@ export async function handleRequest<T>(
   } catch (error) {
     const axiosError = error as AxiosError<ErrorPayload>
     const errorMessage = formatApiError(axiosError.response?.data)
+    const isAuthFailure = isAuthenticationFailure(axiosError)
     handleAuthenticationFailure(axiosError, options)
-    onError(errorMessage)
+    if (!isAuthFailure || options.suppressAuthenticationWarning) onError(errorMessage)
     throw new Error(errorMessage)
   } finally {
     onFinally?.()
