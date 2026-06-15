@@ -113,16 +113,10 @@ const menuOptions = [
 ]
 
 const currentPage = computed(() => route.path)
-const userStore = useUserStore()
 const appVersion = import.meta.env.VITE_VERSION
 
 
 onMounted(async () => {
-  try {
-    await userStore.fetchCurrentUser()
-    await releaseNotes.checkUnseen();
-  } catch (err) {
-    router.push({ name: "login" })
-  }
+  await releaseNotes.checkUnseen();
 })
 </script>
