@@ -184,3 +184,11 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. Cookie authentication now treats invalid cookie tokens as anonymous instead of raising immediately; protected endpoints still return 401 through `IsAuthenticated`.
 3. Header token failures remain strict because explicit `Authorization` headers are caller-controlled credentials and should fail closed.
 4. Login overwrites stale cookies with a fresh HttpOnly token cookie after valid username/password verification.
+
+## 22. Welcome ekranı ilk açılış performans iyileştirmesi
+
+1. Welcome ekranındaki arka plan videosu artık `preload="metadata"` ile yalnızca video metadata'sını önceliklendirir; ilk render'da tam `world.mp4` indirmeyi zorlamaz.
+2. Video yüklenmeden önce veya yüklenemezse kullanılacak hafif SVG poster ve CSS gradient fallback eklendi.
+3. Kullanıcı welcome ekranını daha önce gördüyse `localStorage` işareti ile video DOM'a eklenmeden doğrudan `home` veya `login` rotasına yönlendirilir.
+4. WebM/düşük bitrate varyantı üretimi için ortamda `ffmpeg` bulunmadığı doğrulandı; uygun medya pipeline'ı eklendiğinde `<source>` alternatifi genişletilmelidir.
+5. Lighthouse/Network doğrulaması gerçek tarayıcı ortamında yapılmalıdır; bu ortamda statik build ile regresyon kontrolü yapılmıştır.

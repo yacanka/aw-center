@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="title description">
+  <title id="title">AW Center welcome background</title>
+  <desc id="description">A lightweight blue and purple gradient poster used while the welcome video metadata loads.</desc>
+  <defs>
+    <radialGradient id="topGlow" cx="28%" cy="18%" r="60%">
+      <stop offset="0%" stop-color="#5ee7ff" stop-opacity="0.7" />
+      <stop offset="45%" stop-color="#3454d1" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#07111f" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="bottomGlow" cx="78%" cy="82%" r="70%">
+      <stop offset="0%" stop-color="#8d5cff" stop-opacity="0.55" />
+      <stop offset="55%" stop-color="#182a68" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#07111f" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="base" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#07111f" />
+      <stop offset="55%" stop-color="#10264f" />
+      <stop offset="100%" stop-color="#030712" />
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#base)" />
+  <rect width="1280" height="720" fill="url(#topGlow)" />
+  <rect width="1280" height="720" fill="url(#bottomGlow)" />
+  <path d="M0 510 C220 430 420 590 650 505 C870 425 1040 445 1280 360 L1280 720 L0 720 Z" fill="#ffffff" opacity="0.06" />
+</svg>
