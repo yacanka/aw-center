@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .permissions import UserPermission
+from common.views import paginated_response
 from .serializers import (
     PasswordChangeSerializer,
     PasswordResetConfirmSerializer,
@@ -41,9 +42,20 @@ class UserView(APIView):
             serializer = UserSerializer(user, context={"request": request})
             return Response(serializer.data)
 
-        users = self._user_queryset()
-        serializer = UserSerializer(users, many=True, context={"request": request})
-        return Response(serializer.data)
+        users = self._user_queryset().order_by("id")
+        first_name = request.query_params.get("first_name")
+        last_name = request.query_params.get("last_name")
+        username = request.query_params.get("username")
+        email = request.query_params.get("email")
+        if first_name:
+            users = users.filter(first_name__icontains=first_name)
+        if last_name:
+            users = users.filter(last_name__icontains=last_name)
+        if username:
+            users = users.filter(username__icontains=username)
+        if email:
+            users = users.filter(email__icontains=email)
+        return paginated_response(request, users, UserSerializer)
 
     def post(self, request):
         serializer = UserSerializer(data=request.data, context={"request": request})
@@ -138,9 +150,8 @@ class PermissionListView(APIView):
     permission_classes = [IsAuthenticated, UserPermission]
 
     def get(self, request):
-        permissions = Permission.objects.select_related("content_type").all()
-        serializer = PermissionSerializer(permissions, many=True)
-        return Response(serializer.data)
+        permissions = Permission.objects.select_related("content_type").order_by("content_type__app_label", "codename")
+        return paginated_response(request, permissions, PermissionSerializer)
 
 
 class CurrentUserView(APIView):
