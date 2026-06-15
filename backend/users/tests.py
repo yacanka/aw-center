@@ -119,6 +119,24 @@ class UserSecurityTests(TestCase):
         self.assertIn("detail", response.data)
         self.assertIn("code", response.data)
 
+    def test_anonymous_logout_is_idempotent_and_deletes_cookie(self):
+        self.client.cookies["auth_token"] = "stale-token"
+
+        response = self.client.post("/auth/logout/", format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("auth_token", response.cookies)
+        self.assertEqual(response.cookies["auth_token"].value, "")
+
+    def test_authenticated_logout_deletes_server_token(self):
+        token = Token.objects.create(user=self.regular_user)
+        self.client.cookies["auth_token"] = token.key
+
+        response = self.client.post("/auth/logout/", format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Token.objects.filter(user=self.regular_user).exists())
+
     def test_regular_user_cannot_escalate_permissions_via_me_endpoint(self):
         self.client.force_authenticate(user=self.regular_user)
 

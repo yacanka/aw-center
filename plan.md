@@ -154,3 +154,10 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. Removing the duplicate MainView auth check prevents the default 401 handler from clearing cached user state immediately after startup fallback succeeds.
 3. Cookie token authentication now reads the configured `AUTH_COOKIE_NAME`, keeping login, logout, and authentication middleware aligned when deployments customize cookie names.
 4. Release note checks remain best-effort UI work and no longer control navigation to the login page.
+
+## 18. Idempotent logout flow
+
+1. Logout is now idempotent and public: it returns success and deletes the browser cookie even when the backend no longer sees an authenticated user.
+2. If a valid authenticated user is present, logout deletes the server-side DRF token before clearing the cookie.
+3. The frontend suppresses auth-required warnings during logout and always clears local auth state after the logout attempt.
+4. Regression tests cover anonymous stale-cookie logout and authenticated server-token deletion.
