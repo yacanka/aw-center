@@ -47,6 +47,17 @@ JIRA_BTB_URL = env.str("JIRA_BTB_URL")
 AW_USERNAME = env.str("AW_USERNAME", "")
 AW_PASSWORD = env.str("AW_PASSWORD", "")
 
+
+def get_default_auth_cookie_samesite(debug):
+    """Return the safe default SameSite policy for the runtime mode."""
+    return "Lax" if debug else "None"
+
+
+def get_default_auth_cookie_secure(debug):
+    """Return whether auth cookies should default to Secure for the runtime mode."""
+    return not debug
+
+
 CERTIFICATES_DIR = BASE_DIR / "certificates"
 CUSTOM_TEMPLATE_DIR = BASE_DIR / "custom_templates"
 
@@ -125,11 +136,9 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 AUTH_COOKIE_NAME = env.str("AUTH_COOKIE_NAME", default="auth_token")
 AUTH_COOKIE_MAX_AGE = env.int("AUTH_COOKIE_MAX_AGE", default=60 * 60 * 24 * 14)
-AUTH_COOKIE_SAMESITE = env.str("AUTH_COOKIE_SAMESITE", default="None")
-AUTH_COOKIE_SECURE = env.bool(
-    "AUTH_COOKIE_SECURE",
-    default=AUTH_COOKIE_SAMESITE.lower() == "none" or not DEBUG,
-)
+AUTH_COOKIE_DEFAULT_SAMESITE = get_default_auth_cookie_samesite(DEBUG)
+AUTH_COOKIE_SAMESITE = env.str("AUTH_COOKIE_SAMESITE", default=AUTH_COOKIE_DEFAULT_SAMESITE)
+AUTH_COOKIE_SECURE = env.bool("AUTH_COOKIE_SECURE", default=get_default_auth_cookie_secure(DEBUG))
 
 ROOT_URLCONF = 'awcenter.urls'
 
