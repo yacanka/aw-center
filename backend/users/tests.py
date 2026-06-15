@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 User = get_user_model()
@@ -90,6 +91,17 @@ class UserSecurityTests(TestCase):
             {"username": "u10001", "password": "StrongPass!123"},
             format="json",
         )
+
+        response = self.client.get("/auth/me/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["username"], "u10001")
+
+
+    @override_settings(AUTH_COOKIE_NAME="custom_auth_token")
+    def test_me_accepts_configured_auth_cookie_name(self):
+        token = Token.objects.create(user=self.regular_user)
+        self.client.cookies["custom_auth_token"] = token.key
 
         response = self.client.get("/auth/me/")
 
