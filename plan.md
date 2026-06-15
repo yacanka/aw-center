@@ -133,3 +133,10 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. Frontend login başlangıcında eski/stale `Authorization` header ve storage token temizlenir; böylece eski token cookie-auth akışını gölgeleyemez.
 3. Auth cookie adı, ömrü, `SameSite` ve `Secure` ayarları environment üzerinden yönetilebilir hale getirildi.
 4. Regression testleri token sızdırılmadığını, cookie'nin HttpOnly/SameSite ayarlarıyla set edildiğini ve `/auth/me/` endpoint'inin login sonrası cookie ile çalıştığını doğrular.
+
+## 15. Login bootstrap without immediate auth/me dependency
+
+1. Login response now returns a safe serialized user payload while keeping the token HttpOnly-cookie-only.
+2. The login page initializes the user store from that safe payload instead of calling `/auth/me/` immediately after login.
+3. `/auth/me/` remains the bootstrap/session validation endpoint for page refresh and existing sessions, not the critical post-login transition dependency.
+4. This avoids false login failures when the browser has not made the new HttpOnly cookie available to the next request yet or when cookie policy debugging is still in progress.

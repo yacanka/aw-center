@@ -69,8 +69,20 @@ class UserSecurityTests(TestCase):
         auth_cookie = response.cookies["auth_token"]
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("token", response.data)
+        self.assertEqual(response.data["user"]["username"], "u10001")
         self.assertEqual(auth_cookie["httponly"], True)
         self.assertEqual(auth_cookie["samesite"], "Lax")
+
+    def test_login_response_user_does_not_include_sensitive_fields(self):
+        response = self.client.post(
+            "/auth/token/",
+            {"username": "u10001", "password": "StrongPass!123"},
+            format="json",
+        )
+
+        user_data = response.data["user"]
+        self.assertNotIn("password", user_data)
+        self.assertNotIn("auth_token", user_data)
 
     def test_me_accepts_cookie_after_login(self):
         self.client.post(
