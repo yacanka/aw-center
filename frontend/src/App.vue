@@ -1,10 +1,10 @@
 <template>
-  <n-config-provider :theme="userStore.getPreferences.theme == 'dark' ? darkTheme : lightTheme">
+  <n-config-provider :theme="activeTheme">
     <n-dialog-provider>
       <n-message-provider>
         <n-notification-provider>
           <n-loading-bar-provider>
-            <div v-if="!userStore.isSessionInitialized" class="session-loading-shell">
+            <div v-if="isSessionInitializing" class="session-loading-shell">
               <n-spin size="small" />
               <span>Preparing AW Center...</span>
             </div>
@@ -17,11 +17,14 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { darkTheme, lightTheme } from 'naive-ui'
 import MainView from '@/views/MainView.vue'
 import { useUserStore } from './stores/user'
 
 const userStore = useUserStore()
+const activeTheme = computed(() => (userStore.getPreferences.theme === 'dark' ? darkTheme : lightTheme))
+const isSessionInitializing = computed(() => !userStore.isSessionInitialized)
 </script>
 
 <style>
