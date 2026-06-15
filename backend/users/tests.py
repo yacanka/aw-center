@@ -60,6 +60,20 @@ class UserSecurityTests(TestCase):
         self.assertFalse(created_user.is_superuser)
         self.assertEqual(created_user.user_permissions.count(), 0)
 
+    def test_debug_cookie_defaults_support_plain_http_refresh(self):
+        from awcenter.settings import get_default_auth_cookie_samesite
+        from awcenter.settings import get_default_auth_cookie_secure
+
+        self.assertEqual(get_default_auth_cookie_samesite(True), "Lax")
+        self.assertFalse(get_default_auth_cookie_secure(True))
+
+    def test_production_cookie_defaults_support_secure_cross_site_spa(self):
+        from awcenter.settings import get_default_auth_cookie_samesite
+        from awcenter.settings import get_default_auth_cookie_secure
+
+        self.assertEqual(get_default_auth_cookie_samesite(False), "None")
+        self.assertTrue(get_default_auth_cookie_secure(False))
+
     @override_settings(AUTH_COOKIE_SAMESITE="Lax", AUTH_COOKIE_SECURE=False)
     def test_login_sets_http_only_cookie_without_exposing_token(self):
         response = self.client.post(

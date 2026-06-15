@@ -116,7 +116,10 @@ class LogoutView(APIView):
         if request.user.is_authenticated:
             self._delete_user_token(request.user)
         response = Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
-        response.delete_cookie(settings.AUTH_COOKIE_NAME)
+        response.delete_cookie(
+            settings.AUTH_COOKIE_NAME,
+            samesite=settings.AUTH_COOKIE_SAMESITE,
+        )
         return response
 
     def _delete_user_token(self, user):
