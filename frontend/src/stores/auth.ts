@@ -134,21 +134,21 @@ export const useAuthStore = defineStore(
         this.loading = true
         await handleRequest<any>(
           axios.post(`${API_PATH}/logout/`),
-          () => {
-            notifySuccess("Logout successful")
-          },
-          (errorMsg) => {
-            notifyError(errorMsg)
-            console.log(errorMsg)
-          },
+          () => undefined,
+          () => undefined,
           () => {
             this.loading = false
-          }
-        )
+          },
+          { suppressAuthenticationWarning: true }
+        ).catch(() => undefined)
 
+        this.me = {} as IUser
         this.token = ""
         setAuthToken(null)
         removeKey(STORAGE_KEYS.token)
+        removeKey(STORAGE_KEYS.user)
+        removeKey(STORAGE_KEYS.project)
+        notifySuccess("Logout successful")
       },
       async fetchPermissions(query: PaginationQuery = {}) {
         this.loading = true

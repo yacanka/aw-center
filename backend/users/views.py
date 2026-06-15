@@ -110,16 +110,20 @@ class CustomAuthToken(ObtainAuthToken):
 
 
 class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request):
-        try:
-            request.user.auth_token.delete()
-        except Token.DoesNotExist:
-            pass
-        response = Response("Logout successful.", status=status.HTTP_200_OK)
+        if request.user.is_authenticated:
+            self._delete_user_token(request.user)
+        response = Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
         response.delete_cookie(settings.AUTH_COOKIE_NAME)
         return response
+
+    def _delete_user_token(self, user):
+        try:
+            user.auth_token.delete()
+        except Token.DoesNotExist:
+            pass
 
 
 class MeView(APIView):
