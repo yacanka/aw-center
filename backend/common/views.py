@@ -6,6 +6,7 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from awcenter.pagination import StandardResultsSetPagination
 
 from dateutil import parser
 from datetime import datetime, date
@@ -23,13 +24,62 @@ from openpyxl import Workbook
 
 from utils.arrays import safe_get
 
+PAGINATION_QUERY_PARAMETERS = {"page", "page_size"}
+TEXT_FIELD_TYPES = {"CharField", "TextField", "EmailField"}
+
+
+def get_query_values(request, name):
+    """Return non-empty query values for single or repeated params."""
+
+    values = request.query_params.getlist(name)
+    return [value for value in values if value not in (None, "")]
+
+
+def get_filter_expression(field, values):
+    """Build a safe lookup expression for a model field and values."""
+
+    if not values:
+        return None
+    field_type = field.get_internal_type()
+    if len(values) > 1:
+        return f"{field.name}__in", values
+    if field_type in TEXT_FIELD_TYPES:
+        return f"{field.name}__icontains", values[0]
+    return field.name, values[0]
+
+
+def filtered_queryset(request, queryset):
+    """Apply safe server-side filters for model-backed list querysets."""
+
+    model = getattr(queryset, "model", None)
+    if model is None:
+        return queryset
+
+    fields = {field.name: field for field in model._meta.fields}
+    for name, field in fields.items():
+        if name in PAGINATION_QUERY_PARAMETERS:
+            continue
+        expression = get_filter_expression(field, get_query_values(request, name))
+        if expression:
+            queryset = queryset.filter(**{expression[0]: expression[1]})
+    return queryset
+
+
+def paginated_response(request, queryset, serializer_class):
+    """Serialize a queryset using the standard paginated response contract."""
+
+    queryset = filtered_queryset(request, queryset)
+    paginator = StandardResultsSetPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    serializer = serializer_class(page, many=True, context={"request": request})
+    return paginator.get_paginated_response(serializer.data)
+
 def history_view_set_factory(model, serializer_class, view_permission_classes):
     class DynamicHistoryViewSet(APIView):
         def get(self, request, pk):
             obj = get_object_or_404(model, pk=pk)
             obj_history = obj.history.all().order_by("-history_date", "-history_id")
-            serializer = serializer_class(obj_history, many=True)
-            return Response(serializer.data)
+            return paginated_response(request, obj_history, serializer_class)
 
         permission_classes = view_permission_classes
 
@@ -63,9 +113,8 @@ def responsible_view_set_factory(model, view_serializer_class, view_permission_c
 def view_set_factory(model, serializer_class, view_permission_classes):
     class DynamicViewSet(APIView):
         def get(self, request):
-            objs = model.objects.all()
-            serializer = serializer_class(objs, many=True)
-            return Response(serializer.data)
+            objs = model.objects.all().order_by("-id")
+            return paginated_response(request, objs, serializer_class)
 
         def post(self, request):
             serializer = serializer_class(data=request.data, context={'request': request})
