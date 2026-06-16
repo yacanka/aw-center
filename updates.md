@@ -119,3 +119,10 @@
 3. The frontend stores and restores the optional fallback token in the existing `Authorization: Token ...` header path, while still preferring the HttpOnly cookie in production.
 4. SSE uses cookie-backed EventSource when no fallback token exists and fetch-streaming with the `Authorization` header when the fallback token exists.
 5. People list pagination now orders by primary key to avoid DRF `UnorderedObjectListWarning` and inconsistent page results.
+
+## 18. Deployment foundations
+
+1. Backend and frontend Dockerfiles were added with separate Django runtime and Vite-to-Nginx static asset image paths.
+2. Docker Compose now orchestrates backend, frontend static serving, and a PostgreSQL database candidate while keeping runtime secrets external to images.
+3. GitHub Actions CI now installs Python and npm dependencies, runs Django checks/tests, performs frontend typecheck/build, and runs dependency audits.
+4. Deployment documentation now lists backend and frontend environment variables read by the application and calls out the current SQLite-to-PostgreSQL migration boundary.
