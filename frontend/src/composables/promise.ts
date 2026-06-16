@@ -22,10 +22,7 @@ function isAuthenticationFailure(error: AxiosError<ErrorPayload>) {
   return error.response?.status === 401
 }
 
-function handleAuthenticationFailure(
-  error: AxiosError<ErrorPayload>,
-  options: RequestOptions
-) {
+function handleAuthenticationFailure(error: AxiosError<ErrorPayload>, options: RequestOptions) {
   if (!isAuthenticationFailure(error)) return
   if (options.suppressAuthenticationWarning) return
 
@@ -51,7 +48,9 @@ export async function handleRequest<T>(
 ) {
   try {
     const data = handleSuccessfulResponse(await request)
-    const successData = isPaginatedResponse(data) ? data.results : (data as { message?: T })?.message || data
+    const successData = isPaginatedResponse(data)
+      ? data.results
+      : (data as { message?: T })?.message || data
     onSuccess(successData as T)
     return data
   } catch (error) {

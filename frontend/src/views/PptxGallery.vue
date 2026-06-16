@@ -4,10 +4,10 @@ import PptUploader from '@/components/pptxgallery/PptUploader.vue'
 import PptList from '@/components/pptxgallery/PptList.vue'
 import PptCarousel from '@/components/pptxgallery/PptCarousel.vue'
 
-const selectedId = ref<number|null>(null)
+const selectedId = ref<number | null>(null)
 const selectedTitle = ref<string>('')
 
-function onSelect(p:{id:number,title:string}){
+function onSelect(p: { id: number; title: string }) {
   selectedId.value = p.id
   selectedTitle.value = p.title
 }

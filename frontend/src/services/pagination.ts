@@ -41,6 +41,8 @@ export function getPaginationMeta<T>(payload: unknown): PaginationMeta | null {
 /** Removes empty filters before sending query parameters to the API. */
 export function compactPaginationQuery(query: PaginationQuery): PaginationQuery {
   return Object.fromEntries(
-    Object.entries(query).filter(([, value]) => value !== null && value !== undefined && value !== '')
+    Object.entries(query).filter(
+      ([, value]) => value !== null && value !== undefined && value !== ''
+    )
   )
 }

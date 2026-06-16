@@ -1,7 +1,7 @@
 export const STORAGE_KEYS = {
-  token: "token",
-  user: "user",
-  project: "project",
+  token: 'token',
+  user: 'user',
+  project: 'project'
 } as const
 
 export function writeString(key: string, value: string) {

@@ -1,6 +1,6 @@
-import axios from "axios"
-import type { InternalAxiosRequestConfig } from "axios"
-import { readString, STORAGE_KEYS } from "@/services/storage"
+import axios from 'axios'
+import type { InternalAxiosRequestConfig } from 'axios'
+import { readString, STORAGE_KEYS } from '@/services/storage'
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL
 
@@ -42,11 +42,11 @@ function readCookie(name: string) {
  */
 export function setAuthToken(token: string | null) {
   if (token) {
-    axios.defaults.headers.common["Authorization"] = `Token ${token}`
+    axios.defaults.headers.common['Authorization'] = `Token ${token}`
     return
   }
 
-  delete axios.defaults.headers.common["Authorization"]
+  delete axios.defaults.headers.common['Authorization']
 }
 
 /**

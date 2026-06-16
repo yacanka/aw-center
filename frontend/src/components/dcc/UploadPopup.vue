@@ -9,12 +9,16 @@
           </n-flex>
         </n-tab-pane>
         <n-tab-pane name="file" tab="Via File Upload">
-          <n-upload directory-dnd :show-file-list="false" :max="1" accept=".pdf" :custom-request="handleUploadReq"
-            @change="handleChange">
+          <n-upload
+            directory-dnd
+            :show-file-list="false"
+            :max="1"
+            accept=".pdf"
+            :custom-request="handleUploadReq"
+            @change="handleChange"
+          >
             <n-upload-dragger>
-              <n-text style="font-size: 16px">
-                Click or drag a file to this area to upload
-              </n-text>
+              <n-text style="font-size: 16px"> Click or drag a file to this area to upload </n-text>
               <n-p depth="3" style="margin: 8px 0 0 0">
                 {{ props.title }}
               </n-p>
@@ -30,34 +34,32 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { NModal, UploadCustomRequestOptions } from 'naive-ui';
+import { ref, onMounted } from 'vue'
+import { NModal, UploadCustomRequestOptions } from 'naive-ui'
 import axios from 'axios'
-import { IDcc } from '@/models/dcc';
-import { IEcd } from '@/models/ecd';
+import { IDcc } from '@/models/dcc'
+import { IEcd } from '@/models/ecd'
 import { formatApiError } from '@/services/apiError'
 
+const showModal = ref(false)
+const url = ref('')
 
-const showModal = ref(false);
-const url = ref("")
+const uploaderFormRef = ref(null) // UploadForm'a erişim için
 
-const uploaderFormRef = ref(null); // UploadForm'a erişim için
-
-onMounted(() => {
-});
+onMounted(() => {})
 
 async function addViaUrl() {
-  const sessionId = localStorage.getItem("jira>session_id")
-  try{
+  const sessionId = localStorage.getItem('jira>session_id')
+  try {
     const data: IDcc = await window.$dccStore.addDcc({ url: url.value, JSESSIONID: sessionId })
     props.onAddSuccess?.(data)
-  }catch(err: any){
+  } catch (err: any) {
     //window.$message.error("Error while adding url.")
   }
 }
 
 function setActive(show: boolean) {
-  url.value = ""
+  url.value = ''
   showModal.value = show
 }
 
@@ -78,26 +80,30 @@ function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions
   if (!file.file) return
   const formData = new FormData()
   formData.append('file', file.file)
-  axios.post(props.uploadUrl, formData).then((res) => {
-    onFinish()
-    window.$notification.success({
-      title: 'Success',
-      description: 'ECR read successfully.',
-      duration: 3000
+  axios
+    .post(props.uploadUrl, formData)
+    .then((res) => {
+      onFinish()
+      window.$notification.success({
+        title: 'Success',
+        description: 'ECR read successfully.',
+        duration: 3000
+      })
+      window.$loadingBar.finish()
+      props.onUploadSuccess?.(res.data)
     })
-    window.$loadingBar.finish()
-    props.onUploadSuccess?.(res.data)
-  }).catch((err) => {
-    onError()
-    window.$notification.error({
-      title: 'Error',
-      description: formatApiError(err),
-      duration: 3000
+    .catch((err) => {
+      onError()
+      window.$notification.error({
+        title: 'Error',
+        description: formatApiError(err),
+        duration: 3000
+      })
+      window.$loadingBar.error()
     })
-    window.$loadingBar.error()
-  }).finally(() => {
-    setActive(false)
-  })
+    .finally(() => {
+      setActive(false)
+    })
 }
 
 defineExpose({

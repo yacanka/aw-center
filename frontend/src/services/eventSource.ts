@@ -78,9 +78,12 @@ async function parseStreamMessages(response: Response, source: AuthenticatedStre
 function emitBufferedMessages(buffer: string, source: AuthenticatedStreamSource) {
   const chunks = buffer.split('\n\n')
   const remainder = chunks.pop() || ''
-  chunks.map(parseSseData).filter(Boolean).forEach((data) => {
-    source.onmessage?.(new MessageEvent('message', { data }))
-  })
+  chunks
+    .map(parseSseData)
+    .filter(Boolean)
+    .forEach((data) => {
+      source.onmessage?.(new MessageEvent('message', { data }))
+    })
   return remainder
 }
 

@@ -12,7 +12,10 @@ export interface IssueCheckResult {
 }
 
 /** Build the backend query for the remote compliance document table. */
-export function buildCompdocTableQuery(filters: CompdocFilterValue, pagination: CompdocPaginationState) {
+export function buildCompdocTableQuery(
+  filters: CompdocFilterValue,
+  pagination: CompdocPaginationState
+) {
   return {
     ...filters,
     page: pagination.page,

@@ -1,14 +1,19 @@
 <template>
   <div class="particle-background">
-    <div v-for="(particle, index) in particles" :key="index" class="particle" :style="{
-      top: '-5vh',
-      left: `${particle.left}%`,
-      width: `${particle.size}px`,
-      height: `${particle.size}px`,
-      boxShadow: `0 0 ${particle.blur}px ${theme == 'dark' ? '#ffffff' : '#000000'}, 0 0 ${particle.blur * 1.5}px ${theme == 'dark' ? '#ffffff' : '#000000'}`,
-      animationDuration: `${particle.duration}s`,
-      animationDelay: `${particle.delay}s`
-    }"></div>
+    <div
+      v-for="(particle, index) in particles"
+      :key="index"
+      class="particle"
+      :style="{
+        top: '-5vh',
+        left: `${particle.left}%`,
+        width: `${particle.size}px`,
+        height: `${particle.size}px`,
+        boxShadow: `0 0 ${particle.blur}px ${theme == 'dark' ? '#ffffff' : '#000000'}, 0 0 ${particle.blur * 1.5}px ${theme == 'dark' ? '#ffffff' : '#000000'}`,
+        animationDuration: `${particle.duration}s`,
+        animationDelay: `${particle.delay}s`
+      }"
+    ></div>
   </div>
 </template>
 
