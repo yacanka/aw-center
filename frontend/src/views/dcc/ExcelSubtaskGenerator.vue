@@ -64,12 +64,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useRoute } from 'vue-router'
 import { useDoorsStore, useExcelStore } from '@/stores/api'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
+import { formatApiError } from '@/services/apiError'
 
 type ListItem = {
-  excel: string, 
+  excel: string,
   jira: string | null
 }
 
@@ -160,7 +162,7 @@ function createSubtasks() {
   loadingBar.value.percentage = 0
   axios.post(`${axios.defaults.baseURL}/dcc/create_queue/`, formData
   ).then((res) => {
-    const eventSource = new EventSource(`${axios.defaults.baseURL}/dcc/create_subtask_excel_stream/${res.data}`);
+    const eventSource = createAuthenticatedEventSource(`/dcc/create_subtask_excel_stream/${res.data}`)
     eventSource.onmessage = function (event) {
       const data = JSON.parse(event.data);
       if (data.status == "progress") {
@@ -211,7 +213,7 @@ function createSubtasks() {
     console.error(err)
     window.$notification.error({
       title: 'Error',
-      description: `Error while uploading file: ${err.response.data.message}`,
+      description: `Error while uploading file: ${formatApiError(err)}`,
     })
   }).finally(() => {
     console.log("END")

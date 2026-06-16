@@ -5,6 +5,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/api'
 import { validateForm } from '@/composables/forms'
 import { useUserStore } from '@/stores/user'
+import { formatApiError } from '@/services/apiError'
 
 const route = useRoute()
 const router = useRouter()
@@ -88,14 +89,20 @@ const passwordConfirmRules: FormRules = {
 }
 
 const authStore = useAuthStore()
+
+function getPreferredTheme(systemTheme: string) {
+  const storedTheme = userStore.getPreferences.theme
+  return typeof storedTheme === 'string' ? storedTheme : systemTheme
+}
+
 async function handleLogin() {
   if (!await validateForm(loginForm.value)) return
-  const token = await authStore.login(loginCredentials.value)
-  if (!token) return
+  const authenticatedUser = await authStore.login(loginCredentials.value)
+  if (!authenticatedUser) return
 
-  await useUserStore().fetchCurrentUser()
+  userStore.setUser(authenticatedUser)
   const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light"
-  document.documentElement.setAttribute('data-theme', useUserStore().getPreferences.theme || systemTheme)
+  document.documentElement.setAttribute('data-theme', getPreferredTheme(systemTheme))
   router.push({ name: "home" })
 }
 
@@ -137,7 +144,7 @@ async function handleUpdatePassword() {
     console.log(res)
     window.$message.success("Password updated successfully.", { duration: 5000 })
   } catch (error: any) {
-    window.$message.error(error.detail, { duration: 5000 })
+    window.$message.error(formatApiError(error), { duration: 5000 })
   }
 
 }

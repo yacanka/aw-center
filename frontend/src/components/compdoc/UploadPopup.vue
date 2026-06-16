@@ -23,6 +23,7 @@ import { useCompdocStore } from '@/stores/api'
 import { popupStore } from '@/stores/popupStore';
 import { isPlainObject } from '@/utils/general';
 import { InvalidDocument } from '@/models/compdocs'
+import { formatApiError } from '@/services/apiError'
 
 const showModal = ref(false);
 const store = useCompdocStore()
@@ -76,7 +77,7 @@ async function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestO
     window.$loadingBar.error()
     window.$notification.error({
       title: 'Error',
-      description: `Error while uploading file: ${err.response.data.message}`,
+      description: `Error while uploading file: ${formatApiError(err)}`,
     })
   } finally {
     store.fetchCompdocs()

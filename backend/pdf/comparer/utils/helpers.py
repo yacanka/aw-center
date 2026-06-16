@@ -29,7 +29,7 @@ class DiffResult:
 class WordDiff:
     word: str
     diff_type: DiffType
-    
+
 
 @dataclass
 class TextLine:
@@ -57,7 +57,7 @@ class PageDiff:
     similarity_ratio: float
 
 
-@dataclass 
+@dataclass
 class DocumentDiff:
     line_diffs: List[LineDiff]  # All line diffs
     overall_similarity: float

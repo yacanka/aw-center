@@ -12,28 +12,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, reactive } from 'vue'
-import {
-    Chart as ChartJS,
-    Title,
-    Tooltip,
-    Legend,
-    LineElement,
-    BarElement,
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    ArcElement,
-    TimeScale
-} from 'chart.js'
-import { Pie, Bar, Line, Scatter } from 'vue-chartjs'
-import 'chartjs-adapter-date-fns'
+import { defineAsyncComponent, ref } from 'vue'
 import { IDdf } from '@/models/ddf'
-import { pieChartOptions } from '@/stores/chartStore'
+import { ensureChartPluginsRegistered, pieChartOptions } from '@/stores/chartStore'
 
-ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement, PointElement, LineElement, TimeScale)
+const Pie = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Pie))
+ensureChartPluginsRegistered()
 
-const showModal = ref(false);
+const showModal = ref(false)
 
 const pieChartData = ref({
     labels: ['Teknik Görüş', 'Bilgi Görüşü', 'Editöryel Görüş', 'Panel Ekleme/Çıkarma'],
@@ -54,7 +40,7 @@ function openModal(ddfs: IDdf[]) {
 }
 
 function calculatePieChart(ddfs: IDdf[]) {
-    let counter: Record<string, number> = {
+    const counter: Record<string, number> = {
         'Teknik Görüş': 0,
         'Bilgi Görüşü': 0,
         'Editöryel Görüş': 0,
@@ -68,16 +54,11 @@ function calculatePieChart(ddfs: IDdf[]) {
     pieChartData.value.datasets[0].data = [counter['Teknik Görüş'], counter['Bilgi Görüşü'], counter['Editöryel Görüş'], counter['Panel Ekleme/Çıkarma Görüşü']]
 }
 
-onMounted(() => {
-
-})
-
 function closeModal() {
-    showModal.value = false;
+    showModal.value = false
 }
 
 function onAfterLeave() {
-
 }
 
 defineExpose({

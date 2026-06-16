@@ -84,3 +84,20 @@ export function findPreviousDate(datesArray: string[], targetDateStr: string) {
 
 	return closestIndex;
 }
+
+export function dateDaysOffset(offset: number, dateInput?: string){
+	let date: Date
+	if(dateInput){
+		date = parseDateFlex(dateInput)
+	}else{
+		date = new Date()
+	}
+
+	date.setDate(date.getDate() + offset)
+
+	return date.toLocaleString('tr-TR', {
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric',
+	});
+}

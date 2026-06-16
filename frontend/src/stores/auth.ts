@@ -5,8 +5,15 @@ import { handleRequest } from "@/composables/promise"
 import { setAuthToken } from "@/services/http"
 import { notifyError, notifySuccess } from "@/services/notify"
 import { removeKey, STORAGE_KEYS, writeString } from "@/services/storage"
+import { compactPaginationQuery, getPaginationMeta, PaginationMeta, PaginationQuery } from '@/services/pagination'
 
 const API_PATH = "auth"
+
+type LoginResponse = {
+  detail: string
+  user: IUser
+  token?: string
+}
 
 export const useAuthStore = defineStore(
   "auth",
@@ -16,6 +23,8 @@ export const useAuthStore = defineStore(
       token: "" as string,
       users: [] as IUser[],
       permissions: [] as IPermission[],
+      usersPagination: { count: 0, next: null, previous: null } as PaginationMeta,
+      permissionsPagination: { count: 0, next: null, previous: null } as PaginationMeta,
       loading: false,
       ipAddress: axios.defaults.baseURL,
     }),
@@ -32,31 +41,31 @@ export const useAuthStore = defineStore(
       },
       async login(credentials: any) {
         this.loading = true
-        let token = ""
-        await handleRequest<any>(
+        let authenticatedUser: IUser | null = null
+        setAuthToken(null)
+        removeKey(STORAGE_KEYS.token)
+        await handleRequest<LoginResponse>(
           axios.post(`${API_PATH}/token/`, credentials),
           (data) => {
-            token = data.token
-            this.token = token
-            setAuthToken(token)
-            writeString(STORAGE_KEYS.token, token)
-            notifySuccess("Login successful")
+            this.me = data.user
+            this.token = data.token || "cookie-auth"
+            applyOptionalTokenFallback(data.token)
+            authenticatedUser = data.user
+            notifySuccess(data.detail || "Login successful")
           },
-          (errorMsg) => {
-            const description = errorMsg.includes(": ") ? errorMsg.split(": ")[1] : errorMsg
-            notifyError(description)
-            console.log(errorMsg)
+          (errorMessage) => {
+            notifyError(errorMessage)
           },
           () => {
             this.loading = false
           }
-        )
-        return token
+        ).catch(() => undefined)
+        return authenticatedUser
       },
-      async fetchUsers() {
+      async fetchUsers(query: PaginationQuery = {}) {
         this.loading = true
-        await handleRequest<any>(
-          axios.get(`${API_PATH}/users/`),
+        const response = await handleRequest<IUser[]>(
+          axios.get(`${API_PATH}/users/`, { params: compactPaginationQuery(query) }),
           (data) => {
             this.users = data
           },
@@ -68,6 +77,7 @@ export const useAuthStore = defineStore(
             this.loading = false
           }
         )
+        this.usersPagination = getPaginationMeta<IUser>(response) || this.usersPagination
       },
       async updateUser(userId: Number, updatedData: IUser) {
         this.loading = true
@@ -126,26 +136,26 @@ export const useAuthStore = defineStore(
         this.loading = true
         await handleRequest<any>(
           axios.post(`${API_PATH}/logout/`),
-          () => {
-            notifySuccess("Logout successful")
-          },
-          (errorMsg) => {
-            notifyError(errorMsg)
-            console.log(errorMsg)
-          },
+          () => undefined,
+          () => undefined,
           () => {
             this.loading = false
-          }
-        )
+          },
+          { suppressAuthenticationWarning: true }
+        ).catch(() => undefined)
 
+        this.me = {} as IUser
         this.token = ""
         setAuthToken(null)
         removeKey(STORAGE_KEYS.token)
+        removeKey(STORAGE_KEYS.user)
+        removeKey(STORAGE_KEYS.project)
+        notifySuccess("Logout successful")
       },
-      async fetchPermissions() {
+      async fetchPermissions(query: PaginationQuery = {}) {
         this.loading = true
-        await handleRequest<any>(
-          axios.get(`${API_PATH}/permissions/`),
+        const response = await handleRequest<IPermission[]>(
+          axios.get(`${API_PATH}/permissions/`, { params: compactPaginationQuery(query) }),
           (data) => {
             this.permissions = data
           },
@@ -156,6 +166,7 @@ export const useAuthStore = defineStore(
             this.loading = false
           }
         )
+        this.permissionsPagination = getPaginationMeta<IPermission>(response) || this.permissionsPagination
       },
       async changePassword(password: any) {
         this.loading = true
@@ -175,3 +186,10 @@ export const useAuthStore = defineStore(
     },
   }
 )
+
+function applyOptionalTokenFallback(token?: string) {
+  if (!token) return
+
+  setAuthToken(token)
+  writeString(STORAGE_KEYS.token, token)
+}

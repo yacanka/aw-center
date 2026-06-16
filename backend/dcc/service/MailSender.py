@@ -15,7 +15,7 @@ def html_to_text(html_file_path):
 
 def replace_all_keys(text, replacements):
     for key, value in replacements.items():
-        text = text.replace(key, value)  
+        text = text.replace(f"{{{{{key}}}}}", value)
     return text
 
 

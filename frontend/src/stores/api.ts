@@ -6,6 +6,7 @@ import { IJira } from "@/models/jira"
 import { IEcd } from "@/models/ecd"
 import { IDdf } from "@/models/ddf"
 import { IPerson, IPanel, IProject, IResponsible } from "@/models/orgs"
+import { IMsg } from "@/models/outlook"
 import { toTitleCase } from '@/utils/text'
 import { nullCheck } from '@/utils/general'
 import { getDaysDifference, parseDateFlex, getTodayEUFormat } from '@/utils/time'
@@ -14,6 +15,7 @@ import { useUserStore } from "./user"
 import { handleRequest } from "@/composables/promise"
 import { API_BASE_URL } from "@/services/http"
 import { notifyError, notifySuccess } from "@/services/notify"
+import { compactPaginationQuery, getPaginationMeta, PaginationMeta, PaginationQuery } from '@/services/pagination'
 
 const BASE_URL = API_BASE_URL
 const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
@@ -43,6 +45,7 @@ export const useCompdocStore = defineStore(
       compdocs: [] as ICompDoc[],
       loading: true,
       fields: [] as { label: string, value: string }[],
+      pagination: { count: 0, next: null, previous: null } as PaginationMeta,
     }),
     getters: {
       getCompdocs: (state) => {
@@ -94,12 +97,12 @@ export const useCompdocStore = defineStore(
           }
         }
       },
-      async fetchCompdocs() {
+      async fetchCompdocs(query: PaginationQuery = {}) {
         this.loading = true
-        await handleRequest<ICompDoc[]>(
-          axios.get(`${this.projectName}/${API_PATHS.compdocs}/`),
+        const response = await handleRequest<ICompDoc[]>(
+          axios.get(`${this.projectName}/${API_PATHS.compdocs}/`, { params: compactPaginationQuery(query) }),
           (data) => {
-            this.compdocs = data.reverse()
+            this.compdocs = data
           },
           (errorMsg) => {
             errorNotification(errorMsg)
@@ -107,6 +110,7 @@ export const useCompdocStore = defineStore(
           },
           () => { this.loading = false }
         )
+        this.pagination = getPaginationMeta<ICompDoc>(response) || this.pagination
       },
       async createCompdoc(newCompDocData: ICompDoc) {
         this.loading = true;
@@ -214,6 +218,7 @@ export const useDccStore = defineStore(
     state: () => ({
       jSessionId: "" as string,
       dccList: [] as IDcc[],
+      pagination: { count: 0, next: null, previous: null } as PaginationMeta,
       issueInfo: {} as IJira,
       visionTypes: [] as string[],
       loading: true,
@@ -232,12 +237,12 @@ export const useDccStore = defineStore(
       importSessionId(payload: any) {
         Object.assign(payload, { JSESSIONID: this.jSessionId })
       },
-      async fetchDcc() {
+      async fetchDcc(query: PaginationQuery = {}) {
         this.loading = true
-        await handleRequest<IDcc[]>(
-          axios.get(API_PATHS.dcc),
+        const response = await handleRequest<IDcc[]>(
+          axios.get(API_PATHS.dcc, { params: compactPaginationQuery(query) }),
           (data) => {
-            this.dccList = data.reverse()
+            this.dccList = data
           },
           (errorMsg) => {
             errorNotification(errorMsg)
@@ -245,6 +250,7 @@ export const useDccStore = defineStore(
           },
           () => { this.loading = false }
         )
+        this.pagination = getPaginationMeta<IDcc>(response) || this.pagination
       },
       async createDcc(newDccData: IDcc) {
         this.loading = true;
@@ -472,6 +478,7 @@ export const useDdfStore = defineStore(
   {
     state: () => ({
       ddfList: [] as IDdf[],
+      pagination: { count: 0, next: null, previous: null } as PaginationMeta,
       loading: true,
       ipAddress: axios.defaults.baseURL
     }),
@@ -502,13 +509,12 @@ export const useDdfStore = defineStore(
         )
         return res
       },
-      async fetchDdf() {
+      async fetchDdf(query: PaginationQuery = {}) {
         this.loading = true
-        await handleRequest<any>(
-          axios.get("ddf/"),
+        const response = await handleRequest<IDdf[]>(
+          axios.get("ddf/", { params: compactPaginationQuery(query) }),
           (data) => {
-            console.log(data)
-            this.ddfList = data.reverse()
+            this.ddfList = data
           },
           (errorMsg) => {
             errorNotification(errorMsg)
@@ -516,6 +522,7 @@ export const useDdfStore = defineStore(
           },
           () => { this.loading = false }
         )
+        this.pagination = getPaginationMeta<IDdf>(response) || this.pagination
       },
       async createDdf(newDdf: IDdf) {
         this.loading = true;

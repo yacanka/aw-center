@@ -20,8 +20,6 @@ from .forms import UploadForm
 from .parsers import safe_ecd_parse
 from utils.converters import date_parser
 
-from jira import JIRAError
-from docxtpl import DocxTemplate
 from io import BytesIO
 from pathlib import Path
 from base64 import b64decode, b64encode
@@ -34,13 +32,15 @@ import uuid
 from datetime import datetime
 import os
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
-
-from bs4 import BeautifulSoup
 from awcenter.enums import Projects
+from common.views import paginated_response
+
+
+class ValuesListSerializer:
+    """Expose queryset value dictionaries through the serializer data API."""
+
+    def __init__(self, rows, many=True, **kwargs):
+        self.data = list(rows)
 
 TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
 JIRA_URL = settings.JIRA_BTB_URL    
@@ -182,10 +182,11 @@ class JIRA_DCC_ViewSet(APIView):
             dcc = get_object_or_404(JIRA_DCC, pk=pk)
             serializer = JIRA_DCC_Serializer(dcc)
             return Response(serializer.data)
-        dccs = JIRA_DCC.objects.filter(created_by=request.user)
-        #dccs = JIRA_DCC.objects.all()
-        serializer = JIRA_DCC_Serializer(dccs, many=True)
-        return Response(serializer.data)
+        dccs = JIRA_DCC.objects.filter(created_by=request.user).order_by("-id")
+        issue = request.query_params.get("issue")
+        if issue:
+            dccs = dccs.filter(issue__icontains=issue)
+        return paginated_response(request, dccs, JIRA_DCC_Serializer)
 
     def post(self, request):
         serializer = JIRA_DCC_Serializer(data=request.data)
@@ -241,8 +242,8 @@ def sse_test(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_issue_list(request):
-    issues = JIRA_DCC.objects.values("issue")
-    return Response(issues)
+    issues = JIRA_DCC.objects.values("issue").order_by("issue")
+    return paginated_response(request, issues, ValuesListSerializer)
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -274,6 +275,8 @@ def get_issue(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def create_issue(request):
+    from jira import JIRAError
+
     try:
         data = request.data
         session_id = data.get("JSESSIONID", None)
@@ -439,44 +442,34 @@ def send_mail(request):
                 continue
 
         if project == None:
-            return Response({"message": "Error while detecting project"}, status=400)
+            return Response({"message": "Not supported project. Process stopped."}, status=400)
 
-        cc_list = ""
-        raw_dcc_path = ""
-        html_file_path = ""
             
         mail_placeholder = {
-            "{{ECD_NAME}}": issue_f.summary,
-            "{{ECD_NO}}": f"{issue_f.customfield_45000} / {issue_f.customfield_45001}",
-            "{{JIRA_LINK_NAME}}": _jira.get_issue_key(),
-            "{{JIRA_LINK}}": f"{JIRA_URL}/browse/{_jira.get_issue_key()}",
-            "{{DCC_PATH_NAME}}": issue_f.customfield_45002,
-            "{{CCB_NO}}": ccb_no,
-            "{{DUE_DATE}}": due_date,
+            "ECD_NAME": issue_f.summary,
+            "ECD_NO": f"{issue_f.customfield_45000} / {issue_f.customfield_45001}",
+            "JIRA_LINK_NAME": _jira.get_issue_key(),
+            "JIRA_LINK": f"{JIRA_URL}/browse/{_jira.get_issue_key()}",
+            "DCC_PATH_NAME": issue_f.customfield_45002,
+            "CCB_NO": ccb_no,
+            "DUE_DATE": due_date,
         }
         
-        html_file_path = TEMPLATE_DIR / project.mail_jira_template_name
 
-        if project == Projects.HYS:
-            raw_dcc_path = r"\\vds\projects\Prj300\14-Uçuşa_Elverişlilik_ve_Sertifikasyon\08_Design Change Management\02-ECD Takip\Design Change Classification Forms\2025"
-            cc_list = "orcunozan.afsar@tai.com.tr; kemalbahadir.potuk1@tai.com.tr"
-            mail_placeholder["{{DCC_PATH}}"] = f"{raw_dcc_path}\\{issue_f.customfield_45002}"
-            mail_title = f"[HYS] CCB-{ccb_no} toplantı gündemi"
-        elif project == Projects.OZGUR:
-            raw_dcc_path = r"\\vds\projects\Prj071\Sertifikasyon\08-Design Change Management\02-ECD Takip Arch\Design Change Classification Forms\2025"
-            cc_list = "mustafaalp.eren@tai.com.tr; kemalbahadir.potuk1@tai.com.tr"
-            mail_placeholder["{{DCC_PATH}}"] = f"{raw_dcc_path}\\{issue_f.customfield_45002} ({issue_f.customfield_45000} {issue_f.customfield_45001})"
-            mail_title = f"[Ozgur] CCB-{ccb_no} toplantı gündemi"
-        else:
-            return Response({"message": "Something went wrong, not supported project. Process stopped."}, status=400)
+        dcc_parent_path = project.dcc_parent_path + "\\" + str(datetime.now().year)
+        dcc_full_path = f"{dcc_parent_path}\{issue_f.customfield_45002}"
+        mail_title = f"[{project.jira_component}] CCB - {ccb_no} toplantı gündemi"
+        mail_placeholder["DCC_PATH"] = dcc_full_path
+        cc_list = project.psk_mail or ""
 
         open_subtask_list = _jira.get_open_subtask()
         to_list = ';'.join([open_subtask.fields.assignee.emailAddress for open_subtask in open_subtask_list])
+        #to_list = "yasarcan.kara@tai.com.tr"
+        html_file_path = TEMPLATE_DIR / project.mail_jira_template_name
+        mail_body = html_to_text(html_file_path)
+        mail_body = replace_all_keys(mail_body, mail_placeholder)
 
-        content = html_to_text(html_file_path)
-        content = replace_all_keys(content, mail_placeholder)
-
-        SendMail(mail_title, content, to_list, cc_list)
+        SendMail(mail_title, mail_body, to_list, cc_list)
 
         return Response({"message": "Email was sent via Outlook!"}, status=200)
     except json.JSONDecodeError as e:
@@ -525,6 +518,8 @@ def add_new_dcc(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def add_attachment(request):
+    from jira import JIRAError
+
     print(request.data)
     form = UploadForm(request.POST, request.FILES)
     if form.is_valid():
@@ -549,6 +544,8 @@ def add_attachment(request):
     return Response({"message": "Form is not valid"}, status=400)
 
 def create_subtask_action(uuid):
+    from jira import JIRAError
+
     obj = cache.get(uuid, None)
     if obj:
         try:
@@ -572,12 +569,13 @@ def create_subtask_action(uuid):
                 return
             
             subtasks = obj.get("list", [])
+            duedate = obj.get("duedate")
             if subtasks:
                 percentage = 0
                 step_size = int(100/len(subtasks))
                 for subtask in subtasks:
                     yield f'data: {json.dumps({"status": "progress", "percentage": percentage, "content": subtask["summary"]})}\n\n'
-                    _jira.create_subtask(summary=subtask["summary"], assignee=subtask["assignee"])
+                    _jira.create_subtask(summary=subtask["summary"], assignee=subtask["assignee"], duedate=duedate)
                     percentage += step_size
                 yield f'data: {json.dumps({"status": "success", "content": "Subtasks created successfully."})}\n\n'
             else:
@@ -602,6 +600,8 @@ def create_subtask_stream(request, uuid):
 
 
 def create_subtask_excel_action(uuid):
+    from jira import JIRAError
+
     def find_index_by_key(dizi, key, target_value):
         for index, item in enumerate(dizi):
             if key in item and item[key] == target_value:
@@ -627,9 +627,7 @@ def create_subtask_excel_action(uuid):
                 yield f'data: {json.dumps({"status": "error", "content": "JSESSIONID not found in request."})}\n\n'
                 return
 
-            if pd is None:
-                yield f'data: {json.dumps({"status": "error", "content": "pandas is required for excel import."})}\n\n'
-                return
+            import pandas as pd
 
             df = pd.read_excel(BytesIO(obj["file"]))
             df = df.where(pd.notnull(df), None)
@@ -704,6 +702,8 @@ def create_subtask_excel_stream(request, uuid):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def check_session(request):
+    from jira import JIRAError
+
     try:
         session_id = request.GET.get('sessionId', None)
         if session_id:
@@ -738,6 +738,9 @@ def create_queue(request):
     return Response(new_uuid)
 
 def create_dcc_action(uuid):
+    from bs4 import BeautifulSoup
+    from docxtpl import DocxTemplate
+
     obj = cache.get(uuid, None)
     if obj:
         try:
@@ -821,22 +824,12 @@ def create_dcc_action(uuid):
 
                 if sf.customfield_45008:
                     dcc_placeholder[f"Design_Change_Assessment_{index+1}"] = sf.customfield_45008
-                
-                splitText = sf.summary.split("Panel")
-                if len(splitText) == 2:
-                    panel_name = splitText[0].strip()
-                else:
-                    panel_name = "this"
                     
-                if project.dcc_label == "GJ":
-                    if panel_name == "Flight" and clean_as_name != "Utku İnanç Pehlivan":
-                        dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"Utku İnanç PEHLİVAN, {dcc_placeholder[f'Panel_AS_Name_{index+1}']}"
-                    elif panel_name == "Human Factor" and clean_as_name != "Aslı Alpsoy":
-                        dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"Aslı ALPSOY, {dcc_placeholder[f'Panel_AS_Name_{index+1}']}"
-                    elif panel_name == "Electrical Systems/E3" and clean_as_name != "Merve Helvacı":
-                        dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"Merve HELVACI, {dcc_placeholder[f'Panel_AS_Name_{index+1}']}"
+                candidate_assignee = sf.customfield_45421
+                if candidate_assignee:
+                    candidate_as_name = make_surname_upper(split_text_by_chracter(candidate_assignee.displayName, "("))
+                    dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"{dcc_placeholder[f'Panel_AS_Name_{index+1}']}, {candidate_as_name}"
 
-                
                 if sf.customfield_45004:
                     classification_list.append((sf.customfield_45004.value, sf.assignee))
                 else:

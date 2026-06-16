@@ -46,7 +46,6 @@ db.sqlite3-journal
 .env.test
 .env.example
 .DS_Store
-.gitignore
 .coverage
 .coverage.*
 .cache
@@ -64,12 +63,6 @@ db.sqlite3-journal
 .coverage.*
 .mypy_cache/
 .pytest_cache/
-
-# Django migrations
-# Keep Django migrations under version control.
-!backend/**/migrations/
-!backend/**/migrations/*.py
-!.gitignore
 *.pyc
 *.pyo
 *.pyd
@@ -84,10 +77,16 @@ static/
 *.crt
 *.key
 *.txt
+!requirements.txt
 *.html
+!frontend/index.html
+!frontend/src/assets/
+!frontend/src/assets/**
 
 # AI Models
 models/
+!frontend/src/models/
+!frontend/src/models/*.ts
 
 # ========================
 # Vue3 (Frontend) Specific

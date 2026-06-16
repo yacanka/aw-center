@@ -35,6 +35,7 @@ import { NModal, UploadCustomRequestOptions } from 'naive-ui';
 import axios from 'axios'
 import { IDcc } from '@/models/dcc';
 import { IEcd } from '@/models/ecd';
+import { formatApiError } from '@/services/apiError'
 
 
 const showModal = ref(false);
@@ -90,7 +91,7 @@ function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions
     onError()
     window.$notification.error({
       title: 'Error',
-      description: err.response.data.message,
+      description: formatApiError(err),
       duration: 3000
     })
     window.$loadingBar.error()

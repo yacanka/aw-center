@@ -10,21 +10,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView 
 from rest_framework import status
 
-import pandas as pd
 import json
 from io import BytesIO
 
 import re
 import unicodedata
 import docx2txt
-import pandas as pd
 from difflib import SequenceMatcher
-from docx import Document
-from docx.shared import Pt
-from openpyxl.styles import Font, Alignment, PatternFill
-from openpyxl.formatting.rule import CellIsRule, FormulaRule, ColorScaleRule, DataBarRule
-from openpyxl.utils import get_column_letter
-from docx.enum.text import WD_COLOR_INDEX
 
 from pathlib import Path
 import sys
@@ -33,6 +25,7 @@ import uuid
 from base64 import b64decode, b64encode
 
 from word.service.translator import get_text_generator
+from word.service.paraphrase import ExplainableDocxRetriever
 
 # Utils
 
@@ -184,7 +177,7 @@ def style_normal(run):
     run.font.strike = False
     run.font.underline = False
 
-def add_legend(doc: Document):
+def add_legend(doc):
     p = doc.add_paragraph()
     r = p.add_run("Legend: ")
     r.bold = True
@@ -218,7 +211,7 @@ def write_word_diff(par, a_text: str, b_text: str):
             for t in a_tokens[i1:i2]: add(t, style_deleted)
             for t in b_tokens[j1:j2]: add(t, style_added)
 
-def write_sentence_aware_diff_with_ids(doc: Document, a_idx, a_text, b_idx, b_text):
+def write_sentence_aware_diff_with_ids(doc, a_idx, a_text, b_idx, b_text):
     hdr = doc.add_paragraph()
     hdr_run = hdr.add_run(f"[A#{a_idx if a_idx is not None else '-'} | B#{b_idx if b_idx is not None else '-'}]")
     hdr_run.italic = True
@@ -270,6 +263,8 @@ def write_sentence_aware_diff_with_ids(doc: Document, a_idx, a_text, b_idx, b_te
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def compare(request):
+    import pandas as pd
+    from docx import Document
 
     file1 = request.FILES["first"]
     file2 = request.FILES["second"]
@@ -371,6 +366,11 @@ def compare(request):
 
 
 def write_excel_report_openpyxl(out_excel, excel_rows, summary_stats, table_rows=None):
+    import pandas as pd
+    from openpyxl.formatting.rule import FormulaRule
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
     # DataFrames
     diff_cols = [
         "Tag","A_Index","B_Index","A_Text","B_Text",
@@ -579,6 +579,88 @@ def translate_action(uuid):
                     encoded = b64encode(item.getvalue()).decode()
                     yield f'data: {json.dumps({"status": "success", "content": encoded, "filename": f"[{translate_type.upper()}] {filename}"})}\n\n'
                     
+            return
+        except ValueError as e:
+            yield f'data: {json.dumps({"status": "error", "content": str(e)})}\n\n'
+        except Exception as e:
+            print(e)
+            yield f'data: {json.dumps({"status": "error", "content": "Something went wrong."})}\n\n'
+    else:
+        yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
+        
+
+def analyze(request, uuid):
+    response = StreamingHttpResponse(analyze_action(str(uuid)), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+def analyze_action(uuid):
+    obj = cache.get(uuid, None)
+    if obj:
+        try:
+            if not obj["file"]:
+                yield f'data: {json.dumps({"status": "error", "content": "File not found."})}\n\n'
+                return
+            
+            MODEL_PATH = r"C:\Users\t02077\Desktop\Code\Models\paraphrase-multilingual-MiniLM-L12-v2"  # bi-encoder klasörü
+            CROSS_ENCODER_MODEL = r"C:\Users\t02077\Desktop\Code\Models\ms-marco-MiniLM-L6-v2"
+
+            yield f'data: {json.dumps({"status": "progress", "percentage": 0, "content": f"Encoding document..."})}\n\n'
+
+            engine = ExplainableDocxRetriever(
+                model_path=MODEL_PATH,
+                cross_encoder_model=CROSS_ENCODER_MODEL,
+                #backend="openvino",   # None / "onnx" / "openvino"
+                content_mode="both",
+                use_heading_weight=True
+            )
+
+            engine.add_docx_file(
+                BytesIO(obj["file"]["content"]),
+                obj["file"]["name"]
+            )
+
+            engine.build_index()
+
+            queries = [
+                "Does the document contain a list of compliance documents?",
+                "Does the document contain an abbreviations table?",
+                "Does the document contain attachments table?"
+            ]
+
+            queries_length = len(queries)
+            for i, q in enumerate(queries):
+                yield f'data: {json.dumps({"status": "progress", "percentage": i/queries_length*100, "content": f"[{i+1}/{queries_length}] Searching query: {q}"})}\n\n'
+                
+                result = engine.search(q)
+                print("=" * 120)
+                print("QUERY      :", result["query"])
+                print("BEST SCORE :", f"{result['best_score']:.4f}")
+                print("EXPLANATION:")
+                print(result["explanation"])
+                print("-" * 120)
+
+                for i, item in enumerate(result["results"][:3], start=1):
+                    md = item["metadata"]
+                    print(
+                        f"[{i}] final={item['final_score']:.4f} "
+                        f"bi={item['bi_score']:.4f} "
+                        f"cross={item['cross_score_norm']:.4f} "
+                        f"lexical={item['lexical_score']:.4f}"
+                    )
+                    print("file       :", md.get("file_name"))
+                    print("source_type:", md.get("source_type"))
+                    print("heading    :", md.get("heading"))
+                    print("text       :", item["text"][:300])
+                    print("-" * 120)
+                
+                yield f'data: {json.dumps({"status": "info", "content": json.dumps(result)})}\n\n'
+            
+            yield f'data: {json.dumps({"status": "progress", "percentage": 100, "content": f"Success"})}\n\n'
+            
+            yield f'data: {json.dumps({"status": "success", "content": "Process End"})}\n\n'
+                 
             return
         except ValueError as e:
             yield f'data: {json.dumps({"status": "error", "content": str(e)})}\n\n'

@@ -26,11 +26,12 @@ import { ref, onMounted } from 'vue';
 import {NSpace, NCard} from 'naive-ui';
 import { IJira } from '@/models/jira';
 
+const jiraServer = import.meta.env.VITE_JIRA_SERVER || "https://jira.com"
 const props = defineProps(['dcc'])
 const jiraInfo = ref<IJira>({} as IJira) 
 
 function goPage(url: string){
-  url = "https://taijiraprod.dmntai.intra/browse/" + url
+  url = `${jiraServer}/browse/${url}`
   const newWindow = window.open(url, '_blank'); 
   if (newWindow !== null) {
     newWindow.focus();
