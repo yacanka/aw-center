@@ -21,13 +21,13 @@ import {
 import annotationPlugin from "chartjs-plugin-annotation"
 import Outlabels from "@energiency/chartjs-plugin-piechart-outlabels"
 
-let isChartRegistered = false
+let areChartPluginsRegistered = false
 
 /**
- * Registers Chart.js elements and plugins exactly once for the whole application.
+ * Ensures Chart.js elements and plugins are registered once before chart rendering.
  */
-export function registerChartPlugins() {
-    if (isChartRegistered) return
+export function ensureChartPluginsRegistered() {
+    if (areChartPluginsRegistered) return
 
     ChartJS.register(
         Title,
@@ -44,7 +44,7 @@ export function registerChartPlugins() {
         Outlabels
     )
 
-    isChartRegistered = true
+    areChartPluginsRegistered = true
 }
 
 const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS

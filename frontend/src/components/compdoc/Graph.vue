@@ -22,10 +22,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { Pie, Bar, Line } from 'vue-chartjs'
+import { defineAsyncComponent, ref, onMounted } from 'vue'
 import { statusOptions, statusColors} from '@/stores/datatable'
-import { calculateBarChart, calculatePieChart, calculateLineChart, pieChartOptions, barChartOptions, getLineChartOptions } from '@/stores/chartStore'
+import { calculateBarChart, calculatePieChart, calculateLineChart, ensureChartPluginsRegistered, pieChartOptions, barChartOptions, getLineChartOptions } from '@/stores/chartStore'
+
+const Pie = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Pie))
+const Bar = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Bar))
+const Line = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Line))
+ensureChartPluginsRegistered()
+
 const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 const showModal = ref(false);
 const activeTab = ref(null)
