@@ -13,11 +13,6 @@ from rest_framework import status
 import json
 from io import BytesIO
 
-import re
-import unicodedata
-import docx2txt
-from difflib import SequenceMatcher
-
 from pathlib import Path
 import sys
 import time
@@ -26,237 +21,21 @@ from base64 import b64decode, b64encode
 
 from word.service.translator import get_text_generator
 from word.service.paraphrase import ExplainableDocxRetriever
+from word.service.compare import (
+    align_paragraphs_indexed,
+    auto_thresholds,
+    ratio,
+    read_docx_lines_with_index,
+)
+from word.service.compare_rendering import (
+    add_legend,
+    write_sentence_aware_diff_with_ids,
+)
 
 # Utils
 
 class UploadForm(forms.Form):
     file = forms.FileField()
-
-def u_normalize(s: str) -> str:
-    s = unicodedata.normalize("NFC", s or "")
-    s = s.replace("\u00A0", " ")
-    s = s.replace("\u200B", "")
-    s = s.replace("\r", "")
-    s = s.strip()
-    s = re.sub(r"\s+", " ", s)
-    return s
-
-def split_sentences(text: str):
-    if not text:
-        return []
-    parts = re.split(r'(?<=[\.\!\?\:\;])\s+', text) if text else []
-    packed, buf = [], []
-    for p in parts:
-        p = p.strip()
-        if not p:
-            continue
-        buf.append(p)
-        if len(" ".join(buf)) > 80:
-            packed.append(" ".join(buf)); buf = []
-    if buf:
-        packed.append(" ".join(buf))
-    return packed if packed else [text]
-
-def tokenize_words(s: str):
-    return re.findall(r"\w+|[^\w\s]", s, flags=re.UNICODE)
-
-def ratio(a: str, b: str) -> float:
-    return SequenceMatcher(None, a, b, autojunk=False).ratio()
-
-# Read
-
-def read_docx_lines_with_index(path: str):
-    raw = docx2txt.process(path)
-    lines = [u_normalize(ln) for ln in raw.splitlines()]
-    out = []
-    for idx, ln in enumerate(lines):
-        if ln.strip():
-            out.append((idx, ln))  # (index, text)
-    return out
-
-# Auto Ratio
-
-def auto_thresholds(lines1, lines2):
-    if not lines1 and not lines2:
-        return 0.92, 0.86
-
-    all_txt = [t for _, t in lines1] + [t for _, t in lines2]
-    avg_len = sum(len(x) for x in all_txt) / max(1, len(all_txt))
-    n1, n2 = len(lines1), len(lines2)
-
-    sample_pairs = []
-    window = 3
-    for i, a in lines1[::max(1, max(n1,1)//200 + 1)]:
-        for off in range(-window, window+1):
-            jpos = i + off
-            if 0 <= jpos < n2:
-                b = lines2[jpos][1]
-                sample_pairs.append(ratio(a, b))
-    if not sample_pairs:
-        sample_pairs = [0.0]
-
-    p90 = sorted(sample_pairs)[int(0.9 * (len(sample_pairs)-1))]
-    if avg_len <= 40:
-        base_equal = 0.90
-    elif avg_len >= 140:
-        base_equal = 0.95
-    else:
-        base_equal = 0.90 + (avg_len - 40) * (0.95 - 0.90) / 100.0
-
-    equal_ratio = max(0.88, min(0.98, (base_equal + p90) / 2))
-    weak_equal_ratio = max(0.82, equal_ratio - 0.06)
-
-    return equal_ratio, weak_equal_ratio
-
-# Paragraph
-
-def align_paragraphs_indexed(lines1, lines2, equal_ratio=0.92, weak_equal_ratio=0.86):
-    s1 = [t for _, t in lines1]
-    s2 = [t for _, t in lines2]
-    sm = SequenceMatcher(None, s1, s2, autojunk=False)
-    out = []
-
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
-            for k in range(i2 - i1):
-                ai, at = lines1[i1 + k]
-                bj, bt = lines2[j1 + k]
-                out.append((ai, at, bj, bt, 'equal'))
-        elif tag == "delete":
-            for k in range(i2 - i1):
-                ai, at = lines1[i1 + k]
-                out.append((ai, at, None, None, 'delete'))
-        elif tag == "insert":
-            for k in range(j2 - j1):
-                bj, bt = lines2[j1 + k]
-                out.append((None, None, bj, bt, 'insert'))
-        elif tag == "replace":
-            block1 = lines1[i1:i2]
-            block2 = lines2[j1:j2]
-            used2 = set()
-
-            for ai, at in block1:
-                best = (-1, 0.0)
-                for idx, (bj, bt) in enumerate(block2):
-                    if idx in used2:
-                        continue
-                    r = ratio(at, bt)
-                    if r > best[1]:
-                        best = (idx, r)
-                if best[0] != -1:
-                    bj, bt = block2[best[0]]
-                    if best[1] >= equal_ratio:
-                        out.append((ai, at, bj, bt, 'equal'))
-                    elif best[1] >= weak_equal_ratio:
-                        out.append((ai, at, bj, bt, 'replace'))
-                    else:
-                        out.append((ai, at, None, None, 'delete'))
-                    used2.add(best[0])
-                else:
-                    out.append((ai, at, None, None, 'delete'))
-
-            for idx, (bj, bt) in enumerate(block2):
-                if idx not in used2:
-                    out.append((None, None, bj, bt, 'insert'))
-
-    return out
-
-# DOCX redline style
-
-def style_added(run):
-    run.font.underline = True
-    run.font.color.rgb = None
-    run.font.highlight_color = WD_COLOR_INDEX.BRIGHT_GREEN  # optional
-
-def style_deleted(run):
-    run.font.strike = True
-    run.font.color.rgb = None
-    run.font.highlight_color = WD_COLOR_INDEX.RED  # optional
-
-def style_normal(run):
-    run.font.strike = False
-    run.font.underline = False
-
-def add_legend(doc):
-    p = doc.add_paragraph()
-    r = p.add_run("Legend: ")
-    r.bold = True
-    r.font.size = Pt(11)
-    p = doc.add_paragraph()
-    r = p.add_run("Added"); style_added(r)
-    p.add_run("  |  ")
-    r2 = p.add_run("Deleted"); style_deleted(r2)
-    p.add_run("  |  Changes are shown first as Deleted, then as Added.")
-
-def write_word_diff(par, a_text: str, b_text: str):
-    a_tokens = tokenize_words(a_text or "")
-    b_tokens = tokenize_words(b_text or "")
-    sm = SequenceMatcher(None, a_tokens, b_tokens, autojunk=False)
-    first = True
-    def add(tok, styler):
-        nonlocal first
-        if not first:
-            par.add_run(" ")
-        r = par.add_run(tok)
-        styler(r)
-        first = False
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
-            for t in a_tokens[i1:i2]: add(t, style_normal)
-        elif tag == "delete":
-            for t in a_tokens[i1:i2]: add(t, style_deleted)
-        elif tag == "insert":
-            for t in b_tokens[j1:j2]: add(t, style_added)
-        elif tag == "replace":
-            for t in a_tokens[i1:i2]: add(t, style_deleted)
-            for t in b_tokens[j1:j2]: add(t, style_added)
-
-def write_sentence_aware_diff_with_ids(doc, a_idx, a_text, b_idx, b_text):
-    hdr = doc.add_paragraph()
-    hdr_run = hdr.add_run(f"[A#{a_idx if a_idx is not None else '-'} | B#{b_idx if b_idx is not None else '-'}]")
-    hdr_run.italic = True
-
-    # insert/delete
-    if a_text is None and b_text is not None:
-        par = doc.add_paragraph()
-        for tok in tokenize_words(b_text):
-            r = par.add_run(tok + " "); style_added(r)
-        return
-
-    if b_text is None and a_text is not None:
-        par = doc.add_paragraph()
-        for tok in tokenize_words(a_text):
-            r = par.add_run(tok + " "); style_deleted(r)
-        return
-
-    # Aware word/sentence diff when both exist
-    r = ratio(a_text, b_text)
-    if r >= 0.95:
-        par = doc.add_paragraph()
-        write_word_diff(par, a_text, b_text)
-        return
-
-    s1 = split_sentences(a_text)
-    s2 = split_sentences(b_text)
-    sm = SequenceMatcher(None, s1, s2, autojunk=False)
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
-            for k in range(i2 - i1):
-                par = doc.add_paragraph()
-                write_word_diff(par, s1[i1 + k], s2[j1 + k])
-        elif tag == "delete":
-            for k in range(i2 - i1):
-                par = doc.add_paragraph()
-                for tok in tokenize_words(s1[i1 + k]):
-                    r = par.add_run(tok + " "); style_deleted(r)
-        elif tag == "insert":
-            for k in range(j2 - j1):
-                par = doc.add_paragraph()
-                for tok in tokenize_words(s2[j1 + k]):
-                    r = par.add_run(tok + " "); style_added(r)
-        elif tag == "replace":
-            par = doc.add_paragraph()
-            write_word_diff(par, " ".join(s1[i1:i2]), " ".join(s2[j1:j2]))
 
 # DOCX / Excel report
 

@@ -13,6 +13,7 @@ import { toTitleCase } from '@/utils/text'
 import { getType } from '@/utils/general'
 import { getDateFilterMenuFunc, getStringFilterMenuFunc, getArrayFilterMenuFunc, getStringFilterFunc, getArrayFilterFunc, getDateFilterFunc, statusOptions, statusColors, mocOptions, createEmpty } from '@/stores/datatable'
 import { IColumnSetting, ICompDoc } from '@/models/compdocs';
+import { buildCompdocTableQuery, collectUniqueTechDocumentNumbers, mapWithConcurrencyLimit, waitForRetry } from '@/composables/compdoc/table'
 import { SelectBaseOption } from 'naive-ui/es/select/src/interface';
 
 const route = useRoute()
@@ -403,11 +404,10 @@ watch(() => route.params.project,
 
 
 function buildCompdocQuery() {
-  return {
-    ...filterValue.value,
+  return buildCompdocTableQuery(filterValue.value, {
     page: page.value,
-    page_size: pageSize.value
-  }
+    pageSize: pageSize.value
+  })
 }
 
 function fetchCompdocs() {
@@ -476,14 +476,6 @@ function exportExcel() {
   downloadComponent.value.openModal("Excel")
 }
 
-function collectUniqueTechDocumentNumbers(rows: ICompDoc[]) {
-  return [...new Set(rows.flatMap((row) => [row.tech_doc_no, row.tech_doc_no_2]).filter(Boolean))] as string[]
-}
-
-function waitForRetry(delayMilliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, delayMilliseconds))
-}
-
 async function searchIssueWithRetry(docNo: string) {
   for (let attempt = 0; attempt <= ISSUE_CHECK_RETRY_LIMIT; attempt++) {
     try {
@@ -493,22 +485,6 @@ async function searchIssueWithRetry(docNo: string) {
       await waitForRetry(ISSUE_CHECK_RETRY_DELAY_MS * (attempt + 1))
     }
   }
-}
-
-async function mapWithConcurrencyLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>) {
-  const results: R[] = []
-  let nextIndex = 0
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex++
-      results[currentIndex] = await task(items[currentIndex])
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(limit, items.length) }, worker)
-  await Promise.all(workers)
-  return results
 }
 
 async function checkSingleIssue(docNo: string) {
