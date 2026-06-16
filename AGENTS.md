@@ -136,7 +136,7 @@ This file provides project-specific instructions for AI agents and maintainers w
 
 ## Plan and Memory
 
-If plan.md file exist, read the plan file and update it based on the changes you've made. If you need to add new plans or you have any recommendation in the future, update to the plan.md file.
+If plan.md file exist, read the plan file and remove items from it based on the changes you've made successfully and completely. If you need to add new plans or you have any future recommendation, update to the plan.md file. You can update updates.md for explaning what you'have done.
 
 ## Setup Instructions
 
