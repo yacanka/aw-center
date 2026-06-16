@@ -74,7 +74,11 @@ class UserSecurityTests(TestCase):
         self.assertEqual(get_default_auth_cookie_samesite(False), "None")
         self.assertTrue(get_default_auth_cookie_secure(False))
 
-    @override_settings(AUTH_COOKIE_SAMESITE="Lax", AUTH_COOKIE_SECURE=False)
+    @override_settings(
+        AUTH_COOKIE_SAMESITE="Lax",
+        AUTH_COOKIE_SECURE=False,
+        AUTH_TOKEN_RESPONSE_ENABLED=False,
+    )
     def test_login_sets_http_only_cookie_without_exposing_token(self):
         response = self.client.post(
             "/auth/token/",

@@ -22,9 +22,10 @@ TEXT_FIELD_TYPES = {"CharField", "TextField", "EmailField"}
 
 
 def get_query_values(request, name):
-    """Return non-empty query values for single or repeated params."""
+    """Return non-empty query values for DRF or Django requests."""
 
-    values = request.query_params.getlist(name)
+    query_parameters = getattr(request, "query_params", request.GET)
+    values = query_parameters.getlist(name)
     return [value for value in values if value not in (None, "")]
 
 
