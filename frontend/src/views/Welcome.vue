@@ -1,18 +1,10 @@
 <script setup lang="ts">
-import { h, ref, onMounted, DefineProps } from 'vue'
-import { NButton, NDataTable, NSpace, NTag, NUpload } from 'naive-ui'
-import { Settings16Regular, Door16Regular } from '@vicons/fluent';
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import ParticleText from '@/components/ParticleTextAnimator.vue'
 const router = useRouter()
 
-const showNotification = ref(true)
-
-
-const notificationValue = ref(1)
-const username = ref(null)
 const particleText = ref<InstanceType<typeof ParticleText> | null>(null)
-const videoRef = ref(null)
 
 onMounted(async () => {
     setTimeout(() => {
