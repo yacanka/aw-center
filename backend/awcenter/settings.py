@@ -134,6 +134,14 @@ CORS_ALLOW_METHODS = list(default_methods)
 CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
+# Browser authentication strategy:
+# - The SPA uses a DRF token stored in an HttpOnly auth cookie.
+# - Header tokens remain supported for non-browser clients and DEBUG fallback.
+# - Unsafe cookie-authenticated requests are protected by Django CSRF checks.
+#
+# Cross-site deployments must use HTTPS, AUTH_COOKIE_SAMESITE=None,
+# AUTH_COOKIE_SECURE=True, CORS_ALLOWED_ORIGINS, and CSRF_TRUSTED_ORIGINS.
+# Same-site deployments should prefer AUTH_COOKIE_SAMESITE=Lax.
 AUTH_COOKIE_NAME = env.str("AUTH_COOKIE_NAME", default="auth_token")
 AUTH_COOKIE_MAX_AGE = env.int("AUTH_COOKIE_MAX_AGE", default=60 * 60 * 24 * 14)
 AUTH_COOKIE_DEFAULT_SAMESITE = get_default_auth_cookie_samesite(DEBUG)
