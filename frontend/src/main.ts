@@ -7,7 +7,6 @@ import router from './router'
 import './assets/main.css'
 import { useUserStore } from './stores/user'
 import { bootstrapHttpAuth } from './services/http'
-import { registerChartPlugins } from './stores/chartStore'
 
 const pinia = createPinia()
 const app = createApp(App)
@@ -15,7 +14,6 @@ app.use(pinia)
 app.use(router)
 app.use(naive)
 
-registerChartPlugins()
 bootstrapHttpAuth()
 startStartupPerformanceMeasurements()
 applyInitialTheme()

@@ -150,12 +150,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { defineAsyncComponent, ref, onMounted } from 'vue'
 import { useCompdocStore } from '@/stores/api'
-import { Pie, Line } from 'vue-chartjs'
-import 'chartjs-adapter-date-fns'
 import { statusOptions, statusColors } from '@/stores/datatable'
-import { calculateBarChart, calculateLineChart, calculatePieChart, getLineChartOptions, getPieChartOptionsLabel } from '@/stores/chartStore'
+import { calculateBarChart, calculateLineChart, calculatePieChart, ensureChartPluginsRegistered, getLineChartOptions, getPieChartOptionsLabel } from '@/stores/chartStore'
+
+const Pie = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Pie))
+const Line = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Line))
+ensureChartPluginsRegistered()
 
 const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 const appTitle = import.meta.env.VITE_APP_TITLE
