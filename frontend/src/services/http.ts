@@ -1,4 +1,5 @@
 import axios from "axios"
+import { readString, STORAGE_KEYS } from "@/services/storage"
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL
 
@@ -23,6 +24,8 @@ export function setAuthToken(token: string | null) {
 }
 
 /**
- * Keeps startup auth cookie-only; legacy token headers are intentionally not restored.
+ * Restores the optional development token fallback for cross-origin HTTP setups.
  */
-export function bootstrapHttpAuth() {}
+export function bootstrapHttpAuth() {
+  setAuthToken(readString(STORAGE_KEYS.token))
+}

@@ -43,6 +43,7 @@
 import { ref, onMounted } from 'vue';
 import { NModal, UploadFileInfo, NotificationType } from 'naive-ui';
 import axios from 'axios'
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useExcelStore } from '@/stores/api'
 import { popupStore } from '@/stores/popupStore';
 import { Document24Regular, ImageAltText16Filled } from '@vicons/fluent';
@@ -97,7 +98,7 @@ function compareWords() {
 
   axios.post(`${axios.defaults.baseURL}/word/create_queue/`, formData
   ).then((res) => {
-    const eventSource = new EventSource(`${axios.defaults.baseURL}/word/analyze/${res.data}`);
+    const eventSource = createAuthenticatedEventSource(`/word/analyze/${res.data}`)
     eventSource.onmessage = function (event) {
       const data: StreamData = JSON.parse(event.data);
       console.log(data)

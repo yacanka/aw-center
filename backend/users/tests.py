@@ -89,6 +89,18 @@ class UserSecurityTests(TestCase):
         self.assertEqual(auth_cookie["httponly"], True)
         self.assertEqual(auth_cookie["samesite"], "Lax")
 
+    @override_settings(AUTH_TOKEN_RESPONSE_ENABLED=True)
+    def test_login_can_return_token_for_development_header_fallback(self):
+        response = self.client.post(
+            "/auth/token/",
+            {"username": "u10001", "password": "StrongPass!123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("token", response.data)
+        self.assertTrue(response.data["token"])
+
     @override_settings(AUTH_COOKIE_SAMESITE="None", AUTH_COOKIE_SECURE=True)
     def test_login_can_set_cross_site_secure_cookie_policy(self):
         response = self.client.post(
@@ -136,6 +148,21 @@ class UserSecurityTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["username"], "u10001")
+
+    def test_protected_endpoint_rejects_stale_cookie_as_unauthenticated(self):
+        self.client.cookies["auth_token"] = "stale-token"
+
+        response = self.client.get("/auth/preferences/")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_protected_endpoint_accepts_valid_auth_cookie(self):
+        token = Token.objects.create(user=self.regular_user)
+        self.client.cookies["auth_token"] = token.key
+
+        response = self.client.get("/auth/preferences/")
+
+        self.assertEqual(response.status_code, 200)
 
 
     @override_settings(AUTH_COOKIE_NAME="custom_auth_token")
