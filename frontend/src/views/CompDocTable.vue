@@ -1,33 +1,84 @@
 <script setup lang="ts">
 import { h, ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
-import { NButton, NDataTable, NSpace, NTag, NUpload, NIcon, NEllipsis, NTooltip, NSpin, NText, NInput, NFormItem, NForm, NDatePicker, NSelect, DataTableColumns, PopoverTrigger, PopoverInst, PopoverProps, DataTableColumn, SelectOption, PaginationInfo } from 'naive-ui'
+import {
+  NButton,
+  NDataTable,
+  NSpace,
+  NTag,
+  NUpload,
+  NIcon,
+  NEllipsis,
+  NTooltip,
+  NSpin,
+  NText,
+  NInput,
+  NFormItem,
+  NForm,
+  NDatePicker,
+  NSelect,
+  DataTableColumns,
+  PopoverTrigger,
+  PopoverInst,
+  PopoverProps,
+  DataTableColumn,
+  SelectOption,
+  PaginationInfo
+} from 'naive-ui'
 import { useCompdocStore, useDocproofStore, useOrgsStore } from '@/stores/api'
-import UpdateForm from '@/components/compdoc/CompDocPopup.vue';
-import UploadPopup from '@/components/compdoc/UploadPopup.vue';
-import Details from '@/components/compdoc/DetailedInfo.vue';
-import GraphComponent from '@/components/compdoc/Graph.vue';
-import DownloadComponent from '@/components/Downloader.vue';
-import { Settings24Regular, ChannelAdd24Regular, Add24Regular, DataBarVertical24Regular, Edit24Regular, Delete24Regular, Eye24Regular, Branch24Regular, DocumentArrowDown20Regular, Document24Regular, ContractDownLeft16Filled } from '@vicons/fluent';
+import UpdateForm from '@/components/compdoc/CompDocPopup.vue'
+import UploadPopup from '@/components/compdoc/UploadPopup.vue'
+import Details from '@/components/compdoc/DetailedInfo.vue'
+import GraphComponent from '@/components/compdoc/Graph.vue'
+import DownloadComponent from '@/components/Downloader.vue'
+import {
+  Settings24Regular,
+  ChannelAdd24Regular,
+  Add24Regular,
+  DataBarVertical24Regular,
+  Edit24Regular,
+  Delete24Regular,
+  Eye24Regular,
+  Branch24Regular,
+  DocumentArrowDown20Regular,
+  Document24Regular,
+  ContractDownLeft16Filled
+} from '@vicons/fluent'
 import { useRoute } from 'vue-router'
 import { toTitleCase } from '@/utils/text'
 import { getType } from '@/utils/general'
-import { getDateFilterMenuFunc, getStringFilterMenuFunc, getArrayFilterMenuFunc, getStringFilterFunc, getArrayFilterFunc, getDateFilterFunc, statusOptions, statusColors, mocOptions, createEmpty } from '@/stores/datatable'
-import { IColumnSetting, ICompDoc } from '@/models/compdocs';
-import { buildCompdocTableQuery, collectUniqueTechDocumentNumbers, mapWithConcurrencyLimit, waitForRetry } from '@/composables/compdoc/table'
-import { SelectBaseOption } from 'naive-ui/es/select/src/interface';
+import {
+  getDateFilterMenuFunc,
+  getStringFilterMenuFunc,
+  getArrayFilterMenuFunc,
+  getStringFilterFunc,
+  getArrayFilterFunc,
+  getDateFilterFunc,
+  statusOptions,
+  statusColors,
+  mocOptions,
+  createEmpty
+} from '@/stores/datatable'
+import { IColumnSetting, ICompDoc } from '@/models/compdocs'
+import {
+  buildCompdocTableQuery,
+  collectUniqueTechDocumentNumbers,
+  mapWithConcurrencyLimit,
+  waitForRetry
+} from '@/composables/compdoc/table'
+import { SelectBaseOption } from 'naive-ui/es/select/src/interface'
 
 const route = useRoute()
 const store = useCompdocStore()
 const orgs = useOrgsStore()
 const proofStore = useDocproofStore()
 
-const columnSettings = ref<{ visible: boolean, list: IColumnSetting[] }>({
+const columnSettings = ref<{ visible: boolean; list: IColumnSetting[] }>({
   visible: false,
   list: []
 })
 
 const page = ref(1)
-const pageSize = ref(parseInt(localStorage.getItem("compdocs>page_size") || "8"))
+const pageSize = ref(parseInt(localStorage.getItem('compdocs>page_size') || '8'))
 
 const pagination = computed<Partial<PaginationInfo>>(() => ({
   page: page.value,
@@ -37,7 +88,7 @@ const pagination = computed<Partial<PaginationInfo>>(() => ({
   pageSizes: [8, 25, 50, 100]
 }))
 
-const filterValue = ref<Record<string, any>>({});
+const filterValue = ref<Record<string, any>>({})
 const techIssueList = ref<Record<string, any>>({})
 const coverPageIssueList = ref<Record<string, any>>({})
 let currentColumns = ref<DataTableColumns<ICompDoc>>([])
@@ -61,9 +112,9 @@ const graphComponent = ref()
 const downloadComponent = ref()
 
 const filterIconPopover: PopoverProps = {
-  trigger: "click",
+  trigger: 'click',
   duration: 250,
-  displayDirective: "show",
+  displayDirective: 'show'
 }
 
 const onFilter = (attrib: string, filterData: any) => {
@@ -93,17 +144,17 @@ const columns = ref<DataTableColumns<ICompDoc>>([
     width: 15,
     sorter: 'default',
     filterOptions: [],
-    filter: getArrayFilterFunc("panel"),
+    filter: getArrayFilterFunc('panel'),
     ellipsis: {
       tooltip: true
-    },
+    }
   },
   {
     title: 'Ata',
     key: 'ata',
     width: 10,
     sorter: 'default',
-    filterOptions: [],
+    filterOptions: []
   },
   {
     title: 'Name',
@@ -111,22 +162,22 @@ const columns = ref<DataTableColumns<ICompDoc>>([
     width: 15,
     sorter: 'default',
     filterMultiple: false,
-    renderFilterMenu: getStringFilterMenuFunc("name", filterValue, onFilter),
+    renderFilterMenu: getStringFilterMenuFunc('name', filterValue, onFilter),
     //defaultSortOrder: 'ascend',
     ellipsis: {
       tooltip: true
-    },
+    }
   },
   {
     title: 'Cover Page No',
     key: 'cover_page_no',
-    filter: getStringFilterFunc("cover_page_no"),
-    width: 13,
+    filter: getStringFilterFunc('cover_page_no'),
+    width: 13
   },
   {
     title: 'Cover Page Issue',
     key: 'cover_page_issue',
-    align: "center",
+    align: 'center',
     width: 15,
     render(row) {
       const issueNo = coverPageIssueList.value[row.cover_page_no]
@@ -134,30 +185,37 @@ const columns = ref<DataTableColumns<ICompDoc>>([
         return h(
           NText,
           {
-            title: "Double Click",
-            style: { userSelect: "text", cursor: "pointer" },
-            class: "cell-color",
-            onMouseenter: (e: MouseEvent) => { (e.currentTarget as HTMLElement).classList.add("hovered") },
-            onMouseleave: (e: MouseEvent) => { (e.currentTarget as HTMLElement).classList.remove("hovered") },
+            title: 'Double Click',
+            style: { userSelect: 'text', cursor: 'pointer' },
+            class: 'cell-color',
+            onMouseenter: (e: MouseEvent) => {
+              ;(e.currentTarget as HTMLElement).classList.add('hovered')
+            },
+            onMouseleave: (e: MouseEvent) => {
+              ;(e.currentTarget as HTMLElement).classList.remove('hovered')
+            },
             onDblclick: () => {
               coverPageIssueList.value[row.cover_page_no] = null
-              proofStore.search(row.cover_page_no).then((res) => {
-                coverPageIssueList.value[row.cover_page_no] = res
-              }).catch(() => {
-                coverPageIssueList.value[row.cover_page_no] = undefined
-              })
+              proofStore
+                .search(row.cover_page_no)
+                .then((res) => {
+                  coverPageIssueList.value[row.cover_page_no] = res
+                })
+                .catch(() => {
+                  coverPageIssueList.value[row.cover_page_no] = undefined
+                })
             }
           },
-          { default: () => row.cover_page_issue })
-      }
-      else if (issueNo === null) {
-        return h(NSpin, { size: 22 }, { default: () => "Loading" })
-      }
-      else {
+          { default: () => row.cover_page_issue }
+        )
+      } else if (issueNo === null) {
+        return h(NSpin, { size: 22 }, { default: () => 'Loading' })
+      } else {
         return h(
           NTag,
-          { type: issueNo == row.cover_page_issue ? "success" : "warning", size: "small" },
-          { default: () => issueNo })
+          { type: issueNo == row.cover_page_issue ? 'success' : 'warning', size: 'small' },
+          { default: () => issueNo }
+        )
       }
     },
     ellipsis: {
@@ -189,7 +247,7 @@ const columns = ref<DataTableColumns<ICompDoc>>([
     title: 'Tech Doc Issue',
     key: 'tech_doc_issue',
     align: 'center',
-    filter: getStringFilterFunc("tech_doc_issue"),
+    filter: getStringFilterFunc('tech_doc_issue'),
     width: 12,
     ellipsis: {
       tooltip: true
@@ -202,30 +260,37 @@ const columns = ref<DataTableColumns<ICompDoc>>([
           body[0] = h(
             NText,
             {
-              title: "Double Click",
-              style: { userSelect: "text", cursor: "pointer" },
-              class: "cell-color",
-              onMouseenter: (e: MouseEvent) => { (e.currentTarget as HTMLElement).classList.add("hovered") },
-              onMouseleave: (e: MouseEvent) => { (e.currentTarget as HTMLElement).classList.remove("hovered") },
+              title: 'Double Click',
+              style: { userSelect: 'text', cursor: 'pointer' },
+              class: 'cell-color',
+              onMouseenter: (e: MouseEvent) => {
+                ;(e.currentTarget as HTMLElement).classList.add('hovered')
+              },
+              onMouseleave: (e: MouseEvent) => {
+                ;(e.currentTarget as HTMLElement).classList.remove('hovered')
+              },
               onDblclick: () => {
                 techIssueList.value[row.tech_doc_no] = null
-                proofStore.search(row.tech_doc_no).then((res) => {
-                  techIssueList.value[row.tech_doc_no] = res
-                }).catch(() => {
-                  techIssueList.value[row.tech_doc_no] = undefined
-                })
+                proofStore
+                  .search(row.tech_doc_no)
+                  .then((res) => {
+                    techIssueList.value[row.tech_doc_no] = res
+                  })
+                  .catch(() => {
+                    techIssueList.value[row.tech_doc_no] = undefined
+                  })
               }
             },
-            { default: () => row.tech_doc_issue })
-        }
-        else if (issueNo1 === null) {
-          body[0] = h(NSpin, { size: 22 }, { default: () => "Loading" })
-        }
-        else {
+            { default: () => row.tech_doc_issue }
+          )
+        } else if (issueNo1 === null) {
+          body[0] = h(NSpin, { size: 22 }, { default: () => 'Loading' })
+        } else {
           body[0] = h(
             NTag,
-            { type: issueNo1 == row.tech_doc_issue ? "success" : "warning", size: "small" },
-            { default: () => issueNo1 })
+            { type: issueNo1 == row.tech_doc_issue ? 'success' : 'warning', size: 'small' },
+            { default: () => issueNo1 }
+          )
         }
       } else {
         body[0] = row.tech_doc_issue
@@ -237,32 +302,39 @@ const columns = ref<DataTableColumns<ICompDoc>>([
           body[1] = h(
             NText,
             {
-              title: "Double Click",
-              style: { userSelect: "text", cursor: "pointer" },
-              class: "cell-color",
-              onMouseenter: (e: MouseEvent) => { (e.currentTarget as HTMLElement).classList.add("hovered") },
-              onMouseleave: (e: MouseEvent) => { (e.currentTarget as HTMLElement).classList.remove("hovered") },
+              title: 'Double Click',
+              style: { userSelect: 'text', cursor: 'pointer' },
+              class: 'cell-color',
+              onMouseenter: (e: MouseEvent) => {
+                ;(e.currentTarget as HTMLElement).classList.add('hovered')
+              },
+              onMouseleave: (e: MouseEvent) => {
+                ;(e.currentTarget as HTMLElement).classList.remove('hovered')
+              },
               onDblclick: () => {
                 techIssueList.value[row.tech_doc_no_2] = null
-                proofStore.search(row.tech_doc_no_2).then((res) => {
-                  techIssueList.value[row.tech_doc_no_2] = res
-                }).catch(() => {
-                  techIssueList.value[row.tech_doc_no_2] = undefined
-                })
+                proofStore
+                  .search(row.tech_doc_no_2)
+                  .then((res) => {
+                    techIssueList.value[row.tech_doc_no_2] = res
+                  })
+                  .catch(() => {
+                    techIssueList.value[row.tech_doc_no_2] = undefined
+                  })
               }
             },
-            { default: () => row.tech_doc_issue_2 })
-        }
-        else if (issueNo2 === null) {
-          body[1] = h(NSpin, { size: 22 }, { default: () => "Loading" })
+            { default: () => row.tech_doc_issue_2 }
+          )
+        } else if (issueNo2 === null) {
+          body[1] = h(NSpin, { size: 22 }, { default: () => 'Loading' })
         } else {
           body[1] = h(
             NTag,
-            { type: issueNo2 == row.tech_doc_issue_2 ? "success" : "warning", size: "small" },
-            { default: () => issueNo2 })
+            { type: issueNo2 == row.tech_doc_issue_2 ? 'success' : 'warning', size: 'small' },
+            { default: () => issueNo2 }
+          )
         }
-      }
-      else {
+      } else {
         body[1] = row.tech_doc_issue_2
       }
 
@@ -272,22 +344,22 @@ const columns = ref<DataTableColumns<ICompDoc>>([
   {
     title: 'UBM Target Date',
     key: 'ubm_target_date',
-    filter: getDateFilterFunc("ubm_target_date"),
-    renderFilterMenu: getDateFilterMenuFunc("ubm_target_date", onFilter, onClean),
-    width: 13,
+    filter: getDateFilterFunc('ubm_target_date'),
+    renderFilterMenu: getDateFilterMenuFunc('ubm_target_date', onFilter, onClean),
+    width: 13
   },
   {
     title: 'UBM Delivery Date',
     key: 'ubm_delivery_date',
-    filter: getDateFilterFunc("ubm_delivery_date"),
-    renderFilterMenu: getDateFilterMenuFunc("ubm_delivery_date", onFilter, onClean),
-    width: 13,
+    filter: getDateFilterFunc('ubm_delivery_date'),
+    renderFilterMenu: getDateFilterMenuFunc('ubm_delivery_date', onFilter, onClean),
+    width: 13
   },
   {
     title: 'MoC',
     key: 'moc',
     filterOptions: mocOptions,
-    width: 10,
+    width: 10
   },
   {
     title: 'Status',
@@ -296,90 +368,109 @@ const columns = ref<DataTableColumns<ICompDoc>>([
     sorter: 'default',
     filterOptions: statusOptions,
     //renderFilterMenu: getArrayFilterMenuFunc("status", onFilter, onClean),
-    filter: getArrayFilterFunc("status"),
+    filter: getArrayFilterFunc('status'),
     render(row) {
       return h(
         NTag,
         {
-          color: { color: statusColors[row.status]?.color25, textColor: statusColors[row.status]?.color },
+          color: {
+            color: statusColors[row.status]?.color25,
+            textColor: statusColors[row.status]?.color
+          },
           bordered: false
         },
         {
           default: () => {
             if (row.status) {
-              return (row.status == "delayed" ? "to_be_issued" : row.status).charAt(0).toUpperCase() + (row.status == "delayed" ? "to_be_issued" : row.status).slice(1).replaceAll('_', ' ')
+              return (
+                (row.status == 'delayed' ? 'to_be_issued' : row.status).charAt(0).toUpperCase() +
+                (row.status == 'delayed' ? 'to_be_issued' : row.status)
+                  .slice(1)
+                  .replaceAll('_', ' ')
+              )
             }
-          },
+          }
         }
       )
-    },
+    }
   },
   {
     title: 'Actions',
     key: 'actions',
     width: 20,
     render(row) {
-      return h(NSpace, {}, {
-        default: () => [
-          h(NButton,
-            {
-              ghost: true,
-              size: 'small',
-              type: 'info',
-              focusable: false,
-              renderIcon: () => h(Eye24Regular),
-              onClick: () => {
-                popupComponent.value.openModal(row, "view")
+      return h(
+        NSpace,
+        {},
+        {
+          default: () => [
+            h(
+              NButton,
+              {
+                ghost: true,
+                size: 'small',
+                type: 'info',
+                focusable: false,
+                renderIcon: () => h(Eye24Regular),
+                onClick: () => {
+                  popupComponent.value.openModal(row, 'view')
+                }
               },
-            },
-            { default: () => null }
-          ),
-          h(NButton,
-            {
-              ghost: true,
-              size: 'small',
-              type: 'warning',
-              focusable: false,
-              renderIcon: () => h(Document24Regular),
-              onClick: () => {
-                downloadComponent.value.openModal("Cover Page")
-                //store.createCoverPage(row)
+              { default: () => null }
+            ),
+            h(
+              NButton,
+              {
+                ghost: true,
+                size: 'small',
+                type: 'warning',
+                focusable: false,
+                renderIcon: () => h(Document24Regular),
+                onClick: () => {
+                  downloadComponent.value.openModal('Cover Page')
+                  //store.createCoverPage(row)
+                }
               },
-            },
-            { default: () => null }
-          ),
-          h(NButton,
-            {
-              ghost: true,
-              size: 'small',
-              type: 'error',
-              focusable: false,
-              renderIcon: () => h(Delete24Regular),
-              onClick: () => {
-                window.$dialog.error({
-                  title: "Delete",
-                  content: "Are you sure to delete?",
-                  positiveText: "Yes",
-                  negativeText: "No",
-                  onPositiveClick: () => {
-                    store.deleteCompdoc(row.id).then(() => {
-                      console.log("Request deleted: ", row.name)
-                    }).catch((err) => {
-                      console.error("Error while deleting ", row.name, ": ", err)
-                    })
-                  },
-                })
-              }
-            },
-            { default: () => null }
-          ),
-        ]
-      })
+              { default: () => null }
+            ),
+            h(
+              NButton,
+              {
+                ghost: true,
+                size: 'small',
+                type: 'error',
+                focusable: false,
+                renderIcon: () => h(Delete24Regular),
+                onClick: () => {
+                  window.$dialog.error({
+                    title: 'Delete',
+                    content: 'Are you sure to delete?',
+                    positiveText: 'Yes',
+                    negativeText: 'No',
+                    onPositiveClick: () => {
+                      store
+                        .deleteCompdoc(row.id)
+                        .then(() => {
+                          console.log('Request deleted: ', row.name)
+                        })
+                        .catch((err) => {
+                          console.error('Error while deleting ', row.name, ': ', err)
+                        })
+                    }
+                  })
+                }
+              },
+              { default: () => null }
+            )
+          ]
+        }
+      )
     }
   }
 ])
 
-watch(() => route.params.project,
+watch(
+  () => route.params.project,
   (new_value, old_value) => {
     store.setProjectName(new_value as string)
     page.value = 1
@@ -399,9 +490,9 @@ watch(() => route.params.project,
         columns.value[ataIndex].filterOptions = orgs.getAtaOptions
       }
     })
-  }, { immediate: true })
-
-
+  },
+  { immediate: true }
+)
 
 function buildCompdocQuery() {
   return buildCompdocTableQuery(filterValue.value, {
@@ -422,7 +513,7 @@ function handlePageUpdate(newPage: number) {
 function handleTablePageSizeUpdate(newPageSize: number) {
   pageSize.value = newPageSize
   page.value = 1
-  localStorage.setItem("compdocs>page_size", newPageSize.toString())
+  localStorage.setItem('compdocs>page_size', newPageSize.toString())
   fetchCompdocs()
 }
 
@@ -444,27 +535,25 @@ const getFilteredTable = () => {
   }
   const filteredTable = table.value.data.filter((compdoc: ICompDoc) => {
     for (const key in filterValue.value) {
-      if (filterValue.value[key] && key.includes("date")) {
+      if (filterValue.value[key] && key.includes('date')) {
         const dateFilterFunc = getDateFilterFunc(key)
         if (!dateFilterFunc(filterValue.value[key], compdoc)) {
           return false
         }
-      }
-      else if (filterValue.value[key] && getType(filterValue.value[key]) == "array") {
+      } else if (filterValue.value[key] && getType(filterValue.value[key]) == 'array') {
         const arrayFilterFunc = getArrayFilterFunc(key)
         if (!arrayFilterFunc(filterValue.value[key], compdoc)) {
           return false
         }
-      }
-      else if (filterValue.value[key] && getType(filterValue.value[key]) == "string") {
+      } else if (filterValue.value[key] && getType(filterValue.value[key]) == 'string') {
         const stringFilterFunc = getStringFilterFunc(key)
         if (!stringFilterFunc(filterValue.value[key], compdoc)) {
           return false
         }
       }
     }
-    return true;
-  });
+    return true
+  })
   return filteredTable
 }
 
@@ -473,7 +562,7 @@ function showAnalyzeBar() {
 }
 
 function exportExcel() {
-  downloadComponent.value.openModal("Excel")
+  downloadComponent.value.openModal('Excel')
 }
 
 async function searchIssueWithRetry(docNo: string) {
@@ -507,10 +596,16 @@ async function checkAllIssues() {
   issueCheckProgress.value = { completed: 0, total: documentNumbers.length }
 
   try {
-    const results = await mapWithConcurrencyLimit(documentNumbers, ISSUE_CHECK_CONCURRENCY_LIMIT, checkSingleIssue)
+    const results = await mapWithConcurrencyLimit(
+      documentNumbers,
+      ISSUE_CHECK_CONCURRENCY_LIMIT,
+      checkSingleIssue
+    )
     const successCount = results.filter((result) => result.success).length
     const failCount = results.length - successCount
-    window.$message.info(`Checking the issues is over! Success: ${successCount}, Fail: ${failCount}`)
+    window.$message.info(
+      `Checking the issues is over! Success: ${successCount}, Fail: ${failCount}`
+    )
   } finally {
     checkIssuesButton.value.disabled = false
   }
@@ -518,14 +613,14 @@ async function checkAllIssues() {
 
 function deleteAllCompDocs() {
   window.$dialog.error({
-    title: "Delete",
-    content: "Are you sure to delete all compliance documents?",
-    positiveText: "Yes",
-    negativeText: "No",
+    title: 'Delete',
+    content: 'Are you sure to delete all compliance documents?',
+    positiveText: 'Yes',
+    negativeText: 'No',
     onPositiveClick: async () => {
       const res = await store.deleteCompdocs()
       console.log(res)
-    },
+    }
   })
 }
 
@@ -565,7 +660,11 @@ function applyColumnSettings() {
 
       if (column.filter != null) {
         if (targetCol.filter == null) {
-          targetCol.filter = column.filter ? (column.key?.includes("date") ? getDateFilterFunc(column.key) : getStringFilterFunc(column.key)) : null
+          targetCol.filter = column.filter
+            ? column.key?.includes('date')
+              ? getDateFilterFunc(column.key)
+              : getStringFilterFunc(column.key)
+            : null
         }
 
         if (!targetCol.renderFilterMenu && !targetCol.filterOptions) {
@@ -577,24 +676,31 @@ function applyColumnSettings() {
         targetCol.width = column.width
       }
       currentColumns.value.push(targetCol)
-    }
-    else {
+    } else {
       currentColumns.value.push({
-        title: toTitleCase(column.key?.replaceAll("_", " ")),
+        title: toTitleCase(column.key?.replaceAll('_', ' ')),
         key: column.key,
         sorter: column.sorter ? 'default' : null,
         width: column.width ? column.width : 2,
-        renderFilterMenu: column.filter ? (column.key?.includes("date") ? getDateFilterMenuFunc(column.key, onFilter, onClean) : getStringFilterMenuFunc(column.key, filterValue, onFilter)) : null,
-        filter: column.filter ? (column.key?.includes("date") ? getDateFilterFunc(column.key) : getStringFilterFunc(column.key)) : null,
-        ellipsis: column.ellipsis ? { tooltip: true } : null,
+        renderFilterMenu: column.filter
+          ? column.key?.includes('date')
+            ? getDateFilterMenuFunc(column.key, onFilter, onClean)
+            : getStringFilterMenuFunc(column.key, filterValue, onFilter)
+          : null,
+        filter: column.filter
+          ? column.key?.includes('date')
+            ? getDateFilterFunc(column.key)
+            : getStringFilterFunc(column.key)
+          : null,
+        ellipsis: column.ellipsis ? { tooltip: true } : null
       })
     }
   }
-  localStorage.setItem("compdocs>column_settings", JSON.stringify(columnSettings.value.list))
+  localStorage.setItem('compdocs>column_settings', JSON.stringify(columnSettings.value.list))
 }
 
 function resetColumnSettings() {
-  localStorage.removeItem("compdocs>column_settings")
+  localStorage.removeItem('compdocs>column_settings')
   loadColumnSettings()
 }
 
@@ -607,15 +713,20 @@ function handleFilterChange(filters: any) {
 }
 
 function loadColumnSettings() {
-  const savedColumnSettingsRaw = localStorage.getItem("compdocs>column_settings")
-  const savedColumnSettings = (savedColumnSettingsRaw ? JSON.parse(savedColumnSettingsRaw) : null);
+  const savedColumnSettingsRaw = localStorage.getItem('compdocs>column_settings')
+  const savedColumnSettings = savedColumnSettingsRaw ? JSON.parse(savedColumnSettingsRaw) : null
 
   if (savedColumnSettings) {
     columnSettings.value.list = savedColumnSettings
-  }
-  else {
+  } else {
     columnSettings.value.list = columns.value.map((column: any) => {
-      return { key: column.key, width: column.width, sorter: column.sorter ? true : false, filter: column.filter ? true : false, ellipsis: column.ellipsis ? true : false }
+      return {
+        key: column.key,
+        width: column.width,
+        sorter: column.sorter ? true : false,
+        filter: column.filter ? true : false,
+        ellipsis: column.ellipsis ? true : false
+      }
     })
   }
 }
@@ -635,7 +746,7 @@ onUnmounted(() => {
     <n-space>
       <n-button @click="showpUploadForm" :focusable="false">
         <template #icon>
-          <n-icon size=24>
+          <n-icon size="24">
             <ChannelAdd24Regular />
           </n-icon>
         </template>
@@ -643,7 +754,7 @@ onUnmounted(() => {
       </n-button>
       <n-button @click="showAddCompDocForm('new')" :focusable="false">
         <template #icon>
-          <n-icon size=24>
+          <n-icon size="24">
             <Add24Regular />
           </n-icon>
         </template>
@@ -651,16 +762,20 @@ onUnmounted(() => {
       </n-button>
       <n-button @click="showAnalyzeBar" :focusable="false">
         <template #icon>
-          <n-icon size=24>
+          <n-icon size="24">
             <DataBarVertical24Regular />
           </n-icon>
         </template>
         Summary
       </n-button>
-      <n-button @click="checkAllIssues" :focusable="false" :loading="checkIssuesButton.disabled"
-        :disabled="checkIssuesButton.disabled">
+      <n-button
+        @click="checkAllIssues"
+        :focusable="false"
+        :loading="checkIssuesButton.disabled"
+        :disabled="checkIssuesButton.disabled"
+      >
         <template #icon>
-          <n-icon size=24>
+          <n-icon size="24">
             <Branch24Regular />
           </n-icon>
         </template>
@@ -673,7 +788,7 @@ onUnmounted(() => {
     <n-space>
       <n-button ghost color="#65B25D" @click="exportExcel" :focusable="false">
         <template #icon>
-          <n-icon size=24>
+          <n-icon size="24">
             <DocumentArrowDown20Regular />
           </n-icon>
         </template>
@@ -681,7 +796,7 @@ onUnmounted(() => {
       </n-button>
       <n-button ghost type="error" @click="deleteAllCompDocs" :focusable="false">
         <template #icon>
-          <n-icon size=24>
+          <n-icon size="24">
             <Delete24Regular />
           </n-icon>
         </template>
@@ -693,12 +808,16 @@ onUnmounted(() => {
   <n-flex justify="end" style="margin: 16px 0 4px 0">
     <n-space>
       <strong>Page Size: </strong>
-      <n-input-number :value="pageSize" size="tiny" placeholder="Value" style="width: 50px"
-        :show-button="false" @update:value="handlePageSizeInput" />
+      <n-input-number
+        :value="pageSize"
+        size="tiny"
+        placeholder="Value"
+        style="width: 50px"
+        :show-button="false"
+        @update:value="handlePageSizeInput"
+      />
     </n-space>
-    <n-text>
-      <strong>Total: </strong>{{ store.pagination.count }}
-    </n-text>
+    <n-text> <strong>Total: </strong>{{ store.pagination.count }} </n-text>
     <n-button size="tiny" @click="openColumnSettings" :focusable="false">
       <template #icon>
         <Settings24Regular />
@@ -706,45 +825,100 @@ onUnmounted(() => {
     </n-button>
   </n-flex>
 
-  <n-data-table ref="table" :loading="store.isLoading" striped :columns="currentColumns" :data="store.getCompdocs"
-    remote :pagination="pagination" :row-key="rowKey" @update:filters="handleFilterChange"
-    @update:page="handlePageUpdate" @update:page-size="handleTablePageSizeUpdate"
-    :filterIconPopoverProps="filterIconPopover" size="medium" />
+  <n-data-table
+    ref="table"
+    :loading="store.isLoading"
+    striped
+    :columns="currentColumns"
+    :data="store.getCompdocs"
+    remote
+    :pagination="pagination"
+    :row-key="rowKey"
+    @update:filters="handleFilterChange"
+    @update:page="handlePageUpdate"
+    @update:page-size="handleTablePageSizeUpdate"
+    :filterIconPopoverProps="filterIconPopover"
+    size="medium"
+  />
 
   <UpdateForm ref="popupComponent" />
   <UploadPopup ref="uploadPopup" :uploadUrl="store.getUploadUrl" />
   <GraphComponent ref="graphComponent" />
   <DownloadComponent ref="downloadComponent" />
 
-  <n-modal v-model:show="columnSettings.visible" preset="card" title="Column Settings" :style="{ width: '800px' }"
-    :mask-closable="true">
+  <n-modal
+    v-model:show="columnSettings.visible"
+    preset="card"
+    title="Column Settings"
+    :style="{ width: '800px' }"
+    :mask-closable="true"
+  >
     <n-scrollbar style="max-height: 600px; padding-right: 16px">
-      <n-dynamic-input v-model:value="columnSettings.list" show-sort-button :min="1"
-        @create="() => { return { key: null } }">
+      <n-dynamic-input
+        v-model:value="columnSettings.list"
+        show-sort-button
+        :min="1"
+        @create="
+          () => {
+            return { key: null }
+          }
+        "
+      >
         <template #default="{ value }">
-          <n-grid cols=32 x-gap=16>
-            <n-grid-item span=12>
-              <n-select v-model:value="value.key" :options="columnSelections" placeholder="Select Column"
-                @update:value="handleFieldChange" />
+          <n-grid cols="32" x-gap="16">
+            <n-grid-item span="12">
+              <n-select
+                v-model:value="value.key"
+                :options="columnSelections"
+                placeholder="Select Column"
+                @update:value="handleFieldChange"
+              />
             </n-grid-item>
-            <n-grid-item span=6>
+            <n-grid-item span="6">
               <n-input-number v-model:value="value.width" placeholder="Width" :min="1" />
             </n-grid-item>
-            <n-grid-item span=4 v-if="value.key != 'actions'">
-              <n-button v-model:value="value.sorter" :type="value.sorter ? 'success' : 'default'" :focusable="false"
-                :style="{ width: '64px' }" @click="() => { value.sorter = value.sorter ? false : true }">
+            <n-grid-item span="4" v-if="value.key != 'actions'">
+              <n-button
+                v-model:value="value.sorter"
+                :type="value.sorter ? 'success' : 'default'"
+                :focusable="false"
+                :style="{ width: '64px' }"
+                @click="
+                  () => {
+                    value.sorter = value.sorter ? false : true
+                  }
+                "
+              >
                 Sorter
               </n-button>
             </n-grid-item>
-            <n-grid-item span=4 v-if="value.key != 'actions'">
-              <n-button v-model:value="value.filter" :type="value.filter ? 'success' : 'default'" :focusable="false"
-                :style="{ width: '64px' }" @click="() => { value.filter = value.filter ? false : true }">
+            <n-grid-item span="4" v-if="value.key != 'actions'">
+              <n-button
+                v-model:value="value.filter"
+                :type="value.filter ? 'success' : 'default'"
+                :focusable="false"
+                :style="{ width: '64px' }"
+                @click="
+                  () => {
+                    value.filter = value.filter ? false : true
+                  }
+                "
+              >
                 Filter
               </n-button>
             </n-grid-item>
-            <n-grid-item span=4 v-if="value.key != 'actions'">
-              <n-button v-model:value="value.ellipsis" :type="value.ellipsis ? 'success' : 'default'" :focusable="false"
-                :style="{ width: '64px' }" @click="() => { value.ellipsis = value.ellipsis ? false : true }">
+            <n-grid-item span="4" v-if="value.key != 'actions'">
+              <n-button
+                v-model:value="value.ellipsis"
+                :type="value.ellipsis ? 'success' : 'default'"
+                :focusable="false"
+                :style="{ width: '64px' }"
+                @click="
+                  () => {
+                    value.ellipsis = value.ellipsis ? false : true
+                  }
+                "
+              >
                 Ellipsis
               </n-button>
             </n-grid-item>

@@ -167,3 +167,10 @@
 2. Dev dependency declarations now include Prettier, Vitest, Vue Test Utils, jsdom, and Playwright so the scripts have explicit tool ownership in the frontend package manifest.
 3. GitHub Actions frontend CI now runs `npm ci`, `npm run typecheck`, unit tests, Playwright browser installation, end-to-end tests, and `npm run build` from the frontend directory.
 4. The current repository still has existing TypeScript and Prettier issues that should be fixed in follow-up work before these gates can be required as passing branch protection.
+
+## 24. Frontend formatting and CI stabilization
+
+1. Applied the committed Prettier rules to the frontend source, configuration, and postbuild script so `npm run format:check` no longer fails on style drift.
+2. Simplified the frontend GitHub Actions job to run the gates that are currently owned by the repository: dependency install, Prettier check, Vue syntax/type transpilation check, Vite build, and npm audit.
+3. Added workflow safety defaults with read-only permissions, job timeouts, and concurrency cancellation to reduce stuck or duplicated CI runs.
+4. Removed placeholder unit/e2e package scripts and dev dependencies because no test files or Playwright configuration are committed yet; they should be restored with real tests and lockfile updates.

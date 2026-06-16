@@ -76,7 +76,7 @@ Backend–frontend iletişimi Axios üzerinden REST benzeri endpoint'lerle yür�
 3. **P1 - File upload güvenlik denetimi:** PDF/Office/Outlook/PPTX endpoint'lerinde boyut, tip, dosya adı ve temp cleanup kontrollerini sırayla iyileştir.
 4. **P1 - Pagination:** Kullanıcılar, dokümanlar, DCC/DDF ve organizasyon listelerinde server-side pagination planla.
 5. **P2 - Store/API modülerleştirme:** `frontend/src/stores/api.ts` dosyasını domain servislerine böl.
-6. **P2 - Build doğrulanabilirliği:** Frontend entry/build sorunlarını gider ve CI komutlarını netleştir.
+6. **P2 - Build doğrulanabilirliği:** Frontend entry/build sorunları giderildi; kalan iş tam TypeScript strict hata listesini modül modül kapatmak.
 7. **P2 - Query ölçüm testleri:** Kritik list endpoint'lerine regression amaçlı query count testleri ekle.
 
 ## 9. Uygulanan hata contract patch'i

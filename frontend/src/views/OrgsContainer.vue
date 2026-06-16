@@ -2,26 +2,25 @@
 import { h, ref, onMounted } from 'vue'
 import { NButton, NDataTable, NSpace, NTag, NSpin, NUpload } from 'naive-ui'
 
-import People from '@/views/orgs/People.vue';
-import Responsibles from '@/views/orgs/Responsibles.vue';
-import Panels from '@/views/orgs/Panels.vue';
-import Projects from '@/views/orgs/Projects.vue';
-import Unauthorized from '@/views/Unauthorized.vue';
+import People from '@/views/orgs/People.vue'
+import Responsibles from '@/views/orgs/Responsibles.vue'
+import Panels from '@/views/orgs/Panels.vue'
+import Projects from '@/views/orgs/Projects.vue'
+import Unauthorized from '@/views/Unauthorized.vue'
 
-const activeTab = ref();
+const activeTab = ref()
 const view = ref(true)
 onMounted(() => {
   if (view.value) {
-    const savedTab = localStorage.getItem("orgActiveTab")
-    activeTab.value = (savedTab ? savedTab : 'people');
+    const savedTab = localStorage.getItem('orgActiveTab')
+    activeTab.value = savedTab ? savedTab : 'people'
   }
 })
 
-
 const handleTabChange = (tab: string) => {
-  localStorage.setItem('orgActiveTab', tab);
-  activeTab.value = tab;
-};
+  localStorage.setItem('orgActiveTab', tab)
+  activeTab.value = tab
+}
 </script>
 
 <template>

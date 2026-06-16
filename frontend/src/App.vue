@@ -23,7 +23,9 @@ import MainView from '@/views/MainView.vue'
 import { useUserStore } from './stores/user'
 
 const userStore = useUserStore()
-const activeTheme = computed(() => (userStore.getPreferences.theme === 'dark' ? darkTheme : lightTheme))
+const activeTheme = computed(() =>
+  userStore.getPreferences.theme === 'dark' ? darkTheme : lightTheme
+)
 const isSessionInitializing = computed(() => !userStore.isSessionInitialized)
 </script>
 
