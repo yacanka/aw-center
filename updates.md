@@ -120,7 +120,13 @@
 4. SSE uses cookie-backed EventSource when no fallback token exists and fetch-streaming with the `Authorization` header when the fallback token exists.
 5. People list pagination now orders by primary key to avoid DRF `UnorderedObjectListWarning` and inconsistent page results.
 
-## 18. Browser cookie-token CSRF enforcement
+## 18. Static architecture and readiness documentation
+
+1. Added a `docs/` directory with architecture, production-readiness, enterprise-roadmap, refactoring, testing, DevOps, and code-quality reviews.
+2. Each document is based on static repository evidence from the Django project configuration, frontend routing/HTTP/build configuration, dependency manifests, and app-level Django files.
+3. The documents include severity, location, explanation, recommendation, business value, technical value, complexity, risk, confidence, rollback, and testing strategy for major improvements.
+
+## 19. Browser cookie-token CSRF enforcement
 
 1. Browser authentication strategy is explicitly cookie-backed DRF token auth, not Django session auth.
 2. Cookie-backed token requests now run Django CSRF validation before accepting unsafe POST, PUT, PATCH, and DELETE requests.
