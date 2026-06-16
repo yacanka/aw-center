@@ -1,10 +1,10 @@
-from sentence_transformers import SentenceTransformer, CrossEncoder
 from docx import Document
 from docx.text.paragraph import Paragraph
 from docx.table import Table
 from docx.oxml.text.paragraph import CT_P
 from docx.oxml.table import CT_Tbl
 from typing import List, Dict, Any, Optional, Literal, IO
+import importlib.util
 import numpy as np
 import os
 import re
@@ -35,6 +35,21 @@ DEFAULT_HEADING_BOOST = 1.08
 ContentMode = Literal["paragraph", "table", "both"]
 
 
+def load_sentence_transformer_classes():
+    """Load optional sentence-transformers classes only when retrieval is used."""
+    if importlib.util.find_spec("sentence_transformers") is None:
+        raise ImportError(
+            "NLP document retrieval dependencies are not installed because "
+            "their PyTorch dependency is currently blocked by CVE-2025-3000. "
+            "Install a non-vulnerable PyTorch-backed NLP stack before using "
+            "this Word paraphrase feature."
+        )
+
+    from sentence_transformers import CrossEncoder, SentenceTransformer
+
+    return SentenceTransformer, CrossEncoder
+
+
 class ExplainableDocxRetriever:
     def __init__(
         self,
@@ -61,12 +76,13 @@ class ExplainableDocxRetriever:
         content_mode:
             "paragraph" / "table" / "both"
         """
+        sentence_transformer, cross_encoder = load_sentence_transformer_classes()
         if backend is None:
-            self.bi_encoder = SentenceTransformer(model_path)
+            self.bi_encoder = sentence_transformer(model_path)
         else:
-            self.bi_encoder = SentenceTransformer(model_path, backend=backend)
+            self.bi_encoder = sentence_transformer(model_path, backend=backend)
 
-        self.cross_encoder = CrossEncoder(cross_encoder_model)
+        self.cross_encoder = cross_encoder(cross_encoder_model)
 
         self.content_mode = content_mode
         self.use_heading_weight = use_heading_weight
