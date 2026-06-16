@@ -83,3 +83,7 @@ Useful options:
 - `VITE_API_URL` is set automatically for the frontend server when using `start`.
 
 > The generated `backend/.env` contains only development placeholders and is ignored by Git. Replace integration URLs and credentials locally when testing JIRA, DocProof, DOORS, Outlook, or Office automation.
+
+## 🚢 Deployment Foundations
+
+Container and CI foundations are documented in [`docs/deployment.md`](docs/deployment.md). The repository includes separate backend and frontend Dockerfiles, a local `docker-compose.yml` with a PostgreSQL database candidate, and a GitHub Actions workflow for backend checks, frontend checks, builds, and dependency audits.

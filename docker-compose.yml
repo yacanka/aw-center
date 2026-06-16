@@ -1,0 +1,58 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DEBUG: "True"
+      IPV4_ADDRESS: 0.0.0.0
+      PORT: 8000
+      ALLOWED_HOSTS: 127.0.0.1,localhost,backend
+      CORS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      DOCPROOF_URL: http://docproof.local
+      DOORS_EXECUTABLE: /usr/bin/false
+      JIRA_LEGACY_URL: http://jira-legacy.local
+      JIRA_BTB_URL: http://jira-btb.local
+    volumes:
+      - backend-media:/app/media
+      - backend-static:/app/static
+    ports:
+      - "8000:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8000
+        VITE_VERSION: local-compose
+        VITE_APP_TITLE: AW Center
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: awcenter
+      POSTGRES_USER: awcenter
+      POSTGRES_PASSWORD: change-me-local-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U awcenter -d awcenter"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  backend-media:
+  backend-static:
+  postgres-data:
