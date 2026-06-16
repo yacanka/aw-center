@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Permission, update_last_login
 from django.conf import settings
+from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.authtoken.models import Token
@@ -95,6 +96,7 @@ class CustomAuthToken(ObtainAuthToken):
             self._login_payload(user, token, request),
             status=status.HTTP_200_OK,
         )
+        get_token(request)
         response.set_cookie(
             settings.AUTH_COOKIE_NAME,
             token.key,
