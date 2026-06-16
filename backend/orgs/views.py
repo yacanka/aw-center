@@ -53,7 +53,7 @@ class PeopleViewSet(ModelViewSet):
     queryset = People.objects.all()
 
     def get_queryset(self):
-        qs = People.objects.all()
+        qs = People.objects.order_by("id")
 
         person_id = self.request.query_params.get("person_id")
         if person_id:
