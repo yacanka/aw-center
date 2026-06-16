@@ -1,29 +1,23 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { defineAsyncComponent } from 'vue'
+import { createRouter, createWebHistory, type RouteComponent } from 'vue-router'
 import LoginView from '@/views/Login.vue'
-import Settings from '@/views/Settings.vue'
-import CompDoc from '@/views/CompDocTable.vue'
-import ECDMaster from '@/views/ECDContainer.vue'
 import Welcome from '@/views/Welcome.vue'
-import Users from '@/views/Users.vue'
-import DoorsAgent from '@/views/doors/DoorsAgent.vue'
-import DoorsScripter from '@/views/doors/DoorsScripter.vue'
-import PocLinker from '@/views/doors/PocLinker.vue'
-import DDFAssistant from '@/views/DDFAssistant.vue'
-import OrgsContainer from '@/views/OrgsContainer.vue'
-import ExcelCompare from '@/views/compare/ExcelCompare.vue'
-import WordCompare from '@/views/compare/WordCompare.vue'
-import PptxGallery from '@/views/PptxGallery.vue'
-import PdfSplit from '@/views/PdfSplit.vue'
-import OutlookContainer from '@/views/OutlookContainer.vue'
-import CoverPageCreator from '@/views/compdoc/CoverPageCreator.vue'
-import Home from '@/views/Home.vue'
+import RouteLoading from '@/components/router/RouteLoading.vue'
 
 import { isAuthenticated } from '@/stores/user'
-import EcrTask from '@/components/outlook/EcrTask.vue'
-import PdfCompare from '@/views/compare/PdfCompare.vue'
-import Translator from '@/views/Translator.vue'
-import DocAnalyzer from '@/views/compdoc/DocAnalyzer.vue'
 
+const loadingDelayMilliseconds = 120
+
+/**
+ * Creates a route-level async component with a shared loading skeleton.
+ */
+function lazyRoute(loader: () => Promise<RouteComponent>) {
+  return defineAsyncComponent({
+    loader,
+    loadingComponent: RouteLoading,
+    delay: loadingDelayMilliseconds
+  })
+}
 
 const router = createRouter({
   //history: createWebHistory(import.meta.env.BASE_URL),
@@ -31,7 +25,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/welcome',
+      redirect: '/welcome'
     },
     {
       path: '/welcome',
@@ -41,67 +35,67 @@ const router = createRouter({
     {
       path: '/home',
       name: 'home',
-      component: Home
+      component: lazyRoute(() => import('@/views/Home.vue'))
     },
     {
       path: '/outlook',
       name: 'outlook',
-      component: OutlookContainer
+      component: lazyRoute(() => import('@/views/OutlookContainer.vue'))
     },
     {
       path: '/task/ecr',
       name: 'ecrTask',
-      component: EcrTask
+      component: lazyRoute(() => import('@/components/outlook/EcrTask.vue'))
     },
     {
       path: '/doors/scripter',
       name: 'doorsScripter',
-      component: DoorsScripter
+      component: lazyRoute(() => import('@/views/doors/DoorsScripter.vue'))
     },
     {
       path: '/doors/agent',
       name: 'doorsAgent',
-      component: DoorsAgent
+      component: lazyRoute(() => import('@/views/doors/DoorsAgent.vue'))
     },
     {
       path: '/doors/poclinker',
       name: 'pocLinker',
-      component: PocLinker
+      component: lazyRoute(() => import('@/views/doors/PocLinker.vue'))
     },
     {
       path: '/compare/excel',
       name: 'excelCompare',
-      component: ExcelCompare
+      component: lazyRoute(() => import('@/views/compare/ExcelCompare.vue'))
     },
     {
       path: '/compare/word',
       name: 'wordCompare',
-      component: WordCompare
+      component: lazyRoute(() => import('@/views/compare/WordCompare.vue'))
     },
     {
       path: '/compare/pdf',
       name: 'pdfCompare',
-      component: PdfCompare
+      component: lazyRoute(() => import('@/views/compare/PdfCompare.vue'))
     },
     {
       path: '/translator',
       name: 'translator',
-      component: Translator
+      component: lazyRoute(() => import('@/views/Translator.vue'))
     },
     {
       path: '/pdf/split',
       name: 'pdfSplit',
-      component: PdfSplit
+      component: lazyRoute(() => import('@/views/PdfSplit.vue'))
     },
     {
       path: '/pptxGallery',
       name: 'pptxGallery',
-      component: PptxGallery
+      component: lazyRoute(() => import('@/views/PptxGallery.vue'))
     },
     {
       path: '/organization',
       name: 'organization',
-      component: OrgsContainer
+      component: lazyRoute(() => import('@/views/OrgsContainer.vue'))
     },
     {
       path: '/login',
@@ -112,17 +106,17 @@ const router = createRouter({
       path: '/users',
       name: 'users',
       meta: { auth: true },
-      component: Users,
+      component: lazyRoute(() => import('@/views/Users.vue'))
     },
     {
       path: '/dcc',
       name: 'dcc',
-      component: ECDMaster,
+      component: lazyRoute(() => import('@/views/ECDContainer.vue'))
     },
     {
       path: '/ddfAssistant',
       name: 'ddfAssistant',
-      component: DDFAssistant,
+      component: lazyRoute(() => import('@/views/DDFAssistant.vue'))
     },
     {
       path: '/compdocs',
@@ -131,39 +125,39 @@ const router = createRouter({
         {
           name: 'compdocs',
           path: ':project',
-          component: CompDoc,
+          component: lazyRoute(() => import('@/views/CompDocTable.vue'))
         }
       ]
     },
     {
       path: '/compdocs/coverpagecreator',
       name: 'coverpagecreator',
-      component: CoverPageCreator,
+      component: lazyRoute(() => import('@/views/compdoc/CoverPageCreator.vue'))
     },
     {
       path: '/compdocs/docAnalyzer',
       name: 'docAnalyzer',
-      component: DocAnalyzer,
+      component: lazyRoute(() => import('@/views/compdoc/DocAnalyzer.vue'))
     },
     {
       path: '/settings',
       name: 'settings',
-      component: Settings,
+      component: lazyRoute(() => import('@/views/Settings.vue')),
       meta: { auth: true }
     },
     {
       path: '/:pathMatch(.*)*',
       name: 'NotFound',
-      component: () => import('@/views/NotFound.vue')
+      component: lazyRoute(() => import('@/views/NotFound.vue'))
     }
   ]
 })
 
 router.beforeEach((to, from, next) => {
   if (to.meta.auth && !isAuthenticated()) {
-    next({name: "login"})
-  } else if (to.name == "login" && isAuthenticated()) {
-    next({name: "home"})
+    next({ name: 'login' })
+  } else if (to.name == 'login' && isAuthenticated()) {
+    next({ name: 'home' })
   } else {
     next()
   }
