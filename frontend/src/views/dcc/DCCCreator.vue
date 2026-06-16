@@ -27,6 +27,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useRoute } from 'vue-router'
 import { formatApiError } from '@/services/apiError'
 
@@ -50,7 +51,7 @@ function createDcc() {
     axios.post(`${axios.defaults.baseURL}/dcc/create_queue/`, generator.value
     ).then((res) => {
         console.log(res)
-        const eventSource = new EventSource(`${axios.defaults.baseURL}/dcc/create_dcc_stream/${res.data}`);
+        const eventSource = createAuthenticatedEventSource(`/dcc/create_dcc_stream/${res.data}`)
         eventSource.onmessage = function (event) {
             const data = JSON.parse(event.data);
             console.log(data)
