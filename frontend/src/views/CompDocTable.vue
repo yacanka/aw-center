@@ -25,9 +25,16 @@ const columnSettings = ref<{ visible: boolean, list: IColumnSetting[] }>({
   list: []
 })
 
-const pagination = ref<Partial<PaginationInfo>>({
-  pageSize: parseInt(localStorage.getItem("compdocs>page_size") || "8")
-})
+const page = ref(1)
+const pageSize = ref(parseInt(localStorage.getItem("compdocs>page_size") || "8"))
+
+const pagination = computed<Partial<PaginationInfo>>(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  itemCount: store.pagination.count,
+  showSizePicker: true,
+  pageSizes: [8, 25, 50, 100]
+}))
 
 const filterValue = ref<Record<string, any>>({});
 const techIssueList = ref<Record<string, any>>({})
@@ -36,6 +43,14 @@ let currentColumns = ref<DataTableColumns<ICompDoc>>([])
 const checkIssuesButton = ref({
   disabled: false
 })
+const issueCheckProgress = ref({
+  completed: 0,
+  total: 0
+})
+
+const ISSUE_CHECK_CONCURRENCY_LIMIT = 4
+const ISSUE_CHECK_RETRY_LIMIT = 1
+const ISSUE_CHECK_RETRY_DELAY_MS = 600
 const columnSelections: SelectOption[] = store.getCompdocFields
 
 const popupComponent = ref()
@@ -52,12 +67,14 @@ const filterIconPopover: PopoverProps = {
 
 const onFilter = (attrib: string, filterData: any) => {
   filterValue.value[attrib] = filterData
-  filterAttr()
+  page.value = 1
+  fetchCompdocs()
 }
 
 const onClean = (attrib: string) => {
   filterValue.value[attrib] = null
-  filterAttr()
+  page.value = 1
+  fetchCompdocs()
 }
 
 const columns = ref<DataTableColumns<ICompDoc>>([
@@ -364,7 +381,8 @@ const columns = ref<DataTableColumns<ICompDoc>>([
 watch(() => route.params.project,
   (new_value, old_value) => {
     store.setProjectName(new_value as string)
-    store.fetchCompdocs().then(() => {
+    page.value = 1
+    fetchCompdocs().then(() => {
       //applyColumnSettings()
     })
 
@@ -384,8 +402,28 @@ watch(() => route.params.project,
 
 
 
-function filterAttr() {
-  table.value.filter(filterValue.value)
+function buildCompdocQuery() {
+  return {
+    ...filterValue.value,
+    page: page.value,
+    page_size: pageSize.value
+  }
+}
+
+function fetchCompdocs() {
+  return store.fetchCompdocs(buildCompdocQuery())
+}
+
+function handlePageUpdate(newPage: number) {
+  page.value = newPage
+  fetchCompdocs()
+}
+
+function handleTablePageSizeUpdate(newPageSize: number) {
+  pageSize.value = newPageSize
+  page.value = 1
+  localStorage.setItem("compdocs>page_size", newPageSize.toString())
+  fetchCompdocs()
 }
 
 function showpUploadForm() {
@@ -438,42 +476,65 @@ function exportExcel() {
   downloadComponent.value.openModal("Excel")
 }
 
-async function checkAllIssues() {
-  checkIssuesButton.value.disabled = true
-  const filteredTable = getFilteredTable()
+function collectUniqueTechDocumentNumbers(rows: ICompDoc[]) {
+  return [...new Set(rows.flatMap((row) => [row.tech_doc_no, row.tech_doc_no_2]).filter(Boolean))] as string[]
+}
 
-  const promises = []
+function waitForRetry(delayMilliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMilliseconds))
+}
 
-  for (const row of filteredTable) {
-    const docNos = []
-    if (row.tech_doc_no) docNos.push(row.tech_doc_no)
-    if (row.tech_doc_no_2) docNos.push(row.tech_doc_no_2)
+async function searchIssueWithRetry(docNo: string) {
+  for (let attempt = 0; attempt <= ISSUE_CHECK_RETRY_LIMIT; attempt++) {
+    try {
+      return await proofStore.search(docNo)
+    } catch (error) {
+      if (attempt === ISSUE_CHECK_RETRY_LIMIT) throw error
+      await waitForRetry(ISSUE_CHECK_RETRY_DELAY_MS * (attempt + 1))
+    }
+  }
+}
 
-    for (const docNo of docNos) {
-      promises.push(
-        proofStore.search(docNo)
-          .then(res => {
-            techIssueList.value[docNo] = res
-            return { success: true }
-          })
-          .catch(err => {
-            return { success: false }
-          })
-      )
+async function mapWithConcurrencyLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>) {
+  const results: R[] = []
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++
+      results[currentIndex] = await task(items[currentIndex])
     }
   }
 
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker)
+  await Promise.all(workers)
+  return results
+}
+
+async function checkSingleIssue(docNo: string) {
+  techIssueList.value[docNo] = null
+
   try {
-    const results = await Promise.all(promises)
+    techIssueList.value[docNo] = await searchIssueWithRetry(docNo)
+    return { success: true }
+  } catch (error) {
+    techIssueList.value[docNo] = undefined
+    return { success: false }
+  } finally {
+    issueCheckProgress.value.completed += 1
+  }
+}
 
-    const successCount = results.filter(r => r.success).length
+async function checkAllIssues() {
+  checkIssuesButton.value.disabled = true
+  const documentNumbers = collectUniqueTechDocumentNumbers(getFilteredTable())
+  issueCheckProgress.value = { completed: 0, total: documentNumbers.length }
+
+  try {
+    const results = await mapWithConcurrencyLimit(documentNumbers, ISSUE_CHECK_CONCURRENCY_LIMIT, checkSingleIssue)
+    const successCount = results.filter((result) => result.success).length
     const failCount = results.length - successCount
-
-    const messageType =
-      window.$message["info"](`Checking the issues is over! Success: ${successCount}, Fail: ${failCount}`)
-
-  } catch (err) {
-    console.error("Hata oluştu:", err)
+    window.$message.info(`Checking the issues is over! Success: ${successCount}, Fail: ${failCount}`)
   } finally {
     checkIssuesButton.value.disabled = false
   }
@@ -494,8 +555,7 @@ function deleteAllCompDocs() {
 
 function handlePageSizeInput(number: number) {
   if (number) {
-    pagination.value.pageSize = number
-    localStorage.setItem("compdocs>page_size", number.toString())
+    handleTablePageSizeUpdate(number)
   }
 }
 
@@ -566,6 +626,8 @@ function handleFilterChange(filters: any) {
   for (let filter in filters) {
     filterValue.value[filter] = filters[filter]
   }
+  page.value = 1
+  fetchCompdocs()
 }
 
 function loadColumnSettings() {
@@ -628,6 +690,9 @@ onUnmounted(() => {
         </template>
         Check Issues
       </n-button>
+      <n-text v-if="checkIssuesButton.disabled || issueCheckProgress.total > 0" depth="3">
+        Checked {{ issueCheckProgress.completed }}/{{ issueCheckProgress.total }}
+      </n-text>
     </n-space>
     <n-space>
       <n-button ghost color="#65B25D" @click="exportExcel" :focusable="false">
@@ -652,11 +717,11 @@ onUnmounted(() => {
   <n-flex justify="end" style="margin: 16px 0 4px 0">
     <n-space>
       <strong>Page Size: </strong>
-      <n-input-number :value="pagination.pageSize" size="tiny" placeholder="Value" style="width: 50px"
+      <n-input-number :value="pageSize" size="tiny" placeholder="Value" style="width: 50px"
         :show-button="false" @update:value="handlePageSizeInput" />
     </n-space>
     <n-text>
-      <strong>Total: </strong>{{ getFilteredTable().length }}
+      <strong>Total: </strong>{{ store.pagination.count }}
     </n-text>
     <n-button size="tiny" @click="openColumnSettings" :focusable="false">
       <template #icon>
@@ -666,7 +731,8 @@ onUnmounted(() => {
   </n-flex>
 
   <n-data-table ref="table" :loading="store.isLoading" striped :columns="currentColumns" :data="store.getCompdocs"
-    :pagination="pagination" :row-key="rowKey" @update:filters="handleFilterChange"
+    remote :pagination="pagination" :row-key="rowKey" @update:filters="handleFilterChange"
+    @update:page="handlePageUpdate" @update:page-size="handleTablePageSizeUpdate"
     :filterIconPopoverProps="filterIconPopover" size="medium" />
 
   <UpdateForm ref="popupComponent" />

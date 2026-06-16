@@ -100,7 +100,7 @@ onMounted(() => {
         </n-grid-item>
 
         <n-grid-item span=24 />
-        
+
         <n-grid-item span=5>
             <n-card size="small" @click="openPasswordPopup">
                 <template #header>

@@ -42,7 +42,7 @@ export const useReleaseNotesStore = defineStore("releaseNotes", {
                 this.current = res.data.latest;
                 this.unseen_ids = res.data.mark_seen_ids
                 this.show = true;
-                
+
                 await axios.post(`/releases/release-notes/bulk-seen`, {
                     ids: res.data.mark_seen_ids
                 });

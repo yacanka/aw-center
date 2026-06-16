@@ -81,7 +81,7 @@ const columns = [
             }
           },
           { default: () => null }
-        ) 
+        )
         ]
       })
     }

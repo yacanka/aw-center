@@ -18,32 +18,33 @@ session = requests.Session()
 session.verify = CERTIFICATE_FILE if CERTIFICATE_FILE.exists() else False
 url = f"{DOCPROOF_URL}/j_spring_security_check"
 
-aw_username = settings.AW_USERNAME
-aw_password = settings.AW_PASSWORD
-
-if aw_username and aw_password:
-    value_1 = b64decode(aw_username).decode("utf-8")
-    value_2 = b64decode(aw_password).decode("utf-8")
-    payload = {
-        "j_username": value_1,
-        "j_password": value_2,
-    }
+aw_username = settings.AW_USERNAME or None
+aw_password = settings.AW_PASSWORD or None
 
 def login():
-    try:
-        res = session.post(url, data=payload, timeout=5)
-        res.raise_for_status()
-    except ConnectionError as e:
-        print(f"Server error while connecting to Docproof: {e}")
-    except Timeout as e:
-        print(f"Connection timeout while connecting to Docproof: {e}")
-    except HTTPError as e:
-        print(f"HTTP error while connecting to Docproof: {e}")
-    except RequestException as e:
-        print(f"General request error while connecting to Docproof: {e}")
-    except Exception as e:
-        print(f"Unexpected error while connecting to Docproof: {e}")
-        
+    if aw_username and aw_password:
+        value_1 = b64decode(aw_username).decode("utf-8")
+        value_2 = b64decode(aw_password).decode("utf-8")
+        payload = {
+            "j_username": value_1,
+            "j_password": value_2,
+        }
+        try:
+            res = session.post(url, data=payload, timeout=5)
+            res.raise_for_status()
+        except ConnectionError as e:
+            print(f"Server error while connecting to Docproof: {e}")
+        except Timeout as e:
+            print(f"Connection timeout while connecting to Docproof: {e}")
+        except HTTPError as e:
+            print(f"HTTP error while connecting to Docproof: {e}")
+        except RequestException as e:
+            print(f"General request error while connecting to Docproof: {e}")
+        except Exception as e:
+            print(f"Unexpected error while connecting to Docproof: {e}")
+    else:
+        print("Username or password missed.")
+
 login()
 #for cookie in session.cookies:
 #    print(f"{cookie.name} = {cookie.value}")
@@ -62,7 +63,7 @@ def search(request):
         return Response({"detail": "Document number required."}, status=400)
 
     document_no = document_no.split("/")[0]
-    
+
 
     try:
         search_result_raw = session.get(f"{DOCPROOF_URL}/realtime-queries/dprf_search_proof_readin?inline=true&input_document_number={document_no}")
@@ -80,16 +81,16 @@ def search(request):
                 object_id = entry["content"]["properties"]["id"]
         if not object_id:
             return Response({"message": f"Can not find published document in EDMS: {document_no}"}, status=400)
-        
+
         doc_object_raw = session.get(f"{DOCPROOF_URL}/folders/dprf_proof_reading/{object_id}/objects?inline=true")
         doc_object = doc_object_raw.json()
-        
+
         issue_no = 0
         for entry in doc_object["entries"]:
             if (entry["content"]["type"] == "dprf_technical_document" or entry["content"]["type"] == "dprf_cdcp_document"):
                 issue_no = entry["content"]["properties"]["issue"]
                 break
-        
+
         return Response(issue_no, status=200)
     except requests.exceptions.HTTPError as e:
         print("Trying login DocProof again...")

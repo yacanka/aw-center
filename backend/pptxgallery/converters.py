@@ -29,14 +29,14 @@ def convert_pptx_to_images(presentation: Presentation, dpi: int = 150):
         #convert_pptx_with_soffice(presentation)
 
         presentation.status = "ready"
-        presentation.save(update_fields=["status"]) 
+        presentation.save(update_fields=["status"])
 
     except subprocess.CalledProcessError:
         presentation.status = "failed"
-        presentation.save(update_fields=["status"]) 
+        presentation.save(update_fields=["status"])
         raise
-    
-    
+
+
 
 
 def convert_pptx_with_powerpoint(presentation: Presentation):
@@ -102,7 +102,7 @@ def convert_pptx_with_soffice(presentation: Presentation):
 
     presentation.status = "converting"
     presentation.save(update_fields=["status"])
-    
+
     subprocess.check_call([
         SOFFICE, "--headless", "--convert-to", "pdf", "--outdir", workdir, pres_path
     ])

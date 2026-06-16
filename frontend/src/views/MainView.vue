@@ -66,6 +66,7 @@ const menuOptions = [
   { key: "divider1", type: "divider" },
   {
     label: "Compliance Docs", key: "/compdocs", name: "projects", icon: renderIcon(Book24Regular), children: [
+      { label: "Doc Analyzer", key: "/compdocs/docAnalyzer", name: "docAnalyzer", disabled: false, icon: renderIcon(EyeTracking24Regular) },
       { label: "Cover Page Creator", key: "/compdocs/coverpagecreator", name: "coverpagecreator", disabled: false },
       { key: "divider2", type: "divider" },
       {
@@ -112,16 +113,10 @@ const menuOptions = [
 ]
 
 const currentPage = computed(() => route.path)
-const userStore = useUserStore()
 const appVersion = import.meta.env.VITE_VERSION
 
 
 onMounted(async () => {
-  try {
-    await userStore.fetchCurrentUser()
-    await releaseNotes.checkUnseen();
-  } catch (err) {
-    router.push({ name: "login" })
-  }
+  await releaseNotes.checkUnseen();
 })
 </script>

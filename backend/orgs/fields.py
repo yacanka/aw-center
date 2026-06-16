@@ -9,7 +9,7 @@ class RNameWSlugRelatedField(serializers.RelatedField):
     def to_representation(self, value):
         if value is None:
             return None
-            
+
         return getattr(value, 'name', str(value))
 
     def to_internal_value(self, data):
@@ -24,4 +24,3 @@ class RNameWSlugRelatedField(serializers.RelatedField):
             return qs.get(slug=data)
         except qs.model.DoesNotExist:
             self.fail("does_not_exist", value=data)
-        

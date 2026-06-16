@@ -1,6 +1,6 @@
 # 🌐 AW Center – Automated Workflows & Compliance Center
 
-> **AW Center** is a centralized automation and compliance management platform designed to streamline engineering documentation, change management, and traceability processes across JIRA, DOORS, Excel, and Word environments.  
+> **AW Center** is a centralized automation and compliance management platform designed to streamline engineering documentation, change management, and traceability processes across JIRA, DOORS, Excel, and Word environments.
 > Built for certification readiness (TC/STC), it integrates with legacy systems to reduce manual effort, improve audit readiness, and accelerate project delivery.
 
 ---
@@ -63,3 +63,23 @@ All tools are designed with **reusability**, **integration capability**, and **a
 - **File Processing**: Pandas, openpyxl, python-docx, docx2txt
 - **APIs**: JIRA REST API, DOORS DXL, Excel/Word parsing libraries
 - **Deployment**: GitLab CI/CD (not yet)
+---
+
+## 🚀 Development Starter
+
+The repository includes a cross-platform starter for macOS, Windows, and Linux. It creates and uses a root `.venv`, installs backend packages from `requirements.txt`, installs frontend packages from `frontend/package-lock.json`, creates a local-only `backend/.env` when absent, and can run Django and Vite together.
+
+```bash
+python scripts/starter.py check
+python scripts/starter.py install
+python scripts/starter.py check-backend
+python scripts/starter.py start
+```
+
+Useful options:
+
+- `--skip-backend` or `--skip-frontend` limits package installation to one side.
+- `--host`, `--backend-port`, and `--frontend-port` customize local server binding.
+- `VITE_API_URL` is set automatically for the frontend server when using `start`.
+
+> The generated `backend/.env` contains only development placeholders and is ignored by Git. Replace integration URLs and credentials locally when testing JIRA, DocProof, DOORS, Outlook, or Office automation.

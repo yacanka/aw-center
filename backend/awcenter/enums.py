@@ -1,9 +1,29 @@
 from enum import Enum
 
 class Projects(Enum):
-    HYS = ("HYS", "HYS", "dcc_hys_template.docx", "mail_jira_hys_template.html")
-    OZGUR = ("Özgür", "OZG", "dcc_ozg_template.docx", "mail_jira_ozg_template.html")
-    GOKBEY = ("Gökbey Jandarma", "GJ", "dcc_gj_template.docx", "mail_jira_gj_template.html")
+    HYS = (
+        "HYS", "HYS", "dcc_hys_template.docx", "mail_jira_hys_template.html", 
+        r"",
+        ""
+    )
+    
+    OZGUR = (
+        "Özgür", "OZG", "dcc_ozg_template.docx", "mail_jira_ozg_template.html",
+        r"",
+        ""
+    )
+    
+    Jandarma = (
+        "Gökbey Jandarma", "GJ", "dcc_gj_template.docx", "mail_jira_gj_template.html",
+        "",
+        ""
+    )
+    
+    Sivil = (
+        "Gökbey Sivil", "T625", "dcc_t625_template.docx", "mail_jira_t625_template.html",
+        "",
+        ""
+    )
     
     @property
     def jira_component(self):
@@ -20,6 +40,14 @@ class Projects(Enum):
     @property
     def mail_jira_template_name(self):
         return self.value[3]
+    
+    @property
+    def dcc_parent_path(self):
+        return self.value[4]
+    
+    @property
+    def psk_mail(self):
+        return self.value[5]
     
     @classmethod
     def list(cls):

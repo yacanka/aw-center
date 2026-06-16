@@ -7,19 +7,19 @@ class RequestUserLogMiddleware(MiddlewareMixin):
             username = request.user.username
         else:
             username = "Anonymous"
-        
+
         ip = self.get_client_ip(request)
-        
+
         method = request.method
-        
+
         path = request.path
-        
+
         now = timezone.localtime().strftime("%d.%m.%Y %H:%M:%S")
-        
+
         print(f"[{now}] {ip} - {username}: {method} {path}")
-        
+
         return None
-    
+
     def get_client_ip(self, request):
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:

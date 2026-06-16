@@ -47,6 +47,17 @@ JIRA_BTB_URL = env.str("JIRA_BTB_URL")
 AW_USERNAME = env.str("AW_USERNAME", "")
 AW_PASSWORD = env.str("AW_PASSWORD", "")
 
+
+def get_default_auth_cookie_samesite(debug):
+    """Return the safe default SameSite policy for the runtime mode."""
+    return "Lax" if debug else "None"
+
+
+def get_default_auth_cookie_secure(debug):
+    """Return whether auth cookies should default to Secure for the runtime mode."""
+    return not debug
+
+
 CERTIFICATES_DIR = BASE_DIR / "certificates"
 CUSTOM_TEMPLATE_DIR = BASE_DIR / "custom_templates"
 
@@ -98,6 +109,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'awcenter.api_errors.ApiErrorContractMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -119,7 +131,15 @@ else:
 
 CORS_ALLOW_HEADERS = list(default_headers)
 CORS_ALLOW_METHODS = list(default_methods)
+CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+
+AUTH_COOKIE_NAME = env.str("AUTH_COOKIE_NAME", default="auth_token")
+AUTH_COOKIE_MAX_AGE = env.int("AUTH_COOKIE_MAX_AGE", default=60 * 60 * 24 * 14)
+AUTH_COOKIE_DEFAULT_SAMESITE = get_default_auth_cookie_samesite(DEBUG)
+AUTH_COOKIE_SAMESITE = env.str("AUTH_COOKIE_SAMESITE", default=AUTH_COOKIE_DEFAULT_SAMESITE)
+AUTH_COOKIE_SECURE = env.bool("AUTH_COOKIE_SECURE", default=get_default_auth_cookie_secure(DEBUG))
+AUTH_TOKEN_RESPONSE_ENABLED = env.bool("AUTH_TOKEN_RESPONSE_ENABLED", default=DEBUG)
 
 ROOT_URLCONF = 'awcenter.urls'
 
@@ -210,12 +230,14 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 
 REST_FRAMEWORK = {
      'DEFAULT_AUTHENTICATION_CLASSES': [
-         #'rest_framework_simplejwt.authentication.JWTAuthentication',
-         'rest_framework.authentication.TokenAuthentication',
+         'awcenter.authentication.CookieTokenAuthentication',
      ],
      'DEFAULT_PERMISSION_CLASSES': [
          'rest_framework.permissions.IsAuthenticated',
-     ]
+     ],
+     'EXCEPTION_HANDLER': 'awcenter.api_errors.api_exception_handler',
+     'DEFAULT_PAGINATION_CLASS': 'awcenter.pagination.StandardResultsSetPagination',
+     'PAGE_SIZE': 50,
 }
 
 CACHES = {

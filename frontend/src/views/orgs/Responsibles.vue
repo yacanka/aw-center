@@ -15,7 +15,7 @@
     <n-tabs v-if="activeProject" placement="top" animated v-model:value="activePanel" @update:value="handlePanelChange" >
       <n-tab-pane v-for="(panel, index) in store.getPanels" :key="index" :name="panel.ata" :tab="panel.ata" />
     </n-tabs>
-    
+
     <n-data-table :loading="store.isLoading" striped :columns="columns" :data="store.getResponsibles" :pagination="pagination" ref="table" :row-key="rowKey" />
   </n-card>
   <ResponsiblePopup ref="responsiblePopup" />
@@ -140,7 +140,7 @@ const columns = [
             }
           },
           { default: () => null }
-        ) 
+        )
         ]
       })
     }

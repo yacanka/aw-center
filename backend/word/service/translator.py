@@ -15,21 +15,21 @@ class DocTranslator:
     }
 
     REVERSE_PLACEHOLDERS = {v: k for k, v in PLACEHOLDERS.items() if v}
-    
+
     MODELS = {
         "tr2en": r"models\opus-mt-tr-en",
         "en2tr": r"models\opus-mt-tc-big-en-tr"
     }
-    
+
     def __init__(self, translate_type=None):
         from transformers import MarianMTModel, MarianTokenizer
 
         model_id = self.MODELS.get(translate_type)
         if not model_id:
             raise ValueError("Unsupported translate type.")
-        
+
         self.tokenizer = MarianTokenizer.from_pretrained(model_id, local_files_only=True)
-        self.model = MarianMTModel.from_pretrained(model_id, local_files_only=True)        
+        self.model = MarianMTModel.from_pretrained(model_id, local_files_only=True)
 
     def translate_text(self, text: str) -> str:
         text = text.strip()
@@ -110,7 +110,7 @@ class DocTranslator:
     # -----------------------------------
 
     # Çeviri sırasında bozulmaması için bazı karakterleri token’a çevirip geri koyuyoruz.
-    
+
 
     def protect_specials(self, s: str) -> str:
         for k, v in self.PLACEHOLDERS.items():
@@ -250,12 +250,12 @@ class DocTranslator:
                         yield (p, i, total_tables, "tables")
 
         # Header / Footer (section bazlı)
-        
+
         for section in doc.sections:
             total_section_header_p = len(section.header.paragraphs)
             for i, p in enumerate(section.header.paragraphs):
                 yield (p, i, total_section_header_p, "header paragraphs")
-            
+
             total_section_header_t = len(section.header.tables)
             for i, table in enumerate(section.header.tables):
                 for row in table.rows:
@@ -266,7 +266,7 @@ class DocTranslator:
             total_section_footer_p = len(section.footer.paragraphs)
             for i, p in enumerate(section.footer.paragraphs):
                 yield (p, i, total_section_footer_p, "footer paragraphs")
-                
+
             total_section_footer_t = len(section.footer.tables)
             for i, table in enumerate(section.footer.tables):
                 for row in table.rows:
@@ -279,7 +279,7 @@ class DocTranslator:
         for p, i, total, ptype in self.iter_all_paragraphs(doc):
             self.translate_paragraph_preserve_runs(p)
         doc.save(output_path)
-    
+
     def translate_docx_req(self, input_bytes: BytesIO):
         doc = Document(input_bytes)
         for p, i, total, ptype in self.iter_all_paragraphs(doc):

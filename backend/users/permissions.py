@@ -13,5 +13,5 @@ class UserPermission(BasePermission):
         required_permission = self.permission_map.get(request.method)
         if required_permission is None:
             return True
-        
+
         return request.user.has_perm(required_permission)

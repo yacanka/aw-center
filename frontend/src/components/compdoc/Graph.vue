@@ -22,25 +22,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, reactive } from 'vue'
-import { Pie, Bar, Line, Scatter } from 'vue-chartjs'
-import annotationPlugin from 'chartjs-plugin-annotation'
+import { defineAsyncComponent, ref, onMounted } from 'vue'
 import { statusOptions, statusColors} from '@/stores/datatable'
-import { calculateBarChart, calculatePieChart, calculateLineChart, pieChartOptions, barChartOptions, getLineChartOptions } from '@/stores/chartStore'
-import {
-    Chart as ChartJS,
-    Title,
-    Tooltip,
-    Legend,
-    LineElement,
-    BarElement,
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    ArcElement,
-    TimeScale
-} from 'chart.js'
-ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement, PointElement, LineElement, TimeScale, annotationPlugin)
+import { calculateBarChart, calculatePieChart, calculateLineChart, ensureChartPluginsRegistered, pieChartOptions, barChartOptions, getLineChartOptions } from '@/stores/chartStore'
+
+const Pie = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Pie))
+const Bar = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Bar))
+const Line = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Line))
+ensureChartPluginsRegistered()
 
 const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 const showModal = ref(false);
@@ -102,33 +91,33 @@ const lineChartData = ref({
     ]
 })
 
+function buildPieDataset(counter) {
+    const dataset = [
+        counter['to_be_issued'] + (SHOW_DELAYED_COMPDOCS ? 0 : counter['delayed']),
+        counter['airworthiness_review'],
+        counter['to_be_re-submitted'],
+        counter['to_be_updated'],
+        counter['authority_review'],
+        counter['authority_approved'],
+    ]
+
+    if (SHOW_DELAYED_COMPDOCS) dataset.push(counter['delayed'])
+    return dataset
+}
+
 function openModal(compdocs) {
     showModal.value = true
 
-    const calculatedBarChart = calculateBarChart(compdocs)
-    barChartData.value.datasets[0].data = [
-        calculatedBarChart['authority'],
-        calculatedBarChart['ubm'],
-        calculatedBarChart['aw']
-    ]
+    const barCounter = calculateBarChart(compdocs)
+    barChartData.value.datasets[0].data = [barCounter['authority'], barCounter['ubm'], barCounter['aw']]
 
-    const calculatedPieChart = calculatePieChart(compdocs)
-    pieChartData.value.datasets[0].data = [
-        calculatedPieChart['to_be_issued'] + (SHOW_DELAYED_COMPDOCS ? 0 : calculatedPieChart['delayed']),
-        calculatedPieChart['airworthiness_review'],
-        calculatedPieChart['to_be_re-submitted'],
-        calculatedPieChart['to_be_updated'],
-        calculatedPieChart['authority_review'],
-        calculatedPieChart['authority_approved'],
-    ]
-    if(SHOW_DELAYED_COMPDOCS){
-        pieChartData.value.datasets[0].data.push(calculatedPieChart['delayed'])
-    }
+    const pieCounter = calculatePieChart(compdocs)
+    pieChartData.value.datasets[0].data = buildPieDataset(pieCounter)
 
-    const calculatedLineChart = calculateLineChart(compdocs)
-    lineChartData.value.datasets[0].data = calculatedLineChart["today"]
-    lineChartData.value.datasets[1].data = calculatedLineChart["scheduled"]
-    lineChartData.value.datasets[2].data = calculatedLineChart["actual"]
+    const lineCounter = calculateLineChart(compdocs)
+    lineChartData.value.datasets[0].data = lineCounter['today']
+    lineChartData.value.datasets[1].data = lineCounter['scheduled']
+    lineChartData.value.datasets[2].data = lineCounter['actual']
 }
 
 onMounted(() => {

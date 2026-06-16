@@ -1,0 +1,44 @@
+# Backend Python dependencies for AW Center.
+# Python 3.14-compatible set.
+# Notes:
+# - Django 6.0 officially supports Python 3.14.
+# - Keep BAT/CMD/Windows helpers separate from cross-platform deployment if possible.
+
+# Core web framework
+Django>=6.0,<6.1
+djangorestframework>=3.16,<4
+django-cors-headers>=4.9,<5
+django-simple-history>=3.11,<4
+django-environ>=0.12.1,<1
+django-extensions>=4.1,<5
+whitenoise>=6.12,<7
+cheroot>=10.0,<11
+
+# Integrations and HTTP clients
+jira>=3.10,<4
+requests>=2.32,<3
+
+# Office, PDF, and document processing
+beautifulsoup4>=4.13,<5
+docx2txt>=0.8,<1
+docxtpl>=0.20,<1
+extract-msg>=0.55,<1
+numpy>=2.3,<3
+openpyxl>=3.1,<4
+pandas>=2.3.3,<4
+pdfplumber>=0.11,<1
+Pillow>=11.2,<13
+pypdf>=6,<7
+PyPDF2>=3.0,<4
+python-dateutil>=2.9,<3
+python-docx>=1.1,<2
+
+# NLP-assisted Word tooling
+# Warning: these depend on PyTorch / tokenizers / native wheels.
+# If install fails on Python 3.14, use Python 3.12/3.13 for NLP parts or install compatible torch wheels first.
+sentence-transformers>=5.1,<6
+transformers>=5,<6
+
+# Windows-only automation used by DOORS, Outlook, and PowerPoint helpers
+pywin32>=311; sys_platform == "win32"
+WMI>=1.5; sys_platform == "win32"

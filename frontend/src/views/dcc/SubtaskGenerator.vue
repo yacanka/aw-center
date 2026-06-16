@@ -6,23 +6,28 @@
                     <n-input v-model:value="generator.url" type="url" placeholder="Enter Url" @keydown.enter.prevent />
                 </n-grid-item>
                 <n-grid-item span=1>
-                    <n-button type="info" ghost style="width: 100%"
-                        :disabled="loadingBar.status == 'default' || generator.url == '' || generator.JSESSIONID == ''"
+                    <n-button type="info" ghost style="width: 100%" :disabled="checkGenerateStatus()"
                         @click="createSubtasks">Generate</n-button>
                 </n-grid-item>
-
                 <n-grid-item span=6>
-                    <n-ellipsis v-if="loadingBar.status == 'default' ? true : false" style=" margin: 0px 0px -12px 0px"> {{
-                        loadingBar.content
-                    }}</n-ellipsis>
+                    <n-ellipsis style=" margin: 0px 0px -12px 0px">
+                        {{ loadingBar.content }}
+                    </n-ellipsis>
                 </n-grid-item>
-                <n-grid-item span=6>
-                    <n-progress v-if="loadingBar.show" type="line" :status="loadingBar.status"
-                        :percentage="loadingBar.percentage" indicator-placement="outside" :height="30"
+                <n-grid-item span=6 v-if="loadingBar.show">
+                    <n-progress type="line" :status="loadingBar.status" :percentage="loadingBar.percentage"
+                        indicator-placement="outside" :height="30"
                         :processing="loadingBar.status == 'default' ? true : false">
                     </n-progress>
                 </n-grid-item>
-                
+                <n-grid-item span=1>
+                    <n-checkbox v-model:checked="duedateField.include" :focusable="false"
+                        @update:checked="handleDuedateCheckbox" style="margin-bottom: 4px">Add due
+                        date :</n-checkbox>
+                    {{ dateDaysOffset(duedateField.days) }}
+                    <n-input-number v-model:value="duedateField.days" size="tiny" placeholder="Enter day offset"
+                        :disabled="!duedateField.include" min="0" @update:value="handleDuedateNumber" />
+                </n-grid-item>
                 <n-grid-item span=6>
                     <subtask-list v-model:list="generator.list" />
                 </n-grid-item>
@@ -34,26 +39,39 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useRoute } from 'vue-router'
 import { useOrgsStore } from '@/stores/api'
 import SubtaskList from '@/components/jira/SubtaskList.vue'
 import { toTitleCase } from '@/utils/text'
 import { NotificationType } from 'naive-ui'
+import { dateDaysOffset } from '@/utils/time'
+import { nullCheck } from '@/utils/general'
+import { formatApiError } from '@/services/apiError'
+
+type Generator = {
+    JSESSIONID: string,
+    url: string,
+    list: Array<any>,
+    duedate?: number
+}
 
 const orgstore = useOrgsStore()
 const route = useRoute()
-const generator = ref({
-    JSESSIONID: "",
-    url: "",
-    list: [],
-})
+const generator = ref({} as Generator)
 
 const loadingBar = ref({
-    show: false,
+    show: true,
     status: "",
     percentage: 0,
     content: ""
 })
+
+const duedateField = ref({
+    include: false,
+    days: 0
+})
+
 type StreamData = {
     status: string
     type: string
@@ -61,13 +79,31 @@ type StreamData = {
     content: any
 }
 
+
+const handleDuedateCheckbox = (checked: boolean) => {
+    if (checked) {
+        generator.value.duedate = duedateField.value.days
+    } else {
+        delete generator.value.duedate
+    }
+}
+
+const handleDuedateNumber = (value: number) => {
+    generator.value.duedate = value
+}
+
+const checkGenerateStatus = () => {
+    return loadingBar.value.status == 'default' || nullCheck(generator.value.url) || (duedateField.value.include && duedateField.value.days == null)
+}
+
 function createSubtasks() {
     loadingBar.value.show = true
     loadingBar.value.status = "default"
     loadingBar.value.percentage = 0
+
     axios.post(`${axios.defaults.baseURL}/dcc/create_queue/`, generator.value
     ).then((res) => {
-        const eventSource = new EventSource(`${axios.defaults.baseURL}/dcc/create_subtask_stream/${res.data}`);
+        const eventSource = createAuthenticatedEventSource(`/dcc/create_subtask_stream/${res.data}`)
         eventSource.onmessage = function (event) {
             const data: StreamData = JSON.parse(event.data);
             console.log(data)
@@ -96,7 +132,7 @@ function createSubtasks() {
         console.error(err)
         window.$notification.error({
             title: 'Error',
-            description: `Error while uploading file: ${err.response.data.message}`,
+            description: `Error while uploading file: ${formatApiError(err)}`,
         })
     }).finally(() => {
         console.log("END")

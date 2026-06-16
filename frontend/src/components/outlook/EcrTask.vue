@@ -64,6 +64,7 @@ import { h, onMounted, ref } from 'vue';
 import { base64ToBytes, nullCheck, sleep } from '@/utils/general';
 import { useOutlookStore, useDccStore } from '@/stores/api';
 import axios from 'axios';
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { IEcd } from '@/models/ecd';
 import ApprovePopup from '@/components/dcc/ApprovePopup.vue';
 import { useRouter } from 'vue-router'
@@ -71,6 +72,7 @@ import { ISubtaskItem, IUser } from '@/models/jira';
 import EcrUploadPopup from './EcrUploadPopup.vue';
 import SubtaskList from '../jira/SubtaskList.vue';
 import { toTitleCase } from '@/utils/text';
+import { IMsg, IPopup, TaskItem } from '@/models/outlook';
 
 interface IEcdCheckItem extends IEcd {
     approved?: boolean
@@ -381,6 +383,10 @@ async function createJiraSubTaskProgress() {
 
     for (let index = 0; index < createdIssueList.length; index++) {
         const createdIssue = createdIssueList[index];
+        if(!createdIssue){
+            continue
+        }
+
         const payload = {
             "JSESSIONID": sessionPopup.value.input,
             "url": createdIssue,
@@ -394,7 +400,7 @@ async function createJiraSubTaskProgress() {
         try {
             const res = await axios.post(`${axios.defaults.baseURL}/dcc/create_queue/`, payload)
             await new Promise<void>((resolve, reject) => {
-                const eventSource = new EventSource(`${axios.defaults.baseURL}/dcc/create_subtask_stream/${res.data}`);
+                const eventSource = createAuthenticatedEventSource(`/dcc/create_subtask_stream/${res.data}`)
                 eventSource.onmessage = function (event) {
                     const data = JSON.parse(event.data);
                     console.log(data)
