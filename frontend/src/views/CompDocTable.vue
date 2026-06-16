@@ -43,6 +43,14 @@ let currentColumns = ref<DataTableColumns<ICompDoc>>([])
 const checkIssuesButton = ref({
   disabled: false
 })
+const issueCheckProgress = ref({
+  completed: 0,
+  total: 0
+})
+
+const ISSUE_CHECK_CONCURRENCY_LIMIT = 4
+const ISSUE_CHECK_RETRY_LIMIT = 1
+const ISSUE_CHECK_RETRY_DELAY_MS = 600
 const columnSelections: SelectOption[] = store.getCompdocFields
 
 const popupComponent = ref()
@@ -468,42 +476,65 @@ function exportExcel() {
   downloadComponent.value.openModal("Excel")
 }
 
-async function checkAllIssues() {
-  checkIssuesButton.value.disabled = true
-  const filteredTable = getFilteredTable()
+function collectUniqueTechDocumentNumbers(rows: ICompDoc[]) {
+  return [...new Set(rows.flatMap((row) => [row.tech_doc_no, row.tech_doc_no_2]).filter(Boolean))] as string[]
+}
 
-  const promises = []
+function waitForRetry(delayMilliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMilliseconds))
+}
 
-  for (const row of filteredTable) {
-    const docNos = []
-    if (row.tech_doc_no) docNos.push(row.tech_doc_no)
-    if (row.tech_doc_no_2) docNos.push(row.tech_doc_no_2)
+async function searchIssueWithRetry(docNo: string) {
+  for (let attempt = 0; attempt <= ISSUE_CHECK_RETRY_LIMIT; attempt++) {
+    try {
+      return await proofStore.search(docNo)
+    } catch (error) {
+      if (attempt === ISSUE_CHECK_RETRY_LIMIT) throw error
+      await waitForRetry(ISSUE_CHECK_RETRY_DELAY_MS * (attempt + 1))
+    }
+  }
+}
 
-    for (const docNo of docNos) {
-      promises.push(
-        proofStore.search(docNo)
-          .then(res => {
-            techIssueList.value[docNo] = res
-            return { success: true }
-          })
-          .catch(err => {
-            return { success: false }
-          })
-      )
+async function mapWithConcurrencyLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>) {
+  const results: R[] = []
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++
+      results[currentIndex] = await task(items[currentIndex])
     }
   }
 
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker)
+  await Promise.all(workers)
+  return results
+}
+
+async function checkSingleIssue(docNo: string) {
+  techIssueList.value[docNo] = null
+
   try {
-    const results = await Promise.all(promises)
+    techIssueList.value[docNo] = await searchIssueWithRetry(docNo)
+    return { success: true }
+  } catch (error) {
+    techIssueList.value[docNo] = undefined
+    return { success: false }
+  } finally {
+    issueCheckProgress.value.completed += 1
+  }
+}
 
-    const successCount = results.filter(r => r.success).length
+async function checkAllIssues() {
+  checkIssuesButton.value.disabled = true
+  const documentNumbers = collectUniqueTechDocumentNumbers(getFilteredTable())
+  issueCheckProgress.value = { completed: 0, total: documentNumbers.length }
+
+  try {
+    const results = await mapWithConcurrencyLimit(documentNumbers, ISSUE_CHECK_CONCURRENCY_LIMIT, checkSingleIssue)
+    const successCount = results.filter((result) => result.success).length
     const failCount = results.length - successCount
-
-    const messageType =
-      window.$message["info"](`Checking the issues is over! Success: ${successCount}, Fail: ${failCount}`)
-
-  } catch (err) {
-    console.error("Hata oluştu:", err)
+    window.$message.info(`Checking the issues is over! Success: ${successCount}, Fail: ${failCount}`)
   } finally {
     checkIssuesButton.value.disabled = false
   }
@@ -659,6 +690,9 @@ onUnmounted(() => {
         </template>
         Check Issues
       </n-button>
+      <n-text v-if="checkIssuesButton.disabled || issueCheckProgress.total > 0" depth="3">
+        Checked {{ issueCheckProgress.completed }}/{{ issueCheckProgress.total }}
+      </n-text>
     </n-space>
     <n-space>
       <n-button ghost color="#65B25D" @click="exportExcel" :focusable="false">
