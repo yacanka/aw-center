@@ -146,3 +146,10 @@
 - Same-site deployments should use `AUTH_COOKIE_SAMESITE=Lax` unless there is a tested requirement for cross-site XHR credentials.
 - Cross-site SPA/API deployments must use HTTPS with `AUTH_COOKIE_SAMESITE=None`, `AUTH_COOKIE_SECURE=True`, explicit `CORS_ALLOWED_ORIGINS`, and matching `CSRF_TRUSTED_ORIGINS`.
 - `AUTH_COOKIE_SECURE=False` is only appropriate for local HTTP development; modern browsers reject cross-site `SameSite=None` cookies without `Secure`.
+
+## 21. Frontend quality gate scripts and CI
+
+1. Frontend package scripts now expose `typecheck`, `format:check`, `test:unit`, and `test:e2e` commands for local and CI quality gates.
+2. Dev dependency declarations now include Prettier, Vitest, Vue Test Utils, jsdom, and Playwright so the scripts have explicit tool ownership in the frontend package manifest.
+3. GitHub Actions frontend CI now runs `npm ci`, `npm run typecheck`, unit tests, Playwright browser installation, end-to-end tests, and `npm run build` from the frontend directory.
+4. The current repository still has existing TypeScript and Prettier issues that should be fixed in follow-up work before these gates can be required as passing branch protection.
