@@ -42,6 +42,7 @@
 import { ref, onMounted } from 'vue';
 import { NModal, NotificationType, UploadFileInfo } from 'naive-ui';
 import axios from 'axios'
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useExcelStore } from '@/stores/api'
 import { popupStore } from '@/stores/popupStore';
 import { Document24Regular } from '@vicons/fluent';
@@ -96,7 +97,7 @@ function translate() {
 
   axios.post(`${axios.defaults.baseURL}/word/create_queue/`, formData
   ).then((res) => {
-    const eventSource = new EventSource(`${axios.defaults.baseURL}/word/translate/${res.data}`);
+    const eventSource = createAuthenticatedEventSource(`/word/translate/${res.data}`)
     eventSource.onmessage = function (event) {
       const data: StreamData = JSON.parse(event.data);
       console.log(data)

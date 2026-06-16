@@ -139,6 +139,7 @@ AUTH_COOKIE_MAX_AGE = env.int("AUTH_COOKIE_MAX_AGE", default=60 * 60 * 24 * 14)
 AUTH_COOKIE_DEFAULT_SAMESITE = get_default_auth_cookie_samesite(DEBUG)
 AUTH_COOKIE_SAMESITE = env.str("AUTH_COOKIE_SAMESITE", default=AUTH_COOKIE_DEFAULT_SAMESITE)
 AUTH_COOKIE_SECURE = env.bool("AUTH_COOKIE_SECURE", default=get_default_auth_cookie_secure(DEBUG))
+AUTH_TOKEN_RESPONSE_ENABLED = env.bool("AUTH_TOKEN_RESPONSE_ENABLED", default=DEBUG)
 
 ROOT_URLCONF = 'awcenter.urls'
 

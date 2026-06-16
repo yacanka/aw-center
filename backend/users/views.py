@@ -92,10 +92,7 @@ class CustomAuthToken(ObtainAuthToken):
         token, _ = Token.objects.get_or_create(user=user)
         update_last_login(None, user)
         response = Response(
-            {
-                "detail": "Login successful.",
-                "user": UserSerializer(user, context={"request": request}).data,
-            },
+            self._login_payload(user, token, request),
             status=status.HTTP_200_OK,
         )
         response.set_cookie(
@@ -107,6 +104,15 @@ class CustomAuthToken(ObtainAuthToken):
             max_age=settings.AUTH_COOKIE_MAX_AGE,
         )
         return response
+
+    def _login_payload(self, user, token, request):
+        payload = {
+            "detail": "Login successful.",
+            "user": UserSerializer(user, context={"request": request}).data,
+        }
+        if settings.AUTH_TOKEN_RESPONSE_ENABLED:
+            payload["token"] = token.key
+        return payload
 
 
 class LogoutView(APIView):

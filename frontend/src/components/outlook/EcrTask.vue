@@ -64,6 +64,7 @@ import { h, onMounted, ref } from 'vue';
 import { base64ToBytes, nullCheck, sleep } from '@/utils/general';
 import { useOutlookStore, useDccStore } from '@/stores/api';
 import axios from 'axios';
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { IEcd } from '@/models/ecd';
 import ApprovePopup from '@/components/dcc/ApprovePopup.vue';
 import { useRouter } from 'vue-router'
@@ -399,7 +400,7 @@ async function createJiraSubTaskProgress() {
         try {
             const res = await axios.post(`${axios.defaults.baseURL}/dcc/create_queue/`, payload)
             await new Promise<void>((resolve, reject) => {
-                const eventSource = new EventSource(`${axios.defaults.baseURL}/dcc/create_subtask_stream/${res.data}`);
+                const eventSource = createAuthenticatedEventSource(`/dcc/create_subtask_stream/${res.data}`)
                 eventSource.onmessage = function (event) {
                     const data = JSON.parse(event.data);
                     console.log(data)

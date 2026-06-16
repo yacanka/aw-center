@@ -39,6 +39,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useRoute } from 'vue-router'
 import { useOrgsStore } from '@/stores/api'
 import SubtaskList from '@/components/jira/SubtaskList.vue'
@@ -102,7 +103,7 @@ function createSubtasks() {
 
     axios.post(`${axios.defaults.baseURL}/dcc/create_queue/`, generator.value
     ).then((res) => {
-        const eventSource = new EventSource(`${axios.defaults.baseURL}/dcc/create_subtask_stream/${res.data}`);
+        const eventSource = createAuthenticatedEventSource(`/dcc/create_subtask_stream/${res.data}`)
         eventSource.onmessage = function (event) {
             const data: StreamData = JSON.parse(event.data);
             console.log(data)

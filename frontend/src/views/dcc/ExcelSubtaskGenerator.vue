@@ -64,6 +64,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useRoute } from 'vue-router'
 import { useDoorsStore, useExcelStore } from '@/stores/api'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
@@ -161,7 +162,7 @@ function createSubtasks() {
   loadingBar.value.percentage = 0
   axios.post(`${axios.defaults.baseURL}/dcc/create_queue/`, formData
   ).then((res) => {
-    const eventSource = new EventSource(`${axios.defaults.baseURL}/dcc/create_subtask_excel_stream/${res.data}`);
+    const eventSource = createAuthenticatedEventSource(`/dcc/create_subtask_excel_stream/${res.data}`)
     eventSource.onmessage = function (event) {
       const data = JSON.parse(event.data);
       if (data.status == "progress") {

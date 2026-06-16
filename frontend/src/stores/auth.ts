@@ -4,7 +4,7 @@ import { IUser, IPermission } from "@/models/auth"
 import { handleRequest } from "@/composables/promise"
 import { setAuthToken } from "@/services/http"
 import { notifyError, notifySuccess } from "@/services/notify"
-import { removeKey, STORAGE_KEYS } from "@/services/storage"
+import { removeKey, STORAGE_KEYS, writeString } from "@/services/storage"
 import { compactPaginationQuery, getPaginationMeta, PaginationMeta, PaginationQuery } from '@/services/pagination'
 
 const API_PATH = "auth"
@@ -12,6 +12,7 @@ const API_PATH = "auth"
 type LoginResponse = {
   detail: string
   user: IUser
+  token?: string
 }
 
 export const useAuthStore = defineStore(
@@ -47,7 +48,8 @@ export const useAuthStore = defineStore(
           axios.post(`${API_PATH}/token/`, credentials),
           (data) => {
             this.me = data.user
-            this.token = "cookie-auth"
+            this.token = data.token || "cookie-auth"
+            applyOptionalTokenFallback(data.token)
             authenticatedUser = data.user
             notifySuccess(data.detail || "Login successful")
           },
@@ -184,3 +186,10 @@ export const useAuthStore = defineStore(
     },
   }
 )
+
+function applyOptionalTokenFallback(token?: string) {
+  if (!token) return
+
+  setAuthToken(token)
+  writeString(STORAGE_KEYS.token, token)
+}
