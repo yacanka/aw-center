@@ -46,12 +46,14 @@ export const useUserStore = defineStore(
     {
         state: () => ({
             loading: true,
+            sessionInitialized: false,
             user: {} as IUser,
             permissions: [] as IPermission[],
             preferences: {} as IPreferences,
         }),
         getters: {
             getUser: (state) => state.user,
+            isSessionInitialized: (state) => state.sessionInitialized,
             getPermissions: (state) => state.permissions,
             getPreferences: (state) => state.preferences,
         },
@@ -61,6 +63,9 @@ export const useUserStore = defineStore(
                 this.permissions = user.permissions || []
                 this.preferences = user.preferences || {}
                 setUser(user)
+            },
+            setSessionInitialized() {
+                this.sessionInitialized = true
             },
             checkPermission(permissionName: string) {
                 return this.permissions.some(permission => permission.codename == permissionName)
