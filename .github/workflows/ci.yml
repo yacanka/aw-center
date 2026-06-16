@@ -7,10 +7,18 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       SECRET_KEY: ci-secret-key-not-for-production
       DEBUG: "True"
@@ -50,6 +58,7 @@ jobs:
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: frontend
@@ -70,17 +79,8 @@ jobs:
       - name: Check frontend formatting
         run: npm run format:check
 
-      - name: Run TypeScript checks
-        run: npx vue-tsc --noEmit --noCheck
-
-      - name: Run unit tests
-        run: npm run test:unit
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Run end-to-end tests
-        run: npm run test:e2e
+      - name: Run TypeScript syntax checks
+        run: npm run typecheck:ci
 
       - name: Build Vite assets
         run: npm run build

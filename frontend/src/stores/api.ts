@@ -1,18 +1,23 @@
-import { defineStore } from "pinia"
+import { defineStore } from 'pinia'
 import axios from 'axios'
-import { IDcc } from "@/models/dcc"
-import { IJira } from "@/models/jira"
-import { IEcd } from "@/models/ecd"
-import { IDdf } from "@/models/ddf"
-import { IPerson, IPanel, IProject, IResponsible } from "@/models/orgs"
-import { IMsg } from "@/models/outlook"
+import { IDcc } from '@/models/dcc'
+import { IJira } from '@/models/jira'
+import { IEcd } from '@/models/ecd'
+import { IDdf } from '@/models/ddf'
+import { IPerson, IPanel, IProject, IResponsible } from '@/models/orgs'
+import { IMsg } from '@/models/outlook'
 import { toTitleCase } from '@/utils/text'
 import { nullCheck } from '@/utils/general'
-import { useUserStore } from "./user"
-import { handleRequest } from "@/composables/promise"
-import { API_BASE_URL } from "@/services/http"
-import { notifyError, notifySuccess } from "@/services/notify"
-import { compactPaginationQuery, getPaginationMeta, PaginationMeta, PaginationQuery } from '@/services/pagination'
+import { useUserStore } from './user'
+import { handleRequest } from '@/composables/promise'
+import { API_BASE_URL } from '@/services/http'
+import { notifyError, notifySuccess } from '@/services/notify'
+import {
+  compactPaginationQuery,
+  getPaginationMeta,
+  PaginationMeta,
+  PaginationQuery
+} from '@/services/pagination'
 
 const BASE_URL = API_BASE_URL
 
@@ -20,923 +25,950 @@ const errorNotification = notifyError
 const successNotification = notifySuccess
 
 const API_PATHS = {
-  dcc: "dcc/api",
-  doors: "doors",
-  ddf: "ddf",
-  docproof: "docproof",
-  excel: "excel",
-  orgs: "orgs",
-  outlook: "outlook",
-  presentations: "pptxgallery",
+  dcc: 'dcc/api',
+  doors: 'doors',
+  ddf: 'ddf',
+  docproof: 'docproof',
+  excel: 'excel',
+  orgs: 'orgs',
+  outlook: 'outlook',
+  presentations: 'pptxgallery'
 }
 
+export { useCompdocStore } from './compdoc'
 
-export { useCompdocStore } from "./compdoc"
-
-export const useDccStore = defineStore(
-  "dcc",
-  {
-    state: () => ({
-      jSessionId: "" as string,
-      dccList: [] as IDcc[],
-      pagination: { count: 0, next: null, previous: null } as PaginationMeta,
-      issueInfo: {} as IJira,
-      visionTypes: [] as string[],
-      loading: true,
-      ipAddress: axios.defaults.baseURL
-    }),
-    getters: {
-      getSessionId: (state) => state.jSessionId,
-      getDccList: (state) => state.dccList,
-      getIssueInfo: (state) => state.issueInfo,
-      isLoading: (state) => state.loading,
+export const useDccStore = defineStore('dcc', {
+  state: () => ({
+    jSessionId: '' as string,
+    dccList: [] as IDcc[],
+    pagination: { count: 0, next: null, previous: null } as PaginationMeta,
+    issueInfo: {} as IJira,
+    visionTypes: [] as string[],
+    loading: true,
+    ipAddress: axios.defaults.baseURL
+  }),
+  getters: {
+    getSessionId: (state) => state.jSessionId,
+    getDccList: (state) => state.dccList,
+    getIssueInfo: (state) => state.issueInfo,
+    isLoading: (state) => state.loading
+  },
+  actions: {
+    setSessionId(id: string) {
+      this.jSessionId = id
     },
-    actions: {
-      setSessionId(id: string) {
-        this.jSessionId = id
-      },
-      importSessionId(payload: any) {
-        Object.assign(payload, { JSESSIONID: this.jSessionId })
-      },
-      async fetchDcc(query: PaginationQuery = {}) {
-        this.loading = true
-        const response = await handleRequest<IDcc[]>(
-          axios.get(API_PATHS.dcc, { params: compactPaginationQuery(query) }),
-          (data) => {
-            this.dccList = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        this.pagination = getPaginationMeta<IDcc>(response) || this.pagination
-      },
-      async createDcc(newDccData: IDcc) {
-        this.loading = true;
-        await handleRequest<IDcc>(
-          axios.post(API_PATHS.dcc, newDccData),  // POST request
-          (data) => {
-            this.dccList.unshift(data);  // Add created doc to existing list
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async updateDcc(dccId: Number, updatedData: IDcc) {
-        this.loading = true;
-        await handleRequest<IDcc>(
-          axios.put(`${API_PATHS.dcc}/${dccId}/`, updatedData),  // PUT with ID
-          (data) => {
-            const existingIndex = this.dccList.findIndex(dcc => dcc.id === dccId);
-            if (existingIndex !== -1) { // Doc found
-              this.dccList[existingIndex] = { ...this.dccList[existingIndex], ...data }; // Update with new data
-            }
-            successNotification("Updated successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async deleteDcc(dccId: Number) {
-        this.loading = true;
-        await handleRequest<void>(
-          axios.delete(`${API_PATHS.dcc}/${dccId}/`),
-          () => {
-            this.dccList = this.dccList.filter((dcc: IDcc) => dcc.id !== dccId);
-            successNotification("Deleted successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        );
-      },
-      async addDcc(newDccData: IDcc) {
-        this.loading = true;
-        let dccData
-        await handleRequest<IDcc>(
-          axios.post('dcc/add/', newDccData),
-          (data) => {
-            dccData = data
-            this.dccList.unshift(data);
-            successNotification("Added new DCC successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        )
-        return dccData
-      },
-      async getIssue(newDccData: any) {
-        this.importSessionId(newDccData)
-        await handleRequest<IJira>(
-          axios.post('dcc/get_issue/', newDccData),
-          (data) => {
-            this.issueInfo = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { }
-        )
-        return this.issueInfo
-      },
-      async createIssue(issueData: IEcd) {
-        const newIssue: IDcc = await handleRequest<IDcc>(
-          axios.post('dcc/create_issue/', issueData),
-          (data) => {
-            this.dccList.unshift(data);
-            successNotification("Added new DCC successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { }
-        )
-        return newIssue
-      },
-      async sendMail(data: IDcc) {
-        window.$loadingBar.start()
-        await handleRequest<any>(
-          axios.post('dcc/send_mail/', data),  // POST request
-          (data) => {
-            successNotification(data)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => window.$loadingBar.finish()
-        )
-      },
-      async uploadEcd(data: any) {
-        window.$loadingBar.start()
-        const res = await handleRequest<any>(
-          axios.post('dcc/upload/', data),  // POST request
-          (data) => {
-
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => window.$loadingBar.finish()
-        )
-        return res
-      },
-      async ecdAssessment(data: IEcd) {
-        window.$loadingBar.start()
-        let res
-        await handleRequest<any>(
-          axios.post('dcc/ecd_assessment/', data),  // POST request
-          (data) => {
-            res = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => window.$loadingBar.finish()
-        )
-        return res
-      },
-      async checkSession(sessionId: string) {
-        const res = await handleRequest<any>(
-          axios.get(`dcc/check_session/?sessionId=${sessionId}`),
-          (data) => {
-
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { }
-        )
-        return res
-      },
-      async addAttachment(attachmentData: any) {
-        window.$loadingBar.start()
-        return await handleRequest<any>(
-          axios.post('dcc/add_attachment/', attachmentData),
-          (data) => {
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-            throw errorMsg
-          },
-          () => window.$loadingBar.finish()
-        )
-      },
-    }
-  }
-)
-
-export { useAuthStore } from "./auth"
-
-export const useDoorsStore = defineStore(
-  "doors",
-  {
-    state: () => ({
-      loading: true,
-      ipAddress: axios.defaults.baseURL
-    }),
-    getters: {
-      isLoading: (state) => state.loading,
+    importSessionId(payload: any) {
+      Object.assign(payload, { JSESSIONID: this.jSessionId })
     },
-    actions: {
-      async createScript(excel: any) {
-        this.loading = true
-        let script
-        await handleRequest<any>(
-          axios.post(`${API_PATHS.doors}/script/`, excel),
-          (data) => {
-            script = data
-            successNotification("Script created successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.error(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return script
-      },
-      async run_dxl(modulePath: any) {
-        this.loading = true
-        const report = await handleRequest<any>(
-          axios.post(`${API_PATHS.doors}/run_dxl/`, modulePath),
-          (data) => {
-            successNotification("DOORS triggered successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.error(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return report
-      },
-    }
-  }
-)
-
-export const useDdfStore = defineStore(
-  "ddf",
-  {
-    state: () => ({
-      ddfList: [] as IDdf[],
-      pagination: { count: 0, next: null, previous: null } as PaginationMeta,
-      loading: true,
-      ipAddress: axios.defaults.baseURL
-    }),
-    getters: {
-      getList: (state) => state.ddfList,
-      isLoading: (state) => state.loading,
-      getUploadUrl: (state) => `${BASE_URL}/ddf/upload/`,
-    },
-    actions: {
-      clearList() {
-        this.ddfList = []
-      },
-      async uploadDdf(ddf: any) {
-        this.loading = true
-        let res
-        await handleRequest<IDdf>(
-          axios.post(`${API_PATHS.ddf}/upload/`, ddf),
-          (data) => {
-            res = data
-            this.ddfList.unshift(data);
-            successNotification("DDF content successfully read.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.error(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-      async fetchDdf(query: PaginationQuery = {}) {
-        this.loading = true
-        const response = await handleRequest<IDdf[]>(
-          axios.get("ddf/", { params: compactPaginationQuery(query) }),
-          (data) => {
-            this.ddfList = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        this.pagination = getPaginationMeta<IDdf>(response) || this.pagination
-      },
-      async createDdf(newDdf: IDdf) {
-        this.loading = true;
-        await handleRequest<IDdf>(
-          axios.post(`${API_PATHS.ddf}/`, newDdf),
-          (data) => {
-            this.ddfList.unshift(data);
-            successNotification("New document added successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async updateDdf(ddfId: Number, updatedData: IDcc) {
-        this.loading = true;
-        await handleRequest<IDdf>(
-          axios.put(`${API_PATHS.ddf}/${ddfId}/`, updatedData),
-          (data) => {
-            const existingIndex = this.ddfList.findIndex(ddf => ddf.id === ddfId);
-            if (existingIndex !== -1) {
-              this.ddfList[existingIndex] = { ...this.ddfList[existingIndex], ...data };
-            }
-            successNotification("Updated successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async deleteDdf(ddfId: Number) {
-        this.loading = true;
-        await handleRequest<void>( // Void response expected
-          axios.delete(`${API_PATHS.ddf}/${ddfId}/`),
-          () => {
-            this.ddfList = this.ddfList.filter((ddf: IDdf) => ddf.id !== ddfId);
-            successNotification("Deleted successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        );
-      },
-      async deleteDdfs() {
-        this.loading = true;
-        await handleRequest<any>( // Void response expected
-          axios.delete(`${API_PATHS.ddf}/`),
-          (data) => {
-            this.ddfList = [];
-            successNotification(data.message)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        );
-      },
-      async assessment(ddf: IDdf) {
-        let res
-        await handleRequest<any>(
-          axios.post(`${API_PATHS.ddf}/assessment/`, ddf),  // POST request
-          (data) => {
-            res = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => { }
-        )
-        return res
-      },
-    }
-  }
-)
-
-export const useDocproofStore = defineStore(
-  "docproof",
-  {
-    state: () => ({
-      loading: true,
-      ipAddress: axios.defaults.baseURL
-    }),
-    getters: {
-      isLoading: (state) => state.loading,
-    },
-    actions: {
-      async search(document_no: any) {
-        this.loading = true
-        let res
-        await handleRequest<number>(
-          axios.get(`${API_PATHS.docproof}/search/?document_no=${document_no}`),
-          (data) => {
-            res = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.error(errorMsg)
-            res = "Error"
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-    }
-  }
-)
-
-export const useOrgsStore = defineStore(
-  "orgs",
-  {
-    state: () => ({
-      loading: false,
-      project: "" as string,
-      projects: [] as IProject[],
-      panels: [] as IPanel[],
-      responsibles: [] as IResponsible[],
-      people: [] as IPerson[],
-    }),
-    getters: {
-      isLoading: (state) => state.loading,
-      getProjects: (state) => state.projects,
-      getPanels: (state) => state.panels.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })),
-      getPanelOptions: (state) => {
-        const uniqueNames = new Set(state.panels.map(panel => panel.name));
-        return Array.from(uniqueNames)
-          .sort((a, b) => a.localeCompare(b, 'tr', { sensitivity: 'base' }))
-          .map(name => ({ label: toTitleCase(name), value: name }));
-      },
-      getAtaOptions: (state) => state.panels.sort((a, b) => a.ata.localeCompare(b.ata, 'tr', { sensitivity: 'base' })).map((panel) => {
-        return { label: panel.ata, value: panel.ata }
-      }),
-      getResponsibles: (state) => state.responsibles.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })),
-      getPeople: (state) => {
-        if (nullCheck(state.people)) {
-          useOrgsStore().fetchPeople()
+    async fetchDcc(query: PaginationQuery = {}) {
+      this.loading = true
+      const response = await handleRequest<IDcc[]>(
+        axios.get(API_PATHS.dcc, { params: compactPaginationQuery(query) }),
+        (data) => {
+          this.dccList = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => {
+          this.loading = false
         }
-        return state.people.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }))
-      },
+      )
+      this.pagination = getPaginationMeta<IDcc>(response) || this.pagination
     },
-    actions: {
-      setProject(projectName: string) {
-        this.project = projectName
-      },
-      async fetchProjects() {
-        this.loading = true
-        await handleRequest<any>(
-          axios.get(`${API_PATHS.orgs}/projects/`),
-          (data) => {
-            this.projects = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.error(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      },
-      async createProject(newProjectData: IProject) {
-        this.loading = true;
-        await handleRequest<IProject>(
-          axios.post(`${API_PATHS.orgs}/projects/`, newProjectData),  // POST request
-          (data) => {
-            this.projects.unshift(data);  // Add created doc to existing list
-            successNotification("New project added successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async updateProject(projectId: Number, updatedData: IProject) {
-        this.loading = true;
-        await handleRequest<IProject>(
-          axios.put(`${API_PATHS.orgs}/projects/${projectId}/`, updatedData),  // PUT with ID
-          (data) => {
-            const existingIndex = this.projects.findIndex(project => project.id === projectId);
-            if (existingIndex !== -1) { // Doc found
-              this.projects[existingIndex] = { ...this.projects[existingIndex], ...data }; // Update with new data
-            }
-            successNotification("Updated successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async deleteProject(projectId: Number) {
-        this.loading = true;
-        await handleRequest<void>( // Void response expected
-          axios.delete(`${API_PATHS.orgs}/projects/${projectId}/`),
-          () => {
-            this.projects = this.projects.filter((project: IProject) => project.id !== projectId);
-            successNotification("Deleted successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        );
-      },
-      async fetchPanels() {
-        this.loading = true
-        await handleRequest<any>(
-          axios.get(`${this.project}/${API_PATHS.orgs}/panels/`),
-          (data) => {
-            this.panels = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.error(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      },
-      async createPanel(newPanelData: IPanel) {
-        this.loading = true;
-        await handleRequest<IPanel>(
-          axios.post(`${this.project}/${API_PATHS.orgs}/panels/`, newPanelData),
-          (data) => {
-            this.panels.unshift(data);
-            successNotification("New panel added successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-            console.log(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async updatePanel(panelId: Number, updatedData: IPanel) {
-        this.loading = true;
-        await handleRequest<IPanel>(
-          axios.put(`${this.project}/${API_PATHS.orgs}/panels/${panelId}/`, updatedData),
-          (data) => {
-            const existingIndex = this.panels.findIndex((panel: IPanel) => panel.id === panelId);
-            if (existingIndex !== -1) {
-              this.panels[existingIndex] = { ...this.panels[existingIndex], ...data };
-            }
-            successNotification("Updated successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async deletePanel(panelId: Number) {
-        this.loading = true;
-        await handleRequest<void>( // Void response expected
-          axios.delete(`${this.project}/${API_PATHS.orgs}/panels/${panelId}/`),
-          () => {
-            this.panels = this.panels.filter((panel: IPanel) => panel.id !== panelId);
-            successNotification("Deleted successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        );
-      },
-      async fetchResponsibles(panel: string) {
-        this.loading = true
-        await handleRequest<any>(
-          axios.get(`${this.project}/${API_PATHS.orgs}/responsibles/?panel=${panel}`),
-          (data) => {
-            this.responsibles = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      },
-      async createResponsible(newPersonData: IResponsible) {
-        this.loading = true;
-        await handleRequest<IResponsible>(
-          axios.post(`${this.project}/${API_PATHS.orgs}/responsibles/`, newPersonData),
-          (data) => {
-            this.responsibles.unshift(data);
-            successNotification("New person added successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async updateResponsible(responsibleId: Number, updatedData: IResponsible) {
-        this.loading = true;
-        await handleRequest<IResponsible>(
-          axios.put(`${this.project}/${API_PATHS.orgs}/responsibles/${responsibleId}/`, updatedData),
-          (data) => {
-            const existingIndex = this.responsibles.findIndex((responsible: IResponsible) => responsible.id === responsibleId);
-            if (existingIndex !== -1) {
-              this.responsibles[existingIndex] = { ...this.responsibles[existingIndex], ...data };
-            }
-            successNotification("Updated successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async deleteResponsible(responsibleId: Number) {
-        this.loading = true;
-        await handleRequest<void>( // Void response expected
-          axios.delete(`${this.project}/${API_PATHS.orgs}/responsibles/${responsibleId}/`),
-          () => {
-            this.people = this.responsibles.filter((responsible: IResponsible) => responsible.id !== responsibleId);
-            successNotification("Deleted successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        );
-      },
-      async fetchPeople() {
-        this.loading = true
-        await handleRequest<any>(
-          axios.get(`${API_PATHS.orgs}/people/`),
-          (data) => {
-            this.people = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-      },
-      async createPerson(newPersonData: IPerson) {
-        this.loading = true;
-        await handleRequest<IPerson>(
-          axios.post(`${API_PATHS.orgs}/people/`, newPersonData),
-          (data) => {
-            this.people.unshift(data);
-            successNotification("New person added successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async updatePerson(peopleId: Number, updatedData: IPerson) {
-        this.loading = true;
-        await handleRequest<IPerson>(
-          axios.put(`${API_PATHS.orgs}/people/${peopleId}/`, updatedData),
-          (data) => {
-            const existingIndex = this.people.findIndex((person: IPerson) => person.id === peopleId);
-            if (existingIndex !== -1) {
-              this.people[existingIndex] = { ...this.people[existingIndex], ...data };
-            }
-            successNotification("Updated successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        )
-      },
-      async deletePerson(personId: Number) {
-        this.loading = true;
-        await handleRequest<void>( // Void response expected
-          axios.delete(`${API_PATHS.orgs}/people/${personId}/`),
-          () => {
-            this.people = this.people.filter((person: IPerson) => person.id !== personId);
-            successNotification("Deleted successfully.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        );
-      },
-      async uploadPeople(file: any) {
-        this.loading = true;
-        const res = await handleRequest<any>(
-          axios.post(`${API_PATHS.orgs}/upload_people/`, file),
-          (data) => {
-            successNotification(data.message)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => this.loading = false
-        )
-        return res
-      },
+    async createDcc(newDccData: IDcc) {
+      this.loading = true
+      await handleRequest<IDcc>(
+        axios.post(API_PATHS.dcc, newDccData), // POST request
+        (data) => {
+          this.dccList.unshift(data) // Add created doc to existing list
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async updateDcc(dccId: Number, updatedData: IDcc) {
+      this.loading = true
+      await handleRequest<IDcc>(
+        axios.put(`${API_PATHS.dcc}/${dccId}/`, updatedData), // PUT with ID
+        (data) => {
+          const existingIndex = this.dccList.findIndex((dcc) => dcc.id === dccId)
+          if (existingIndex !== -1) {
+            // Doc found
+            this.dccList[existingIndex] = { ...this.dccList[existingIndex], ...data } // Update with new data
+          }
+          successNotification('Updated successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async deleteDcc(dccId: Number) {
+      this.loading = true
+      await handleRequest<void>(
+        axios.delete(`${API_PATHS.dcc}/${dccId}/`),
+        () => {
+          this.dccList = this.dccList.filter((dcc: IDcc) => dcc.id !== dccId)
+          successNotification('Deleted successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async addDcc(newDccData: IDcc) {
+      this.loading = true
+      let dccData
+      await handleRequest<IDcc>(
+        axios.post('dcc/add/', newDccData),
+        (data) => {
+          dccData = data
+          this.dccList.unshift(data)
+          successNotification('Added new DCC successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+      return dccData
+    },
+    async getIssue(newDccData: any) {
+      this.importSessionId(newDccData)
+      await handleRequest<IJira>(
+        axios.post('dcc/get_issue/', newDccData),
+        (data) => {
+          this.issueInfo = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => {}
+      )
+      return this.issueInfo
+    },
+    async createIssue(issueData: IEcd) {
+      const newIssue: IDcc = await handleRequest<IDcc>(
+        axios.post('dcc/create_issue/', issueData),
+        (data) => {
+          this.dccList.unshift(data)
+          successNotification('Added new DCC successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => {}
+      )
+      return newIssue
+    },
+    async sendMail(data: IDcc) {
+      window.$loadingBar.start()
+      await handleRequest<any>(
+        axios.post('dcc/send_mail/', data), // POST request
+        (data) => {
+          successNotification(data)
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => window.$loadingBar.finish()
+      )
+    },
+    async uploadEcd(data: any) {
+      window.$loadingBar.start()
+      const res = await handleRequest<any>(
+        axios.post('dcc/upload/', data), // POST request
+        (data) => {},
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => window.$loadingBar.finish()
+      )
+      return res
+    },
+    async ecdAssessment(data: IEcd) {
+      window.$loadingBar.start()
+      let res
+      await handleRequest<any>(
+        axios.post('dcc/ecd_assessment/', data), // POST request
+        (data) => {
+          res = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => window.$loadingBar.finish()
+      )
+      return res
+    },
+    async checkSession(sessionId: string) {
+      const res = await handleRequest<any>(
+        axios.get(`dcc/check_session/?sessionId=${sessionId}`),
+        (data) => {},
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => {}
+      )
+      return res
+    },
+    async addAttachment(attachmentData: any) {
+      window.$loadingBar.start()
+      return await handleRequest<any>(
+        axios.post('dcc/add_attachment/', attachmentData),
+        (data) => {},
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+          throw errorMsg
+        },
+        () => window.$loadingBar.finish()
+      )
     }
   }
-)
+})
 
-export const useExcelStore = defineStore(
-  "excel",
-  {
-    state: () => ({
-      loading: true,
-    }),
-    getters: {
-      isLoading: (state) => state.loading,
-    },
-    actions: {
-      async getExcelColumns(excel: any) {
-        this.loading = true
-        const columns = await handleRequest<string[]>(
-          axios.post(`${API_PATHS.excel}/get_excel_columns/`, excel),
-          (data) => {
-            successNotification("Excel content successfully read.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return columns
-      },
-      async excelToCoverPages(excel: any) {
-        this.loading = true
-        const res = await handleRequest<string[]>(
-          axios.post(`${API_PATHS.excel}/excel_to_cover_pages/`, excel),
-          (data) => {
-            console.log(data)
-            successNotification("Cover pages successfully created.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-    }
-  }
-)
+export { useAuthStore } from './auth'
 
-export const usePptxStore = defineStore(
-  "pptxgallery",
-  {
-    state: () => ({
-      loading: false,
-      presentations: [] as any[]
-    }),
-    getters: {
-      isLoading: (state) => state.loading,
-      getPresentations: (state) => state.presentations,
+export const useDoorsStore = defineStore('doors', {
+  state: () => ({
+    loading: true,
+    ipAddress: axios.defaults.baseURL
+  }),
+  getters: {
+    isLoading: (state) => state.loading
+  },
+  actions: {
+    async createScript(excel: any) {
+      this.loading = true
+      let script
+      await handleRequest<any>(
+        axios.post(`${API_PATHS.doors}/script/`, excel),
+        (data) => {
+          script = data
+          successNotification('Script created successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.error(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return script
     },
-    actions: {
-      async uploadPresentation(form: any) {
-        this.loading = true
-        const res = await handleRequest<any>(
-          axios.post(`${API_PATHS.presentations}/presentations/upload/`, form, { headers: { 'Content-Type': 'multipart/form-data' } }),
-          (data) => {
-            console.log(data)
-            successNotification("Presentation content successfully uploaded.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-      async fetchPresentations() {
-        this.loading = true
-        const res = await handleRequest<any[]>(
-          axios.get(`${API_PATHS.presentations}/presentations/`),
-          (data) => {
-            console.log(data)
-            this.presentations = data
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-      async removePresentation(id: number) {
-        this.loading = true
-        const res = await handleRequest<any>(
-          axios.delete(`${API_PATHS.presentations}/presentations/${id}/`),
-          (data) => {
-            console.log(data)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-      async reconvertPresentation(id: number) {
-        this.loading = true
-        const res = await handleRequest<any>(
-          axios.post(`${API_PATHS.presentations}/presentations/${id}/reconvert/`),
-          (data) => {
-            console.log(data)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-      async deleteSlide(id: number) {
-        this.loading = true
-        const res = await handleRequest<any>(
-          axios.delete(`${API_PATHS.presentations}/slides/${id}/`),
-          (data) => {
-            console.log(data)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-      async loadSlide(id: number) {
-        this.loading = true
-        const res = await handleRequest<any>(
-          axios.get(`${API_PATHS.presentations}/presentations/${id}/`),
-          (data) => {
-            console.log(data)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
-      async updateSlide(id: number, form: any) {
-        this.loading = true
-        const res = await handleRequest<any>(
-          axios.patch(`/slides/${id}/`, form),
-          (data) => {
-            console.log(data)
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return res
-      },
+    async run_dxl(modulePath: any) {
+      this.loading = true
+      const report = await handleRequest<any>(
+        axios.post(`${API_PATHS.doors}/run_dxl/`, modulePath),
+        (data) => {
+          successNotification('DOORS triggered successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.error(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return report
     }
   }
-)
+})
 
-export const useOutlookStore = defineStore(
-  "outlook",
-  {
-    state: () => ({
-      loading: false,
-      msg: {} as IMsg
-    }),
-    getters: {
-      isLoading: (state) => state.loading,
-      getMsg: (state) => state.msg,
+export const useDdfStore = defineStore('ddf', {
+  state: () => ({
+    ddfList: [] as IDdf[],
+    pagination: { count: 0, next: null, previous: null } as PaginationMeta,
+    loading: true,
+    ipAddress: axios.defaults.baseURL
+  }),
+  getters: {
+    getList: (state) => state.ddfList,
+    isLoading: (state) => state.loading,
+    getUploadUrl: (state) => `${BASE_URL}/ddf/upload/`
+  },
+  actions: {
+    clearList() {
+      this.ddfList = []
     },
-    actions: {
-      async parseMsg(msg: any) {
-        this.loading = true
-        const parsed = await handleRequest<IMsg>(
-          axios.post(`${API_PATHS.outlook}/msg/parse/`, msg),
-          (data) => {
-            this.msg = data
-            successNotification("Mail content successfully read.")
-          },
-          (errorMsg) => {
-            errorNotification(errorMsg)
-          },
-          () => { this.loading = false }
-        )
-        return parsed
-      },
+    async uploadDdf(ddf: any) {
+      this.loading = true
+      let res
+      await handleRequest<IDdf>(
+        axios.post(`${API_PATHS.ddf}/upload/`, ddf),
+        (data) => {
+          res = data
+          this.ddfList.unshift(data)
+          successNotification('DDF content successfully read.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.error(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    },
+    async fetchDdf(query: PaginationQuery = {}) {
+      this.loading = true
+      const response = await handleRequest<IDdf[]>(
+        axios.get('ddf/', { params: compactPaginationQuery(query) }),
+        (data) => {
+          this.ddfList = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      this.pagination = getPaginationMeta<IDdf>(response) || this.pagination
+    },
+    async createDdf(newDdf: IDdf) {
+      this.loading = true
+      await handleRequest<IDdf>(
+        axios.post(`${API_PATHS.ddf}/`, newDdf),
+        (data) => {
+          this.ddfList.unshift(data)
+          successNotification('New document added successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async updateDdf(ddfId: Number, updatedData: IDcc) {
+      this.loading = true
+      await handleRequest<IDdf>(
+        axios.put(`${API_PATHS.ddf}/${ddfId}/`, updatedData),
+        (data) => {
+          const existingIndex = this.ddfList.findIndex((ddf) => ddf.id === ddfId)
+          if (existingIndex !== -1) {
+            this.ddfList[existingIndex] = { ...this.ddfList[existingIndex], ...data }
+          }
+          successNotification('Updated successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async deleteDdf(ddfId: Number) {
+      this.loading = true
+      await handleRequest<void>( // Void response expected
+        axios.delete(`${API_PATHS.ddf}/${ddfId}/`),
+        () => {
+          this.ddfList = this.ddfList.filter((ddf: IDdf) => ddf.id !== ddfId)
+          successNotification('Deleted successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async deleteDdfs() {
+      this.loading = true
+      await handleRequest<any>( // Void response expected
+        axios.delete(`${API_PATHS.ddf}/`),
+        (data) => {
+          this.ddfList = []
+          successNotification(data.message)
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async assessment(ddf: IDdf) {
+      let res
+      await handleRequest<any>(
+        axios.post(`${API_PATHS.ddf}/assessment/`, ddf), // POST request
+        (data) => {
+          res = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => {}
+      )
+      return res
     }
   }
-)
+})
+
+export const useDocproofStore = defineStore('docproof', {
+  state: () => ({
+    loading: true,
+    ipAddress: axios.defaults.baseURL
+  }),
+  getters: {
+    isLoading: (state) => state.loading
+  },
+  actions: {
+    async search(document_no: any) {
+      this.loading = true
+      let res
+      await handleRequest<number>(
+        axios.get(`${API_PATHS.docproof}/search/?document_no=${document_no}`),
+        (data) => {
+          res = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.error(errorMsg)
+          res = 'Error'
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    }
+  }
+})
+
+export const useOrgsStore = defineStore('orgs', {
+  state: () => ({
+    loading: false,
+    project: '' as string,
+    projects: [] as IProject[],
+    panels: [] as IPanel[],
+    responsibles: [] as IResponsible[],
+    people: [] as IPerson[]
+  }),
+  getters: {
+    isLoading: (state) => state.loading,
+    getProjects: (state) => state.projects,
+    getPanels: (state) =>
+      state.panels.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })),
+    getPanelOptions: (state) => {
+      const uniqueNames = new Set(state.panels.map((panel) => panel.name))
+      return Array.from(uniqueNames)
+        .sort((a, b) => a.localeCompare(b, 'tr', { sensitivity: 'base' }))
+        .map((name) => ({ label: toTitleCase(name), value: name }))
+    },
+    getAtaOptions: (state) =>
+      state.panels
+        .sort((a, b) => a.ata.localeCompare(b.ata, 'tr', { sensitivity: 'base' }))
+        .map((panel) => {
+          return { label: panel.ata, value: panel.ata }
+        }),
+    getResponsibles: (state) =>
+      state.responsibles.sort((a, b) =>
+        a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })
+      ),
+    getPeople: (state) => {
+      if (nullCheck(state.people)) {
+        useOrgsStore().fetchPeople()
+      }
+      return state.people.sort((a, b) =>
+        a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })
+      )
+    }
+  },
+  actions: {
+    setProject(projectName: string) {
+      this.project = projectName
+    },
+    async fetchProjects() {
+      this.loading = true
+      await handleRequest<any>(
+        axios.get(`${API_PATHS.orgs}/projects/`),
+        (data) => {
+          this.projects = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.error(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+    },
+    async createProject(newProjectData: IProject) {
+      this.loading = true
+      await handleRequest<IProject>(
+        axios.post(`${API_PATHS.orgs}/projects/`, newProjectData), // POST request
+        (data) => {
+          this.projects.unshift(data) // Add created doc to existing list
+          successNotification('New project added successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async updateProject(projectId: Number, updatedData: IProject) {
+      this.loading = true
+      await handleRequest<IProject>(
+        axios.put(`${API_PATHS.orgs}/projects/${projectId}/`, updatedData), // PUT with ID
+        (data) => {
+          const existingIndex = this.projects.findIndex((project) => project.id === projectId)
+          if (existingIndex !== -1) {
+            // Doc found
+            this.projects[existingIndex] = { ...this.projects[existingIndex], ...data } // Update with new data
+          }
+          successNotification('Updated successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async deleteProject(projectId: Number) {
+      this.loading = true
+      await handleRequest<void>( // Void response expected
+        axios.delete(`${API_PATHS.orgs}/projects/${projectId}/`),
+        () => {
+          this.projects = this.projects.filter((project: IProject) => project.id !== projectId)
+          successNotification('Deleted successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async fetchPanels() {
+      this.loading = true
+      await handleRequest<any>(
+        axios.get(`${this.project}/${API_PATHS.orgs}/panels/`),
+        (data) => {
+          this.panels = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.error(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+    },
+    async createPanel(newPanelData: IPanel) {
+      this.loading = true
+      await handleRequest<IPanel>(
+        axios.post(`${this.project}/${API_PATHS.orgs}/panels/`, newPanelData),
+        (data) => {
+          this.panels.unshift(data)
+          successNotification('New panel added successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+          console.log(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async updatePanel(panelId: Number, updatedData: IPanel) {
+      this.loading = true
+      await handleRequest<IPanel>(
+        axios.put(`${this.project}/${API_PATHS.orgs}/panels/${panelId}/`, updatedData),
+        (data) => {
+          const existingIndex = this.panels.findIndex((panel: IPanel) => panel.id === panelId)
+          if (existingIndex !== -1) {
+            this.panels[existingIndex] = { ...this.panels[existingIndex], ...data }
+          }
+          successNotification('Updated successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async deletePanel(panelId: Number) {
+      this.loading = true
+      await handleRequest<void>( // Void response expected
+        axios.delete(`${this.project}/${API_PATHS.orgs}/panels/${panelId}/`),
+        () => {
+          this.panels = this.panels.filter((panel: IPanel) => panel.id !== panelId)
+          successNotification('Deleted successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async fetchResponsibles(panel: string) {
+      this.loading = true
+      await handleRequest<any>(
+        axios.get(`${this.project}/${API_PATHS.orgs}/responsibles/?panel=${panel}`),
+        (data) => {
+          this.responsibles = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+    },
+    async createResponsible(newPersonData: IResponsible) {
+      this.loading = true
+      await handleRequest<IResponsible>(
+        axios.post(`${this.project}/${API_PATHS.orgs}/responsibles/`, newPersonData),
+        (data) => {
+          this.responsibles.unshift(data)
+          successNotification('New person added successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async updateResponsible(responsibleId: Number, updatedData: IResponsible) {
+      this.loading = true
+      await handleRequest<IResponsible>(
+        axios.put(`${this.project}/${API_PATHS.orgs}/responsibles/${responsibleId}/`, updatedData),
+        (data) => {
+          const existingIndex = this.responsibles.findIndex(
+            (responsible: IResponsible) => responsible.id === responsibleId
+          )
+          if (existingIndex !== -1) {
+            this.responsibles[existingIndex] = { ...this.responsibles[existingIndex], ...data }
+          }
+          successNotification('Updated successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async deleteResponsible(responsibleId: Number) {
+      this.loading = true
+      await handleRequest<void>( // Void response expected
+        axios.delete(`${this.project}/${API_PATHS.orgs}/responsibles/${responsibleId}/`),
+        () => {
+          this.people = this.responsibles.filter(
+            (responsible: IResponsible) => responsible.id !== responsibleId
+          )
+          successNotification('Deleted successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async fetchPeople() {
+      this.loading = true
+      await handleRequest<any>(
+        axios.get(`${API_PATHS.orgs}/people/`),
+        (data) => {
+          this.people = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+    },
+    async createPerson(newPersonData: IPerson) {
+      this.loading = true
+      await handleRequest<IPerson>(
+        axios.post(`${API_PATHS.orgs}/people/`, newPersonData),
+        (data) => {
+          this.people.unshift(data)
+          successNotification('New person added successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async updatePerson(peopleId: Number, updatedData: IPerson) {
+      this.loading = true
+      await handleRequest<IPerson>(
+        axios.put(`${API_PATHS.orgs}/people/${peopleId}/`, updatedData),
+        (data) => {
+          const existingIndex = this.people.findIndex((person: IPerson) => person.id === peopleId)
+          if (existingIndex !== -1) {
+            this.people[existingIndex] = { ...this.people[existingIndex], ...data }
+          }
+          successNotification('Updated successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async deletePerson(personId: Number) {
+      this.loading = true
+      await handleRequest<void>( // Void response expected
+        axios.delete(`${API_PATHS.orgs}/people/${personId}/`),
+        () => {
+          this.people = this.people.filter((person: IPerson) => person.id !== personId)
+          successNotification('Deleted successfully.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+    },
+    async uploadPeople(file: any) {
+      this.loading = true
+      const res = await handleRequest<any>(
+        axios.post(`${API_PATHS.orgs}/upload_people/`, file),
+        (data) => {
+          successNotification(data.message)
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => (this.loading = false)
+      )
+      return res
+    }
+  }
+})
+
+export const useExcelStore = defineStore('excel', {
+  state: () => ({
+    loading: true
+  }),
+  getters: {
+    isLoading: (state) => state.loading
+  },
+  actions: {
+    async getExcelColumns(excel: any) {
+      this.loading = true
+      const columns = await handleRequest<string[]>(
+        axios.post(`${API_PATHS.excel}/get_excel_columns/`, excel),
+        (data) => {
+          successNotification('Excel content successfully read.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return columns
+    },
+    async excelToCoverPages(excel: any) {
+      this.loading = true
+      const res = await handleRequest<string[]>(
+        axios.post(`${API_PATHS.excel}/excel_to_cover_pages/`, excel),
+        (data) => {
+          console.log(data)
+          successNotification('Cover pages successfully created.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    }
+  }
+})
+
+export const usePptxStore = defineStore('pptxgallery', {
+  state: () => ({
+    loading: false,
+    presentations: [] as any[]
+  }),
+  getters: {
+    isLoading: (state) => state.loading,
+    getPresentations: (state) => state.presentations
+  },
+  actions: {
+    async uploadPresentation(form: any) {
+      this.loading = true
+      const res = await handleRequest<any>(
+        axios.post(`${API_PATHS.presentations}/presentations/upload/`, form, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        }),
+        (data) => {
+          console.log(data)
+          successNotification('Presentation content successfully uploaded.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    },
+    async fetchPresentations() {
+      this.loading = true
+      const res = await handleRequest<any[]>(
+        axios.get(`${API_PATHS.presentations}/presentations/`),
+        (data) => {
+          console.log(data)
+          this.presentations = data
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    },
+    async removePresentation(id: number) {
+      this.loading = true
+      const res = await handleRequest<any>(
+        axios.delete(`${API_PATHS.presentations}/presentations/${id}/`),
+        (data) => {
+          console.log(data)
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    },
+    async reconvertPresentation(id: number) {
+      this.loading = true
+      const res = await handleRequest<any>(
+        axios.post(`${API_PATHS.presentations}/presentations/${id}/reconvert/`),
+        (data) => {
+          console.log(data)
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    },
+    async deleteSlide(id: number) {
+      this.loading = true
+      const res = await handleRequest<any>(
+        axios.delete(`${API_PATHS.presentations}/slides/${id}/`),
+        (data) => {
+          console.log(data)
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    },
+    async loadSlide(id: number) {
+      this.loading = true
+      const res = await handleRequest<any>(
+        axios.get(`${API_PATHS.presentations}/presentations/${id}/`),
+        (data) => {
+          console.log(data)
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    },
+    async updateSlide(id: number, form: any) {
+      this.loading = true
+      const res = await handleRequest<any>(
+        axios.patch(`/slides/${id}/`, form),
+        (data) => {
+          console.log(data)
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return res
+    }
+  }
+})
+
+export const useOutlookStore = defineStore('outlook', {
+  state: () => ({
+    loading: false,
+    msg: {} as IMsg
+  }),
+  getters: {
+    isLoading: (state) => state.loading,
+    getMsg: (state) => state.msg
+  },
+  actions: {
+    async parseMsg(msg: any) {
+      this.loading = true
+      const parsed = await handleRequest<IMsg>(
+        axios.post(`${API_PATHS.outlook}/msg/parse/`, msg),
+        (data) => {
+          this.msg = data
+          successNotification('Mail content successfully read.')
+        },
+        (errorMsg) => {
+          errorNotification(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      return parsed
+    }
+  }
+})
