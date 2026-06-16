@@ -18,6 +18,17 @@ from .permissions import DCCPermission, IsOwner
 
 from .forms import UploadForm
 from .parsers import safe_ecd_parse
+from .service.text_parsing import (
+    check_filename,
+    check_panel_text,
+    classify_dcc,
+    extract_text_from_text,
+    find_keyword_list2d,
+    make_surname_upper,
+    multiselect_to_text,
+    parse_labels,
+    parse_multiselect,
+)
 from utils.converters import date_parser
 
 from io import BytesIO
@@ -26,7 +37,6 @@ from base64 import b64decode, b64encode
 import json
 from enum import Enum
 import requests
-import re
 import time
 import uuid
 from datetime import datetime
@@ -44,135 +54,6 @@ class ValuesListSerializer:
 
 TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
 JIRA_URL = settings.JIRA_BTB_URL    
-
-def check_filename(path, filename):
-    for name in os.listdir(path):
-        name = name.strip().replace("-", "").replace("–", "").replace(" ", "")
-        print(path, name, filename)
-        if filename in name:
-            return True
-    return False
-
-def find_keyword_list2d(data, keyword):
-    for row_index, row in enumerate(data):
-        for col_index, item in enumerate(row):
-            if keyword == item:
-                return (row_index, col_index)  
-    return None
-
-def check_panel_text(metin):
-    pattern = r"\b\d+[.:]"
-    return bool(re.search(pattern, metin))
-
-def extract_text_from_text(text, search_text1="", search_text2=""):
-    if search_text1 == "":
-        end_point = text.find(search_text2) 
-        result = text[:end_point]
-    elif search_text2 == "":
-        end_point = len(text)
-        result = text[text.find(search_text1) + len(search_text1):end_point]
-    else:
-        start_point = text.find(search_text1) + len(search_text1)
-        end_point = text.find(search_text2, start_point)
-        result = text[start_point:end_point]
-
-    return result
-
-def make_surname_upper(fullname):
-    words = fullname.split()
-    if not words:
-        return fullname
-    words[-1] = words[-1].upper()
-    return ' '.join(words)
-
-def parse_labels(text: str):
-    if not text:
-        return []
-    
-    labels = [l.strip() for l in text.split(";") if l.strip()]
-    
-    labels = [
-        l.lower().replace(" ", "_")
-        for l in labels
-    ]
-    
-    return labels
-
-def parse_multiselect(text: str):
-    if not text:
-        return []
-    
-    items = []
-    seen = set()
-    
-    for part in text.split(";"):
-        value = part.strip()
-        if not value:
-            continue
-        
-        key = value.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        
-        items.append({"value": value})
-        
-    return items
-
-def multiselect_to_text(values) -> str:
-    if not values:
-        return ""
-
-    # Tek obje geldiyse listeye çevir
-    if not isinstance(values, (list, tuple, set)):
-        values = [values]
-
-    result = []
-
-    for item in values:
-        if item is None:
-            continue
-
-        # dict formatı
-        if isinstance(item, dict):
-            value = item.get("value")
-            if value:
-                result.append(str(value).strip())
-            continue
-
-        # jira.resources.CustomFieldOption benzeri obje
-        value = getattr(item, "value", None)
-        if value:
-            result.append(str(value).strip())
-            continue
-
-        # fallback: string ise direkt al
-        if isinstance(item, str):
-            item = item.strip()
-            if item:
-                result.append(item)
-
-    return ", ".join(result)
-
-def classify_dcc(classification_list):
-    priority_map = {
-        "Major": 1,
-        "Minor-Additional Work": 2,
-        "Minor-No Effect": 3
-    }
-
-    dominant = None
-    for classification in classification_list:
-        priority = priority_map.get(classification[0], None)
-        if priority:
-            if dominant is None or priority < priority_map[dominant[0]]:
-                dominant = classification
-    
-    if dominant:
-        return dominant[0], dominant[1]
-    return None, None
-
-
 
 
 @permission_classes([IsOwner])

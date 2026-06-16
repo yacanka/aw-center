@@ -1,3 +1,58 @@
-from django.test import TestCase
+"""Characterization tests for DCC helper behavior."""
 
-# Create your tests here.
+from types import SimpleNamespace
+
+from django.test import SimpleTestCase
+
+from dcc.service.text_parsing import (
+    check_panel_text,
+    classify_dcc,
+    extract_text_from_text,
+    find_keyword_list2d,
+    make_surname_upper,
+    multiselect_to_text,
+    normalize_filename,
+    parse_labels,
+    parse_multiselect,
+)
+
+
+class DccTextParsingTests(SimpleTestCase):
+    """Protect legacy parsing behavior while DCC views are decomposed."""
+
+    def test_parse_labels_normalizes_semicolon_separated_values(self):
+        self.assertEqual(
+            parse_labels(" ATA 21 ;Flight Control; ;ATA 21"),
+            ["ata_21", "flight_control", "ata_21"],
+        )
+
+    def test_parse_multiselect_keeps_first_case_insensitive_unique_value(self):
+        self.assertEqual(
+            parse_multiselect("A320 ; a320; A330; ;A330 "),
+            [{"value": "A320"}, {"value": "A330"}],
+        )
+
+    def test_multiselect_to_text_accepts_legacy_value_shapes(self):
+        values = [{"value": " A "}, SimpleNamespace(value="B"), " C ", None, {"value": ""}]
+        self.assertEqual(multiselect_to_text(values), "A, B, C")
+
+    def test_multiselect_to_text_wraps_single_object(self):
+        self.assertEqual(multiselect_to_text(SimpleNamespace(value="A350")), "A350")
+
+    def test_extract_text_from_text_matches_legacy_marker_rules(self):
+        text = "before [start]middle[end] after"
+        self.assertEqual(extract_text_from_text(text, "[start]", "[end]"), "middle")
+        self.assertEqual(extract_text_from_text(text, "[start]"), "middle[end] after")
+        self.assertEqual(extract_text_from_text(text, search_text2="[end]"), "before [start]middle")
+
+    def test_panel_name_filename_and_coordinate_helpers_keep_legacy_behavior(self):
+        self.assertTrue(check_panel_text("Panel 12. Description"))
+        self.assertEqual(make_surname_upper("Ada Lovelace"), "Ada LOVELACE")
+        self.assertEqual(normalize_filename(" A-– B "), "AB")
+        self.assertEqual(find_keyword_list2d([["a"], ["b", "needle"]], "needle"), (1, 1))
+
+    def test_classify_dcc_returns_highest_priority_known_classification(self):
+        assignee = SimpleNamespace(displayName="Certification Owner")
+        classification = [("Minor-No Effect", None), ("Major", assignee), ("Unknown", None)]
+        self.assertEqual(classify_dcc(classification), ("Major", assignee))
+        self.assertEqual(classify_dcc([("Unknown", None)]), (None, None))
