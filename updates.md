@@ -147,7 +147,21 @@
 - Cross-site SPA/API deployments must use HTTPS with `AUTH_COOKIE_SAMESITE=None`, `AUTH_COOKIE_SECURE=True`, explicit `CORS_ALLOWED_ORIGINS`, and matching `CSRF_TRUSTED_ORIGINS`.
 - `AUTH_COOKIE_SECURE=False` is only appropriate for local HTTP development; modern browsers reject cross-site `SameSite=None` cookies without `Secure`.
 
-## 21. Frontend quality gate scripts and CI
+## 21. Incremental DCC view refactor foundation
+
+1. Added characterization coverage for DCC text parsing helpers before moving behavior out of `backend/dcc/views.py`.
+2. Extracted pure DCC parsing and classification helpers into `backend/dcc/service/text_parsing.py`, keeping existing view imports and route behavior stable.
+3. Reduced `backend/dcc/views.py` by removing helper implementations from the API module; endpoint functions continue to call the same helper names through imports.
+4. Full Django test execution could not run in the current container because Django is not installed; Python compilation was used as the available syntax check.
+
+## 22. Oversized file refactor expansion
+
+1. Applied the same incremental extraction pattern to `backend/word/views.py` by moving document comparison and DOCX rendering helpers into focused service modules.
+2. Added Word comparison characterization tests to protect normalization, tokenization, threshold, and paragraph-alignment behavior.
+3. Split the compliance-document Pinia store out of `frontend/src/stores/api.ts` into `frontend/src/stores/compdoc.ts` while preserving the existing `useCompdocStore` export from `api.ts`.
+4. Extracted pure CompDoc table query, retry, concurrency, and document-number collection helpers from `CompDocTable.vue` into `frontend/src/composables/compdoc/table.ts`.
+5. Public routes, store names, and existing component imports remain backward-compatible for current consumers.
+## 23. Frontend quality gate scripts and CI
 
 1. Frontend package scripts now expose `typecheck`, `format:check`, `test:unit`, and `test:e2e` commands for local and CI quality gates.
 2. Dev dependency declarations now include Prettier, Vitest, Vue Test Utils, jsdom, and Playwright so the scripts have explicit tool ownership in the frontend package manifest.
