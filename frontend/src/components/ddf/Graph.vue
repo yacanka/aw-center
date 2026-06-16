@@ -12,10 +12,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Pie } from 'vue-chartjs'
+import { defineAsyncComponent, ref } from 'vue'
 import { IDdf } from '@/models/ddf'
-import { pieChartOptions } from '@/stores/chartStore'
+import { ensureChartPluginsRegistered, pieChartOptions } from '@/stores/chartStore'
+
+const Pie = defineAsyncComponent(() => import('vue-chartjs').then(module => module.Pie))
+ensureChartPluginsRegistered()
 
 const showModal = ref(false)
 
