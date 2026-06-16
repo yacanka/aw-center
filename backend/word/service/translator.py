@@ -1,3 +1,4 @@
+import importlib.util
 import re
 from docx import Document
 from io import BytesIO
@@ -22,6 +23,14 @@ class DocTranslator:
     }
 
     def __init__(self, translate_type=None):
+        if importlib.util.find_spec("transformers") is None:
+            raise ImportError(
+                "NLP translation dependencies are not installed because "
+                "their PyTorch dependency is currently blocked by CVE-2025-3000. "
+                "Install a non-vulnerable PyTorch-backed NLP stack before using "
+                "this Word translation feature."
+            )
+
         from transformers import MarianMTModel, MarianTokenizer
 
         model_id = self.MODELS.get(translate_type)

@@ -174,3 +174,10 @@
 2. Simplified the frontend GitHub Actions job to run the gates that are currently owned by the repository: dependency install, Prettier check, Vue syntax/type transpilation check, Vite build, and npm audit.
 3. Added workflow safety defaults with read-only permissions, job timeouts, and concurrency cancellation to reduce stuck or duplicated CI runs.
 4. Removed placeholder unit/e2e package scripts and dev dependencies because no test files or Playwright configuration are committed yet; they should be restored with real tests and lockfile updates.
+
+## 25. PyTorch CVE dependency removal
+
+1. Removed default backend installation of `sentence-transformers` and `transformers` because they pull PyTorch, and currently available torch releases are flagged by CVE-2025-3000 with no patched PyPI version.
+2. Kept Word translation and paraphrase integrations as optional runtime features by lazy-loading NLP packages only when those features are invoked.
+3. Added explicit runtime error messages so operators understand why NLP features are unavailable in the default secure dependency set.
+4. Verified the touched Word service modules compile without the optional NLP packages installed.

@@ -34,10 +34,10 @@ python-dateutil>=2.9,<3
 python-docx>=1.1,<2
 
 # NLP-assisted Word tooling
-# Warning: these depend on PyTorch / tokenizers / native wheels.
-# If install fails on Python 3.14, use Python 3.12/3.13 for NLP parts or install compatible torch wheels first.
-sentence-transformers>=5.1,<6
-transformers>=5,<6
+# Security note: sentence-transformers/transformers currently pull PyTorch,
+# and the available torch releases are flagged by CVE-2025-3000 with no
+# patched PyPI version. Keep those optional model dependencies out of the
+# default install until a non-vulnerable torch release is available.
 
 # Windows-only automation used by DOORS, Outlook, and PowerPoint helpers
 pywin32>=311; sys_platform == "win32"
