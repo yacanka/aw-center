@@ -79,6 +79,9 @@ static/
 *.txt
 !requirements.txt
 *.html
+!frontend/index.html
+!frontend/src/assets/
+!frontend/src/assets/**
 
 # AI Models
 models/
