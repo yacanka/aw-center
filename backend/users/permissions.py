@@ -3,7 +3,7 @@ from rest_framework.permissions import BasePermission
 class UserPermission(BasePermission):
     permission_map = {
         "GET": "auth.view_user",
-        # "POST": "auth.add_user",
+        "POST": "auth.add_user",
         "PUT": "auth.change_user",
         "PATCH": "auth.change_user",
         "DELETE": "auth.delete_user",

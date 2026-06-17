@@ -1,5 +1,6 @@
 from rest_framework.permissions import BasePermission
 
+
 class DCCPermission(BasePermission):
     permission_map = {
         "GET": "dcc.view_jira_dcc",
@@ -16,7 +17,13 @@ class DCCPermission(BasePermission):
 
         return request.user.has_perm(required_permission)
 
-class IsOwner(BasePermission):
+
+class IsDCCOwner(BasePermission):
+    """Allow access only to DCC records created by the requesting user."""
+
     def has_object_permission(self, request, view, obj):
-        print(obj.created_by, request.user)
-        return obj.created_by == request.user
+        return obj.created_by_id == request.user.id
+
+
+class IsOwner(IsDCCOwner):
+    """Backward-compatible alias for existing DCC owner checks."""

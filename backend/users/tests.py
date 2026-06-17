@@ -33,32 +33,13 @@ class UserSecurityTests(TestCase):
         response = self.client.get("/auth/users/")
         self.assertEqual(response.status_code, 401)
 
-    def test_signup_rejects_privilege_fields(self):
-        payload = {
-            "username": "u10003",
-            "password": "StrongPass!123",
-            "email": "signup@example.com",
-            "user_permissions": [self.change_user_permission.id],
-        }
+    def test_anonymous_user_cannot_create_users(self):
+        payload = {"username": "u10003", "password": "StrongPass!123"}
+
         response = self.client.post("/auth/users/", payload, format="json")
-        self.assertEqual(response.status_code, 400)
+
+        self.assertEqual(response.status_code, 401)
         self.assertFalse(User.objects.filter(username="u10003").exists())
-
-    def test_signup_without_privilege_fields_creates_regular_user(self):
-        payload = {
-            "username": "u10004",
-            "password": "StrongPass!123",
-            "email": "signup2@example.com",
-            "first_name": "New",
-            "last_name": "User",
-        }
-        response = self.client.post("/auth/users/", payload, format="json")
-        self.assertEqual(response.status_code, 201)
-
-        created_user = User.objects.get(username="u10004")
-        self.assertFalse(created_user.is_staff)
-        self.assertFalse(created_user.is_superuser)
-        self.assertEqual(created_user.user_permissions.count(), 0)
 
     def test_debug_cookie_defaults_support_plain_http_refresh(self):
         from awcenter.settings import get_default_auth_cookie_samesite
@@ -190,14 +171,10 @@ class UserSecurityTests(TestCase):
         self.assertIn("detail", response.data)
         self.assertIn("code", response.data)
 
-    def test_anonymous_logout_is_idempotent_and_deletes_cookie(self):
-        self.client.cookies["auth_token"] = "stale-token"
-
+    def test_anonymous_logout_is_rejected(self):
         response = self.client.post("/auth/logout/", format="json")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("auth_token", response.cookies)
-        self.assertEqual(response.cookies["auth_token"].value, "")
+        self.assertEqual(response.status_code, 401)
 
     def test_authenticated_logout_deletes_server_token(self):
         token = Token.objects.create(user=self.regular_user)

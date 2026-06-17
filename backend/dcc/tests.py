@@ -2,7 +2,12 @@
 
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APIClient
+
+from dcc.models import JIRA_DCC
 
 from dcc.service.text_parsing import (
     check_panel_text,
@@ -56,3 +61,47 @@ class DccTextParsingTests(SimpleTestCase):
         classification = [("Minor-No Effect", None), ("Major", assignee), ("Unknown", None)]
         self.assertEqual(classify_dcc(classification), ("Major", assignee))
         self.assertEqual(classify_dcc([("Unknown", None)]), (None, None))
+
+
+class DccPermissionTests(TestCase):
+    """Verify DCC endpoints do not expose data to anonymous clients."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = get_user_model().objects.create_user("dcc-user", password="pass")
+        self.dcc = JIRA_DCC.objects.create(
+            issue="DCC-1",
+            ecd_name="Change",
+            dcc_path="//",
+            active=True,
+            created_by=self.user,
+        )
+
+    def test_anonymous_requests_are_rejected(self):
+        endpoints = [
+            ("get", "/dcc/test/", None),
+            ("get", "/dcc/api/", None),
+            ("get", f"/dcc/api/{self.dcc.pk}/", None),
+            ("get", "/dcc/issues/", None),
+            ("post", "/dcc/get_issue/", {}),
+            ("post", "/dcc/create_issue/", {}),
+            ("post", "/dcc/upload/", {}),
+            ("post", "/dcc/ecd_assessment/", {}),
+            ("post", "/dcc/send_mail/", {}),
+            ("post", "/dcc/create_queue/", {}),
+            ("get", "/dcc/check_session/", None),
+            ("post", "/dcc/add_attachment/", {}),
+        ]
+        for method, path, payload in endpoints:
+            with self.subTest(path=path):
+                response = getattr(self.client, method)(path, payload, format="json")
+                self.assertIn(response.status_code, [401, 403])
+
+    def test_authenticated_user_cannot_read_another_users_dcc(self):
+        other = get_user_model().objects.create_user("other-dcc-user", password="pass")
+        other.user_permissions.add(Permission.objects.get(codename="view_jira_dcc"))
+        self.client.force_authenticate(user=other)
+
+        response = self.client.get(f"/dcc/api/{self.dcc.pk}/")
+
+        self.assertEqual(response.status_code, 403)
