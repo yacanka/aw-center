@@ -1,29 +1,26 @@
 from rest_framework.permissions import BasePermission
 
 
-class DCCPermission(BasePermission):
+class DDFPermission(BasePermission):
+    """Require Django model permissions for DDF API access."""
+
     permission_map = {
-        "GET": "dcc.view_jira_dcc",
-        "POST": "dcc.add_jira_dcc",
-        "PUT": "dcc.change_jira_dcc",
-        "PATCH": "dcc.change_jira_dcc",
-        "DELETE": "dcc.delete_jira_dcc",
+        "GET": "ddf.view_ddf",
+        "POST": "ddf.add_ddf",
+        "PUT": "ddf.change_ddf",
+        "PATCH": "ddf.change_ddf",
+        "DELETE": "ddf.delete_ddf",
     }
 
     def has_permission(self, request, view):
         required_permission = self.permission_map.get(request.method)
         if required_permission is None:
             return True
-
         return request.user.has_perm(required_permission)
 
 
-class IsDCCOwner(BasePermission):
-    """Allow access only to DCC records created by the requesting user."""
+class IsDDFOwner(BasePermission):
+    """Allow access only to DDF records created by the requesting user."""
 
     def has_object_permission(self, request, view, obj):
         return obj.created_by_id == request.user.id
-
-
-class IsOwner(IsDCCOwner):
-    """Backward-compatible alias for existing DCC owner checks."""
