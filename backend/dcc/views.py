@@ -4,7 +4,7 @@ from django.core.cache import cache
 from django.conf import settings
 
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView 
@@ -14,7 +14,7 @@ from .serializers import JIRA_DCC_Serializer
 from .models import JIRA_DCC
 from .service.JIRAConnector import JiraConnector, split_text_by_chracter, ISO_time_to_string, parseJiraError
 from .service.MailSender import *
-from .permissions import DCCPermission, IsOwner
+from .permissions import DCCPermission, IsDCCOwner
 
 from .forms import UploadForm
 from .parsers import safe_ecd_parse
@@ -54,13 +54,21 @@ class ValuesListSerializer:
 
 TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
 JIRA_URL = settings.JIRA_BTB_URL    
+PUBLIC_ENDPOINTS = {}
 
 
-@permission_classes([IsOwner])
 class JIRA_DCC_ViewSet(APIView):
+    permission_classes = [IsAuthenticated, DCCPermission, IsDCCOwner]
+
+    def get_dcc(self, pk):
+        """Return a DCC record after object-level ownership checks."""
+        dcc = get_object_or_404(JIRA_DCC, pk=pk)
+        self.check_object_permissions(self.request, dcc)
+        return dcc
+
     def get(self, request, pk=None):
         if pk:
-            dcc = get_object_or_404(JIRA_DCC, pk=pk)
+            dcc = self.get_dcc(pk)
             serializer = JIRA_DCC_Serializer(dcc)
             return Response(serializer.data)
         dccs = JIRA_DCC.objects.filter(created_by=request.user).order_by("-id")
@@ -77,7 +85,7 @@ class JIRA_DCC_ViewSet(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request, pk):
-        dcc = get_object_or_404(JIRA_DCC, pk=pk)
+        dcc = self.get_dcc(pk)
         serializer = JIRA_DCC_Serializer(dcc, data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -85,7 +93,7 @@ class JIRA_DCC_ViewSet(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def patch(self, request, pk):
-        dcc = get_object_or_404(JIRA_DCC, pk=pk)
+        dcc = self.get_dcc(pk)
         serializer = JIRA_DCC_Serializer(dcc, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -93,13 +101,13 @@ class JIRA_DCC_ViewSet(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        dcc = get_object_or_404(JIRA_DCC, pk=pk)
+        dcc = self.get_dcc(pk)
         serializer = JIRA_DCC_Serializer(dcc)
         dcc.delete()
         return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def Test(request):
     data = {
         "issue": "Merhaba JSON!",
@@ -114,6 +122,8 @@ def event_stream():
         time.sleep(0.1)
         yield f'data: {json.dumps({"status": "Processing", "percentage": i})}\n\n'
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def sse_test(request):
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
@@ -121,13 +131,13 @@ def sse_test(request):
     return response
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, DCCPermission])
 def get_issue_list(request):
     issues = JIRA_DCC.objects.values("issue").order_by("issue")
     return paginated_response(request, issues, ValuesListSerializer)
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, DCCPermission])
 def get_issue(request):
     try:
         data = request.data
@@ -154,7 +164,7 @@ def get_issue(request):
         return Response(f"Something went wrong: {e}", status=400)
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, DCCPermission])
 def create_issue(request):
     from jira import JIRAError
 
@@ -226,6 +236,7 @@ def get_folder_status(request):
         return Response(f"Something went wrong: {e}", status=400)
 
 @api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def upload_ecd(request):
     form = UploadForm(request.POST, request.FILES)
     if form.is_valid():
@@ -240,6 +251,7 @@ def upload_ecd(request):
         
 
 @api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def ecd_assessment(request):
     try:
         data = request.data
@@ -299,6 +311,7 @@ def ecd_assessment(request):
 
 
 @api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def send_mail(request):
     try:
         data = request.data
@@ -473,6 +486,8 @@ def create_subtask_action(uuid):
         
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def create_subtask_stream(request, uuid):
     response = StreamingHttpResponse(create_subtask_action(str(uuid)), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
@@ -574,6 +589,8 @@ def create_subtask_excel_action(uuid):
 
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def create_subtask_excel_stream(request, uuid):
     response = StreamingHttpResponse(create_subtask_excel_action(str(uuid)), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
@@ -763,6 +780,8 @@ def create_dcc_action(uuid):
     else:
         yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def create_dcc_stream(request, uuid):
     response = StreamingHttpResponse(create_dcc_action(str(uuid)), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"

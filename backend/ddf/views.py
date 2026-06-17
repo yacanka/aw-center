@@ -1,16 +1,15 @@
-from django.shortcuts import render
 from django import forms
+from django.shortcuts import get_object_or_404
 
-from rest_framework import viewsets, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from common.views import view_set_factory, view_set_obj_factory
-
+from common.views import paginated_response
 from ddf.models import DDF
+from ddf.permissions import DDFPermission, IsDDFOwner
 from ddf.serializers import DDFSerializer
 
 from docx import Document
@@ -19,14 +18,69 @@ import json
 import requests
 
 
+PUBLIC_ENDPOINTS = {}
 
-DDFView = view_set_factory(DDF, DDFSerializer, [AllowAny])
-DDFObjView = view_set_obj_factory(DDF, DDFSerializer, [AllowAny])
+
+class DDFView(APIView):
+    permission_classes = [IsAuthenticated, DDFPermission, IsDDFOwner]
+
+    def get(self, request):
+        ddfs = DDF.objects.filter(created_by=request.user).order_by("-id")
+        return paginated_response(request, ddfs, DDFSerializer)
+
+    def post(self, request):
+        serializer = DDFSerializer(data=request.data, context={"request": request})
+        if serializer.is_valid():
+            serializer.save(created_by=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request):
+        count, _ = DDF.objects.filter(created_by=request.user).delete()
+        return Response({"message": f"{count} records deleted successfully."})
+
+
+class DDFObjView(APIView):
+    permission_classes = [IsAuthenticated, DDFPermission, IsDDFOwner]
+
+    def get_ddf(self, request, pk):
+        """Return a DDF record after object-level ownership checks."""
+        ddf = get_object_or_404(DDF, pk=pk)
+        self.check_object_permissions(request, ddf)
+        return ddf
+
+    def get(self, request, pk):
+        serializer = DDFSerializer(self.get_ddf(request, pk))
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        ddf = self.get_ddf(request, pk)
+        serializer = DDFSerializer(ddf, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request, pk):
+        ddf = self.get_ddf(request, pk)
+        serializer = DDFSerializer(ddf, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        ddf = self.get_ddf(request, pk)
+        serializer = DDFSerializer(ddf)
+        ddf.delete()
+        return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
+
 
 class UploadForm(forms.Form):
     file = forms.FileField()
 
 @api_view(["POST"])
+@permission_classes([IsAuthenticated, DDFPermission])
 def upload_ddf(request):
     form = UploadForm(request.POST, request.FILES)
     if form.is_valid():
@@ -53,14 +107,19 @@ def upload_ddf(request):
 
         serializer = DDFSerializer(data=ddf, context={'request': request})
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(created_by=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["POST"])
+@permission_classes([IsAuthenticated, DDFPermission])
 def ddf_assessment(request):
     try:
         ddf_data = json.loads(request.body)
+
+        ddf = get_object_or_404(DDF, id=ddf_data['id'])
+        if ddf.created_by_id != request.user.id:
+            return Response({"detail": "You do not have permission to access this DDF."}, 403)
 
         authority_comments = [f"\n{i+1}) {comment[2]}\n" for i, comment in enumerate(ddf_data['comments'])]
 
@@ -111,7 +170,8 @@ def ddf_assessment(request):
         for i, review in enumerate(review_types):
             result.append(f"[{review}] {ddf_data['comments'][i][2]}")
 
-        DDF.objects.filter(id=ddf_data['id']).update(comment_types=review_types)
+        ddf.comment_types = review_types
+        ddf.save(update_fields=["comment_types"])
 
         return Response(result)
     except Exception as e:

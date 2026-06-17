@@ -26,8 +26,6 @@ User = get_user_model()
 
 class UserView(APIView):
     def get_permissions(self):
-        if self.request.method == "POST":
-            return [AllowAny()]
         return [IsAuthenticated(), UserPermission()]
 
     def _user_queryset(self):
@@ -83,6 +81,13 @@ class UserView(APIView):
         return Response("User deleted.", status=status.HTTP_204_NO_CONTENT)
 
 
+PUBLIC_ENDPOINTS = {
+    "CustomAuthToken": "Public login endpoint; credentials are validated by DRF token auth.",
+    "PasswordResetRequestAPIView": "Public request endpoint; response does not reveal account existence.",
+    "PasswordResetConfirmAPIView": "Public confirmation endpoint; uid and token prove reset authorization.",
+}
+
+
 class CustomAuthToken(ObtainAuthToken):
     permission_classes = [AllowAny]
 
@@ -118,7 +123,7 @@ class CustomAuthToken(ObtainAuthToken):
 
 
 class LogoutView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         if request.user.is_authenticated:
