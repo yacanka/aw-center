@@ -194,3 +194,9 @@
 2. Added backend `media_tools` endpoints for output-size preview and FFmpeg conversion, with extension allowlisting, upload-size validation, shell-free subprocess arguments, bounded timeouts, and `.env`-backed `FFMPEG_EXECUTABLE` configuration.
 3. Added a frontend conversion screen where users can upload media, choose output extension, set frame dimensions and bitrates, preview estimated output size before processing, then download the converted file.
 4. Added backend service tests covering extension validation, bitrate-based size estimation, configured executable usage, and preview fallback behavior.
+
+## 28. Media Converter upload UX correction
+
+1. Fixed the Media Converter upload control by adding an explicit Naive UI dragger trigger, because `n-upload` without trigger content can render no visible clickable area.
+2. Styled the upload trigger as a centered square drag-and-drop area for a clearer media import experience.
+3. Replaced free-only bitrate inputs with video and audio bitrate preset dropdowns plus an `Other` option that reveals custom kbps input fields.

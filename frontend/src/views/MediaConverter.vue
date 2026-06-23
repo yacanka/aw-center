@@ -7,9 +7,9 @@
       </n-alert>
       <n-form label-placement="top" style="margin-top: 16px">
         <n-form-item label="Input file">
-          <n-upload :max="1" :default-upload="false" accept="image/*,video/*,audio/*" @change="setFile" />
+          <MediaUploadDropzone @selected="setFile" />
         </n-form-item>
-        <n-grid :cols="4" :x-gap="16">
+        <n-grid :cols="4" :x-gap="16" responsive="screen">
           <n-form-item-gi label="Output extension">
             <n-select v-model:value="parameters.output_extension" :options="extensionOptions" />
           </n-form-item-gi>
@@ -19,18 +19,40 @@
           <n-form-item-gi label="Height (px)">
             <n-input-number v-model:value="parameters.height" clearable :min="16" :max="4320" />
           </n-form-item-gi>
-          <n-form-item-gi label="Video bitrate (kbps)">
+          <n-form-item-gi label="Video bitrate preset">
+            <n-select v-model:value="videoBitratePreset" :options="videoBitrateOptions" />
+          </n-form-item-gi>
+          <n-form-item-gi
+            v-if="videoBitratePreset === customPreset"
+            label="Custom video bitrate (kbps)"
+          >
             <n-input-number v-model:value="parameters.video_bitrate_kbps" clearable :min="1" />
           </n-form-item-gi>
-          <n-form-item-gi label="Audio bitrate (kbps)">
+          <n-form-item-gi label="Audio bitrate preset">
+            <n-select v-model:value="audioBitratePreset" :options="audioBitrateOptions" />
+          </n-form-item-gi>
+          <n-form-item-gi
+            v-if="audioBitratePreset === customPreset"
+            label="Custom audio bitrate (kbps)"
+          >
             <n-input-number v-model:value="parameters.audio_bitrate_kbps" clearable :min="1" />
           </n-form-item-gi>
         </n-grid>
         <n-space>
-          <n-button type="primary" :loading="isPreviewing" :disabled="!selectedFile" @click="previewSize">
+          <n-button
+            type="primary"
+            :loading="isPreviewing"
+            :disabled="!selectedFile"
+            @click="previewSize"
+          >
             Preview output size
           </n-button>
-          <n-button type="success" :loading="isConverting" :disabled="!selectedFile" @click="convertFile">
+          <n-button
+            type="success"
+            :loading="isConverting"
+            :disabled="!selectedFile"
+            @click="convertFile"
+          >
             Convert and download
           </n-button>
         </n-space>
@@ -38,8 +60,12 @@
     </n-card>
     <n-card v-if="preview" title="Output preview">
       <n-descriptions :column="3" bordered>
-        <n-descriptions-item label="Estimated size">{{ formatBytes(preview.estimated_bytes) }}</n-descriptions-item>
-        <n-descriptions-item label="Duration">{{ formatDuration(preview.duration_seconds) }}</n-descriptions-item>
+        <n-descriptions-item label="Estimated size">
+          {{ formatBytes(preview.estimated_bytes) }}
+        </n-descriptions-item>
+        <n-descriptions-item label="Duration">
+          {{ formatDuration(preview.duration_seconds) }}
+        </n-descriptions-item>
         <n-descriptions-item label="Method">{{ preview.method }}</n-descriptions-item>
       </n-descriptions>
     </n-card>
@@ -47,8 +73,8 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import type { UploadFileInfo } from 'naive-ui'
+import { reactive, ref, watch } from 'vue'
+import MediaUploadDropzone from '@/components/MediaUploadDropzone.vue'
 import { formatApiError } from '@/services/apiError'
 import {
   convertMedia,
@@ -56,24 +82,43 @@ import {
   type MediaPreviewResult
 } from '@/services/mediaTools'
 
-const extensionOptions = ['mp4', 'webm', 'mov', 'mkv', 'avi', 'mp3', 'wav', 'jpg', 'png', 'webp', 'gif'].map(
-  (value) => ({ label: value.toUpperCase(), value })
-)
+const customPreset = 'custom'
+const extensionValues = [
+  'mp4',
+  'webm',
+  'mov',
+  'mkv',
+  'avi',
+  'mp3',
+  'wav',
+  'jpg',
+  'png',
+  'webp',
+  'gif'
+]
+const extensionOptions = extensionValues.map((value) => ({ label: value.toUpperCase(), value }))
+const videoBitrateOptions = createBitrateOptions([750, 1500, 3000, 6000, 12000])
+const audioBitrateOptions = createBitrateOptions([96, 128, 192, 256, 320])
 
 const selectedFile = ref<File | null>(null)
 const preview = ref<MediaPreviewResult | null>(null)
 const isPreviewing = ref(false)
 const isConverting = ref(false)
+const videoBitratePreset = ref<number | string>(1500)
+const audioBitratePreset = ref<number | string>(128)
 const parameters = reactive({
   output_extension: 'mp4',
   width: null as number | null,
   height: null as number | null,
-  video_bitrate_kbps: null as number | null,
-  audio_bitrate_kbps: null as number | null
+  video_bitrate_kbps: 1500 as number | null,
+  audio_bitrate_kbps: 128 as number | null
 })
 
-function setFile(options: { fileList: UploadFileInfo[] }) {
-  selectedFile.value = (options.fileList[0]?.file as File | undefined) ?? null
+watch(videoBitratePreset, (value) => applyPreset(value, 'video_bitrate_kbps'))
+watch(audioBitratePreset, (value) => applyPreset(value, 'audio_bitrate_kbps'))
+
+function setFile(file: File | null) {
+  selectedFile.value = file
   preview.value = null
 }
 
@@ -100,6 +145,19 @@ async function convertFile() {
   } finally {
     isConverting.value = false
   }
+}
+
+function createBitrateOptions(values: number[]) {
+  return [
+    ...values.map((value) => ({ label: `${value} kbps`, value })),
+    { label: 'Other', value: customPreset }
+  ]
+}
+
+function applyPreset(value: number | string, field: 'video_bitrate_kbps' | 'audio_bitrate_kbps') {
+  if (value === customPreset) return
+
+  parameters[field] = Number(value)
 }
 
 function downloadBlob(blob: Blob, filename: string) {
