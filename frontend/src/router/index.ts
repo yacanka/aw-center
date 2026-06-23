@@ -78,6 +78,11 @@ const router = createRouter({
       component: lazyRoute(() => import('@/views/compare/PdfCompare.vue'))
     },
     {
+      path: '/media-converter',
+      name: 'mediaConverter',
+      component: lazyRoute(() => import('@/views/MediaConverter.vue'))
+    },
+    {
       path: '/translator',
       name: 'translator',
       component: lazyRoute(() => import('@/views/Translator.vue'))
