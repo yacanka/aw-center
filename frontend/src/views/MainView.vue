@@ -189,6 +189,12 @@ const menuOptions = [
     children: [{ label: 'Split', key: '/pdf/split', name: 'split', icon: renderIcon(Cut24Regular) }]
   },
   {
+    label: 'Media Converter',
+    key: '/media-converter',
+    name: 'mediaConverter',
+    icon: renderIcon(ImageMultiple24Regular)
+  },
+  {
     label: 'Translator',
     key: '/translator',
     name: 'translator',

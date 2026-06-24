@@ -27,6 +27,7 @@ urlpatterns = [
     path('outlook/', include('outlook.urls')),
     path('releases/', include('releases.urls')),
     path('pptxgallery/', include('pptxgallery.urls')),
+    path('media-tools/', include('media_tools.urls')),
     path('download/<str:filename>/', download_file, name='download_file')
 ]
 
