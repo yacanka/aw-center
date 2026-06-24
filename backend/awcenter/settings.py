@@ -46,6 +46,7 @@ JIRA_BTB_URL = env.str("JIRA_BTB_URL")
 
 AW_USERNAME = env.str("AW_USERNAME", "")
 AW_PASSWORD = env.str("AW_PASSWORD", "")
+FFMPEG_EXECUTABLE = env.str("FFMPEG_EXECUTABLE", default="ffmpeg")
 
 
 def get_default_auth_cookie_samesite(debug):
@@ -100,6 +101,7 @@ INSTALLED_APPS = [
     'pptxgallery',
     'outlook',
     'releases',
+    'media_tools',
     'corsheaders',
 ]
 
