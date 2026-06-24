@@ -161,6 +161,7 @@
 3. Split the compliance-document Pinia store out of `frontend/src/stores/api.ts` into `frontend/src/stores/compdoc.ts` while preserving the existing `useCompdocStore` export from `api.ts`.
 4. Extracted pure CompDoc table query, retry, concurrency, and document-number collection helpers from `CompDocTable.vue` into `frontend/src/composables/compdoc/table.ts`.
 5. Public routes, store names, and existing component imports remain backward-compatible for current consumers.
+
 ## 23. Frontend quality gate scripts and CI
 
 1. Frontend package scripts now expose `typecheck`, `format:check`, `test:unit`, and `test:e2e` commands for local and CI quality gates.
@@ -200,3 +201,10 @@
 1. Fixed the Media Converter upload control by adding an explicit Naive UI dragger trigger, because `n-upload` without trigger content can render no visible clickable area.
 2. Styled the upload trigger as a centered square drag-and-drop area for a clearer media import experience.
 3. Replaced free-only bitrate inputs with video and audio bitrate preset dropdowns plus an `Other` option that reveals custom kbps input fields.
+
+## 29. GitHub Actions Node.js 24 action runtime update
+
+1. CI workflow actions were updated from Node.js 20-targeting major versions to Node.js 24-compatible major versions.
+2. `actions/checkout` now uses v5 in both backend and frontend jobs.
+3. `actions/setup-python` now uses v6, and `actions/setup-node` now uses v5 to remove the Node.js 20 deprecation warning path.
+4. The frontend project runtime remains pinned to Node.js 22 for dependency/build compatibility; this is separate from the GitHub Action implementation runtime.
