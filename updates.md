@@ -161,6 +161,7 @@
 3. Split the compliance-document Pinia store out of `frontend/src/stores/api.ts` into `frontend/src/stores/compdoc.ts` while preserving the existing `useCompdocStore` export from `api.ts`.
 4. Extracted pure CompDoc table query, retry, concurrency, and document-number collection helpers from `CompDocTable.vue` into `frontend/src/composables/compdoc/table.ts`.
 5. Public routes, store names, and existing component imports remain backward-compatible for current consumers.
+
 ## 23. Frontend quality gate scripts and CI
 
 1. Frontend package scripts now expose `typecheck`, `format:check`, `test:unit`, and `test:e2e` commands for local and CI quality gates.
@@ -188,7 +189,20 @@
 2. npm `overrides` now pins security floor versions for vulnerable transitive packages (`brace-expansion`, `esbuild`, `follow-redirects`, `form-data`, `lodash`, `lodash-es`, `picomatch`, and `postcss`) so CI installs cannot resolve back into known vulnerable ranges.
 3. The container's npm registry access returned 403 responses, so package-lock refresh and `npm audit fix` must be re-run in CI or a developer environment with registry access.
 
-## 27. GitHub Actions Node.js 24 action runtime update
+## 27. FFmpeg media conversion application
+
+1. Added an authenticated Media Converter application to the AW Center menu and router for image, audio, and video conversion workflows.
+2. Added backend `media_tools` endpoints for output-size preview and FFmpeg conversion, with extension allowlisting, upload-size validation, shell-free subprocess arguments, bounded timeouts, and `.env`-backed `FFMPEG_EXECUTABLE` configuration.
+3. Added a frontend conversion screen where users can upload media, choose output extension, set frame dimensions and bitrates, preview estimated output size before processing, then download the converted file.
+4. Added backend service tests covering extension validation, bitrate-based size estimation, configured executable usage, and preview fallback behavior.
+
+## 28. Media Converter upload UX correction
+
+1. Fixed the Media Converter upload control by adding an explicit Naive UI dragger trigger, because `n-upload` without trigger content can render no visible clickable area.
+2. Styled the upload trigger as a centered square drag-and-drop area for a clearer media import experience.
+3. Replaced free-only bitrate inputs with video and audio bitrate preset dropdowns plus an `Other` option that reveals custom kbps input fields.
+
+## 29. GitHub Actions Node.js 24 action runtime update
 
 1. CI workflow actions were updated from Node.js 20-targeting major versions to Node.js 24-compatible major versions.
 2. `actions/checkout` now uses v5 in both backend and frontend jobs.
