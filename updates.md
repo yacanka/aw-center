@@ -187,3 +187,10 @@
 1. Frontend direct dependency floors were raised for Axios, Markdown-It, Vite, and the Vue Vite plugin to move installs beyond the high-severity audit ranges reported by GitHub Actions.
 2. npm `overrides` now pins security floor versions for vulnerable transitive packages (`brace-expansion`, `esbuild`, `follow-redirects`, `form-data`, `lodash`, `lodash-es`, `picomatch`, and `postcss`) so CI installs cannot resolve back into known vulnerable ranges.
 3. The container's npm registry access returned 403 responses, so package-lock refresh and `npm audit fix` must be re-run in CI or a developer environment with registry access.
+
+## 27. GitHub Actions Node.js 24 action runtime update
+
+1. CI workflow actions were updated from Node.js 20-targeting major versions to Node.js 24-compatible major versions.
+2. `actions/checkout` now uses v5 in both backend and frontend jobs.
+3. `actions/setup-python` now uses v6, and `actions/setup-node` now uses v5 to remove the Node.js 20 deprecation warning path.
+4. The frontend project runtime remains pinned to Node.js 22 for dependency/build compatibility; this is separate from the GitHub Action implementation runtime.
