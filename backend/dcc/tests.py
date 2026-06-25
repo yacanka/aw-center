@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 
 from dcc.models import JIRA_DCC
 
+from dcc.service.JIRAConnector import JiraConnector
 from dcc.service.text_parsing import (
     check_panel_text,
     classify_dcc,
@@ -63,6 +64,41 @@ class DccTextParsingTests(SimpleTestCase):
         self.assertEqual(classify_dcc([("Unknown", None)]), (None, None))
 
 
+class JiraConnectorSubtaskFieldTests(SimpleTestCase):
+    """Verify dynamic sub-task payload construction without a JIRA server."""
+
+    def test_build_subtask_fields_keeps_dynamic_custom_fields(self):
+        connector = JiraConnector.__new__(JiraConnector)
+        connector.issue_key = "DCC-42"
+
+        fields = connector.build_subtask_fields(
+            summary="Review document",
+            assignee="engineer",
+            duedate=2,
+            extra_fields={"customfield_10010": "Safety", "customfield_10011": ""},
+        )
+
+        self.assertEqual(fields["summary"], "Review document")
+        self.assertEqual(fields["customfield_10010"], "Safety")
+        self.assertNotIn("customfield_10011", fields)
+        self.assertEqual(fields["assignee"], {"name": "engineer"})
+
+    def test_get_subtask_fields_returns_createmeta_field_descriptors(self):
+        connector = JiraConnector.__new__(JiraConnector)
+        connector.issue_key = "DCC-42"
+        connector.jira = SimpleNamespace(createmeta=lambda **_: {
+            "projects": [{"issuetypes": [{"fields": {
+                "summary": {"name": "Summary", "required": True, "schema": {"type": "string"}},
+            }}]}]
+        })
+
+        fields = connector.get_subtask_fields()
+
+        self.assertEqual(fields[0]["id"], "summary")
+        self.assertEqual(fields[0]["name"], "Summary")
+        self.assertTrue(fields[0]["required"])
+
+
 class DccPermissionTests(TestCase):
     """Verify DCC endpoints do not expose data to anonymous clients."""
 
@@ -89,6 +125,7 @@ class DccPermissionTests(TestCase):
             ("post", "/dcc/ecd_assessment/", {}),
             ("post", "/dcc/send_mail/", {}),
             ("post", "/dcc/create_queue/", {}),
+            ("post", "/dcc/subtask_fields/", {}),
             ("get", "/dcc/check_session/", None),
             ("post", "/dcc/add_attachment/", {}),
         ]
