@@ -44,9 +44,24 @@ class UserSecurityTests(TestCase):
     def test_debug_cookie_defaults_support_plain_http_refresh(self):
         from awcenter.settings import get_default_auth_cookie_samesite
         from awcenter.settings import get_default_auth_cookie_secure
+        from awcenter.settings import get_default_auth_token_response_enabled
 
         self.assertEqual(get_default_auth_cookie_samesite(True), "Lax")
         self.assertFalse(get_default_auth_cookie_secure(True))
+        self.assertTrue(get_default_auth_token_response_enabled(True, False))
+
+    def test_insecure_cookie_policy_enables_token_fallback(self):
+        from awcenter.settings import get_default_auth_token_response_enabled
+
+        self.assertTrue(get_default_auth_token_response_enabled(False, False))
+        self.assertFalse(get_default_auth_token_response_enabled(False, True))
+
+    def test_debug_cors_and_csrf_defaults_include_vite_origins(self):
+        from awcenter.settings import get_default_development_origins
+
+        origins = get_default_development_origins()
+        self.assertIn("http://localhost:5173", origins)
+        self.assertIn("http://127.0.0.1:5173", origins)
 
     def test_production_cookie_defaults_support_secure_cross_site_spa(self):
         from awcenter.settings import get_default_auth_cookie_samesite
