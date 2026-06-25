@@ -208,3 +208,10 @@
 2. `actions/checkout` now uses v5 in both backend and frontend jobs.
 3. `actions/setup-python` now uses v6, and `actions/setup-node` now uses v5 to remove the Node.js 20 deprecation warning path.
 4. The frontend project runtime remains pinned to Node.js 22 for dependency/build compatibility; this is separate from the GitHub Action implementation runtime.
+
+## 30. Development cookie-auth CSRF 401 correction
+
+1. Replaced debug-mode wildcard CORS with explicit localhost Vite origins so credentialed browser requests have stable development defaults.
+2. Added matching debug-mode CSRF trusted-origin defaults for `localhost:5173` and `127.0.0.1:5173`.
+3. Made the login token fallback default enable itself whenever the auth cookie is intentionally insecure, covering local HTTP development even if `DEBUG=False` is used with development cookie settings.
+4. Added regression tests for local origin defaults and token fallback behavior while keeping production secure-cookie defaults unchanged.

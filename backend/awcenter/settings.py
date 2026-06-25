@@ -59,6 +59,19 @@ def get_default_auth_cookie_secure(debug):
     return not debug
 
 
+def get_default_auth_token_response_enabled(debug, auth_cookie_secure):
+    """Return whether login should expose a token for local HTTP fallback."""
+    return debug or not auth_cookie_secure
+
+
+def get_default_development_origins():
+    """Return common Vite origins used by local browser development."""
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+
 CERTIFICATES_DIR = BASE_DIR / "certificates"
 CUSTOM_TEMPLATE_DIR = BASE_DIR / "custom_templates"
 
@@ -123,8 +136,11 @@ if not DEBUG:
     MIDDLEWARE += ['awcenter.middleware.RequestUserLogMiddleware']
 
 if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-    CORS_ALLOWED_ORIGINS = []
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = env.list(
+        "CORS_ALLOWED_ORIGINS",
+        default=get_default_development_origins(),
+    )
 else:
     CORS_ALLOW_ALL_ORIGINS = False
     CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
@@ -134,7 +150,10 @@ else:
 CORS_ALLOW_HEADERS = list(default_headers)
 CORS_ALLOW_METHODS = list(default_methods)
 CORS_ALLOW_CREDENTIALS = True
-CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=get_default_development_origins() if DEBUG else [],
+)
 
 # Browser authentication strategy:
 # - The SPA uses a DRF token stored in an HttpOnly auth cookie.
@@ -149,7 +168,10 @@ AUTH_COOKIE_MAX_AGE = env.int("AUTH_COOKIE_MAX_AGE", default=60 * 60 * 24 * 14)
 AUTH_COOKIE_DEFAULT_SAMESITE = get_default_auth_cookie_samesite(DEBUG)
 AUTH_COOKIE_SAMESITE = env.str("AUTH_COOKIE_SAMESITE", default=AUTH_COOKIE_DEFAULT_SAMESITE)
 AUTH_COOKIE_SECURE = env.bool("AUTH_COOKIE_SECURE", default=get_default_auth_cookie_secure(DEBUG))
-AUTH_TOKEN_RESPONSE_ENABLED = env.bool("AUTH_TOKEN_RESPONSE_ENABLED", default=DEBUG)
+AUTH_TOKEN_RESPONSE_ENABLED = env.bool(
+    "AUTH_TOKEN_RESPONSE_ENABLED",
+    default=get_default_auth_token_response_enabled(DEBUG, AUTH_COOKIE_SECURE),
+)
 
 ROOT_URLCONF = 'awcenter.urls'
 
