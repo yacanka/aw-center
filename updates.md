@@ -208,3 +208,10 @@
 2. `actions/checkout` now uses v5 in both backend and frontend jobs.
 3. `actions/setup-python` now uses v6, and `actions/setup-node` now uses v5 to remove the Node.js 20 deprecation warning path.
 4. The frontend project runtime remains pinned to Node.js 22 for dependency/build compatibility; this is separate from the GitHub Action implementation runtime.
+
+## 30. JIRA subtask generator dynamic field persistence
+
+1. Changed the `UserPreferences.jira_list` default shape from an object to an array so the frontend receives the list shape it renders.
+2. Persisted selected dynamic JIRA columns inside each saved subtask list, allowing every list to keep its own field set.
+3. Moved the JIRA field loading action into the subtask list toolbar next to the searchable field selector.
+4. Kept the default subtask row minimal by rendering only Summary until the user adds JIRA fields as columns.

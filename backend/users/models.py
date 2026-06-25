@@ -107,7 +107,7 @@ class UserPreferences(models.Model):
     )
 
     jira_list = models.JSONField(
-        default=dict,
+        default=list,
         blank=True,
         help_text='JIRA subtask list'
     )
@@ -145,6 +145,7 @@ class UserPreferences(models.Model):
         self.items_per_page = 25
         self.compact_view = False
         self.extra_settings = {}
+        self.jira_list = []
         self.save()
 
 

@@ -55,7 +55,12 @@
           />
         </n-grid-item>
         <n-grid-item span="6">
-          <subtask-list v-model:list="generator.list" />
+          <subtask-list
+            v-model:list="generator.list"
+            :fields="subtaskFields"
+            :field-loading="fieldLoading"
+            @load-fields="loadSubtaskFields"
+          />
         </n-grid-item>
       </n-grid>
     </n-card>
@@ -66,13 +71,13 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { createAuthenticatedEventSource } from '@/services/eventSource'
-import { useRoute } from 'vue-router'
 import { useOrgsStore } from '@/stores/api'
 import SubtaskList from '@/components/jira/SubtaskList.vue'
 import { toTitleCase } from '@/utils/text'
 import { NotificationType } from 'naive-ui'
 import { dateDaysOffset } from '@/utils/time'
 import { nullCheck } from '@/utils/general'
+import { IJiraField } from '@/models/jira'
 import { formatApiError } from '@/services/apiError'
 
 type Generator = {
@@ -83,8 +88,9 @@ type Generator = {
 }
 
 const orgstore = useOrgsStore()
-const route = useRoute()
 const generator = ref({} as Generator)
+const subtaskFields = ref<IJiraField[]>([])
+const fieldLoading = ref(false)
 
 const loadingBar = ref({
   show: true,
@@ -123,6 +129,35 @@ const checkGenerateStatus = () => {
     nullCheck(generator.value.url) ||
     (duedateField.value.include && duedateField.value.days == null)
   )
+}
+
+function loadSubtaskFields() {
+  if (nullCheck(generator.value.url)) return
+  fieldLoading.value = true
+  axios
+    .post(`${axios.defaults.baseURL}/dcc/subtask_fields/`, {
+      JSESSIONID: generator.value.JSESSIONID,
+      url: generator.value.url
+    })
+    .then((res) => {
+      subtaskFields.value = res.data.fields
+      window.$notification.success({
+        title: 'Fields Loaded',
+        description: `${res.data.issue} sub-task fields are ready.`,
+        duration: 3000
+      })
+    })
+    .catch((err) => {
+      subtaskFields.value = []
+      window.$notification.error({
+        title: 'Field Load Error',
+        description: formatApiError(err),
+        duration: 5000
+      })
+    })
+    .finally(() => {
+      fieldLoading.value = false
+    })
 }
 
 function createSubtasks() {

@@ -469,7 +469,12 @@ def create_subtask_action(uuid):
                 step_size = int(100/len(subtasks))
                 for subtask in subtasks:
                     yield f'data: {json.dumps({"status": "progress", "percentage": percentage, "content": subtask["summary"]})}\n\n'
-                    _jira.create_subtask(summary=subtask["summary"], assignee=subtask["assignee"], duedate=duedate)
+                    _jira.create_subtask(
+                        summary=subtask.get("summary"),
+                        assignee=subtask.get("assignee"),
+                        duedate=duedate,
+                        extra_fields=subtask.get("fields"),
+                    )
                     percentage += step_size
                 yield f'data: {json.dumps({"status": "success", "content": "Subtasks created successfully."})}\n\n'
             else:
@@ -618,6 +623,29 @@ def check_session(request):
         return Response({"message": e.text}, status=400)
     except Exception as e:
         print(e)
+        return Response({"message": "Something went wrong."}, status=400)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def get_subtask_fields(request):
+    from jira import JIRAError
+
+    session_id = request.data.get("JSESSIONID")
+    issue_url = request.data.get("url")
+    if not session_id or not issue_url:
+        return Response({"message": "JSESSIONID and url are required."}, status=400)
+    try:
+        client = JiraConnector(server_url=JIRA_URL, jira_session_id=session_id)
+        client.set_issue(issue_url)
+        issue = client.get_issue()
+        if issue.fields.issuetype.subtask:
+            return Response({"message": "Sub-task links are not supported."}, status=400)
+        return Response({"issue": client.get_issue_key(), "fields": client.get_subtask_fields()})
+    except (ValueError, JIRAError) as error:
+        return Response({"message": str(error)}, status=400)
+    except Exception as error:
+        print(error)
         return Response({"message": "Something went wrong."}, status=400)
 
 @api_view(["POST"])
