@@ -5,6 +5,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/postbuild.js",
     "typecheck": "vue-tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,js,vue}\" \"*.{json,ts}\" \"scripts/**/*.js\"",
     "format:check": "prettier --check \"src/**/*.{ts,js,vue}\" \"*.{json,ts}\" \"scripts/**/*.js\"",
     "serve": "vite preview",
     "deploy": "bash scripts/deploy.sh",
