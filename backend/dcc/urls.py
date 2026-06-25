@@ -17,6 +17,7 @@ urlpatterns = [
     path('create_subtask_excel_stream/<uuid:uuid>/', views.create_subtask_excel_stream, name='create_subtask_excel_stream'),
     path('create_dcc_stream/<uuid:uuid>/', views.create_dcc_stream, name='create_dcc_stream'),
     path('create_queue/', views.create_queue, name='create_queue'),
+    path('subtask_fields/', views.get_subtask_fields, name='subtask_fields'),
     path('check_session/', views.check_session, name='check_session'),
     path('add_attachment/', views.add_attachment, name='add_attachment'),
 ]

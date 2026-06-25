@@ -89,65 +89,81 @@ class JiraConnector:
             print(f"Error while creating issue: {parseJiraError(e)}")
             raise
 
-    def create_subtask(self, summary, description="", assignee=None, priority=None, duedate=None):
-        subtask_dict = {
-            "project": self.issue_key.split('-')[0],
-            'summary': summary,
-            "description": description,
-            'issuetype': {'name': 'Sub-task'},
-            'parent': {"key": self.issue_key}
-        }
-
+    def create_subtask(self, summary, description="", assignee=None, priority=None, duedate=None, extra_fields=None):
+        """Create a JIRA sub-task with optional dynamic field values."""
+        fields = self.build_subtask_fields(summary, description, assignee, duedate, extra_fields)
         if priority:
-            subtask_dict['priority'] = {'name': priority} 
-        
-        if duedate != None:
-            if isinstance(duedate, int):
-                today = datetime.now()
-                future_date = today + timedelta(days=duedate)
-                formatted_date = future_date.isoformat()
-                subtask_dict['duedate'] = formatted_date
-            elif isinstance(duedate, str):
-                subtask_dict['duedate'] = duedate
-
-        if not assignee:
-            try:
-                return self.jira.create_issue(fields=subtask_dict)
-            except JIRAError as e:
-                print(f"Error while updating Sub-task: {parseJiraError(e)}")
-                raise
-            
-        subtask_with_assignee = {
-            **subtask_dict, 
-            'assignee': {'name': assignee}
-        }
-
+            fields['priority'] = {'name': priority}
         try:
-            return self.jira.create_issue(fields=subtask_with_assignee)
+            return self.jira.create_issue(fields=fields)
         except JIRAError as e:
-            error_text = str(e).lower()
-            assignee_not_allowed = (
-                "assignee" in error_text 
-                or "field" in error_text and "screen" in error_text
-                or "field" in error_text and "unknown" in error_text
-            )
-            
-            if not assignee_not_allowed:
+            if not assignee or not self.is_default_assignee_error(e):
                 print(f"Error while creating Sub-task: {parseJiraError(e)}")
                 raise
-        
-        subtask_with_custom_assignee = {
-            **subtask_dict,
-            'customfield_28701': {'name': assignee}
-        }
-        
+        fields.pop('assignee', None)
+        fields['customfield_28701'] = {'name': assignee}
         try:
-            return self.jira.create_issue(fields=subtask_with_custom_assignee)
+            return self.jira.create_issue(fields=fields)
         except JIRAError as e:
             print(f"Error while creating Sub-task with custom field: {parseJiraError(e)}")
             raise
-        
-        
+
+    def is_default_assignee_error(self, error):
+        """Return whether JIRA rejected the default assignee field placement."""
+        error_text = str(error).lower()
+        return (
+            'assignee' in error_text
+            or 'field' in error_text and 'screen' in error_text
+            or 'field' in error_text and 'unknown' in error_text
+        )
+
+
+    def get_subtask_fields(self):
+        """Return createmeta field descriptors for the current issue project sub-task type."""
+        self.check_issue_key()
+        project_key = self.issue_key.split('-')[0]
+        metadata = self.jira.createmeta(
+            projectKeys=project_key,
+            issuetypeNames='Sub-task',
+            expand='projects.issuetypes.fields'
+        )
+        projects = metadata.get('projects', [])
+        issue_types = projects[0].get('issuetypes', []) if projects else []
+        fields = issue_types[0].get('fields', {}) if issue_types else {}
+        return [
+            {
+                'id': key,
+                'name': value.get('name', key),
+                'required': value.get('required', False),
+                'schema': value.get('schema', {}),
+                'allowedValues': value.get('allowedValues', []),
+            }
+            for key, value in fields.items()
+        ]
+
+    def build_subtask_fields(self, summary, description='', assignee=None, duedate=None, extra_fields=None):
+        """Build the fields payload used by JIRA create_issue for sub-tasks."""
+        fields = {
+            'project': self.issue_key.split('-')[0],
+            'summary': summary,
+            'description': description,
+            'issuetype': {'name': 'Sub-task'},
+            'parent': {'key': self.issue_key}
+        }
+        if duedate is not None:
+            fields['duedate'] = self.format_due_date(duedate)
+        if extra_fields:
+            fields.update({key: value for key, value in extra_fields.items() if value not in [None, '']})
+        if assignee:
+            fields['assignee'] = {'name': assignee}
+        return fields
+
+    def format_due_date(self, duedate):
+        """Format an integer day offset or pass through an explicit JIRA due date value."""
+        if isinstance(duedate, int):
+            return (datetime.now() + timedelta(days=duedate)).date().isoformat()
+        return duedate
+
     def update_issue(self: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         try:
             self.check_issue_key()
