@@ -4,6 +4,8 @@ from django.test import TestCase, override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
+from users.models import UserPreferences
+
 User = get_user_model()
 
 
@@ -28,6 +30,21 @@ class UserSecurityTests(TestCase):
         )
 
         self.change_user_permission = Permission.objects.get(codename="change_user")
+
+
+    def test_jira_list_preference_defaults_to_array(self):
+        preferences = UserPreferences.objects.get(user=self.regular_user)
+
+        self.assertEqual(preferences.jira_list, [])
+
+    def test_reset_preferences_restores_jira_list_array(self):
+        preferences = UserPreferences.objects.get(user=self.regular_user)
+        preferences.jira_list = {"legacy": "shape"}
+        preferences.save(update_fields=["jira_list"])
+
+        preferences.reset_to_defaults()
+
+        self.assertEqual(preferences.jira_list, [])
 
     def test_anonymous_user_cannot_list_users(self):
         response = self.client.get("/auth/users/")
