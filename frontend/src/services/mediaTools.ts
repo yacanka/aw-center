@@ -27,10 +27,17 @@ export async function previewMediaConversion(
 }
 
 /** Converts uploaded media and returns a downloadable Blob response. */
-export async function convertMedia(file: File, parameters: MediaConversionParameters): Promise<Blob> {
-  const response = await axios.post('/media-tools/convert/', createMediaFormData(file, parameters), {
-    responseType: 'blob'
-  })
+export async function convertMedia(
+  file: File,
+  parameters: MediaConversionParameters
+): Promise<Blob> {
+  const response = await axios.post(
+    '/media-tools/convert/',
+    createMediaFormData(file, parameters),
+    {
+      responseType: 'blob'
+    }
+  )
   return response.data
 }
 

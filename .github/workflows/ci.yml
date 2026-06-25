@@ -76,6 +76,9 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
+      - name: Format frontend sources
+        run: npm run format
+
       - name: Check frontend formatting
         run: npm run format:check
 
