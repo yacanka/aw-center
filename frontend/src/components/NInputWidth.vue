@@ -1,80 +1,93 @@
 <template>
-  <div class="auto-width-input">
+  <span class="auto-width-input">
     <n-input
-      ref="inputRef"
+      ref="inputReference"
+      v-bind="$attrs"
       :value="value"
-      :style="{ width: inputWidth + 'px' }"
-      @input="updateValue"
       :placeholder="placeholder"
       :size="size"
-      @blur="emit('blur')"
+      :style="inputStyle"
+      @blur="emitBlur"
+      @update:value="updateValue"
     />
-    <span ref="measureRef" class="measure-span" :style="{ fontSize: fontSize + 'px' }">{{
-      value || placeholder
+    <span ref="measureReference" class="measure-span" :style="measureStyle">{{
+      measuredText
     }}</span>
-  </div>
+  </span>
 </template>
 
-<script setup>
-import { ref, onMounted, nextTick } from 'vue'
+<script setup lang="ts">
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
-const props = defineProps({
-  value: {
-    type: String,
-    default: ''
-  },
-  size: {
-    type: String,
-    default: 'medium'
-  },
-  placeholder: {
-    type: String,
-    default: 'Input'
-  }
-})
+defineOptions({ inheritAttrs: false })
 
-const sizeValue = {
-  tiny: {
-    fontSize: 12,
-    offsetWidth: 16
-  },
-  small: {
-    fontSize: 14,
-    offsetWidth: 22
-  },
-  medium: {
-    fontSize: 14,
-    offsetWidth: 28
-  },
-  large: {
-    fontSize: 15,
-    offsetWidth: 30
+type InputSize = 'tiny' | 'small' | 'medium' | 'large'
+
+const props = withDefaults(
+  defineProps<{
+    value?: string
+    size?: InputSize
+    placeholder?: string
+    autofocus?: boolean
+  }>(),
+  {
+    value: '',
+    size: 'medium',
+    placeholder: 'Input',
+    autofocus: false
   }
+)
+
+const emit = defineEmits<{
+  'update:value': [value: string]
+  change: [value: string]
+  blur: []
+}>()
+
+const sizeSettings: Record<InputSize, { fontSize: number; offsetWidth: number }> = {
+  tiny: { fontSize: 12, offsetWidth: 22 },
+  small: { fontSize: 14, offsetWidth: 28 },
+  medium: { fontSize: 14, offsetWidth: 32 },
+  large: { fontSize: 15, offsetWidth: 36 }
 }
 
-const inputWidth = ref(30)
-const inputRef = ref(null)
-const measureRef = ref(null)
+const inputWidth = ref(48)
+const inputReference = ref<{ focus: () => void } | null>(null)
+const measureReference = ref<HTMLElement | null>(null)
+const settings = computed(() => sizeSettings[props.size])
+const measuredText = computed(() => props.value || props.placeholder)
+const inputStyle = computed(() => ({ width: `${inputWidth.value}px` }))
+const measureStyle = computed(() => ({ fontSize: `${settings.value.fontSize}px` }))
 
-const offset = sizeValue[props.size].offsetWidth || sizeValue.medium.offsetWidth
-const fontSize = sizeValue[props.size].fontSize || sizeValue.medium.fontSize
+watch(
+  () => [props.value, props.placeholder, props.size],
+  () => resizeInput()
+)
 
-console.log(offset, fontSize)
-
-const emit = defineEmits(['update:value', 'change', 'blur'])
-
-function updateValue(value) {
-  const span = measureRef.value
-  if (!span) return
+function updateValue(value: string) {
   emit('update:value', value)
+  emit('change', value)
+  resizeInput()
+}
+
+function emitBlur() {
+  emit('blur')
+}
+
+function resizeInput() {
   nextTick(() => {
-    inputWidth.value = span.offsetWidth + offset
+    inputWidth.value = calculateInputWidth()
   })
 }
 
+function calculateInputWidth() {
+  const textWidth = measureReference.value?.offsetWidth || 0
+  return Math.max(48, textWidth + settings.value.offsetWidth)
+}
+
 onMounted(() => {
-  updateValue(props.value)
-  inputRef.value.focus()
+  resizeInput()
+  if (props.autofocus) inputReference.value?.focus()
 })
 </script>
 
@@ -85,14 +98,13 @@ onMounted(() => {
 }
 
 .measure-span {
-  visibility: hidden;
-  white-space: pre;
+  font-family: inherit;
+  left: 0;
+  margin: 0;
+  padding: 0;
   position: absolute;
   top: 0;
-  left: 0;
-  /*n-input fontuna eşit olmalı */
-  padding: 0;
-  margin: 0;
-  font-family: inherit;
+  visibility: hidden;
+  white-space: pre;
 }
 </style>
