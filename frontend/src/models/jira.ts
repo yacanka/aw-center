@@ -4,6 +4,8 @@ export interface IUser {
   [key: string]: unknown
 }
 
+export type JiraFieldInputType = 'date' | 'number' | 'person' | 'text'
+
 export interface IJiraField {
   id: string
   name: string
