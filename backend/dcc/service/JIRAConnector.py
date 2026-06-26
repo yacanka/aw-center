@@ -130,28 +130,16 @@ class JiraConnector:
         projects = metadata.get('projects', [])
         issue_types = projects[0].get('issuetypes', []) if projects else []
         fields = issue_types[0].get('fields', {}) if issue_types else {}
-        return [self.build_subtask_field_descriptor(key, value) for key, value in fields.items()]
-
-    def build_subtask_field_descriptor(self, field_identifier, metadata):
-        """Build frontend-safe field metadata from JIRA createmeta."""
-        descriptor = {
-            'id': field_identifier,
-            'name': metadata.get('name', field_identifier),
-            'required': metadata.get('required', False),
-            'schema': metadata.get('schema', {}),
-            'allowedValues': metadata.get('allowedValues', []),
-        }
-        configured_input_type = self.get_configured_subtask_input_type(field_identifier)
-        if configured_input_type:
-            descriptor['inputType'] = configured_input_type
-        return descriptor
-
-    def get_configured_subtask_input_type(self, field_identifier):
-        """Return the configured editor type for a JIRA sub-task field."""
-        input_types = getattr(settings, 'JIRA_SUBTASK_FIELD_INPUT_TYPES', {})
-        configured_type = input_types.get(field_identifier)
-        allowed_types = {'date', 'number', 'person', 'text'}
-        return configured_type if configured_type in allowed_types else None
+        return [
+            {
+                'id': key,
+                'name': value.get('name', key),
+                'required': value.get('required', False),
+                'schema': value.get('schema', {}),
+                'allowedValues': value.get('allowedValues', []),
+            }
+            for key, value in fields.items()
+        ]
 
     def build_subtask_fields(self, summary, description='', assignee=None, duedate=None, extra_fields=None):
         """Build the fields payload used by JIRA create_issue for sub-tasks."""

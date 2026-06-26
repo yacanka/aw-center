@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APIClient
 
 from dcc.models import JIRA_DCC
@@ -97,20 +97,6 @@ class JiraConnectorSubtaskFieldTests(SimpleTestCase):
         self.assertEqual(fields[0]["id"], "summary")
         self.assertEqual(fields[0]["name"], "Summary")
         self.assertTrue(fields[0]["required"])
-
-    @override_settings(JIRA_SUBTASK_FIELD_INPUT_TYPES={"customfield_12345": "person"})
-    def test_get_subtask_fields_adds_configured_input_type(self):
-        connector = JiraConnector.__new__(JiraConnector)
-        descriptor = connector.build_subtask_field_descriptor("customfield_12345", {"name": "Reviewer"})
-
-        self.assertEqual(descriptor["inputType"], "person")
-
-    @override_settings(JIRA_SUBTASK_FIELD_INPUT_TYPES={"customfield_12345": "script"})
-    def test_get_subtask_fields_ignores_invalid_input_type(self):
-        connector = JiraConnector.__new__(JiraConnector)
-        descriptor = connector.build_subtask_field_descriptor("customfield_12345", {"name": "Reviewer"})
-
-        self.assertNotIn("inputType", descriptor)
 
 
 class DccPermissionTests(TestCase):

@@ -67,8 +67,6 @@ function emitChange() {
 }
 
 function resolveFieldInputType(field: IJiraField): FieldInputType {
-  if (field.inputType) return field.inputType
-
   const schemaType = String(field.schema?.type || '').toLowerCase()
   const schemaCustom = String(field.schema?.custom || '').toLowerCase()
   const schemaItems = String(field.schema?.items || '').toLowerCase()
