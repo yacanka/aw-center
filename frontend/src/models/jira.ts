@@ -10,6 +10,7 @@ export interface IJiraField {
   required?: boolean
   schema?: Record<string, unknown>
   allowedValues?: Array<Record<string, unknown>>
+  inputType?: 'date' | 'number' | 'person' | 'text'
 }
 
 export type JiraFieldValue = string | number | null
