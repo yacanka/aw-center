@@ -34,17 +34,11 @@
                 <n-input v-model:value="value.summary" placeholder="Summary" @change="activateSave" />
               </n-grid-item>
               <n-grid-item v-for="field in activeFields" :key="field.id">
-                <n-search
-                  v-if="field.id == 'assignee'"
-                  v-model:value="value.assignee"
-                  :placeholder="field.name"
-                  :list="store.getPeople"
-                  @change="activateSave"
-                />
-                <n-input
-                  v-else
-                  v-model:value="ensureFields(value)[field.id]"
-                  :placeholder="field.name"
+                <jira-field-input
+                  :field="field"
+                  :people="store.getPeople"
+                  :model-value="getFieldValue(value, field.id)"
+                  @update:model-value="setFieldValue(value, field.id, $event)"
                   @change="activateSave"
                 />
               </n-grid-item>
@@ -66,8 +60,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Save24Regular } from '@vicons/fluent'
 import { useOrgsStore } from '@/stores/api'
-import NSearch from '../NSearch.vue'
-import { IJiraField, ISubtaskItem, ISubtaskListItem } from '@/models/jira'
+import JiraFieldInput from './JiraFieldInput.vue'
+import { IJiraField, ISubtaskItem, ISubtaskListItem, JiraFieldValue } from '@/models/jira'
 
 const store = useOrgsStore()
 const activeListTab = ref(0)
@@ -142,6 +136,15 @@ function createListItem(index: number) {
 function removeListItem(index: number) {
   subtaskLists.value[activeListTab.value].list.splice(index, 1)
   activateSave()
+}
+
+function getFieldValue(value: ISubtaskItem, fieldIdentifier: string) {
+  return fieldIdentifier == 'assignee' ? value.assignee || null : ensureFields(value)[fieldIdentifier]
+}
+
+function setFieldValue(value: ISubtaskItem, fieldIdentifier: string, fieldValue: JiraFieldValue) {
+  if (fieldIdentifier == 'assignee') value.assignee = fieldValue ? String(fieldValue) : ''
+  else ensureFields(value)[fieldIdentifier] = fieldValue
 }
 
 function ensureFields(value: ISubtaskItem) {
