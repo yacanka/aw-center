@@ -20,39 +20,20 @@
             >Generate</n-button
           >
         </n-grid-item>
-        <n-grid-item span="6">
-          <n-ellipsis style="margin: 0px 0px -12px 0px">
-            {{ loadingBar.content }}
-          </n-ellipsis>
-        </n-grid-item>
-        <n-grid-item span="6" v-if="loadingBar.show">
-          <n-progress
-            type="line"
-            :status="loadingBar.status"
-            :percentage="loadingBar.percentage"
-            indicator-placement="outside"
-            :height="30"
-            :processing="loadingBar.status == 'default' ? true : false"
-          >
-          </n-progress>
-        </n-grid-item>
-        <n-grid-item span="1">
-          <n-checkbox
-            v-model:checked="duedateField.include"
-            :focusable="false"
-            @update:checked="handleDuedateCheckbox"
-            style="margin-bottom: 4px"
-            >Add due date :</n-checkbox
-          >
-          {{ dateDaysOffset(duedateField.days) }}
-          <n-input-number
-            v-model:value="duedateField.days"
-            size="tiny"
-            placeholder="Enter day offset"
-            :disabled="!duedateField.include"
-            min="0"
-            @update:value="handleDuedateNumber"
-          />
+        <n-grid-item v-if="loadingBar.show" span="6">
+          <n-flex vertical size="small" class="subtask-progress">
+            <n-ellipsis v-if="loadingBar.content">
+              {{ loadingBar.content }}
+            </n-ellipsis>
+            <n-progress
+              type="line"
+              :status="loadingBar.status"
+              :percentage="loadingBar.percentage"
+              indicator-placement="outside"
+              :height="30"
+              :processing="loadingBar.status == 'default'"
+            />
+          </n-flex>
         </n-grid-item>
         <n-grid-item span="6">
           <subtask-list
@@ -75,7 +56,6 @@ import { useOrgsStore } from '@/stores/api'
 import SubtaskList from '@/components/jira/SubtaskList.vue'
 import { toTitleCase } from '@/utils/text'
 import { NotificationType } from 'naive-ui'
-import { dateDaysOffset } from '@/utils/time'
 import { nullCheck } from '@/utils/general'
 import { IJiraField } from '@/models/jira'
 import { formatApiError } from '@/services/apiError'
@@ -84,7 +64,6 @@ type Generator = {
   JSESSIONID: string
   url: string
   list: Array<any>
-  duedate?: number
 }
 
 const orgstore = useOrgsStore()
@@ -93,15 +72,10 @@ const subtaskFields = ref<IJiraField[]>([])
 const fieldLoading = ref(false)
 
 const loadingBar = ref({
-  show: true,
+  show: false,
   status: '',
   percentage: 0,
   content: ''
-})
-
-const duedateField = ref({
-  include: false,
-  days: 0
 })
 
 type StreamData = {
@@ -111,24 +85,8 @@ type StreamData = {
   content: any
 }
 
-const handleDuedateCheckbox = (checked: boolean) => {
-  if (checked) {
-    generator.value.duedate = duedateField.value.days
-  } else {
-    delete generator.value.duedate
-  }
-}
-
-const handleDuedateNumber = (value: number) => {
-  generator.value.duedate = value
-}
-
 const checkGenerateStatus = () => {
-  return (
-    loadingBar.value.status == 'default' ||
-    nullCheck(generator.value.url) ||
-    (duedateField.value.include && duedateField.value.days == null)
-  )
+  return loadingBar.value.status == 'default' || nullCheck(generator.value.url)
 }
 
 function loadSubtaskFields() {
@@ -164,6 +122,7 @@ function createSubtasks() {
   loadingBar.value.show = true
   loadingBar.value.status = 'default'
   loadingBar.value.percentage = 0
+  loadingBar.value.content = 'Preparing subtask creation...'
 
   axios
     .post(`${axios.defaults.baseURL}/dcc/create_queue/`, generator.value)
@@ -214,3 +173,9 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.subtask-progress {
+  margin-top: -8px;
+}
+</style>
