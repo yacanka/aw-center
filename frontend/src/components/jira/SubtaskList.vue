@@ -12,11 +12,10 @@
     <template #prefix><n-h3 style="margin: 0">Subtask Lists</n-h3></template>
     <n-tab-pane v-for="(item, index) in subtaskLists" :key="index" :name="index" :tab="item.title">
       <template #tab>
-        <n-input
+        <n-input-width
           v-if="renamingListIndex == index"
           v-model:value="listTitleDraft"
           size="tiny"
-          style="width: 160px"
           autofocus
           @blur="commitListTitle"
           @keyup.enter="commitListTitle"
@@ -26,7 +25,7 @@
         <span v-else @dblclick.stop="startListTitleEdit(index)">{{ item.title }}</span>
       </template>
       <n-space vertical>
-        <n-input-group>
+        <div class="subtask-tools">
           <n-select
             v-model:value="selectedFieldIdentifiers"
             multiple
@@ -36,26 +35,30 @@
             placeholder="Search and add JIRA fields as dynamic columns"
             @update:value="handleFieldSelection"
           />
-          <n-button type="primary" ghost :loading="fieldLoading" @click="emits('load-fields')">
+          <n-button
+            class="subtask-tool-button"
+            type="primary"
+            ghost
+            :loading="fieldLoading"
+            @click="emits('load-fields')"
+          >
             Load Fields
           </n-button>
-        </n-input-group>
-        <n-grid :cols="gridColumns + 1" x-gap="12" y-gap="8" responsive="screen">
-          <n-grid-item>
+          <div class="subtask-bulk-fields">
             <n-input v-model:value="bulkValues.summary" placeholder="Summary" clearable />
-          </n-grid-item>
-          <n-grid-item v-for="field in activeFields" :key="`bulk-${field.id}`">
             <jira-field-input
+              v-for="field in activeFields"
+              :key="`bulk-${field.id}`"
               :field="field"
               :people="store.getPeople"
               :model-value="getBulkFieldValue(field.id)"
               @update:model-value="setBulkFieldValue(field.id, $event)"
             />
-          </n-grid-item>
-          <n-grid-item>
-            <n-button type="primary" secondary block @click="setBulkValues">Set Values</n-button>
-          </n-grid-item>
-        </n-grid>
+          </div>
+          <n-button class="subtask-tool-button" type="primary" secondary @click="setBulkValues">
+            Set Values
+          </n-button>
+        </div>
         <n-divider style="margin: 4px 0 8px" />
         <n-dynamic-input :value="item.list" :on-create="createListItem" :on-remove="removeListItem">
           <template #create-button-default>Add subtask row</template>
@@ -100,6 +103,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Save24Regular } from '@vicons/fluent'
 import { useOrgsStore } from '@/stores/api'
+import NInputWidth from '@/components/NInputWidth.vue'
 import JiraFieldInput from './JiraFieldInput.vue'
 import { IJiraField, ISubtaskItem, ISubtaskListItem, JiraFieldValue } from '@/models/jira'
 
@@ -293,3 +297,21 @@ onMounted(() => {
   setActiveList(storedTab < subtaskLists.value.length ? storedTab : 0)
 })
 </script>
+
+<style scoped>
+.subtask-tools {
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: minmax(0, 1fr) 120px;
+}
+
+.subtask-bulk-fields {
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.subtask-tool-button {
+  width: 120px;
+}
+</style>
