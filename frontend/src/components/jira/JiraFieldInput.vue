@@ -9,13 +9,13 @@
   />
   <n-date-picker
     v-else-if="inputType == 'date'"
-    :formatted-value="modelValueAsString"
+    :formatted-value="modelValueAsDate"
     value-format="yyyy-MM-dd"
     type="date"
     clearable
     style="width: 100%"
     :placeholder="field.name"
-    @update:formatted-value="updateValue"
+    @update:formatted-value="updateDateValue"
   />
   <n-input-number
     v-else-if="inputType == 'number'"
@@ -53,11 +53,21 @@ const emits = defineEmits<{
 }>()
 
 const inputType = computed(() => resolveJiraFieldInputType(props.field))
-const modelValueAsString = computed(() => (props.modelValue == null ? '' : String(props.modelValue)))
-const modelValueAsNumber = computed(() => (typeof props.modelValue == 'number' ? props.modelValue : null))
+const modelValueAsString = computed(() =>
+  props.modelValue == null ? '' : String(props.modelValue)
+)
+const modelValueAsNumber = computed(() =>
+  typeof props.modelValue == 'number' ? props.modelValue : null
+)
+const modelValueAsDate = computed(() => normalizeDateValue(props.modelValue))
 
 function updateValue(value: JiraFieldValue | undefined) {
   emits('update:modelValue', value ?? null)
+  emits('change')
+}
+
+function updateDateValue(value: string | null) {
+  emits('update:modelValue', normalizeDateValue(value))
   emits('change')
 }
 
@@ -65,4 +75,19 @@ function emitChange() {
   emits('change')
 }
 
+function normalizeDateValue(value: JiraFieldValue | undefined) {
+  if (value == null || value === '') return null
+
+  const dateValue = String(value).slice(0, 10)
+  if (!isValidDateValue(dateValue)) return null
+
+  return dateValue
+}
+
+function isValidDateValue(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+
+  const date = new Date(`${value}T00:00:00.000Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value)
+}
 </script>
