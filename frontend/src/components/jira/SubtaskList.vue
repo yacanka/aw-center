@@ -11,6 +11,20 @@
   >
     <template #prefix><n-h3 style="margin: 0">Subtask Lists</n-h3></template>
     <n-tab-pane v-for="(item, index) in subtaskLists" :key="index" :name="index" :tab="item.title">
+      <template #tab>
+        <n-input
+          v-if="renamingListIndex == index"
+          v-model:value="listTitleDraft"
+          size="tiny"
+          style="width: 160px"
+          autofocus
+          @blur="commitListTitle"
+          @keyup.enter="commitListTitle"
+          @keyup.esc="cancelListTitleEdit"
+          @click.stop
+        />
+        <span v-else @dblclick.stop="startListTitleEdit(index)">{{ item.title }}</span>
+      </template>
       <n-space vertical>
         <n-input-group>
           <n-select
@@ -26,12 +40,33 @@
             Load Fields
           </n-button>
         </n-input-group>
+        <n-grid :cols="gridColumns + 1" x-gap="12" y-gap="8" responsive="screen">
+          <n-grid-item>
+            <n-input v-model:value="bulkValues.summary" placeholder="Summary" clearable />
+          </n-grid-item>
+          <n-grid-item v-for="field in activeFields" :key="`bulk-${field.id}`">
+            <jira-field-input
+              :field="field"
+              :people="store.getPeople"
+              :model-value="getBulkFieldValue(field.id)"
+              @update:model-value="setBulkFieldValue(field.id, $event)"
+            />
+          </n-grid-item>
+          <n-grid-item>
+            <n-button type="primary" secondary block @click="setBulkValues">Set Values</n-button>
+          </n-grid-item>
+        </n-grid>
+        <n-divider style="margin: 4px 0 8px" />
         <n-dynamic-input :value="item.list" :on-create="createListItem" :on-remove="removeListItem">
           <template #create-button-default>Add subtask row</template>
           <template #default="{ value }">
             <n-grid :cols="gridColumns" x-gap="12" y-gap="8">
               <n-grid-item>
-                <n-input v-model:value="value.summary" placeholder="Summary" @change="activateSave" />
+                <n-input
+                  v-model:value="value.summary"
+                  placeholder="Summary"
+                  @change="activateSave"
+                />
               </n-grid-item>
               <n-grid-item v-for="field in activeFields" :key="field.id">
                 <jira-field-input
@@ -48,7 +83,12 @@
       </n-space>
     </n-tab-pane>
     <template #suffix>
-      <n-button tertiary :type="saveButton.type" :disabled="saveButton.type == 'default'" @click="saveAllList">
+      <n-button
+        tertiary
+        :type="saveButton.type"
+        :disabled="saveButton.type == 'default'"
+        @click="saveAllList"
+      >
         <template #icon><Save24Regular /></template>
         Save
       </n-button>
@@ -68,6 +108,9 @@ const activeListTab = ref(0)
 const saveButton = ref({ type: 'default' })
 const subtaskLists = ref<ISubtaskListItem[]>([])
 const selectedFieldIdentifiers = ref<string[]>([])
+const renamingListIndex = ref<number | null>(null)
+const listTitleDraft = ref('')
+const bulkValues = ref<ISubtaskItem>({ fields: {} })
 
 const props = defineProps<{
   list?: ISubtaskItem[]
@@ -125,7 +168,26 @@ function handleTabClose(name: string | number) {
 }
 
 function handleTabUpdate(name: string | number) {
+  cancelListTitleEdit()
   setActiveList(Number(name))
+}
+
+function startListTitleEdit(index: number) {
+  renamingListIndex.value = index
+  listTitleDraft.value = subtaskLists.value[index]?.title || ''
+}
+
+function commitListTitle() {
+  if (renamingListIndex.value == null) return
+  const title = listTitleDraft.value.trim() || 'New List'
+  subtaskLists.value[renamingListIndex.value].title = title
+  cancelListTitleEdit()
+  activateSave()
+}
+
+function cancelListTitleEdit() {
+  renamingListIndex.value = null
+  listTitleDraft.value = ''
 }
 
 function createListItem(index: number) {
@@ -139,12 +201,57 @@ function removeListItem(index: number) {
 }
 
 function getFieldValue(value: ISubtaskItem, fieldIdentifier: string) {
-  return fieldIdentifier == 'assignee' ? value.assignee || null : ensureFields(value)[fieldIdentifier]
+  return fieldIdentifier == 'assignee'
+    ? value.assignee || null
+    : ensureFields(value)[fieldIdentifier]
 }
 
 function setFieldValue(value: ISubtaskItem, fieldIdentifier: string, fieldValue: JiraFieldValue) {
   if (fieldIdentifier == 'assignee') value.assignee = fieldValue ? String(fieldValue) : ''
   else ensureFields(value)[fieldIdentifier] = fieldValue
+}
+
+function getBulkFieldValue(fieldIdentifier: string) {
+  return getFieldValue(bulkValues.value, fieldIdentifier)
+}
+
+function setBulkFieldValue(fieldIdentifier: string, fieldValue: JiraFieldValue) {
+  setFieldValue(bulkValues.value, fieldIdentifier, fieldValue)
+}
+
+function setBulkValues() {
+  const values = collectBulkValues()
+  if (Object.keys(values).length == 0) return
+  subtaskLists.value[activeListTab.value].list.forEach((item) => applyBulkValues(item, values))
+  activateSave()
+}
+
+function collectBulkValues() {
+  const values: Record<string, JiraFieldValue> = {}
+  if (hasBulkValue(bulkValues.value.summary)) values.summary = bulkValues.value.summary || ''
+  Object.entries(bulkValues.value.fields || {}).forEach(([key, value]) =>
+    setBulkValue(values, key, value)
+  )
+  if (hasBulkValue(bulkValues.value.assignee)) values.assignee = bulkValues.value.assignee || ''
+  return values
+}
+
+function setBulkValue(values: Record<string, JiraFieldValue>, key: string, value: JiraFieldValue) {
+  if (hasBulkValue(value)) values[key] = value
+}
+
+function hasBulkValue(value: JiraFieldValue | undefined) {
+  return value !== undefined && value !== null && String(value).trim() !== ''
+}
+
+function applyBulkValues(item: ISubtaskItem, values: Record<string, JiraFieldValue>) {
+  Object.entries(values).forEach(([key, value]) => applyBulkValue(item, key, value))
+}
+
+function applyBulkValue(item: ISubtaskItem, key: string, value: JiraFieldValue) {
+  if (key == 'summary') item.summary = String(value)
+  else if (key == 'assignee') item.assignee = String(value)
+  else ensureFields(item)[key] = value
 }
 
 function ensureFields(value: ISubtaskItem) {
@@ -154,6 +261,7 @@ function ensureFields(value: ISubtaskItem) {
 
 function setActiveList(index: number) {
   activeListTab.value = index
+  bulkValues.value = { fields: {} }
   selectedFieldIdentifiers.value = activeFields.value.map((field) => field.id)
   localStorage.setItem('jira>activetab>sglist', index.toString())
   emits('update:list', subtaskLists.value[index]?.list || [])
