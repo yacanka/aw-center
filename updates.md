@@ -222,3 +222,15 @@
 2. Kept the JIRA subtask generation payload focused on the URL, session ID, and editable subtask list.
 3. Moved the local progress indicator into a single conditional full-width row directly below the generate action, so the form no longer reserves empty progress space before generation starts.
 4. Added an initial progress message before the SSE stream starts returning progress events.
+
+## 32. Python launcher for online/offline project validation
+
+1. Added a root `launcher.py` with online, offline, and auto-detected workflows for backend/frontend dependency installation and project checks.
+2. Added offline preparation support that downloads backend wheels and warms an npm cache under a configurable offline bundle directory.
+3. Backend checks now include Django system checks, pending model-change detection with `makemigrations --check --dry-run`, and unapplied migration detection with `migrate --check`.
+4. Added launcher unit tests for platform-specific executable resolution, offline pip command construction, auto mode detection, and safe development environment defaults.
+
+## 33. Launcher usage documentation
+
+1. Added README guidance for `launcher.py` commands, online setup, auto detection, offline bundle preparation, offline installation, and validation-only checks.
+2. Documented launcher options, expected artifacts, and trade-offs around offline npm cache completeness and development-only environment defaults.
