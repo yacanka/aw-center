@@ -40,6 +40,7 @@
             type="primary"
             ghost
             :loading="fieldLoading"
+            :disabled="fieldLoadDisabled"
             @click="emits('load-fields')"
           >
             Load Fields
@@ -120,6 +121,7 @@ const props = defineProps<{
   list?: ISubtaskItem[]
   fields?: IJiraField[]
   fieldLoading?: boolean
+  fieldLoadDisabled?: boolean
 }>()
 
 const emits = defineEmits<{

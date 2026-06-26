@@ -40,6 +40,7 @@
             v-model:list="generator.list"
             :fields="subtaskFields"
             :field-loading="fieldLoading"
+            :field-load-disabled="isFieldLoadDisabled"
             @load-fields="loadSubtaskFields"
           />
         </n-grid-item>
@@ -49,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import axios from 'axios'
 import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useOrgsStore } from '@/stores/api'
@@ -85,12 +86,15 @@ type StreamData = {
   content: any
 }
 
+const isUrlEmpty = computed(() => nullCheck(generator.value.url))
+const isFieldLoadDisabled = computed(() => isUrlEmpty.value || fieldLoading.value)
+
 const checkGenerateStatus = () => {
-  return loadingBar.value.status == 'default' || nullCheck(generator.value.url)
+  return loadingBar.value.status == 'default' || isUrlEmpty.value
 }
 
 function loadSubtaskFields() {
-  if (nullCheck(generator.value.url)) return
+  if (isFieldLoadDisabled.value) return
   fieldLoading.value = true
   axios
     .post(`${axios.defaults.baseURL}/dcc/subtask_fields/`, {
