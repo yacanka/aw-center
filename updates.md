@@ -215,3 +215,10 @@
 2. Persisted selected dynamic JIRA columns inside each saved subtask list, allowing every list to keep its own field set.
 3. Moved the JIRA field loading action into the subtask list toolbar next to the searchable field selector.
 4. Kept the default subtask row minimal by rendering only Summary until the user adds JIRA fields as columns.
+
+## 31. DCC Subtask Generator due-date UI cleanup
+
+1. Removed the optional due-date selector from `SubtaskGenerator.vue` together with its local state, handlers, request payload field, and disabled-button dependency.
+2. Kept the JIRA subtask generation payload focused on the URL, session ID, and editable subtask list.
+3. Moved the local progress indicator into a single conditional full-width row directly below the generate action, so the form no longer reserves empty progress space before generation starts.
+4. Added an initial progress message before the SSE stream starts returning progress events.
