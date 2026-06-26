@@ -12,11 +12,13 @@ export interface IJiraField {
   allowedValues?: Array<Record<string, unknown>>
 }
 
+export type JiraFieldValue = string | number | null
+
 export interface ISubtaskItem {
   summary?: string
   description?: string
   assignee?: string
-  fields?: Record<string, string | null>
+  fields?: Record<string, JiraFieldValue>
   [key: string]: unknown
 }
 
@@ -29,6 +31,6 @@ export interface ISubtaskListItem {
 export interface IJira {
   issue?: string
   status?: string
-  fields?: Record<string, string | null>
+  fields?: Record<string, JiraFieldValue>
   [key: string]: unknown
 }
