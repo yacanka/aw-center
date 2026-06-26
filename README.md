@@ -84,6 +84,102 @@ Useful options:
 
 > The generated `backend/.env` contains only development placeholders and is ignored by Git. Replace integration URLs and credentials locally when testing JIRA, DocProof, DOORS, Outlook, or Office automation.
 
+## 🧭 Project Launcher
+
+Use the root `launcher.py` when you need one command surface for dependency installation,
+offline preparation, backend database checks, and frontend quality checks. The launcher is
+designed for macOS, Windows, and Linux, and it never passes commands through a shell string.
+
+### Command Summary
+
+| Command | Purpose | Typical Use |
+|---|---|---|
+| `prepare-offline` | Downloads Python wheels and warms an npm cache. | Run on an internet-connected machine before moving artifacts to an offline environment. |
+| `install` | Installs backend and frontend dependencies. | Run after cloning the repository or after copying an offline bundle. |
+| `check` | Runs Django checks, migration checks, and frontend format/type checks. | Run before committing or before validating a prepared workstation. |
+| `all` | Installs dependencies and then runs all checks. | Use as the safest first-run workflow in online or prepared offline environments. |
+
+### Scenario 1: First Setup in an Online Environment
+
+Run the full online workflow when the workstation has internet access:
+
+```bash
+python launcher.py all --mode online
+```
+
+This creates `.venv` when needed, installs backend packages from `requirements.txt`,
+installs frontend packages with `npm ci`, validates Python dependencies with `pip check`,
+runs Django system and migration checks, and executes frontend format/type checks.
+
+### Scenario 2: Let the Launcher Detect Online or Offline Mode
+
+Use `auto` mode when you want the launcher to decide based on a small PyPI connectivity
+probe:
+
+```bash
+python launcher.py all --mode auto
+```
+
+If the probe succeeds, the launcher uses online package installation. If the probe fails,
+it uses offline installation paths and expects the offline bundle to already exist.
+
+### Scenario 3: Prepare an Offline Bundle
+
+On a machine with internet access, prepare dependency artifacts:
+
+```bash
+python launcher.py prepare-offline --offline-dir offline
+```
+
+This stores backend wheels under `offline/wheels` and populates an npm cache under
+`offline/npm-cache`. Copy the repository and the `offline/` directory to the offline
+machine after this step.
+
+### Scenario 4: Install in an Offline Environment
+
+After copying the prepared offline bundle to the target machine, install without package
+index access:
+
+```bash
+python launcher.py install --mode offline --offline-dir offline
+```
+
+Backend dependencies are installed with `pip --no-index --find-links offline/wheels`.
+Frontend dependencies are installed with `npm ci --offline --cache offline/npm-cache`.
+
+### Scenario 5: Run Only Validation Checks
+
+When dependencies are already installed and you only want validation:
+
+```bash
+python launcher.py check
+```
+
+This runs:
+
+- `python manage.py check`
+- `python manage.py makemigrations --check --dry-run`
+- `python manage.py migrate --check`
+- `npm run format:check`
+- `npm run typecheck:ci`
+
+### Useful Options
+
+- `--skip-backend` skips backend dependency installation during `install` or `all`.
+- `--skip-frontend` skips frontend dependency installation during `install` or `all`.
+- `--offline-dir <path>` changes where offline wheels and npm cache are read or written.
+- `--mode online`, `--mode offline`, and `--mode auto` control package installation mode.
+
+### Important Notes and Trade-offs
+
+- `prepare-offline` must be run while internet access is available.
+- Offline npm installation depends on cache completeness. If package metadata or tarballs
+  are missing from the cache, rerun `prepare-offline` in an online environment.
+- `check` assumes dependencies already exist. Use `all` for a complete install-and-check
+  workflow.
+- The generated `backend/.env` contains development-only placeholders; do not use it as a
+  production secrets file.
+
 ## 🚢 Deployment Foundations
 
 Container and CI foundations are documented in [`docs/deployment.md`](docs/deployment.md). The repository includes separate backend and frontend Dockerfiles, a local `docker-compose.yml` with a PostgreSQL database candidate, and a GitHub Actions workflow for backend checks, frontend checks, builds, and dependency audits.
