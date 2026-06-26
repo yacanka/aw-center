@@ -7,6 +7,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from awcenter.api_errors import error_response
 from rest_framework.views import APIView 
 from rest_framework import status
 
@@ -634,19 +635,19 @@ def get_subtask_fields(request):
     session_id = request.data.get("JSESSIONID")
     issue_url = request.data.get("url")
     if not session_id or not issue_url:
-        return Response({"message": "JSESSIONID and url are required."}, status=400)
+        return error_response("JSESSIONID and url are required.", code="SUBTASK_FIELDS_REQUIRED")
     try:
         client = JiraConnector(server_url=JIRA_URL, jira_session_id=session_id)
         client.set_issue(issue_url)
         issue = client.get_issue()
         if issue.fields.issuetype.subtask:
-            return Response({"message": "Sub-task links are not supported."}, status=400)
+            return error_response("Sub-task links are not supported.", code="SUBTASK_FIELDS_UNSUPPORTED_ISSUE")
         return Response({"issue": client.get_issue_key(), "fields": client.get_subtask_fields()})
     except (ValueError, JIRAError) as error:
-        return Response({"message": str(error)}, status=400)
+        return error_response(str(error), code="SUBTASK_FIELDS_INVALID_REQUEST")
     except Exception as error:
         print(error)
-        return Response({"message": "Something went wrong."}, status=400)
+        return error_response("Something went wrong.", code="SUBTASK_FIELDS_ERROR")
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
