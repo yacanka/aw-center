@@ -1,15 +1,18 @@
 """Characterization tests for DCC helper behavior."""
 
+from datetime import timedelta
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from dcc.models import JIRA_DCC
 
 from dcc.service.JIRAConnector import JiraConnector
+from dcc.service.reminder_rate_limit import reserve_reminder_email_slot
 from dcc.service.text_parsing import (
     check_panel_text,
     classify_dcc,
@@ -97,6 +100,47 @@ class JiraConnectorSubtaskFieldTests(SimpleTestCase):
         self.assertEqual(fields[0]["id"], "summary")
         self.assertEqual(fields[0]["name"], "Summary")
         self.assertTrue(fields[0]["required"])
+
+
+class DccReminderRateLimitTests(TestCase):
+    """Verify per-record reminder email cooldown enforcement."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = get_user_model().objects.create_user("reminder-user", password="pass")
+        self.dcc = JIRA_DCC.objects.create(
+            issue="DCC-REM-1",
+            ecd_name="Reminder Change",
+            dcc_path="//",
+            active=True,
+            created_by=self.user,
+        )
+
+    def test_reserve_reminder_email_slot_blocks_second_attempt_for_one_hour(self):
+        first_wait = reserve_reminder_email_slot(self.dcc)
+        second_wait = reserve_reminder_email_slot(self.dcc)
+
+        self.assertEqual(first_wait, 0)
+        self.assertGreater(second_wait, 0)
+
+    def test_reserve_reminder_email_slot_allows_after_one_hour(self):
+        self.dcc.last_reminder_mail_sent_at = timezone.now() - timedelta(hours=1, seconds=1)
+        self.dcc.save(update_fields=["last_reminder_mail_sent_at"])
+
+        wait_seconds = reserve_reminder_email_slot(self.dcc)
+
+        self.assertEqual(wait_seconds, 0)
+
+    def test_send_mail_returns_too_many_requests_inside_cooldown(self):
+        self.dcc.last_reminder_mail_sent_at = timezone.now()
+        self.dcc.save(update_fields=["last_reminder_mail_sent_at"])
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post("/dcc/send_mail/", {"issue": self.dcc.issue}, format="json")
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.data["code"], "THROTTLED")
+        self.assertIn("retry_after_seconds", response.data["errors"])
 
 
 class DccPermissionTests(TestCase):
