@@ -15,6 +15,7 @@ from .serializers import JIRA_DCC_Serializer
 from .models import JIRA_DCC
 from .service.JIRAConnector import JiraConnector, split_text_by_chracter, ISO_time_to_string, parseJiraError
 from .service.MailSender import *
+from .service.reminder_rate_limit import get_reminder_wait_seconds, reserve_reminder_email_slot
 from .permissions import DCCPermission, IsDCCOwner
 
 from .forms import UploadForm
@@ -316,6 +317,13 @@ def ecd_assessment(request):
 def send_mail(request):
     try:
         data = request.data
+        dcc_record = get_object_or_404(request.user.dcc, issue=data["issue"])
+        wait_seconds = get_reminder_wait_seconds(dcc_record)
+        if wait_seconds:
+            return Response({
+                "message": "Reminder email can be sent once per DCC record in one hour.",
+                "retry_after_seconds": wait_seconds,
+            }, status=429)
         
         if data["JSESSIONID"]:
             _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=data["JSESSIONID"])
@@ -352,7 +360,7 @@ def send_mail(request):
         
 
         dcc_parent_path = project.dcc_parent_path + "\\" + str(datetime.now().year)
-        dcc_full_path = f"{dcc_parent_path}\{issue_f.customfield_45002}"
+        dcc_full_path = f"{dcc_parent_path}\\{issue_f.customfield_45002}"
         mail_title = f"[{project.jira_component}] CCB - {ccb_no} toplantı gündemi"
         mail_placeholder["DCC_PATH"] = dcc_full_path
         cc_list = project.psk_mail or ""
@@ -363,6 +371,13 @@ def send_mail(request):
         html_file_path = TEMPLATE_DIR / project.mail_jira_template_name
         mail_body = html_to_text(html_file_path)
         mail_body = replace_all_keys(mail_body, mail_placeholder)
+
+        wait_seconds = reserve_reminder_email_slot(dcc_record)
+        if wait_seconds:
+            return Response({
+                "message": "Reminder email can be sent once per DCC record in one hour.",
+                "retry_after_seconds": wait_seconds,
+            }, status=429)
 
         SendMail(mail_title, mail_body, to_list, cc_list)
 
