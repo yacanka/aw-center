@@ -234,3 +234,10 @@
 
 1. Added README guidance for `launcher.py` commands, online setup, auto detection, offline bundle preparation, offline installation, and validation-only checks.
 2. Documented launcher options, expected artifacts, and trade-offs around offline npm cache completeness and development-only environment defaults.
+
+## 34. DCC reminder email hourly rate limit
+
+1. DCC Watcher reminder emails now reserve one hourly send slot per `JIRA_DCC` table record before Outlook/JIRA work starts.
+2. Repeated reminder attempts inside the one-hour cooldown return HTTP 429 with `retry_after_seconds` in the standardized error payload.
+3. The cooldown state is stored on the DCC row with an atomic conditional database update to reduce duplicate sends from rapid repeated clicks.
+4. Regression tests cover initial reservation, one-hour expiry, and endpoint throttling behavior.
