@@ -24,6 +24,7 @@ urlpatterns = [
     path('releases/', include('releases.urls')),
     path('pptxgallery/', include('pptxgallery.urls')),
     path('media-tools/', include('media_tools.urls')),
+    path('projects/', include('projects.urls')),
     path('download/<str:filename>/', download_file, name='download_file'),
     *get_project_urlpatterns(),
 ]

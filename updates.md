@@ -275,3 +275,10 @@
 2. DCC document generation now resolves the DOCX template through `resolve_dcc_template_path(project_definition)`, keeping template path validation in the dedicated resolver.
 3. Progress messages now use the resolved project definition display name with the existing issue summary, while unsupported project failures keep the existing SSE error event shape.
 4. Regression tests cover unsupported component SSE errors and successful template-path usage while preserving the existing success filename/download payload.
+
+## 40. Authenticated project registry API
+
+1. Added an authenticated `/projects/registry/` API that returns only frontend-safe registry fields: slug, display name, route, enabled state, capabilities, and tags.
+2. Kept internal app labels, URL prefixes, JIRA/template identifiers, environment setting names, filesystem paths, and mail metadata out of the response contract.
+3. Added `capability` and `enabled` query filters so the frontend can gate menus/features without receiving internal registry details.
+4. Added response contract tests covering authentication, field allowlisting, route shape, and combined filter behavior.
