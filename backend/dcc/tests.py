@@ -302,3 +302,145 @@ class DccProjectResolverTests(SimpleTestCase):
         ):
             with self.assertRaises(DccCapabilityMissingError):
                 resolve_project_from_jira_components(["READONLY"])
+
+
+class DccCreateFlowProjectResolutionTests(SimpleTestCase):
+    """Verify DCC creation uses registry-driven project and template resolution."""
+
+    def setUp(self):
+        self.docxtpl_module = SimpleNamespace(DocxTemplate=RecordingDocxTemplate)
+
+    def test_create_dcc_action_resolves_project_from_issue_components(self):
+        """Unsupported components keep the existing SSE error event shape."""
+        import sys
+        from unittest.mock import patch
+
+        from dcc.views import create_dcc_action
+        from dcc.services.project_resolver import UnknownDccProjectComponentError
+
+        issue = build_dcc_issue([SimpleNamespace(name="UNKNOWN")])
+        jira = FakeDccJiraConnector(issue)
+
+        with patch.dict(sys.modules, {"docxtpl": self.docxtpl_module}):
+            with patch("dcc.views.cache.get", return_value={"JSESSIONID": "sid", "url": "DCC-1"}):
+                with patch("dcc.views.JiraConnector", return_value=jira):
+                    with patch(
+                        "dcc.views.resolve_project_from_jira_components",
+                        side_effect=UnknownDccProjectComponentError("unsupported"),
+                    ) as resolve_project:
+                        events = list(create_dcc_action("queue-id"))
+
+        resolve_project.assert_called_once_with(issue.fields.components)
+        self.assertIn('"status": "error"', events[-1])
+        self.assertIn('"type": "text"', events[-1])
+        self.assertIn('"content": "Unsupported project."', events[-1])
+
+    def test_create_dcc_action_uses_resolved_template_path(self):
+        """Successful DCC generation keeps filename/download payload behavior."""
+        from pathlib import Path
+        import sys
+        from unittest.mock import patch
+
+        from dcc.views import create_dcc_action
+
+        issue = build_dcc_issue([SimpleNamespace(name="HYS")])
+        jira = FakeDccJiraConnector(issue)
+        project_definition = SimpleNamespace(
+            display_name="HYS",
+            jira_component="HYS",
+            dcc_template_name="dcc_hys_template.docx",
+        )
+        RecordingDocxTemplate.paths = []
+
+        with patch.dict(sys.modules, {"docxtpl": self.docxtpl_module}):
+            with patch("dcc.views.cache.get", return_value={"JSESSIONID": "sid", "url": "DCC-1"}):
+                with patch("dcc.views.JiraConnector", return_value=jira):
+                    with patch(
+                        "dcc.views.resolve_project_from_jira_components",
+                        return_value=project_definition,
+                    ):
+                        with patch(
+                            "dcc.views.resolve_dcc_template_path",
+                            return_value=Path("/safe/templates/dcc_hys_template.docx"),
+                        ) as resolve_template:
+                            events = list(create_dcc_action("queue-id"))
+
+        resolve_template.assert_called_once_with(project_definition)
+        self.assertEqual(
+            RecordingDocxTemplate.paths,
+            [Path("/safe/templates/dcc_hys_template.docx")],
+        )
+        self.assertIn('"status": "success"', events[-1])
+        self.assertIn('"filename": "DCC - HYS - 2026 - 001.docx"', events[-1])
+        self.assertIn('"content":', events[-1])
+
+
+class RecordingDocxTemplate:
+    """Small test double recording the template path and rendered context."""
+
+    paths = []
+
+    def __init__(self, path):
+        self.paths.append(path)
+        self.context = None
+
+    def render(self, context):
+        self.context = context
+
+    def save(self, buffer):
+        buffer.write(b"generated docx")
+
+
+class FakeDccJiraConnector:
+    """JIRA connector test double for the DCC create stream."""
+
+    def __init__(self, issue):
+        self.issue = issue
+
+    def myself(self):
+        return {"name": "jira-user"}
+
+    def set_issue(self, url):
+        self.url = url
+
+    def get_issue(self):
+        return self.issue
+
+    def get_client(self):
+        return SimpleNamespace(issue=lambda key: build_dcc_subtask())
+
+
+def build_dcc_issue(components):
+    """Create a minimal JIRA issue shape consumed by create_dcc_action."""
+    fields = SimpleNamespace(
+        issuetype=SimpleNamespace(subtask=False),
+        components=components,
+        summary="Change title",
+        customfield_45002="DCC - HYS - 2026 - 001",
+        customfield_45000="ECD-1",
+        customfield_45001="A",
+        customfield_13716=SimpleNamespace(value="Minor-No Effect"),
+        updated="2026-06-30T00:00:00.000+0000",
+        customfield_34115=[SimpleNamespace(value="HYS")],
+        subtasks=[SimpleNamespace(key="DCC-2")],
+    )
+    return SimpleNamespace(fields=fields)
+
+
+def build_dcc_subtask():
+    """Create a minimal JIRA subtask shape consumed by create_dcc_action."""
+    assignee = SimpleNamespace(displayName="Ada Lovelace")
+    fields = SimpleNamespace(
+        status=SimpleNamespace(name="Done"),
+        assignee=assignee,
+        updated="2026-06-30T00:00:00.000+0000",
+        customfield_45006=None,
+        customfield_45007=None,
+        customfield_45008="Assessment",
+        customfield_45421=None,
+        customfield_45004=SimpleNamespace(value="Minor-No Effect"),
+        customfield_45005=None,
+        comment=SimpleNamespace(comments=[]),
+        summary="Panel review",
+    )
+    return SimpleNamespace(fields=fields)
