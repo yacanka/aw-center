@@ -282,3 +282,9 @@
 2. Kept internal app labels, URL prefixes, JIRA/template identifiers, environment setting names, filesystem paths, and mail metadata out of the response contract.
 3. Added `capability` and `enabled` query filters so the frontend can gate menus/features without receiving internal registry details.
 4. Added response contract tests covering authentication, field allowlisting, route shape, and combined filter behavior.
+
+## 41. Frontend project registry consumption
+
+1. Added a typed frontend project registry service backed by the authenticated backend registry API and a safe fallback list.
+2. Main navigation now builds Compliance Docs project menu entries from registry metadata while preserving disabled-state behavior.
+3. Home dashboard project tabs now load from registry metadata, keep disabled projects disabled, and show a user-facing warning before using fallback options when refresh fails.

@@ -1,0 +1,62 @@
+import axios from 'axios'
+import type { ProjectRegistryItem } from '@/models/projectRegistry'
+
+export const PROJECT_REGISTRY_FALLBACK: ProjectRegistryItem[] = [
+  createFallbackProject('ozgur', 'Özgür-1', true),
+  createFallbackProject('blok30', 'Blok 30', true),
+  createFallbackProject('blok4050', 'Blok 40/50', false),
+  createFallbackProject('aesa', 'AESA', true),
+  createFallbackProject('hys', 'HYS', true),
+  createFallbackProject('piku', 'Piku', true),
+  createFallbackProject('gokbey', 'Gokbey', false),
+  createFallbackProject('havasoj', 'Havasoj', true)
+]
+
+/** Fetches frontend-safe project registry items for compliance-document screens. */
+export async function fetchCompdocProjectRegistry(): Promise<ProjectRegistryItem[]> {
+  const response = await axios.get<unknown>('/projects/registry/?capability=compdocs')
+  return parseProjectRegistryItems(response.data)
+}
+
+function createFallbackProject(
+  slug: string,
+  displayName: string,
+  enabled: boolean
+): ProjectRegistryItem {
+  return {
+    slug,
+    display_name: displayName,
+    route: `/${slug}/`,
+    enabled,
+    capabilities: ['compdocs'],
+    tags: enabled ? ['fallback', 'active'] : ['fallback', 'inactive']
+  }
+}
+
+function parseProjectRegistryItems(data: unknown): ProjectRegistryItem[] {
+  if (!Array.isArray(data)) return PROJECT_REGISTRY_FALLBACK
+
+  const projects = data.filter(isProjectRegistryItem)
+  return projects.length > 0 ? projects : PROJECT_REGISTRY_FALLBACK
+}
+
+function isProjectRegistryItem(item: unknown): item is ProjectRegistryItem {
+  if (!isRecord(item)) return false
+
+  return (
+    typeof item.slug === 'string' &&
+    typeof item.display_name === 'string' &&
+    typeof item.route === 'string' &&
+    typeof item.enabled === 'boolean' &&
+    isStringArray(item.capabilities) &&
+    isStringArray(item.tags)
+  )
+}
+
+function isRecord(item: unknown): item is Record<string, unknown> {
+  return Object.prototype.toString.call(item) === '[object Object]'
+}
+
+function isStringArray(item: unknown): item is string[] {
+  return Array.isArray(item) && item.every((value) => typeof value === 'string')
+}
