@@ -261,3 +261,10 @@
 2. Root URL configuration now includes project routes through the registry helper instead of duplicating each project route manually.
 3. Project registry `app_label` values now point to importable project packages so URL imports fail during routing/test setup when misconfigured.
 4. Regression tests verify enabled project URL modules are importable and disabled projects do not produce routes.
+
+## 38. DCC template path resolver
+
+1. Added a DCC template resolver that accepts only non-empty plain `.docx` filenames from project definitions.
+2. Rejected path traversal and path separator usage before filesystem resolution to avoid directory escape attempts.
+3. Verified the resolved template remains inside the configured template directory and raises controlled domain exceptions for invalid or missing templates.
+4. Added regression tests for valid template names, traversal attempts, wrong extensions, and empty values.
