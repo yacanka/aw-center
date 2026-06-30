@@ -1,5 +1,6 @@
 """Tests for the project registry metadata."""
 
+from importlib import import_module
 from types import MappingProxyType
 from unittest import TestCase
 
@@ -106,3 +107,20 @@ class ProjectRegistryTests(TestCase):
         """Unknown or disabled JIRA components use an explicit None strategy."""
         self.assertIsNone(find_project_by_jira_component("unknown"))
         self.assertIsNone(find_project_by_jira_component("GOKBEY"))
+
+    def test_registry_app_labels_expose_importable_url_modules(self):
+        """Enabled project app labels resolve to URL modules during routing setup."""
+        for definition in get_enabled_project_definitions():
+            with self.subTest(slug=definition.slug):
+                import_module(f"{definition.app_label}.urls")
+
+    def test_get_project_urlpatterns_excludes_disabled_projects(self):
+        """Project route helper emits URL patterns only for enabled projects."""
+        from .routing import get_project_urlpatterns
+
+        route_names = {str(pattern.pattern) for pattern in get_project_urlpatterns()}
+
+        self.assertIn("ozgur/", route_names)
+        self.assertIn("blok30/", route_names)
+        self.assertNotIn("blok4050/", route_names)
+        self.assertNotIn("gokbey/", route_names)

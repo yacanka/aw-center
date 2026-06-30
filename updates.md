@@ -254,3 +254,10 @@
 2. Each registry entry uses the existing frozen `ProjectDefinition` dataclass and stores only safe metadata identifiers, avoiding credentials, network paths, and secrets.
 3. Active and inactive project state is represented explicitly; `blok4050` and `gokbey` are registered with `enabled=False`.
 4. Regression tests document required registry keys, read-only mapping behavior, DCC metadata, and inactive project flags.
+
+## 37. Registry-driven project URL routing
+
+1. Added `projects.routing.get_project_urlpatterns()` as the single helper for enabled project URL patterns.
+2. Root URL configuration now includes project routes through the registry helper instead of duplicating each project route manually.
+3. Project registry `app_label` values now point to importable project packages so URL imports fail during routing/test setup when misconfigured.
+4. Regression tests verify enabled project URL modules are importable and disabled projects do not produce routes.

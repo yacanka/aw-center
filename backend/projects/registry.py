@@ -9,7 +9,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         "ozgur": ProjectDefinition(
             slug="ozgur",
             display_name="Ozgur",
-            app_label="ozgur",
+            app_label="projects.ozgur",
             url_prefix="ozgur",
             enabled=True,
             capabilities=("dcc", "compdocs", "orgs"),
@@ -22,7 +22,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         "piku": ProjectDefinition(
             slug="piku",
             display_name="Piku",
-            app_label="piku",
+            app_label="projects.piku",
             url_prefix="piku",
             enabled=True,
             capabilities=("dcc", "compdocs", "orgs"),
@@ -35,7 +35,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         "aesa": ProjectDefinition(
             slug="aesa",
             display_name="AESA",
-            app_label="aesa",
+            app_label="projects.aesa",
             url_prefix="aesa",
             enabled=True,
             capabilities=("dcc", "compdocs", "orgs"),
@@ -48,7 +48,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         "havasoj": ProjectDefinition(
             slug="havasoj",
             display_name="Havasoj",
-            app_label="havasoj",
+            app_label="projects.havasoj",
             url_prefix="havasoj",
             enabled=True,
             capabilities=("dcc", "compdocs", "orgs"),
@@ -61,7 +61,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         "hys": ProjectDefinition(
             slug="hys",
             display_name="HYS",
-            app_label="hys",
+            app_label="projects.hys",
             url_prefix="hys",
             enabled=True,
             capabilities=("dcc", "compdocs", "orgs"),
@@ -74,7 +74,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         "blok30": ProjectDefinition(
             slug="blok30",
             display_name="Blok 30",
-            app_label="blok30",
+            app_label="projects.blok30",
             url_prefix="blok30",
             enabled=True,
             capabilities=("dcc", "compdocs", "orgs"),
@@ -87,7 +87,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         "blok4050": ProjectDefinition(
             slug="blok4050",
             display_name="Blok 40/50",
-            app_label="blok4050",
+            app_label="projects.blok4050",
             url_prefix="blok4050",
             enabled=False,
             capabilities=("dcc", "compdocs", "orgs"),
@@ -100,7 +100,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         "gokbey": ProjectDefinition(
             slug="gokbey",
             display_name="Gokbey",
-            app_label="gokbey",
+            app_label="projects.gokbey",
             url_prefix="gokbey",
             enabled=False,
             capabilities=("dcc", "compdocs", "orgs"),
