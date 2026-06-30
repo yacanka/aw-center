@@ -241,3 +241,9 @@
 2. Repeated reminder attempts inside the one-hour cooldown return HTTP 429 with `retry_after_seconds` in the standardized error payload.
 3. The cooldown state is stored on the DCC row with an atomic conditional database update to reduce duplicate sends from rapid repeated clicks.
 4. Regression tests cover initial reservation, one-hour expiry, and endpoint throttling behavior.
+
+## 35. Project definition metadata type
+
+1. Added a frozen `ProjectDefinition` dataclass for shared project metadata under `backend/projects/types.py`.
+2. Kept deployment-specific filesystem paths out of the type and exposed `dcc_parent_path_setting` as an environment-setting key field instead.
+3. Used immutable tuple defaults for `capabilities` and `tags` so project definitions remain safe to share as constants.
