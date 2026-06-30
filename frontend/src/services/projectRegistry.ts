@@ -1,5 +1,9 @@
 import axios from 'axios'
-import type { ProjectRegistryItem } from '@/models/projectRegistry'
+import {
+  PROJECT_CAPABILITIES,
+  type ProjectCapability,
+  type ProjectRegistryItem
+} from '@/models/projectRegistry'
 
 export const PROJECT_REGISTRY_FALLBACK: ProjectRegistryItem[] = [
   createFallbackProject('ozgur', 'Özgür-1', true),
@@ -48,13 +52,21 @@ function isProjectRegistryItem(item: unknown): item is ProjectRegistryItem {
     typeof item.display_name === 'string' &&
     typeof item.route === 'string' &&
     typeof item.enabled === 'boolean' &&
-    isStringArray(item.capabilities) &&
+    isProjectCapabilityArray(item.capabilities) &&
     isStringArray(item.tags)
   )
 }
 
 function isRecord(item: unknown): item is Record<string, unknown> {
   return Object.prototype.toString.call(item) === '[object Object]'
+}
+
+function isProjectCapabilityArray(item: unknown): item is ProjectCapability[] {
+  return Array.isArray(item) && item.every(isProjectCapability)
+}
+
+function isProjectCapability(item: unknown): item is ProjectCapability {
+  return typeof item === 'string' && PROJECT_CAPABILITIES.includes(item as ProjectCapability)
 }
 
 function isStringArray(item: unknown): item is string[] {

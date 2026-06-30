@@ -302,3 +302,10 @@
 2. Existing project display names are preserved by default so user-maintained labels are not overwritten unless `--update-display-name` is explicitly supplied.
 3. Disabled registry entries are skipped by default and only included when `--include-disabled` is supplied.
 4. Added dry-run reporting and command regression tests for create, no-op, dry-run, display-name update, and disabled-project inclusion behavior.
+
+## 44. Project capability contract hardening
+
+1. Added a backend project capability allowlist with initial supported values `dcc`, `compdocs`, and `orgs`.
+2. Registry invariant and API contract tests now verify that declared and frontend-facing capabilities stay inside the documented allowlist.
+3. The registry API rejects unknown capability filters so unsupported values cannot become implicit contracts.
+4. Frontend project registry typing and runtime parsing now use the same documented capability set, and both backend/frontend constants document that adding a capability requires a coordinated contract update.
