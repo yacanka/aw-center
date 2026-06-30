@@ -1,6 +1,7 @@
 """Characterization tests for DCC helper behavior."""
 
 from datetime import timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
@@ -100,6 +101,70 @@ class JiraConnectorSubtaskFieldTests(SimpleTestCase):
         self.assertEqual(fields[0]["id"], "summary")
         self.assertEqual(fields[0]["name"], "Summary")
         self.assertTrue(fields[0]["required"])
+
+
+class DccTemplateResolverTests(SimpleTestCase):
+    """Verify secure resolution of project-specific DCC templates."""
+
+    def setUp(self):
+        from tempfile import TemporaryDirectory
+
+        self.temporary_directory = TemporaryDirectory()
+        self.template_directory = Path(self.temporary_directory.name)
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    def test_resolve_dcc_template_path_accepts_valid_template_name(self):
+        """A plain existing .docx filename resolves under the template directory."""
+        from unittest.mock import patch
+
+        from dcc.services.template_resolver import resolve_dcc_template_path
+
+        template_path = self.template_directory / "valid_template.docx"
+        template_path.write_bytes(b"docx")
+        project_definition = SimpleNamespace(dcc_template_name="valid_template.docx")
+
+        with patch("dcc.services.template_resolver.TEMPLATE_DIR", self.template_directory):
+            resolved_path = resolve_dcc_template_path(project_definition)
+
+        self.assertEqual(resolved_path, template_path.resolve())
+
+    def test_resolve_dcc_template_path_rejects_path_traversal(self):
+        """Template names cannot escape the allowed template directory."""
+        from dcc.services.template_resolver import (
+            InvalidDccTemplateNameError,
+            resolve_dcc_template_path,
+        )
+
+        project_definition = SimpleNamespace(dcc_template_name="../bad.docx")
+
+        with self.assertRaises(InvalidDccTemplateNameError):
+            resolve_dcc_template_path(project_definition)
+
+    def test_resolve_dcc_template_path_rejects_wrong_extension(self):
+        """Only .docx DCC templates are accepted."""
+        from dcc.services.template_resolver import (
+            InvalidDccTemplateNameError,
+            resolve_dcc_template_path,
+        )
+
+        project_definition = SimpleNamespace(dcc_template_name="bad.pdf")
+
+        with self.assertRaises(InvalidDccTemplateNameError):
+            resolve_dcc_template_path(project_definition)
+
+    def test_resolve_dcc_template_path_rejects_empty_value(self):
+        """Empty template names fail before filesystem resolution."""
+        from dcc.services.template_resolver import (
+            InvalidDccTemplateNameError,
+            resolve_dcc_template_path,
+        )
+
+        project_definition = SimpleNamespace(dcc_template_name=" ")
+
+        with self.assertRaises(InvalidDccTemplateNameError):
+            resolve_dcc_template_path(project_definition)
 
 
 class DccReminderRateLimitTests(TestCase):
