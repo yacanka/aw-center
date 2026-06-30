@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
+from .constants import ALLOWED_PROJECT_CAPABILITIES, PROJECT_CAPABILITY_DCC
 from .registry import PROJECT_DEFINITIONS
 
 SAFE_RESPONSE_KEYS = {
@@ -66,17 +67,17 @@ class ProjectRegistryApiTests(TestCase):
         self.assertEqual(ozgur_project["display_name"], "Ozgur")
         self.assertEqual(ozgur_project["route"], "/ozgur/")
         self.assertTrue(ozgur_project["enabled"])
-        self.assertIn("dcc", ozgur_project["capabilities"])
+        self.assertIn(PROJECT_CAPABILITY_DCC, ozgur_project["capabilities"])
         self.assertIn("certification", ozgur_project["tags"])
 
     def test_registry_supports_capability_filter(self):
         """Capability query returns only projects declaring that capability."""
-        response = self.client.get("/projects/registry/?capability=dcc")
+        response = self.client.get(f"/projects/registry/?capability={PROJECT_CAPABILITY_DCC}")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data)
         for project in response.data:
-            self.assertIn("dcc", project["capabilities"])
+            self.assertIn(PROJECT_CAPABILITY_DCC, project["capabilities"])
 
     def test_registry_supports_enabled_filter(self):
         """Enabled query can return disabled registry entries for UI gating."""
@@ -89,6 +90,20 @@ class ProjectRegistryApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response_slugs, disabled_slugs)
 
+    def test_registry_response_uses_documented_capabilities(self):
+        """Frontend response capabilities stay inside the documented contract."""
+        response = self.client.get("/projects/registry/")
+
+        self.assertEqual(response.status_code, 200)
+        for project in response.data:
+            self.assertLessEqual(set(project["capabilities"]), ALLOWED_PROJECT_CAPABILITIES)
+
+    def test_registry_rejects_invalid_capability_filter(self):
+        """Unknown capability filters fail instead of creating implicit contracts."""
+        response = self.client.get("/projects/registry/?capability=unknown")
+
+        self.assertEqual(response.status_code, 400)
+
     def test_registry_rejects_invalid_enabled_filter(self):
         """Invalid enabled query values fail closed instead of broadening results."""
         response = self.client.get("/projects/registry/?enabled=maybe")
@@ -97,12 +112,14 @@ class ProjectRegistryApiTests(TestCase):
 
     def test_registry_supports_combined_filters(self):
         """Capability and enabled filters compose without leaking unsafe fields."""
-        response = self.client.get("/projects/registry/?capability=dcc&enabled=true")
+        response = self.client.get(
+            f"/projects/registry/?capability={PROJECT_CAPABILITY_DCC}&enabled=true"
+        )
 
         self.assertEqual(response.status_code, 200)
         for project in response.data:
             self.assertTrue(project["enabled"])
-            self.assertIn("dcc", project["capabilities"])
+            self.assertIn(PROJECT_CAPABILITY_DCC, project["capabilities"])
             self.assertEqual(set(project), SAFE_RESPONSE_KEYS)
 
     def get_project(self, projects, slug):

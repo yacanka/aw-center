@@ -7,9 +7,8 @@ from django.urls import URLResolver
 
 from awcenter.urls import urlpatterns
 
+from .constants import ALLOWED_PROJECT_CAPABILITIES, PROJECT_CAPABILITY_DCC
 from .registry import PROJECT_DEFINITIONS, get_enabled_project_definitions
-
-KNOWN_CAPABILITIES = {"dcc", "compdocs", "orgs"}
 
 
 class ProjectRegistryInvariantTests(TestCase):
@@ -39,14 +38,14 @@ class ProjectRegistryInvariantTests(TestCase):
         """Every declared capability is part of the supported capability set."""
         for slug, definition in PROJECT_DEFINITIONS.items():
             with self.subTest(slug=slug):
-                unknown_capabilities = set(definition.capabilities) - KNOWN_CAPABILITIES
+                unknown_capabilities = set(definition.capabilities) - ALLOWED_PROJECT_CAPABILITIES
 
                 self.assertEqual(unknown_capabilities, set())
 
     def test_dcc_project_definitions_have_required_metadata(self):
         """DCC-capable projects include required DCC metadata identifiers."""
         for slug, definition in PROJECT_DEFINITIONS.items():
-            if "dcc" not in definition.capabilities:
+            if PROJECT_CAPABILITY_DCC not in definition.capabilities:
                 continue
 
             with self.subTest(slug=slug):
