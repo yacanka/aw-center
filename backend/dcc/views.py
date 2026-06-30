@@ -39,14 +39,12 @@ from io import BytesIO
 from pathlib import Path
 from base64 import b64decode, b64encode
 import json
-from enum import Enum
 import requests
 import time
 import uuid
 from datetime import datetime
 import os
 
-from awcenter.enums import Projects
 from common.views import paginated_response
 
 
@@ -59,6 +57,14 @@ class ValuesListSerializer:
 TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
 JIRA_URL = settings.JIRA_BTB_URL    
 PUBLIC_ENDPOINTS = {}
+
+
+def _get_project_dcc_parent_path(project_definition):
+    """Return configured DCC parent path for a registry project definition."""
+    setting_name = project_definition.dcc_parent_path_setting
+    if not setting_name:
+        return ""
+    return str(getattr(settings, setting_name, ""))
 
 
 class JIRA_DCC_ViewSet(APIView):
@@ -185,8 +191,8 @@ def create_issue(request):
             return Response({"message": "Client error while connecting."}, status=400)
         
         try:
-            project = Projects.from_jira_component(data.get("project"))
-        except ValueError as e:
+            project_definition = resolve_project_from_jira_components([data.get("project")])
+        except DccProjectResolutionError:
             return Response({"message": "Unsupported project."})
         
         issue_fields = {
@@ -194,11 +200,11 @@ def create_issue(request):
             'summary': data["ecd_title"],
             "description": data["ecd_title"],
             'issuetype': {'name': 'Task'},
-            "components": [{"name": project.jira_component}],
+            "components": [{"name": project_definition.jira_component}],
             "customfield_13054": [{"name": data["requestor"]}], #customfield_10768
             'customfield_45000': data["ecd_no"].split("/")[0].strip(), #customfield_13712
             'customfield_45001': data["ecd_no"].split("/")[1].strip(), #customfield_14297
-            'customfield_45002': f"DCC - {project.dcc_label} - {str(datetime.now().year)} - XXX", #customfield_21271
+            'customfield_45002': f"DCC - {project_definition.dcc_label} - {str(datetime.now().year)} - XXX", #customfield_21271
             'customfield_34115': parse_multiselect(data["effectivity"]),
         }
 
@@ -339,14 +345,9 @@ def send_mail(request):
         issue = _jira.get_issue()
         issue_f = issue.fields
 
-        project = None
-        for c in issue_f.components:
-            try:
-                project = Projects.from_jira_component(c.name)
-            except ValueError as e:
-                continue
-
-        if project == None:
+        try:
+            project_definition = resolve_project_from_jira_components(issue_f.components)
+        except DccProjectResolutionError:
             return Response({"message": "Not supported project. Process stopped."}, status=400)
 
             
@@ -361,16 +362,16 @@ def send_mail(request):
         }
         
 
-        dcc_parent_path = project.dcc_parent_path + "\\" + str(datetime.now().year)
+        dcc_parent_path = _get_project_dcc_parent_path(project_definition) + "\\" + str(datetime.now().year)
         dcc_full_path = f"{dcc_parent_path}\\{issue_f.customfield_45002}"
-        mail_title = f"[{project.jira_component}] CCB - {ccb_no} toplantı gündemi"
+        mail_title = f"[{project_definition.jira_component}] CCB - {ccb_no} toplantı gündemi"
         mail_placeholder["DCC_PATH"] = dcc_full_path
-        cc_list = project.psk_mail or ""
+        cc_list = ""
 
         open_subtask_list = _jira.get_open_subtask()
         to_list = ';'.join([open_subtask.fields.assignee.emailAddress for open_subtask in open_subtask_list])
         #to_list = "yasarcan.kara@tai.com.tr"
-        html_file_path = TEMPLATE_DIR / project.mail_jira_template_name
+        html_file_path = TEMPLATE_DIR / project_definition.mail_template_name
         mail_body = html_to_text(html_file_path)
         mail_body = replace_all_keys(mail_body, mail_placeholder)
 
