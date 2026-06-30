@@ -274,8 +274,12 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, ref, onMounted } from 'vue'
+import { useMessage } from 'naive-ui'
 import { useCompdocStore } from '@/stores/api'
 import { statusOptions, statusColors } from '@/stores/datatable'
+import type { ProjectRegistryItem } from '@/models/projectRegistry'
+import { PROJECT_REGISTRY_FALLBACK, fetchCompdocProjectRegistry } from '@/services/projectRegistry'
+import { formatApiError } from '@/services/apiError'
 import {
   calculateBarChart,
   calculateLineChart,
@@ -293,16 +297,14 @@ const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 const appTitle = import.meta.env.VITE_APP_TITLE
 const compStore = useCompdocStore()
 
-const projectOptions = [
-  { label: 'Özgür-1', value: 'ozgur', disabled: false },
-  { label: 'Blok 30', value: 'blok30', disabled: false },
-  { label: 'Blok 40/50', value: 'blok4050', disabled: true },
-  { label: 'AESA', value: 'aesa', disabled: false },
-  { label: 'HYS', value: 'hys', disabled: false },
-  { label: 'Piku', value: 'piku', disabled: false },
-  { label: 'Gokbey', value: 'gokbey', disabled: true },
-  { label: 'Havasoj', value: 'havasoj', disabled: false }
-]
+interface ProjectOption {
+  label: string
+  value: string
+  disabled: boolean
+}
+
+const message = useMessage()
+const projectOptions = ref<ProjectOption[]>(PROJECT_REGISTRY_FALLBACK.map(createProjectOption))
 
 const panelStatusColumns: DataTableColumns<ICompDoc> = [
   {
@@ -591,23 +593,45 @@ function calculatePanels(compdocs: ICompDoc[]) {
   panelStatus.value = sortedPanels
 }
 
-onMounted(() => {
-  const savedTab = localStorage.getItem('allSummaryActiveTab') || 'ozgur'
-  activeTab.value = savedTab
-  compStore.setProjectName(savedTab)
-  compStore.fetchCompdocs().then(() => {
-    calculate(compStore.getCompdocs)
-  })
+onMounted(async () => {
+  await loadProjectOptions()
+  await loadProjectDashboard(getInitialProjectSlug())
 })
 
 const handleTabChange = (tab: string) => {
+  void loadProjectDashboard(tab)
+}
+
+function createProjectOption(project: ProjectRegistryItem): ProjectOption {
+  return {
+    label: project.display_name,
+    value: project.slug,
+    disabled: !project.enabled
+  }
+}
+
+async function loadProjectOptions() {
+  try {
+    const projects = await fetchCompdocProjectRegistry()
+    projectOptions.value = projects.map(createProjectOption)
+  } catch (error) {
+    message.warning(`Project list could not be refreshed: ${formatApiError(error)}`)
+  }
+}
+
+function getInitialProjectSlug(): string {
+  const savedTab = localStorage.getItem('allSummaryActiveTab')
+  const enabledOption = projectOptions.value.find((project) => project.value === savedTab)
+  return enabledOption && !enabledOption.disabled ? enabledOption.value : 'ozgur'
+}
+
+async function loadProjectDashboard(projectSlug: string) {
   rowHoverID.value = null
-  localStorage.setItem('allSummaryActiveTab', tab)
-  activeTab.value = tab
-  compStore.setProjectName(tab)
-  compStore.fetchCompdocs().then(() => {
-    calculate(compStore.getCompdocs)
-  })
+  localStorage.setItem('allSummaryActiveTab', projectSlug)
+  activeTab.value = projectSlug
+  compStore.setProjectName(projectSlug)
+  await compStore.fetchCompdocs()
+  calculate(compStore.getCompdocs)
 }
 
 function onAfterLeave() {
