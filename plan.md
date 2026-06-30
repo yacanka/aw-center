@@ -107,3 +107,9 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 ## 11. Project registry cleanup follow-up
 
 1. **P2 - Legacy Projects enum removal:** One-release deprecation window sonunda `backend/awcenter/enums.py` içindeki `Projects` enum'unun kalan dış bağımlılıkları tekrar `rg "awcenter.enums|Projects" backend frontend` ile doğrulanmalı ve kullanılmıyorsa enum tamamen kaldırılmalıdır.
+
+## 12. Project app ortaklaşma değerlendirmesi
+
+1. **Karar - Over-abstraction geri alındı:** `projects.common` factory yaklaşımı view/serializer sınıflarını gereğinden katı hale getirdiği için geri alındı.
+2. **Sıradaki adım - Daha esnek yaklaşım:** Tekrarlanan alanlar için önce test kapsamı ve küçük mixin/helper adayları çıkarılmalı; final serializer/view sınıfları proje app içinde açık kalmalı.
+3. **Sıradaki adım - Kademeli güvenlik:** AESA/Gokbey/Blok4050 gibi override davranışları olan app'lerde ortaklaştırma ancak app-local subclass davranışı korunarak ve endpoint contract testleri yazılarak değerlendirilmeli.
