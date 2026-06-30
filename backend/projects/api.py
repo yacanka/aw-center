@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from .constants import ALLOWED_PROJECT_CAPABILITIES
 from .registry import PROJECT_DEFINITIONS
 from .types import ProjectDefinition
 
@@ -37,9 +38,20 @@ def parse_enabled_filter(raw_value: str | None) -> bool | None:
     raise ValidationError({"enabled": "Use true or false."})
 
 
+def parse_capability_filter(raw_value: str | None) -> str:
+    """Return a supported capability filter or an empty string when absent."""
+    if raw_value is None:
+        return ""
+
+    normalized_value = raw_value.strip().lower()
+    if not normalized_value or normalized_value in ALLOWED_PROJECT_CAPABILITIES:
+        return normalized_value
+    raise ValidationError({"capability": "Use a documented project capability."})
+
+
 def get_filtered_project_definitions(request) -> tuple[ProjectDefinition, ...]:
     """Return registry definitions filtered by supported query parameters."""
-    capability = request.query_params.get("capability", "").strip().lower()
+    capability = parse_capability_filter(request.query_params.get("capability"))
     enabled = parse_enabled_filter(request.query_params.get("enabled"))
     definitions = PROJECT_DEFINITIONS.values()
 
