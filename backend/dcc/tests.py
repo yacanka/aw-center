@@ -256,6 +256,15 @@ class DccPermissionTests(TestCase):
 class DccProjectResolverTests(SimpleTestCase):
     """Verify DCC project resolution from JIRA component metadata."""
 
+    def test_dcc_views_do_not_import_legacy_projects_enum(self):
+        """DCC views must use registry-based project resolution, not legacy enums."""
+        from pathlib import Path
+
+        views_source = Path(__file__).with_name("views.py").read_text()
+
+        self.assertNotIn("awcenter.enums import Projects", views_source)
+        self.assertIn("resolve_project_from_jira_components", views_source)
+
     def test_resolve_project_from_jira_components_returns_first_known_project(self):
         """Multiple JIRA components are scanned until a registered project is found."""
         from dcc.services.project_resolver import resolve_project_from_jira_components

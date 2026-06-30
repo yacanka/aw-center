@@ -103,3 +103,7 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. Domain-specific hata kodları için kontrollü enum listesi oluştur: ör. `FILE_TOO_LARGE`, `UNSUPPORTED_FILE_TYPE`, `JIRA_UNAVAILABLE`, `DOCUMENT_NOT_FOUND`.
 3. HTTP `JsonResponse`/`HttpResponse` ile dönen API hataları varsa bunları DRF `Response` veya explicit contract helper'ına taşı; middleware bilinçli olarak dosya/stream response'larını değiştirmez.
 4. Frontend'de yeni hata gösterimlerinde doğrudan `err.response.data.*` erişimini code review ile engelle; `formatApiError(...)` veya `handleRequest(...)` kullanılmalıdır.
+
+## 11. Project registry cleanup follow-up
+
+1. **P2 - Legacy Projects enum removal:** One-release deprecation window sonunda `backend/awcenter/enums.py` içindeki `Projects` enum'unun kalan dış bağımlılıkları tekrar `rg "awcenter.enums|Projects" backend frontend` ile doğrulanmalı ve kullanılmıyorsa enum tamamen kaldırılmalıdır.

@@ -1,3 +1,7 @@
+# DEPRECATED: This legacy enum is retained for one release for backward
+# compatibility only. New code must use projects.registry for project metadata
+# and DCC/JIRA project resolution. Do not add new dependencies on this module.
+
 from enum import Enum
 
 class Projects(Enum):
