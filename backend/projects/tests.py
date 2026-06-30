@@ -3,7 +3,14 @@
 from types import MappingProxyType
 from unittest import TestCase
 
-from .registry import PROJECT_DEFINITIONS
+from .registry import (
+    PROJECT_DEFINITIONS,
+    UnknownProjectDefinitionError,
+    find_project_by_jira_component,
+    get_enabled_project_definitions,
+    get_project_definition,
+    get_project_definitions_by_capability,
+)
 
 
 class ProjectRegistryTests(TestCase):
@@ -56,3 +63,46 @@ class ProjectRegistryTests(TestCase):
         """Inactive project applications stay disabled in the registry."""
         self.assertFalse(PROJECT_DEFINITIONS["blok4050"].enabled)
         self.assertFalse(PROJECT_DEFINITIONS["gokbey"].enabled)
+
+    def test_get_project_definition_returns_registered_definition(self):
+        """Slug lookup is case-insensitive and ignores surrounding whitespace."""
+        definition = get_project_definition(" OZGUR ")
+
+        self.assertEqual(definition.slug, "ozgur")
+
+    def test_get_project_definition_raises_for_unknown_slug(self):
+        """Unknown required project slugs fail with a controlled exception."""
+        with self.assertRaises(UnknownProjectDefinitionError):
+            get_project_definition("unknown")
+
+    def test_get_enabled_project_definitions_excludes_disabled_projects(self):
+        """Enabled project lookup returns only active registry entries."""
+        enabled_slugs = {
+            definition.slug for definition in get_enabled_project_definitions()
+        }
+
+        self.assertIn("ozgur", enabled_slugs)
+        self.assertNotIn("blok4050", enabled_slugs)
+        self.assertNotIn("gokbey", enabled_slugs)
+
+    def test_get_project_definitions_by_capability_returns_enabled_matches(self):
+        """Capability lookup returns enabled projects only."""
+        dcc_slugs = {
+            definition.slug
+            for definition in get_project_definitions_by_capability(" DCC ")
+        }
+
+        self.assertIn("piku", dcc_slugs)
+        self.assertNotIn("gokbey", dcc_slugs)
+
+    def test_find_project_by_jira_component_returns_enabled_match(self):
+        """JIRA component lookup is case-insensitive and enabled-only."""
+        definition = find_project_by_jira_component(" aesa ")
+
+        self.assertIsNotNone(definition)
+        self.assertEqual(definition.slug, "aesa")
+
+    def test_find_project_by_jira_component_returns_none_for_unknown_component(self):
+        """Unknown or disabled JIRA components use an explicit None strategy."""
+        self.assertIsNone(find_project_by_jira_component("unknown"))
+        self.assertIsNone(find_project_by_jira_component("GOKBEY"))

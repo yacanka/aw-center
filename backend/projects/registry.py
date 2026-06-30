@@ -112,3 +112,44 @@ PROJECT_DEFINITIONS = MappingProxyType(
         ),
     }
 )
+
+
+class UnknownProjectDefinitionError(LookupError):
+    """Raised when a required project slug is not registered."""
+
+
+def get_project_definition(slug: str) -> ProjectDefinition:
+    """Return a project definition by slug or raise UnknownProjectDefinitionError."""
+    normalized_slug = slug.strip().lower()
+    definition = PROJECT_DEFINITIONS.get(normalized_slug)
+    if definition is None:
+        raise UnknownProjectDefinitionError(f"Unknown project slug: {slug!r}")
+    return definition
+
+
+def get_enabled_project_definitions() -> tuple[ProjectDefinition, ...]:
+    """Return enabled project definitions in registry declaration order."""
+    return tuple(definition for definition in PROJECT_DEFINITIONS.values() if definition.enabled)
+
+
+def get_project_definitions_by_capability(capability: str) -> tuple[ProjectDefinition, ...]:
+    """Return enabled project definitions that declare the requested capability."""
+    normalized_capability = capability.strip().lower()
+    return tuple(
+        definition
+        for definition in get_enabled_project_definitions()
+        if normalized_capability in definition.capabilities
+    )
+
+
+def find_project_by_jira_component(jira_component: str) -> ProjectDefinition | None:
+    """Return an enabled project for a JIRA component, or None when unknown."""
+    normalized_component = jira_component.strip().upper()
+    return next(
+        (
+            definition
+            for definition in get_enabled_project_definitions()
+            if definition.jira_component == normalized_component
+        ),
+        None,
+    )
