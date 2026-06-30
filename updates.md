@@ -247,3 +247,10 @@
 1. Added a frozen `ProjectDefinition` dataclass for shared project metadata under `backend/projects/types.py`.
 2. Kept deployment-specific filesystem paths out of the type and exposed `dcc_parent_path_setting` as an environment-setting key field instead.
 3. Used immutable tuple defaults for `capabilities` and `tags` so project definitions remain safe to share as constants.
+
+## 36. Project registry foundation
+
+1. Added a central read-only project registry for the existing project applications under `backend/projects/registry.py`.
+2. Each registry entry uses the existing frozen `ProjectDefinition` dataclass and stores only safe metadata identifiers, avoiding credentials, network paths, and secrets.
+3. Active and inactive project state is represented explicitly; `blok4050` and `gokbey` are registered with `enabled=False`.
+4. Regression tests document required registry keys, read-only mapping behavior, DCC metadata, and inactive project flags.
