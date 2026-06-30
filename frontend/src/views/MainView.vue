@@ -43,6 +43,7 @@
 import { ref, onMounted, h, computed, Component, watch } from 'vue'
 import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
 import { useMessage, useDialog, useNotification, useLoadingBar, NIcon } from 'naive-ui'
+import type { MenuOption } from 'naive-ui'
 import { useCompdocStore, useDccStore, useAuthStore, useDdfStore, useOrgsStore } from '@/stores/api'
 import {
   ArrowReset24Regular,
@@ -70,6 +71,12 @@ import Popup from '@/components/GlobalPopup.vue'
 import { useUserStore } from '@/stores/user'
 import ReleaseNotesModal from '@/components/ReleaseNotesModal.vue'
 import { useReleaseNotesStore } from '@/stores/releaseNotes'
+import {
+  PROJECT_REGISTRY_FALLBACK,
+  fetchCompdocProjectRegistry
+} from '@/services/projectRegistry'
+import { formatApiError } from '@/services/apiError'
+import type { ProjectRegistryItem } from '@/models/projectRegistry'
 
 window.$loadingBar = useLoadingBar()
 window.$notification = useNotification()
@@ -87,7 +94,7 @@ const router = useRouter()
 const route = useRoute()
 const releaseNotes = useReleaseNotesStore()
 
-function handleMenuSelect(key: string, item: any) {
+function handleMenuSelect(key: string) {
   router.push(key)
 }
 
@@ -95,45 +102,44 @@ function renderIcon(iconAsset: Component) {
   return () => h(NIcon, null, { default: () => h(iconAsset) })
 }
 
-const menuOptions = [
+type ProjectMenuOption = MenuOption & {
+  name: string
+  children?: ProjectMenuOption[]
+}
+
+const projectRegistryItems = ref<ProjectRegistryItem[]>(PROJECT_REGISTRY_FALLBACK)
+
+const projectMenuChildren = computed<ProjectMenuOption[]>(() => {
+  const projects = projectRegistryItems.value
+  return [
+    {
+      label: 'Doc Analyzer',
+      key: '/compdocs/docAnalyzer',
+      name: 'docAnalyzer',
+      disabled: false,
+      icon: renderIcon(EyeTracking24Regular)
+    },
+    {
+      label: 'Cover Page Creator',
+      key: '/compdocs/coverpagecreator',
+      name: 'coverpagecreator',
+      disabled: false
+    },
+    { key: 'divider2', type: 'divider', name: 'projectDivider' },
+    createOzgurProjectGroup(projects),
+    ...projects.filter(isTopLevelProject).map(createProjectMenuOption)
+  ]
+})
+
+const menuOptions = computed<ProjectMenuOption[]>(() => [
   { label: 'AW Center', key: '/home', name: 'aw center', icon: renderIcon(Home24Regular) },
-  { key: 'divider1', type: 'divider' },
+  { key: 'divider1', type: 'divider', name: 'mainDivider' },
   {
     label: 'Compliance Docs',
     key: '/compdocs',
     name: 'projects',
     icon: renderIcon(Book24Regular),
-    children: [
-      {
-        label: 'Doc Analyzer',
-        key: '/compdocs/docAnalyzer',
-        name: 'docAnalyzer',
-        disabled: false,
-        icon: renderIcon(EyeTracking24Regular)
-      },
-      {
-        label: 'Cover Page Creator',
-        key: '/compdocs/coverpagecreator',
-        name: 'coverpagecreator',
-        disabled: false
-      },
-      { key: 'divider2', type: 'divider' },
-      {
-        label: 'Özgür',
-        key: '/ozgurlist',
-        name: 'ozgur',
-        children: [
-          { label: 'AESA', key: '/compdocs/aesa', name: 'aesa', disabled: false },
-          { label: 'HYS', key: '/compdocs/hys', name: 'hys', disabled: false },
-          { label: 'Özgür-1', key: '/compdocs/ozgur', name: 'ozgur', disabled: false },
-          { label: 'Blok 30', key: '/compdocs/blok30', name: 'blok30', disabled: false },
-          { label: 'Blok 40/50', key: '/compdocs/blok4050', name: 'blok4050', disabled: true }
-        ]
-      },
-      { label: 'Gokbey', key: '/compdocs/gokbey', name: 'gokbey', disabled: true },
-      { label: 'Piku', key: '/compdocs/piku', name: 'piku', disabled: false },
-      { label: 'Havasoj', key: '/compdocs/havasoj', name: 'havasoj', disabled: false }
-    ]
+    children: projectMenuChildren.value
   },
   {
     label: 'Outlook Task',
@@ -215,12 +221,47 @@ const menuOptions = [
   },
   { label: 'Users', key: '/users', name: 'users', icon: renderIcon(People24Regular) },
   { label: 'Settings', key: '/settings', name: 'settings', icon: renderIcon(Settings24Regular) }
-]
+])
+
+function createOzgurProjectGroup(projects: ProjectRegistryItem[]): ProjectMenuOption {
+  return {
+    label: 'Özgür',
+    key: '/ozgurlist',
+    name: 'ozgur',
+    children: projects.filter(isOzgurGroupProject).map(createProjectMenuOption)
+  }
+}
+
+function createProjectMenuOption(project: ProjectRegistryItem): ProjectMenuOption {
+  return {
+    label: project.display_name,
+    key: `/compdocs/${project.slug}`,
+    name: project.slug,
+    disabled: !project.enabled
+  }
+}
+
+function isOzgurGroupProject(project: ProjectRegistryItem): boolean {
+  return ['aesa', 'hys', 'ozgur', 'blok30', 'blok4050'].includes(project.slug)
+}
+
+function isTopLevelProject(project: ProjectRegistryItem): boolean {
+  return !isOzgurGroupProject(project)
+}
 
 const currentPage = computed(() => route.path)
 const appVersion = import.meta.env.VITE_VERSION
 
 onMounted(async () => {
+  await loadProjectRegistry()
   await releaseNotes.checkUnseen()
 })
+
+async function loadProjectRegistry() {
+  try {
+    projectRegistryItems.value = await fetchCompdocProjectRegistry()
+  } catch (error) {
+    window.$message.warning(`Project list could not be refreshed: ${formatApiError(error)}`)
+  }
+}
 </script>
