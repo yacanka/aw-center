@@ -283,13 +283,20 @@
 3. Added `capability` and `enabled` query filters so the frontend can gate menus/features without receiving internal registry details.
 4. Added response contract tests covering authentication, field allowlisting, route shape, and combined filter behavior.
 
-## 41. Frontend project registry consumption
+## 41. Project registry/database alignment validation
+
+1. Documented that `orgs.Project.slug` is the only business-facing bridge to `ProjectDefinition.slug` values in the central registry.
+2. Added a read-only `check_project_registry` management command that fails when enabled registry projects have no matching `orgs.Project` row.
+3. The command reports active database project rows absent from the registry as warnings and never creates, updates, or deletes project rows.
+4. Added regression tests for successful alignment, missing enabled projects, database-only project warnings, and keeping technical registry fields out of `orgs.Project`.
+
+## 42. Frontend project registry consumption
 
 1. Added a typed frontend project registry service backed by the authenticated backend registry API and a safe fallback list.
 2. Main navigation now builds Compliance Docs project menu entries from registry metadata while preserving disabled-state behavior.
 3. Home dashboard project tabs now load from registry metadata, keep disabled projects disabled, and show a user-facing warning before using fallback options when refresh fails.
 
-## 42. orgs project registry synchronization command
+## 43. orgs project registry synchronization command
 
 1. Added an idempotent `sync_projects` management command that creates missing `orgs.Project` rows from the central project registry.
 2. Existing project display names are preserved by default so user-maintained labels are not overwritten unless `--update-display-name` is explicitly supplied.

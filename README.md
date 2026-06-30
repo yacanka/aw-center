@@ -65,6 +65,26 @@ All tools are designed with **reusability**, **integration capability**, and **a
 - **Deployment**: GitLab CI/CD (not yet)
 ---
 
+
+## 🧩 Project Registry and Organization Project Slugs
+
+AW Center keeps technical project application metadata in the read-only backend project registry (`backend/projects/registry.py`) and keeps business-facing organization projects in the `orgs.Project` table. The shared contract between these two layers is the project slug.
+
+Rules:
+
+- `orgs.Project.slug` values must match registry `ProjectDefinition.slug` values for every enabled registry project.
+- Disabled registry projects may exist in the registry without an `orgs.Project` row until they are enabled or intentionally seeded.
+- `orgs.Project` must remain business data only; do not add technical registry fields such as `app_label`, `serializer_path`, `model_path`, filesystem paths, template paths, or internal import paths to that model.
+- Database project rows whose slug is not present in the registry are treated as active database-only records and should be investigated before introducing routes or automated workflows for them.
+
+Run the read-only alignment check from `backend/`:
+
+```bash
+python manage.py check_project_registry
+```
+
+The command is intentionally non-destructive. It fails when an enabled registry project is missing from `orgs.Project`, and it prints warnings for database project rows that are not registered. If rows need to be created, add a separate explicit seed data migration or a dedicated seeding management command so validation never mutates production data.
+
 ## 🚀 Development Starter
 
 The repository includes a cross-platform starter for macOS, Windows, and Linux. It creates and uses a root `.venv`, installs backend packages from `requirements.txt`, installs frontend packages from `frontend/package-lock.json`, creates a local-only `backend/.env` when absent, and can run Django and Vite together.
