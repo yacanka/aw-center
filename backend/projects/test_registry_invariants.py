@@ -24,7 +24,7 @@ class ProjectRegistryInvariantTests(TestCase):
         """Every project app label points to an importable project package."""
         for slug, definition in PROJECT_DEFINITIONS.items():
             with self.subTest(slug=slug):
-                module = import_module(f"projects.{definition.app_label}")
+                module = import_module(definition.app_label)
 
                 self.assertIsNotNone(module)
 
