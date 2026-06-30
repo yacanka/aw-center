@@ -186,3 +186,54 @@ class DccPermissionTests(TestCase):
         response = self.client.get(f"/dcc/api/{self.dcc.pk}/")
 
         self.assertEqual(response.status_code, 403)
+
+
+class DccProjectResolverTests(SimpleTestCase):
+    """Verify DCC project resolution from JIRA component metadata."""
+
+    def test_resolve_project_from_jira_components_returns_first_known_project(self):
+        """Multiple JIRA components are scanned until a registered project is found."""
+        from dcc.services.project_resolver import resolve_project_from_jira_components
+
+        components = [SimpleNamespace(name="Unrelated"), {"name": " aesa "}]
+
+        project_definition = resolve_project_from_jira_components(components)
+
+        self.assertEqual(project_definition.slug, "aesa")
+
+    def test_resolve_project_from_jira_components_raises_for_unknown_components(self):
+        """Unknown components fail with a controlled domain-specific exception."""
+        from dcc.services.project_resolver import (
+            UnknownDccProjectComponentError,
+            resolve_project_from_jira_components,
+        )
+
+        with self.assertRaises(UnknownDccProjectComponentError):
+            resolve_project_from_jira_components(["unknown", SimpleNamespace(name="other")])
+
+    def test_resolve_project_from_jira_components_rejects_non_dcc_project(self):
+        """Projects without the DCC capability cannot be selected for DCC."""
+        from unittest.mock import patch
+
+        from projects.types import ProjectDefinition
+
+        from dcc.services.project_resolver import (
+            DccCapabilityMissingError,
+            resolve_project_from_jira_components,
+        )
+
+        project_definition = ProjectDefinition(
+            slug="readonly",
+            display_name="Read Only",
+            app_label="projects.readonly",
+            url_prefix="readonly",
+            capabilities=("orgs",),
+            jira_component="READONLY",
+        )
+
+        with patch(
+            "dcc.services.project_resolver.find_project_by_jira_component",
+            return_value=project_definition,
+        ):
+            with self.assertRaises(DccCapabilityMissingError):
+                resolve_project_from_jira_components(["READONLY"])
