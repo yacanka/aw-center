@@ -17,6 +17,8 @@ from .service.JIRAConnector import JiraConnector, split_text_by_chracter, ISO_ti
 from .service.MailSender import *
 from .service.reminder_rate_limit import get_reminder_wait_seconds, reserve_reminder_email_slot
 from .permissions import DCCPermission, IsDCCOwner
+from .services.project_resolver import DccProjectResolutionError, resolve_project_from_jira_components
+from .services.template_resolver import resolve_dcc_template_path
 
 from .forms import UploadForm
 from .parsers import safe_ecd_parse
@@ -714,21 +716,17 @@ def create_dcc_action(uuid):
                 yield f'data: {json.dumps({"status": "error", "type": "text", "content": "A Subtask URL address was detected. Please enter a Task URL address!"})}\n\n'
                 return
 
-            project = None
-            for c in issue_f.components:
-                try:
-                    project = Projects.from_jira_component(c.name)
-                except ValueError as e:
-                    continue
-            
-            if project is None:
+            try:
+                project_definition = resolve_project_from_jira_components(issue_f.components)
+            except DccProjectResolutionError:
                 yield f'data: {json.dumps({"status": "error", "type": "text", "content": "Unsupported project."})}\n\n'
                 return
-            
+
             dcc_placeholder = {}
 
             loader_percentage += 20
-            yield f'data: {json.dumps({"status": "progress", "type": "loader", "percentage": loader_percentage, "content": f"[{project.jira_component}] {issue_f.summary}"})}\n\n'
+            project_label = project_definition.display_name or project_definition.jira_component
+            yield f'data: {json.dumps({"status": "progress", "type": "loader", "percentage": loader_percentage, "content": f"[{project_label}] {issue_f.summary}"})}\n\n'
 
             if issue_f.summary != None:
                 dcc_placeholder["Design_Change_Title"] = issue_f.summary
@@ -778,7 +776,7 @@ def create_dcc_action(uuid):
                     classification_list.append(("Minor-No Effect", sf.assignee))
 
                 comments = sf.comment.comments
-                if issue_f.components[0].name == "Gökbey Jandarma" and comments:
+                if project_definition.jira_component == "Gökbey Jandarma" and comments:
                     soup = BeautifulSoup(comments[0].body, 'html.parser')
 
                     extracted_text = soup.get_text(separator='\n', strip=True).replace('\n', ' ')                
@@ -807,7 +805,7 @@ def create_dcc_action(uuid):
                 dcc_placeholder["Responsible_AS"] = make_surname_upper(split_text_by_chracter(responsible_as.displayName, "("))
 
             
-            d = DocxTemplate(TEMPLATE_DIR / project.dcc_template_name)
+            d = DocxTemplate(resolve_dcc_template_path(project_definition))
 
             loader_percentage = 80
             save_name = f"{dcc_placeholder.get('DCC_Form_Number', 'DCC')}.docx"

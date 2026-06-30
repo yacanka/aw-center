@@ -268,3 +268,10 @@
 2. Rejected path traversal and path separator usage before filesystem resolution to avoid directory escape attempts.
 3. Verified the resolved template remains inside the configured template directory and raises controlled domain exceptions for invalid or missing templates.
 4. Added regression tests for valid template names, traversal attempts, wrong extensions, and empty values.
+
+## 39. DCC create flow registry/template resolution
+
+1. `create_dcc_action` now resolves the DCC project from JIRA issue components through `resolve_project_from_jira_components(issue_f.components)` instead of scanning the legacy enum in-place.
+2. DCC document generation now resolves the DOCX template through `resolve_dcc_template_path(project_definition)`, keeping template path validation in the dedicated resolver.
+3. Progress messages now use the resolved project definition display name with the existing issue summary, while unsupported project failures keep the existing SSE error event shape.
+4. Regression tests cover unsupported component SSE errors and successful template-path usage while preserving the existing success filename/download payload.
