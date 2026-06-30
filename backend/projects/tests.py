@@ -124,3 +124,39 @@ class ProjectRegistryTests(TestCase):
         self.assertIn("blok30/", route_names)
         self.assertNotIn("blok4050/", route_names)
         self.assertNotIn("gokbey/", route_names)
+
+    def test_root_urlpatterns_include_enabled_project_prefixes(self):
+        """Root routing preserves active project URL prefixes from the registry."""
+        from awcenter.urls import urlpatterns
+
+        route_names = {str(pattern.pattern) for pattern in urlpatterns}
+        enabled_routes = {
+            f"{definition.url_prefix}/"
+            for definition in get_enabled_project_definitions()
+        }
+
+        self.assertTrue(enabled_routes.issubset(route_names))
+
+    def test_root_urlpatterns_exclude_disabled_project_prefixes(self):
+        """Disabled registry projects are not exposed through the root router."""
+        from awcenter.urls import urlpatterns
+
+        route_names = {str(pattern.pattern) for pattern in urlpatterns}
+        disabled_routes = {
+            f"{definition.url_prefix}/"
+            for definition in PROJECT_DEFINITIONS.values()
+            if not definition.enabled
+        }
+
+        self.assertTrue(disabled_routes.isdisjoint(route_names))
+
+    def test_root_urlpatterns_keep_non_project_routes(self):
+        """Registry routing does not change non-project application URL prefixes."""
+        from awcenter.urls import urlpatterns
+
+        route_names = {str(pattern.pattern) for pattern in urlpatterns}
+
+        self.assertIn("dcc/", route_names)
+        self.assertIn("auth/", route_names)
+        self.assertIn("orgs/", route_names)
+        self.assertIn("doors/", route_names)

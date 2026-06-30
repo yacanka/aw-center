@@ -5,7 +5,7 @@ from django.conf.urls.static import static
 
 from projects.routing import get_project_urlpatterns
 
-from .views import redirect_to_app, download_file, index
+from .views import redirect_to_app, download_file
 
 urlpatterns = [
     path('admin/', admin.site.urls),
