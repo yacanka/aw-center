@@ -109,6 +109,10 @@ Useful options:
 Use the root `launcher.py` when you need one command surface for dependency installation,
 offline preparation, backend database checks, and frontend quality checks. The launcher is
 designed for macOS, Windows, and Linux, and it never passes commands through a shell string.
+It requires Python 3.11 or newer for both the launcher process and the project `.venv`.
+If an older `.venv` already exists, delete it and rerun the launcher with an explicit
+interpreter, such as `py -3.11 launcher.py install` on Windows or
+`python3.11 launcher.py install` on Unix-like systems.
 
 ### Command Summary
 

@@ -309,3 +309,9 @@
 2. Registry invariant and API contract tests now verify that declared and frontend-facing capabilities stay inside the documented allowlist.
 3. The registry API rejects unknown capability filters so unsupported values cannot become implicit contracts.
 4. Frontend project registry typing and runtime parsing now use the same documented capability set, and both backend/frontend constants document that adding a capability requires a coordinated contract update.
+
+## 45. Launcher Python version guard
+
+1. The root launcher now validates that both the active launcher interpreter and an existing `.venv` use Python 3.11 or newer.
+2. Existing Python 3.9 virtual environments now fail fast with a clear remediation message instead of being reused silently.
+3. README launcher guidance documents explicit `py -3.11` and `python3.11` commands for rebuilding stale environments.

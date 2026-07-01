@@ -18,6 +18,7 @@ FRONTEND = ROOT / "frontend"
 VENV = ROOT / ".venv"
 OFFLINE = ROOT / "offline"
 REQUIREMENTS = ROOT / "requirements.txt"
+MINIMUM_PYTHON = (3, 11)
 
 @dataclass(frozen=True)
 class LauncherConfig:
@@ -41,6 +42,39 @@ def venv_python() -> Path:
     """Return the project virtual-environment Python executable."""
     return VENV / ("Scripts" if os.name == "nt" else "bin") / executable("python")
 
+def format_python_version(version: tuple[int, int, int]) -> str:
+    """Return a human-readable Python version string."""
+    return ".".join(str(part) for part in version)
+
+def ensure_python_version(version: tuple[int, int, int], source: str) -> None:
+    """Fail when a Python interpreter is older than the supported minimum."""
+    if version[:2] >= MINIMUM_PYTHON:
+        return
+    minimum = ".".join(str(part) for part in MINIMUM_PYTHON)
+    current = format_python_version(version)
+    raise RuntimeError(
+        f"{source} uses Python {current}; Python {minimum}+ is required. "
+        "Remove .venv and rerun with py -3.11 launcher.py install on Windows "
+        "or python3.11 launcher.py install on Unix-like systems."
+    )
+
+def current_python_version() -> tuple[int, int, int]:
+    """Return the Python version running this launcher."""
+    return sys.version_info[:3]
+
+def virtual_environment_version() -> tuple[int, int, int]:
+    """Return the Python version inside the project virtual environment."""
+    version_script = "import sys; print('.'.join(map(str, sys.version_info[:3])))"
+    completed = subprocess.run(
+        [str(venv_python()), "-c", version_script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode:
+        raise RuntimeError("could not determine .venv Python version")
+    return tuple(int(part) for part in completed.stdout.strip().split("."))
+
 def run(command: list[str], cwd: Path = ROOT) -> None:
     """Run a subprocess with safe argument passing and clear failures."""
     print(f"\n$ {' '.join(command)}")
@@ -63,7 +97,9 @@ def ensure_tool(name: str) -> None:
 
 def ensure_virtual_environment() -> None:
     """Create the local Python virtual environment when needed."""
+    ensure_python_version(current_python_version(), "launcher interpreter")
     if venv_python().exists():
+        ensure_python_version(virtual_environment_version(), "existing .venv")
         return
     run([sys.executable, "-m", "venv", str(VENV)])
 
