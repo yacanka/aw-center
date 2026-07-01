@@ -29,6 +29,8 @@ parts/
 sdist/
 var/
 wheels/
+packages/
+offline/
 share/python-wheels/
 pip-log.txt
 pip-delete-this-directory.txt
