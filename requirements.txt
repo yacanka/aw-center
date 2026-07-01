@@ -4,6 +4,10 @@
 # - Django 6.0 officially supports Python 3.14.
 # - Keep BAT/CMD/Windows helpers separate from cross-platform deployment if possible.
 
+# Packaging compatibility
+# torch 2.12 requires setuptools<82 when optional NLP dependencies are present.
+setuptools>=80,<82
+
 # Core web framework
 Django>=6.0,<6.1
 djangorestframework>=3.16,<4
@@ -22,10 +26,7 @@ requests>=2.32,<3
 beautifulsoup4>=4.13,<5
 docx2txt>=0.8,<1
 docxtpl>=0.20,<1
-# extract-msg 0.29.0+ can pull red-black-tree-mod, which is unavailable in
-# the target package index. Keep the parser below that boundary to make the
-# default install independent from red-black-tree-mod.
-extract-msg>=0.28.7,<0.29
+extract-msg>=0.55,<1
 numpy>=2.3,<3
 openpyxl>=3.1,<4
 pandas>=2.3.3,<4
