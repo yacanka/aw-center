@@ -1,24 +1,20 @@
 # ========================
-# Python (Django) Specific
+# Python / Django
 # ========================
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
 
-# Virtual Environment
+# Virtual environments
+.venv/
 venv/
 env/
-.venv/
-env.bak/
-venv.bak/
-.venv.bak/
+ENV/
+.envrc
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
+# Packaging / build artifacts
 build/
-develop-eggs/
 dist/
 downloads/
 eggs/
@@ -29,135 +25,122 @@ parts/
 sdist/
 var/
 wheels/
-packages/
-offline/
 share/python-wheels/
-pip-log.txt
-pip-delete-this-directory.txt
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Test / coverage / type-check caches
+.coverage
+.coverage.*
+htmlcov/
 .pytest_cache/
 .hypothesis/
-
-# Django specific
-*.log
-db.sqlite3
-db.sqlite3-journal
-.env
-.env.local
-.env.development
-.env.production
-.env.test
-.env.example
-.DS_Store
-.coverage
-.coverage.*
-.cache
-.pytest_cache/
-.pytest_cache/
-.coverage
-.coverage.*
 .tox/
-.coverage
-.coverage.*
+.nox/
 .mypy_cache/
-.pytest_cache/
-.pytest_cache/
-.coverage
-.coverage.*
-.mypy_cache/
-.pytest_cache/
-*.pyc
-*.pyo
-*.pyd
-__pycache__/
-
-# Media and static files
-media/
-assets/
-staticfiles/
-static/
-*.docx
-*.crt
-*.key
-*.txt
-!requirements.txt
-*.html
-!frontend/index.html
-!frontend/src/assets/
-!frontend/src/assets/**
-
-# AI Models
-models/
-!frontend/src/models/
-!frontend/src/models/*.ts
-
-# ========================
-# Vue3 (Frontend) Specific
-# ========================
-
-# Node.js
-node_modules/
-npm-debug.log*
-yarn-error.log*
-yarn-debug.log*
-.pnpm-debug.log*
-.pnpm-lock.yaml
-.pnpm-lock.yaml.lock
-.pnpm
-.pnpm-lock.yaml
-.pnpm-debug.log*
-.pnpm-error.log*
-.pnpm-store/
-.npm/
-.npmrc
-
-# Build files
-dist/
-build/
-out/
-dist/
-public/dist/
-public/build/
-public/static/
-
-# Vue specific
-*.log
-*.log.*
-.nuxt/
+.pyre/
+.pytype/
+.ruff_cache/
 .cache/
-.vuerc
-.vuerc.json
-.env.local
-.env
-.env.development
-.env.production
-.env.test
-.env.example
 
-# Editor
+# Django runtime files
+*.log
+*.pot
+*.mo
+*.sqlite3
+*.sqlite3-journal
+*.db
+*.db-journal
+backend/db.sqlite3
+backend/db_old.sqlite3
+backend/media/
+backend/static/
+backend/staticfiles/
+backend/templates/index.html
+backend/core/assets/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+*.pem
+*.crt
+*.cer
+*.key
+*.p12
+*.pfx
+
+# Generated Office / document processing outputs
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.xlsm
+*.ppt
+*.pptx
+*.pdf
+*.msg
+*.eml
+~$*
+
+# ========================
+# Node / Vue / Vite
+# ========================
+node_modules/
+frontend/node_modules/
+.npm/
+.pnpm-store/
+.pnpm/
+.yarn/
+.yarn-cache/
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# Frontend build output and local Vite artifacts
+frontend/dist/
+frontend/.vite/
+frontend/.vite-inspect/
+.vite/
+.vite-inspect/
+
+# Optional package manager lock files not used by this repo
+pnpm-lock.yaml
+yarn.lock
+
+# ========================
+# Docker / local tooling
+# ========================
+.docker/
+
+# ========================
+# Editors / OS
+# ========================
 .idea/
 .vscode/
 *.swp
 *.swo
-*.DS_Store
-Thumbs.db
-
-# Docker
-.dockerignore
-.docker/
-.dockerignore
-.docker/
-.dockerignore
-
-# Environment files
-.env
-.env.local
-.env.development.local
-.env.production.local
-.env.test.local
-
-# IDE & OS specific
-*.log
+*~
 *.tmp
 *.temp
+*.bak
 *.backup
-*~
+.DS_Store
+Thumbs.db
+
+# ========================
+# Project-specific generated data
+# ========================
+media/
+staticfiles/
+models/
+!frontend/src/models/
+!frontend/src/models/**
