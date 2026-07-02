@@ -1,0 +1,49 @@
+# Backend Python dependencies for AW Center.
+# Target runtime: CPython 3.11, 64-bit.
+# Resolver-friendly Python 3.11 set.
+# Updated after pip conflict around extract-msg + beautifulsoup4.
+
+# Packaging compatibility
+setuptools
+
+# Core web framework
+# Django 6.x requires Python >=3.12; stay on Django 5.2 LTS for Python 3.11.
+Django
+djangorestframework
+django-cors-headers
+django-simple-history
+django-environ
+django-extensions
+whitenoise
+cheroot
+
+# Integrations and HTTP clients
+jira
+requests
+
+# Office, PDF, and document processing
+# Keep bs4 below 4.15 because extract-msg currently conflicts with beautifulsoup4>=4.15.
+beautifulsoup4
+docx2txt
+docxtpl
+extract-msg
+# Python 3.11 safe scientific stack. Avoid speculative/future NumPy/Pandas lines.
+numpy
+openpyxl
+pandas
+pdfplumber
+Pillow
+pypdf
+# PyPDF2 is legacy; keep only if old code imports PyPDF2 directly.
+PyPDF2
+python-dateutil
+python-docx
+
+# NLP-assisted tooling
+sentence-transformers
+transformers
+torch
+
+# Windows-only automation used by DOORS, Outlook, and PowerPoint helpers
+pywin32
+WMI
