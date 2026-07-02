@@ -144,3 +144,6 @@ staticfiles/
 models/
 !frontend/src/models/
 !frontend/src/models/**
+offline/
+wheels/
+workspace/
