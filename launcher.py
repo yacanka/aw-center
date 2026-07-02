@@ -34,6 +34,11 @@ Prepare offline Python wheels and npm cache:
 
     py -3.11 launcher.py prepare-offline
 
+Package only the files needed for offline transfer into a ZIP:
+
+    py -3.11 launcher.py package-offline
+    py -3.11 launcher.py package-offline --offline-zip C:\\packages\\aw-center-offline.zip
+
 Install from prepared offline bundle:
 
     py -3.11 launcher.py install --mode offline
@@ -110,6 +115,7 @@ import json
 import os
 import shlex
 import time
+import zipfile
 import shutil
 import socket
 import subprocess
@@ -180,13 +186,13 @@ class LauncherConfig:
     command: str
     mode: str
     offline_dir: Path
+    offline_zip: Path
     skip_frontend: bool
     skip_backend: bool
     fix_migrations: bool
     host: str
     backend_port: int
     frontend_port: int
-    no_backend_reload: bool
 
 
 def executable(name: str) -> str:
@@ -546,19 +552,15 @@ def run_development_servers(config: LauncherConfig) -> None:
     processes: list[subprocess.Popen[str]] = []
 
     if selected_backend_port is not None:
-        backend_command = [
-            venv_python(),
-            "manage.py",
-            "runserver",
-            f"{config.host}:{selected_backend_port}",
-        ]
-
-        if config.no_backend_reload:
-            backend_command.append("--noreload")
-            
         processes.append(
             start_process(
-                backend_command,
+                [
+                    venv_python(),
+                    "manage.py",
+                    "runserver",
+                    f"{config.host}:{selected_backend_port}",
+                    "--noreload",
+                ],
                 cwd=BACKEND,
                 env_extra={
                     "IPV4_ADDRESS": config.host,
@@ -858,13 +860,13 @@ def prepare_offline_bundle(config: LauncherConfig) -> None:
             command=config.command,
             mode="online",
             offline_dir=config.offline_dir,
+            offline_zip=config.offline_zip,
             skip_frontend=config.skip_frontend,
             skip_backend=config.skip_backend,
             fix_migrations=config.fix_migrations,
             host=config.host,
             backend_port=config.backend_port,
             frontend_port=config.frontend_port,
-            no_backend_reload=config.no_backend_reload
         )
 
         run(
@@ -873,6 +875,215 @@ def prepare_offline_bundle(config: LauncherConfig) -> None:
         )
 
     print(f"\nOffline bundle prepared under: {config.offline_dir}")
+
+
+OFFLINE_PACKAGE_EXCLUDED_DIRECTORIES = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "dist",
+    "build",
+    ".vite",
+    ".cache",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "htmlcov",
+    "coverage",
+    "logs",
+    "log",
+    "media",
+    "uploads",
+    "tmp",
+    "temp",
+}
+
+OFFLINE_PACKAGE_EXCLUDED_FILENAMES = {
+    ".env",
+    ".env.local",
+    ".env.development.local",
+    ".env.production.local",
+    ".DS_Store",
+    "Thumbs.db",
+    "db.sqlite3",
+    "db.sqlite3-journal",
+}
+
+OFFLINE_PACKAGE_EXCLUDED_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+    ".log",
+    ".tmp",
+    ".temp",
+    ".swp",
+}
+
+ROOT_REQUIRED_FILE_NAMES = {
+    "requirements.txt",
+    "requirements-dev.txt",
+    "requirements-prod.txt",
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+}
+
+
+def path_relative_to_root(path: Path) -> Path:
+    """Return path relative to the project root when possible."""
+    try:
+        return path.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return Path(path.name)
+
+
+def archive_path_for_file(path: Path, config: LauncherConfig) -> Path:
+    """Return a stable ZIP path that works after extraction on an offline machine."""
+    resolved_path = path.resolve()
+
+    try:
+        return resolved_path.relative_to(ROOT.resolve())
+    except ValueError:
+        pass
+
+    try:
+        return Path("offline") / resolved_path.relative_to(config.offline_dir.resolve())
+    except ValueError:
+        return Path(resolved_path.name)
+
+
+def should_exclude_from_offline_package(path: Path, output_zip: Path) -> bool:
+    """Return True for files/directories that should not be transferred offline."""
+    if path.resolve() == output_zip.resolve():
+        return True
+
+    relative = path_relative_to_root(path)
+    parts = set(relative.parts)
+
+    if parts.intersection(OFFLINE_PACKAGE_EXCLUDED_DIRECTORIES):
+        return True
+
+    if path.name in OFFLINE_PACKAGE_EXCLUDED_FILENAMES:
+        return True
+
+    if path.suffix.lower() in OFFLINE_PACKAGE_EXCLUDED_SUFFIXES:
+        return True
+
+    return False
+
+
+def iter_package_files(root: Path, output_zip: Path) -> list[Path]:
+    """Return packageable files from a file or directory root."""
+    if not root.exists():
+        return []
+
+    if should_exclude_from_offline_package(root, output_zip):
+        return []
+
+    if root.is_file():
+        return [root]
+
+    files: list[Path] = []
+
+    for item in root.rglob("*"):
+        if item.is_dir():
+            continue
+
+        if should_exclude_from_offline_package(item, output_zip):
+            continue
+
+        files.append(item)
+
+    return files
+
+
+def offline_package_roots(config: LauncherConfig) -> list[Path]:
+    """Return only the roots needed to recreate/install the project offline."""
+    roots: list[Path] = []
+
+    # Include the launcher currently being executed so the offline machine gets
+    # the exact same install/check/run commands.
+    roots.append(Path(__file__).resolve())
+
+    for file_name in ROOT_REQUIRED_FILE_NAMES:
+        candidate = ROOT / file_name
+        if candidate.exists():
+            roots.append(candidate)
+
+    if not config.skip_backend:
+        ensure_backend_layout()
+        if not offline_backend_ready(config.offline_dir):
+            raise RuntimeError(
+                f"offline Python wheels not found in {config.offline_dir / 'wheels'}. "
+                "Run 'launcher.py prepare-offline' first, or use --skip-backend."
+            )
+        roots.append(BACKEND)
+        roots.append(config.offline_dir / "wheels")
+
+    if not config.skip_frontend:
+        ensure_frontend_layout()
+        if not offline_frontend_ready(config.offline_dir):
+            raise RuntimeError(
+                f"offline npm cache not found in {config.offline_dir / 'npm-cache'}. "
+                "Run 'launcher.py prepare-offline' first, or use --skip-frontend."
+            )
+        roots.append(FRONTEND)
+        roots.append(config.offline_dir / "npm-cache")
+
+    # Preserve deterministic order and avoid duplicate roots.
+    unique_roots: list[Path] = []
+    seen: set[Path] = set()
+
+    for root in roots:
+        resolved = root.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_roots.append(resolved)
+
+    return unique_roots
+
+
+def package_offline_bundle(config: LauncherConfig) -> None:
+    """Create a ZIP containing only the files needed by the offline environment."""
+    output_zip = config.offline_zip.resolve()
+    output_zip.parent.mkdir(parents=True, exist_ok=True)
+
+    roots = offline_package_roots(config)
+    files: list[Path] = []
+
+    for root in roots:
+        files.extend(iter_package_files(root, output_zip))
+
+    unique_files: list[Path] = []
+    seen: set[Path] = set()
+
+    for file_path in files:
+        resolved = file_path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_files.append(resolved)
+
+    if not unique_files:
+        raise RuntimeError("No files found to package for offline transfer.")
+
+    with zipfile.ZipFile(output_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file_path in sorted(unique_files, key=lambda item: archive_path_for_file(item, config).as_posix()):
+            archive.write(file_path, archive_path_for_file(file_path, config).as_posix())
+
+    total_size = sum(file_path.stat().st_size for file_path in unique_files)
+
+    print(f"\nOffline ZIP created: {output_zip}")
+    print(f"Included files    : {len(unique_files)}")
+    print(f"Source size       : {total_size / (1024 * 1024):.2f} MB")
+    print(f"ZIP size          : {output_zip.stat().st_size / (1024 * 1024):.2f} MB")
+    print("\nTransfer this ZIP to the offline machine, extract it, then run:")
+    print("  py -3.11 launcher.py install --mode offline")
 
 
 def development_env_content() -> str:
@@ -1042,12 +1253,27 @@ def resolve_offline_dir(value: str) -> Path:
     return path.resolve()
 
 
+def resolve_offline_zip(value: str) -> Path:
+    """Resolve offline ZIP output path relative to the project root."""
+    path = Path(value).expanduser()
+
+    if not path.is_absolute():
+        path = ROOT / path
+
+    return path.resolve()
+
+
 def parse_arguments() -> LauncherConfig:
     """Parse command-line arguments into launcher configuration."""
     parser = argparse.ArgumentParser(description="AW Center launcher")
-    parser.add_argument("command", choices=["prepare-offline", "install", "check", "all", "run"])
+    parser.add_argument("command", choices=["prepare-offline", "package-offline", "install", "check", "all", "run"])
     parser.add_argument("--mode", choices=["auto", "online", "offline"], default="auto")
     parser.add_argument("--offline-dir", default=str(OFFLINE))
+    parser.add_argument(
+        "--offline-zip",
+        default=str(ROOT / "aw-center-offline.zip"),
+        help="ZIP file created by package-offline. Default: aw-center-offline.zip",
+    )
     parser.add_argument("--skip-frontend", action="store_true")
     parser.add_argument("--skip-backend", action="store_true")
     parser.add_argument(
@@ -1072,19 +1298,15 @@ def parse_arguments() -> LauncherConfig:
         default=5173,
         help="Preferred frontend development server port. Default: 5173",
     )
-    parser.add_argument(
-        "--no-backend-reload",
-        action="store_true",
-        help="Start Django without autoreload. Useful when process cleanup is more important than hot reload.",
-    )
 
     args = parser.parse_args()
 
     offline_dir = resolve_offline_dir(args.offline_dir)
+    offline_zip = resolve_offline_zip(args.offline_zip)
 
     if args.command == "prepare-offline":
         mode = "online"
-    elif args.command == "run":
+    elif args.command in {"package-offline", "run"}:
         mode = args.mode
     else:
         mode = detect_mode(args.mode, offline_dir)
@@ -1093,13 +1315,13 @@ def parse_arguments() -> LauncherConfig:
         command=args.command,
         mode=mode,
         offline_dir=offline_dir,
+        offline_zip=offline_zip,
         skip_frontend=args.skip_frontend,
         skip_backend=args.skip_backend,
         fix_migrations=args.fix_migrations,
         host=args.host,
         backend_port=args.backend_port,
         frontend_port=args.frontend_port,
-        no_backend_reload=args.no_backend_reload,
     )
 
 
@@ -1111,9 +1333,14 @@ def main() -> int:
         print(f"Project root : {ROOT}")
         print(f"Mode         : {config.mode}")
         print(f"Offline dir  : {config.offline_dir}")
+        if config.command == "package-offline":
+            print(f"Offline ZIP  : {config.offline_zip}")
 
         if config.command == "prepare-offline":
             prepare_offline_bundle(config)
+
+        elif config.command == "package-offline":
+            package_offline_bundle(config)
 
         elif config.command == "install":
             install_backend(config)
