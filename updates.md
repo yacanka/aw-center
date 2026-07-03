@@ -333,3 +333,9 @@
 1. Preview requests no longer fail with HTTP 400 when required columns are missing; they return the mapping preview with `missing_columns` so users can correct the Excel file.
 2. Confirmed imports still reject missing required columns before any database write.
 3. The preview modal now shows missing columns and row validation details directly instead of only showing a count.
+
+## 49. Login theme initialization fix
+
+1. Centralized frontend theme resolution in `frontend/src/services/theme.ts` so unauthenticated screens and authenticated preference updates use the same dark/light fallback logic.
+2. Updated the root Naive UI config provider to resolve its initial theme from the system preference when no user preference has been loaded yet, preventing light Naive components on a dark first login screen.
+3. Reused the same theme application helper after session bootstrap, login, and settings theme updates to keep CSS variables and Naive UI theme state aligned.
