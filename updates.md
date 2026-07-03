@@ -327,3 +327,9 @@
 1. Compliance-document Excel upload now performs a preview request before saving, showing the detected header row, mapped columns, unmapped columns, and row validation warnings.
 2. The backend upload endpoint now separates preview from confirmed import and rejects non-preview save attempts without explicit confirmation.
 3. The frontend keeps the selected file in memory between preview and confirmation, then re-submits it only after the user confirms.
+
+## 48. Compliance import preview missing-column fix
+
+1. Preview requests no longer fail with HTTP 400 when required columns are missing; they return the mapping preview with `missing_columns` so users can correct the Excel file.
+2. Confirmed imports still reject missing required columns before any database write.
+3. The preview modal now shows missing columns and row validation details directly instead of only showing a count.

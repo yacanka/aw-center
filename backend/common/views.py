@@ -305,11 +305,6 @@ def upload_compdoc_factory(model, serializer_class, view_permission_classes):
 
                 model_fields = {field.name for field in model._meta.fields}
                 header_result = choose_header_row(excel_file, pd, model_fields)
-                if header_result.missing_fields:
-                    return Response({
-                        "message": "Missing column names exist.",
-                        "missing_columns": header_result.missing_fields,
-                    }, status=400)
 
                 excel_file.seek(0)
                 preview_df = pd.read_excel(excel_file, header=header_result.header_row_index)
@@ -334,8 +329,15 @@ def upload_compdoc_factory(model, serializer_class, view_permission_classes):
                                 "row": int(row_index) + 2 + header_result.header_row_index,
                                 "name": row.get("name") or f"Row {int(row_index) + 1}",
                                 "error": serializer.errors,
+                                "error_text": str(serializer.errors),
                             })
                     return Response({**preview, "invalid_documents": invalid_serializer}, status=200)
+
+                if header_result.missing_fields:
+                    return Response({
+                        "message": "Missing column names exist.",
+                        "missing_columns": header_result.missing_fields,
+                    }, status=400)
 
                 if request.query_params.get("confirm_import") != "true":
                     return Response({"message": "Import preview confirmation is required."}, status=409)

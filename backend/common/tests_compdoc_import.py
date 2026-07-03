@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from common.compdoc_import import build_mapping_preview, choose_header_row, map_headers
+from common.compdoc_import import HeaderMappingResult, build_mapping_preview, choose_header_row, map_headers
 
 
 MODEL_FIELDS = {
@@ -86,3 +86,9 @@ class ComplianceDocumentImportMappingTests(TestCase):
         self.assertEqual(preview["header_row"], 2)
         self.assertIn({"source": "Document Name", "target": "name"}, preview["mapped_columns"])
         self.assertEqual(preview["unmapped_columns"], ["Ignored"])
+
+    def test_preview_includes_missing_columns_for_incomplete_mapping(self):
+        header_result = HeaderMappingResult(0, {"Document Name": "name"}, ["panel"])
+        preview = build_mapping_preview(["Document Name", "Unknown"], header_result)
+
+        self.assertEqual(preview["missing_columns"], ["panel"])

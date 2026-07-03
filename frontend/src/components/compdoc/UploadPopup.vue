@@ -21,12 +21,19 @@
       Header row {{ preview?.header_row }} was detected. Review mappings and validation warnings before saving.
     </n-alert>
     <n-data-table :columns="mappingColumns" :data="preview?.mapped_columns || []" size="small" />
+    <n-alert v-if="preview?.missing_columns.length" type="error" style="margin-top: 12px">
+      Missing required columns: {{ preview.missing_columns.join(', ') }}
+    </n-alert>
     <n-alert v-if="preview?.unmapped_columns.length" type="warning" style="margin-top: 12px">
       Unmapped columns: {{ preview.unmapped_columns.join(', ') }}
     </n-alert>
-    <n-alert v-if="preview?.invalid_documents.length" type="error" style="margin-top: 12px">
-      {{ preview.invalid_documents.length }} row(s) have validation errors. You can still confirm, but those rows may be skipped.
-    </n-alert>
+    <n-data-table
+      v-if="preview?.invalid_documents.length"
+      :columns="validationColumns"
+      :data="preview.invalid_documents"
+      size="small"
+      style="margin-top: 12px"
+    />
     <template #footer>
       <n-space justify="end">
         <n-button @click="cancelPreview">Cancel</n-button>
@@ -55,6 +62,7 @@ interface ImportMappingRow {
 interface ImportInvalidDocument extends InvalidDocument {
   name: string
   error: unknown
+  error_text?: string
   row?: number
 }
 
@@ -77,6 +85,11 @@ const popup = popupStore()
 const mappingColumns: DataTableColumns<ImportMappingRow> = [
   { title: 'Excel Column', key: 'source' },
   { title: 'Mapped Model Field', key: 'target' }
+]
+const validationColumns: DataTableColumns<ImportInvalidDocument> = [
+  { title: 'Row', key: 'row' },
+  { title: 'Name', key: 'name' },
+  { title: 'Validation Error', key: 'error_text' }
 ]
 
 onMounted(() => {})
@@ -163,12 +176,12 @@ function showInvalidDocuments(invalidDocuments: ImportInvalidDocument[]) {
 
 function formatInvalidDocument(document: ImportInvalidDocument) {
   const errorText = isPlainObject(document.error)
-    ? Object.entries(document.error)
+    ? Object.entries(document.error as Record<string, unknown>)
         .map(([key, value]) => `${key}: ${value}`)
         .join('\n')
     : String(document.error)
   const rowLabel = document.row ? `[Row] ${document.row}\n` : ''
-  return `${rowLabel}[Name] ${document.name}\n[Error] ${errorText}\n`
+  return `${rowLabel}[Name] ${document.name}\n[Error] ${document.error_text || errorText}\n`
 }
 
 function resetUploadState() {
