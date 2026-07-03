@@ -315,3 +315,9 @@
 1. The root launcher now validates that both the active launcher interpreter and an existing `.venv` use Python 3.11 or newer.
 2. Existing Python 3.9 virtual environments now fail fast with a clear remediation message instead of being reused silently.
 3. README launcher guidance documents explicit `py -3.11` and `python3.11` commands for rebuilding stale environments.
+
+## 46. Login theme initialization fix
+
+1. Centralized frontend theme resolution in `frontend/src/services/theme.ts` so unauthenticated screens and authenticated preference updates use the same dark/light fallback logic.
+2. Updated the root Naive UI config provider to resolve its initial theme from the system preference when no user preference has been loaded yet, preventing light Naive components on a dark first login screen.
+3. Reused the same theme application helper after session bootstrap, login, and settings theme updates to keep CSS variables and Naive UI theme state aligned.
