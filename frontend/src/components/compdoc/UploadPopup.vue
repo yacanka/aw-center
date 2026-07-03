@@ -15,11 +15,38 @@
       </n-upload>
     </div>
   </n-modal>
+
+  <n-modal v-model:show="showPreviewModal" preset="card" title="Confirm Excel Import" width="900px">
+    <n-alert type="info" :bordered="false">
+      Header row {{ preview?.header_row }} was detected. Review mappings and validation warnings before saving.
+    </n-alert>
+    <n-data-table :columns="mappingColumns" :data="preview?.mapped_columns || []" size="small" />
+    <n-alert v-if="preview?.missing_columns.length" type="error" style="margin-top: 12px">
+      Missing required columns: {{ preview.missing_columns.join(', ') }}
+    </n-alert>
+    <n-alert v-if="preview?.unmapped_columns.length" type="warning" style="margin-top: 12px">
+      Unmapped columns: {{ preview.unmapped_columns.join(', ') }}
+    </n-alert>
+    <n-data-table
+      v-if="preview?.invalid_documents.length"
+      :columns="validationColumns"
+      :data="preview.invalid_documents"
+      size="small"
+      style="margin-top: 12px"
+    />
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="cancelPreview">Cancel</n-button>
+        <n-button type="primary" :loading="confirmingImport" @click="confirmImport">Confirm Import</n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { NModal, NUpload, UploadCustomRequestOptions } from 'naive-ui'
+import { NModal, NUpload, UploadCustomRequestOptions, NButton, NDataTable, NSpace, NAlert } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import axios from 'axios'
 import { useCompdocStore } from '@/stores/api'
 import { popupStore } from '@/stores/popupStore'
@@ -27,9 +54,43 @@ import { isPlainObject } from '@/utils/general'
 import { InvalidDocument } from '@/models/compdocs'
 import { formatApiError } from '@/services/apiError'
 
+interface ImportMappingRow {
+  source: string
+  target: string
+}
+
+interface ImportInvalidDocument extends InvalidDocument {
+  name: string
+  error: unknown
+  error_text?: string
+  row?: number
+}
+
+interface ImportPreview {
+  header_row: number
+  mapped_columns: ImportMappingRow[]
+  unmapped_columns: string[]
+  missing_columns: string[]
+  invalid_documents: ImportInvalidDocument[]
+}
+
 const showModal = ref(false)
+const showPreviewModal = ref(false)
+const confirmingImport = ref(false)
+const pendingFile = ref<File | null>(null)
+const preview = ref<ImportPreview | null>(null)
+const uploadCallbacks = ref<Pick<UploadCustomRequestOptions, 'onFinish' | 'onError'> | null>(null)
 const store = useCompdocStore()
 const popup = popupStore()
+const mappingColumns: DataTableColumns<ImportMappingRow> = [
+  { title: 'Excel Column', key: 'source' },
+  { title: 'Mapped Model Field', key: 'target' }
+]
+const validationColumns: DataTableColumns<ImportInvalidDocument> = [
+  { title: 'Row', key: 'row' },
+  { title: 'Name', key: 'name' },
+  { title: 'Validation Error', key: 'error_text' }
+]
 
 onMounted(() => {})
 
@@ -45,46 +106,90 @@ defineExpose({
   setActive
 })
 
-async function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions) {
-  if (!file.file) return
-  const formData = new FormData()
-  formData.append('file', file.file)
+async function handleUploadReq(options: UploadCustomRequestOptions) {
+  if (!options.file.file) return
+  pendingFile.value = options.file.file
+  uploadCallbacks.value = { onFinish: options.onFinish, onError: options.onError }
+  await previewImport(options.file.file)
+}
 
+async function previewImport(file: File) {
   window.$loadingBar.start()
   try {
-    const res = await axios.post(props.uploadUrl, formData)
+    const res = await axios.post<ImportPreview>(`${props.uploadUrl}?preview=true`, buildFormData(file))
+    preview.value = res.data
+    showPreviewModal.value = true
     window.$loadingBar.finish()
-    window.$notification.success({
-      title: 'Success',
-      description: res.data.message,
-      duration: 3000
-    })
-    if (res.data.invalid_documents) {
-      let result = ''
-      const invalid_documents = res.data.invalid_documents
-      invalid_documents.forEach((document: InvalidDocument) => {
-        let errorText = ''
-        if (isPlainObject(document.error)) {
-          errorText = Object.entries(document.error)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join('\n')
-        } else {
-          errorText = document.error
-        }
-        result += `[Name] ${document.name}\n[Error] ${errorText}\n\n`
-      })
-      popup.open('Some documents cannot be imported', result)
-    }
-  } catch (err: any) {
-    window.$loadingBar.error()
-    window.$notification.error({
-      title: 'Error',
-      description: `Error while uploading file: ${formatApiError(err)}`
-    })
-  } finally {
-    store.fetchCompdocs()
-    setActive(false)
+  } catch (err: unknown) {
+    uploadCallbacks.value?.onError()
+    showUploadError(err)
   }
+}
+
+async function confirmImport() {
+  if (!pendingFile.value) return
+  confirmingImport.value = true
+  window.$loadingBar.start()
+  try {
+    const res = await axios.post(`${props.uploadUrl}?confirm_import=true`, buildFormData(pendingFile.value))
+    window.$loadingBar.finish()
+    uploadCallbacks.value?.onFinish()
+    showUploadSuccess(res.data.message, res.data.invalid_documents)
+  } catch (err: unknown) {
+    uploadCallbacks.value?.onError()
+    showUploadError(err)
+  } finally {
+    confirmingImport.value = false
+    store.fetchCompdocs()
+    resetUploadState()
+  }
+}
+
+function cancelPreview() {
+  uploadCallbacks.value?.onError()
+  resetUploadState()
+}
+
+function buildFormData(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return formData
+}
+
+function showUploadSuccess(message: string, invalidDocuments?: ImportInvalidDocument[]) {
+  window.$notification.success({ title: 'Success', description: message, duration: 3000 })
+  if (invalidDocuments?.length) showInvalidDocuments(invalidDocuments)
+}
+
+function showUploadError(err: unknown) {
+  window.$loadingBar.error()
+  window.$notification.error({
+    title: 'Error',
+    description: `Error while uploading file: ${formatApiError(err)}`
+  })
+}
+
+function showInvalidDocuments(invalidDocuments: ImportInvalidDocument[]) {
+  const result = invalidDocuments.map(formatInvalidDocument).join('\n')
+  popup.open('Some documents cannot be imported', result)
+}
+
+function formatInvalidDocument(document: ImportInvalidDocument) {
+  const errorText = isPlainObject(document.error)
+    ? Object.entries(document.error as Record<string, unknown>)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\n')
+    : String(document.error)
+  const rowLabel = document.row ? `[Row] ${document.row}\n` : ''
+  return `${rowLabel}[Name] ${document.name}\n[Error] ${document.error_text || errorText}\n`
+}
+
+function resetUploadState() {
+  pendingFile.value = null
+  preview.value = null
+  uploadCallbacks.value = null
+  showPreviewModal.value = false
+  setActive(false)
 }
 </script>
 
