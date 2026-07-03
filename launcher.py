@@ -39,16 +39,6 @@ Package only the files needed for offline transfer into a ZIP:
     py -3.11 launcher.py package-offline
     py -3.11 launcher.py package-offline --offline-zip C:\\packages\\aw-center-offline.zip
 
-Package Git changes into a ZIP at the project root:
-
-    py -3.11 launcher.py package-changes
-    py -3.11 launcher.py package-changes --changes-zip my-local-changes.zip
-
-Open the interactive menu and choose command/options step by step:
-
-    py -3.11 launcher.py --interactive
-    py -3.11 launcher.py -i
-
 Install from prepared offline bundle:
 
     py -3.11 launcher.py install --mode offline
@@ -121,7 +111,6 @@ Notes
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import json
 import os
 import shlex
@@ -137,16 +126,6 @@ from typing import Sequence
 
 MINIMUM_PYTHON = (3, 11)
 NETWORK_PROBES = ("pypi.org", "registry.npmjs.org")
-COMMAND_CHOICES = (
-    "prepare-offline",
-    "package-offline",
-    "package-changes",
-    "install",
-    "check",
-    "all",
-    "run",
-)
-MODE_CHOICES = ("auto", "online", "offline")
 
 
 def project_score(path: Path) -> int:
@@ -208,13 +187,13 @@ class LauncherConfig:
     mode: str
     offline_dir: Path
     offline_zip: Path
-    changes_zip: Path
     skip_frontend: bool
     skip_backend: bool
     fix_migrations: bool
     host: str
     backend_port: int
     frontend_port: int
+    no_backend_reload: bool
 
 
 def executable(name: str) -> str:
@@ -574,15 +553,20 @@ def run_development_servers(config: LauncherConfig) -> None:
     processes: list[subprocess.Popen[str]] = []
 
     if selected_backend_port is not None:
+
+        backend_command = [
+            venv_python(),
+            "manage.py",
+            "runserver",
+            f"{config.host}:{selected_backend_port}",
+        ]
+
+        if config.no_backend_reload:
+            backend_command.append("--noreload")
+        
         processes.append(
             start_process(
-                [
-                    venv_python(),
-                    "manage.py",
-                    "runserver",
-                    f"{config.host}:{selected_backend_port}",
-                    "--noreload",
-                ],
+                backend_command,
                 cwd=BACKEND,
                 env_extra={
                     "IPV4_ADDRESS": config.host,
@@ -883,13 +867,13 @@ def prepare_offline_bundle(config: LauncherConfig) -> None:
             mode="online",
             offline_dir=config.offline_dir,
             offline_zip=config.offline_zip,
-            changes_zip=config.changes_zip,
             skip_frontend=config.skip_frontend,
             skip_backend=config.skip_backend,
             fix_migrations=config.fix_migrations,
             host=config.host,
             backend_port=config.backend_port,
             frontend_port=config.frontend_port,
+            no_backend_reload=config.no_backend_reload,
         )
 
         run(
@@ -1109,158 +1093,6 @@ def package_offline_bundle(config: LauncherConfig) -> None:
     print("  py -3.11 launcher.py install --mode offline")
 
 
-
-
-def git_repository_root() -> Path:
-    """Return the Git repository root for the detected project root."""
-    if not (ROOT / ".git").exists():
-        raise RuntimeError(f"No .git directory found under project root: {ROOT}")
-
-    git = required_tool("git")
-    completed = subprocess.run(
-        [git, "rev-parse", "--show-toplevel"],
-        cwd=str(ROOT),
-        env=base_env(),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    if completed.returncode:
-        detail = completed.stderr.strip() or completed.stdout.strip()
-        raise RuntimeError(f"Project root is not a readable Git repository: {detail}")
-
-    output = completed.stdout.strip()
-    if not output:
-        raise RuntimeError("git rev-parse returned an empty repository root")
-
-    return Path(output).resolve()
-
-
-def git_status_changed_paths(repo_root: Path) -> list[Path]:
-    """Return changed, staged, unstaged, and untracked files from Git status."""
-    git = required_tool("git")
-    completed = subprocess.run(
-        [git, "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=str(repo_root),
-        env=base_env(),
-        check=False,
-        capture_output=True,
-    )
-
-    if completed.returncode:
-        stderr = completed.stderr.decode(errors="replace").strip()
-        stdout = completed.stdout.decode(errors="replace").strip()
-        detail = stderr or stdout or "git status failed"
-        raise RuntimeError(detail)
-
-    entries = completed.stdout.split(b"\0")
-    changed_paths: list[Path] = []
-    index = 0
-
-    while index < len(entries):
-        raw_entry = entries[index]
-        index += 1
-
-        if not raw_entry:
-            continue
-
-        entry = raw_entry.decode(errors="surrogateescape")
-
-        if len(entry) < 4:
-            continue
-
-        status = entry[:2]
-        relative_path = entry[3:]
-
-        # In porcelain v1 -z, rename/copy entries store the current path first,
-        # followed by the old path as the next NUL-delimited field.
-        if any(flag in status for flag in ("R", "C")) and index < len(entries):
-            index += 1
-
-        # Deleted files cannot be archived, but modified/added/untracked files can.
-        if status in {" D", "D ", "DD"}:
-            continue
-
-        changed_paths.append((repo_root / relative_path).resolve())
-
-    unique_paths: list[Path] = []
-    seen: set[Path] = set()
-
-    for path in changed_paths:
-        if path in seen:
-            continue
-
-        seen.add(path)
-        unique_paths.append(path)
-
-    return unique_paths
-
-
-def default_changes_zip_path() -> Path:
-    """Return a timestamped Git changes ZIP path under the project root."""
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return ROOT / f"git-changes-{timestamp}.zip"
-
-
-def resolve_changes_zip(value: str | None) -> Path:
-    """Resolve Git changes ZIP output path relative to the project root."""
-    if not value:
-        return default_changes_zip_path().resolve()
-
-    path = Path(value).expanduser()
-
-    if not path.is_absolute():
-        path = ROOT / path
-
-    return path.resolve()
-
-
-def package_git_changes(config: LauncherConfig) -> None:
-    """Package Git changed files into a ZIP while preserving project-root paths."""
-    repo_root = git_repository_root()
-    changed_paths = git_status_changed_paths(repo_root)
-    output_zip = config.changes_zip.resolve()
-    output_zip.parent.mkdir(parents=True, exist_ok=True)
-
-    packageable_files: list[Path] = []
-    skipped_paths: list[Path] = []
-
-    for path in changed_paths:
-        if not path_is_inside(path, ROOT):
-            skipped_paths.append(path)
-            continue
-
-        if path.resolve() == output_zip:
-            continue
-
-        if not path.is_file():
-            skipped_paths.append(path)
-            continue
-
-        packageable_files.append(path)
-
-    if not packageable_files:
-        print("\nNo Git-changed files found to package.")
-        if skipped_paths:
-            print(f"Skipped paths      : {len(skipped_paths)}")
-        return
-
-    with zipfile.ZipFile(output_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for file_path in sorted(packageable_files, key=lambda item: item.relative_to(ROOT).as_posix()):
-            archive.write(file_path, file_path.relative_to(ROOT).as_posix())
-
-    total_size = sum(file_path.stat().st_size for file_path in packageable_files)
-
-    print(f"\nGit changes ZIP created: {output_zip}")
-    print(f"Included files         : {len(packageable_files)}")
-    print(f"Source size            : {total_size / (1024 * 1024):.2f} MB")
-    print(f"ZIP size               : {output_zip.stat().st_size / (1024 * 1024):.2f} MB")
-
-    if skipped_paths:
-        print(f"Skipped paths          : {len(skipped_paths)}")
-
-
 def development_env_content() -> str:
     """Return non-secret development defaults for Django checks."""
     lines = [
@@ -1438,217 +1270,16 @@ def resolve_offline_zip(value: str) -> Path:
     return path.resolve()
 
 
-
-
-def resolve_mode_for_command(command: str, requested_mode: str, offline_dir: Path) -> str:
-    """Resolve the effective online/offline mode for a launcher command."""
-    if command == "prepare-offline":
-        return "online"
-
-    if command in {"package-offline", "package-changes", "run"}:
-        return requested_mode
-
-    return detect_mode(requested_mode, offline_dir)
-
-
-def prompt_choice(title: str, choices: Sequence[str], default: str) -> str:
-    """Prompt until the user selects one value from a numbered choice list."""
-    if default not in choices:
-        default = choices[0]
-
-    default_index = choices.index(default) + 1
-
-    while True:
-        print(f"\n{title}")
-        for index, choice in enumerate(choices, start=1):
-            marker = "*" if choice == default else " "
-            suffix = "  *" if marker == "*" else ""
-            print(f"  {index}) {choice}{suffix}")
-
-        answer = input(f"Selection [{default_index}]: ").strip()
-
-        if not answer:
-            return default
-
-        if answer.isdigit():
-            numeric_answer = int(answer)
-            if 1 <= numeric_answer <= len(choices):
-                return choices[numeric_answer - 1]
-
-        lowered = answer.lower()
-        for choice in choices:
-            if lowered == choice.lower():
-                return choice
-
-        print("Invalid selection. Enter a number or one of the shown values.")
-
-
-def prompt_bool(title: str, default: bool) -> bool:
-    """Prompt for a yes/no value."""
-    suffix = "Y/n" if default else "y/N"
-
-    while True:
-        answer = input(f"{title} [{suffix}]: ").strip().lower()
-
-        if not answer:
-            return default
-
-        if answer in {"y", "yes", "e", "evet"}:
-            return True
-
-        if answer in {"n", "no", "h", "hayir", "hayır"}:
-            return False
-
-        print("Invalid answer. Use yes/no or evet/hayır.")
-
-
-def prompt_text(title: str, default: str) -> str:
-    """Prompt for text with a default value."""
-    answer = input(f"{title} [{default}]: ").strip()
-    return answer or default
-
-
-def prompt_int(title: str, default: int) -> int:
-    """Prompt for an integer with a default value."""
-    while True:
-        answer = input(f"{title} [{default}]: ").strip()
-
-        if not answer:
-            return default
-
-        try:
-            return int(answer)
-        except ValueError:
-            print("Invalid number. Enter an integer value.")
-
-
-def frontend_backend_scope(skip_frontend: bool, skip_backend: bool) -> str:
-    """Return an interactive scope value from skip flags."""
-    if skip_frontend and not skip_backend:
-        return "backend-only"
-
-    if skip_backend and not skip_frontend:
-        return "frontend-only"
-
-    return "both"
-
-
-def skip_flags_from_scope(scope: str) -> tuple[bool, bool]:
-    """Return skip_frontend and skip_backend flags from an interactive scope value."""
-    if scope == "backend-only":
-        return True, False
-
-    if scope == "frontend-only":
-        return False, True
-
-    return False, False
-
-
-def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
-    """Build launcher configuration through an interactive menu."""
-    print("\nAW Center launcher interactive mode")
-    print("Press Enter to keep the value marked with * or shown in brackets.")
-
-    command = prompt_choice(
-        "1) Choose the launcher command",
-        COMMAND_CHOICES,
-        args.command or "run",
-    )
-
-    requested_mode = prompt_choice(
-        "2) Choose dependency/install mode",
-        MODE_CHOICES,
-        args.mode,
-    )
-
-    offline_dir_value = prompt_text("3) Offline bundle directory", args.offline_dir)
-    offline_zip_value = args.offline_zip
-    changes_zip_value = args.changes_zip
-
-    skip_frontend = args.skip_frontend
-    skip_backend = args.skip_backend
-    fix_migrations = args.fix_migrations
-    host = args.host
-    backend_port = args.backend_port
-    frontend_port = args.frontend_port
-
-    if command in {"prepare-offline", "package-offline", "install", "check", "all", "run"}:
-        scope = prompt_choice(
-            "4) Which project side should be included?",
-            ("both", "backend-only", "frontend-only"),
-            frontend_backend_scope(skip_frontend, skip_backend),
-        )
-        skip_frontend, skip_backend = skip_flags_from_scope(scope)
-
-    if command in {"check", "all"}:
-        fix_migrations = prompt_bool("Create/apply missing Django migrations automatically?", fix_migrations)
-
-    if command == "package-offline":
-        offline_zip_value = prompt_text("Offline ZIP output path", offline_zip_value)
-
-    if command == "package-changes":
-        default_changes = changes_zip_value or str(default_changes_zip_path())
-        changes_zip_value = prompt_text("Git changes ZIP output path", default_changes)
-
-    if command == "run":
-        host = prompt_text("Development server host", host)
-        backend_port = prompt_int("Preferred backend port", backend_port)
-        frontend_port = prompt_int("Preferred frontend port", frontend_port)
-
-    offline_dir = resolve_offline_dir(offline_dir_value)
-    offline_zip = resolve_offline_zip(offline_zip_value)
-    changes_zip = resolve_changes_zip(changes_zip_value)
-    mode = resolve_mode_for_command(command, requested_mode, offline_dir)
-
-    config = LauncherConfig(
-        command=command,
-        mode=mode,
-        offline_dir=offline_dir,
-        offline_zip=offline_zip,
-        changes_zip=changes_zip,
-        skip_frontend=skip_frontend,
-        skip_backend=skip_backend,
-        fix_migrations=fix_migrations,
-        host=host,
-        backend_port=backend_port,
-        frontend_port=frontend_port,
-    )
-
-    print("\nSelected configuration")
-    print(f"  Command       : {config.command}")
-    print(f"  Mode          : {config.mode}")
-    print(f"  Offline dir   : {config.offline_dir}")
-    print(f"  Offline ZIP   : {config.offline_zip}")
-    print(f"  Changes ZIP   : {config.changes_zip}")
-    print(f"  Skip backend  : {config.skip_backend}")
-    print(f"  Skip frontend : {config.skip_frontend}")
-    print(f"  Fix migrations: {config.fix_migrations}")
-    print(f"  Host          : {config.host}")
-    print(f"  Backend port  : {config.backend_port}")
-    print(f"  Frontend port : {config.frontend_port}")
-
-    if not prompt_bool("Run with these settings?", True):
-        raise RuntimeError("Interactive launcher run was cancelled by the user.")
-
-    return config
-
-
 def parse_arguments() -> LauncherConfig:
     """Parse command-line arguments into launcher configuration."""
     parser = argparse.ArgumentParser(description="AW Center launcher")
-    parser.add_argument("command", nargs="?", choices=COMMAND_CHOICES)
-    parser.add_argument("--interactive", "-i", action="store_true", help="Open an interactive menu for all launcher options.")
-    parser.add_argument("--mode", choices=MODE_CHOICES, default="auto")
+    parser.add_argument("command", choices=["prepare-offline", "package-offline", "install", "check", "all", "run"])
+    parser.add_argument("--mode", choices=["auto", "online", "offline"], default="auto")
     parser.add_argument("--offline-dir", default=str(OFFLINE))
     parser.add_argument(
         "--offline-zip",
         default=str(ROOT / "aw-center-offline.zip"),
         help="ZIP file created by package-offline. Default: aw-center-offline.zip",
-    )
-    parser.add_argument(
-        "--changes-zip",
-        default=None,
-        help="ZIP file created by package-changes. Default: git-changes-YYYYMMDD-HHMMSS.zip under the project root.",
     )
     parser.add_argument("--skip-frontend", action="store_true")
     parser.add_argument("--skip-backend", action="store_true")
@@ -1674,33 +1305,38 @@ def parse_arguments() -> LauncherConfig:
         default=5173,
         help="Preferred frontend development server port. Default: 5173",
     )
+    parser.add_argument(
+        "--no-backend-reload",
+        action="store_true",
+        help="Start Django without autoreload. Useful when process cleanup is more important than hot reload.",
+    )
 
     args = parser.parse_args()
 
-    if args.interactive:
-        return interactive_configuration(args)
-
-    if args.command is None:
-        parser.error("the following arguments are required: command, or use --interactive/-i")
-
     offline_dir = resolve_offline_dir(args.offline_dir)
     offline_zip = resolve_offline_zip(args.offline_zip)
-    changes_zip = resolve_changes_zip(args.changes_zip)
-    mode = resolve_mode_for_command(args.command, args.mode, offline_dir)
+
+    if args.command == "prepare-offline":
+        mode = "online"
+    elif args.command in {"package-offline", "run"}:
+        mode = args.mode
+    else:
+        mode = detect_mode(args.mode, offline_dir)
 
     return LauncherConfig(
         command=args.command,
         mode=mode,
         offline_dir=offline_dir,
         offline_zip=offline_zip,
-        changes_zip=changes_zip,
         skip_frontend=args.skip_frontend,
         skip_backend=args.skip_backend,
         fix_migrations=args.fix_migrations,
         host=args.host,
         backend_port=args.backend_port,
         frontend_port=args.frontend_port,
+        no_backend_reload=args.no_backend_reload,
     )
+
 
 def main() -> int:
     """Run the requested launcher workflow."""
@@ -1712,17 +1348,12 @@ def main() -> int:
         print(f"Offline dir  : {config.offline_dir}")
         if config.command == "package-offline":
             print(f"Offline ZIP  : {config.offline_zip}")
-        if config.command == "package-changes":
-            print(f"Changes ZIP  : {config.changes_zip}")
 
         if config.command == "prepare-offline":
             prepare_offline_bundle(config)
 
         elif config.command == "package-offline":
             package_offline_bundle(config)
-
-        elif config.command == "package-changes":
-            package_git_changes(config)
 
         elif config.command == "install":
             install_backend(config)
