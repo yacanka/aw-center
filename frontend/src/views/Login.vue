@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/api'
 import { validateForm } from '@/composables/forms'
 import { useUserStore } from '@/stores/user'
 import { formatApiError } from '@/services/apiError'
+import { applyPreferredTheme } from '@/services/theme'
 
 const route = useRoute()
 const router = useRouter()
@@ -86,19 +87,13 @@ const passwordConfirmRules: FormRules = {
 
 const authStore = useAuthStore()
 
-function getPreferredTheme(systemTheme: string) {
-  const storedTheme = userStore.getPreferences.theme
-  return typeof storedTheme === 'string' ? storedTheme : systemTheme
-}
-
 async function handleLogin() {
   if (!(await validateForm(loginForm.value))) return
   const authenticatedUser = await authStore.login(loginCredentials.value)
   if (!authenticatedUser) return
 
   userStore.setUser(authenticatedUser)
-  const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  document.documentElement.setAttribute('data-theme', getPreferredTheme(systemTheme))
+  applyPreferredTheme(userStore.getPreferences)
   router.push({ name: 'home' })
 }
 

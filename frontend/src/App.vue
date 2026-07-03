@@ -17,15 +17,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watchEffect } from 'vue'
 import { darkTheme, lightTheme } from 'naive-ui'
 import MainView from '@/views/MainView.vue'
 import { useUserStore } from './stores/user'
+import { applyPreferredTheme, resolvePreferredTheme } from './services/theme'
 
 const userStore = useUserStore()
-const activeTheme = computed(() =>
-  userStore.getPreferences.theme === 'dark' ? darkTheme : lightTheme
-)
+const activeThemeName = computed(() => resolvePreferredTheme(userStore.getPreferences))
+const activeTheme = computed(() => (activeThemeName.value === 'dark' ? darkTheme : lightTheme))
+
+watchEffect(() => {
+  applyPreferredTheme(userStore.getPreferences)
+})
 const isSessionInitializing = computed(() => !userStore.isSessionInitialized)
 </script>
 
