@@ -7,6 +7,7 @@ import router from './router'
 import './assets/main.css'
 import { useUserStore } from './stores/user'
 import { bootstrapHttpAuth } from './services/http'
+import { applyPreferredTheme } from './services/theme'
 
 const pinia = createPinia()
 const app = createApp(App)
@@ -16,7 +17,7 @@ app.use(naive)
 
 bootstrapHttpAuth()
 startStartupPerformanceMeasurements()
-applyInitialTheme()
+applyPreferredTheme(useUserStore().getPreferences)
 app.mount('#app')
 initializeSession()
 
@@ -31,7 +32,7 @@ export async function initializeSession() {
     suppressAuthenticationWarning: true
   })
 
-  applyInitialTheme()
+  applyPreferredTheme(userStore.getPreferences)
   await redirectAfterSessionCheck(isLoaded)
   userStore.setSessionInitialized()
   performance.mark('auth-ready-end')
@@ -46,16 +47,6 @@ async function redirectAfterSessionCheck(isLoaded: boolean) {
   if (isLoaded && router.currentRoute.value.name === 'login') {
     await router.push({ name: 'home' })
   }
-}
-
-function applyInitialTheme() {
-  const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  document.documentElement.setAttribute('data-theme', getPreferredTheme(systemTheme))
-}
-
-function getPreferredTheme(systemTheme: string) {
-  const storedTheme = useUserStore().getPreferences.theme
-  return typeof storedTheme === 'string' ? storedTheme : systemTheme
 }
 
 function startStartupPerformanceMeasurements() {

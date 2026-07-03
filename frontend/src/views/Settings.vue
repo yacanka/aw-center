@@ -5,8 +5,8 @@ import { useRouter } from 'vue-router'
 import Profil from '@/views/Profile.vue'
 import PasswordPopup from '@/components/settings/PasswordPopup.vue'
 import { logout } from '@/stores/user'
-import { IPreferences } from '@/models/auth'
 import { useUserStore } from '@/stores/user'
+import { applyPreferredTheme } from '@/services/theme'
 
 const router = useRouter()
 const store = useUserStore()
@@ -25,7 +25,7 @@ const preferences = ref({
 const passwordPopup = ref()
 
 function handleThemeUpdate(value: boolean) {
-  document.documentElement.setAttribute('data-theme', preferences.value.theme ? 'dark' : 'light')
+  applyPreferredTheme({ theme: value ? 'dark' : 'light' })
   store.updatePreference({ theme: value ? 'dark' : 'light' })
 }
 
