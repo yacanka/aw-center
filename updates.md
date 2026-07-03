@@ -315,3 +315,15 @@
 1. The root launcher now validates that both the active launcher interpreter and an existing `.venv` use Python 3.11 or newer.
 2. Existing Python 3.9 virtual environments now fail fast with a clear remediation message instead of being reused silently.
 3. README launcher guidance documents explicit `py -3.11` and `python3.11` commands for rebuilding stale environments.
+
+## 46. Compliance document flexible Excel import
+
+1. Added a tolerant compliance-document Excel header mapping helper that scans the first two rows for headers, maps multilingual/static aliases to model fields, and falls back to conservative fuzzy matching for close header typos.
+2. Updated the shared compdoc upload endpoint to use the detected header row and normalized model-field names before serializer validation, preserving existing response behavior for row-level import errors.
+3. Added focused import-mapping regression tests that do not require optional Excel dependencies in the local container.
+
+## 47. Compliance document import preview confirmation
+
+1. Compliance-document Excel upload now performs a preview request before saving, showing the detected header row, mapped columns, unmapped columns, and row validation warnings.
+2. The backend upload endpoint now separates preview from confirmed import and rejects non-preview save attempts without explicit confirmation.
+3. The frontend keeps the selected file in memory between preview and confirmation, then re-submits it only after the user confirms.

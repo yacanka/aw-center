@@ -113,3 +113,8 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 1. **Karar - Over-abstraction geri alındı:** `projects.common` factory yaklaşımı view/serializer sınıflarını gereğinden katı hale getirdiği için geri alındı.
 2. **Sıradaki adım - Daha esnek yaklaşım:** Tekrarlanan alanlar için önce test kapsamı ve küçük mixin/helper adayları çıkarılmalı; final serializer/view sınıfları proje app içinde açık kalmalı.
 3. **Sıradaki adım - Kademeli güvenlik:** AESA/Gokbey/Blok4050 gibi override davranışları olan app'lerde ortaklaştırma ancak app-local subclass davranışı korunarak ve endpoint contract testleri yazılarak değerlendirilmeli.
+
+## 13. Compliance document import follow-up
+
+1. **P2 - Project-specific aliases:** If projects use different local naming conventions, add project-level alias configuration while keeping the common default mapping as fallback.
+2. **P2 - Import audit trail:** Store uploaded filename, importing user, detected mappings, and import result counts for compliance traceability.

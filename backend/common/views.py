@@ -16,6 +16,7 @@ from pprint import pprint
 
 import math
 from utils.arrays import safe_get
+from common.compdoc_import import LIST_IMPORT_FIELDS, build_mapping_preview, choose_header_row, read_mapped_excel
 
 PAGINATION_QUERY_PARAMETERS = {"page", "page_size"}
 TEXT_FIELD_TYPES = {"CharField", "TextField", "EmailField"}
@@ -302,24 +303,42 @@ def upload_compdoc_factory(model, serializer_class, view_permission_classes):
                 excel_file = request.FILES["file"]
                 import pandas as pd
 
-                df = pd.read_excel(excel_file)
+                model_fields = {field.name for field in model._meta.fields}
+                header_result = choose_header_row(excel_file, pd, model_fields)
+                if header_result.missing_fields:
+                    return Response({
+                        "message": "Missing column names exist.",
+                        "missing_columns": header_result.missing_fields,
+                    }, status=400)
 
-                missing_elements = find_missing_elements(df.columns, reference_list)
-                if len(missing_elements) > 0:
-                    return Response({"message": f"Missing column names exist: {missing_elements}"}, status=400)
-
+                excel_file.seek(0)
+                preview_df = pd.read_excel(excel_file, header=header_result.header_row_index)
+                preview = build_mapping_preview(preview_df.columns, header_result)
+                excel_file.seek(0)
+                df = read_mapped_excel(excel_file, pd, header_result)
                 df = df.astype(object).where(pd.notnull(df), None)
 
-                for col in list_cols:
-                    if col in df.columns:
-                        df[col] = df[col].apply(lambda x: x if isinstance(x, list) else [])
-                    else:
+                for col in LIST_IMPORT_FIELDS:
+                    if col not in df.columns:
                         df[col] = pd.Series([[] for _ in range(len(df))], dtype='object')
-
-                df.columns = [str(column).strip().lower().replace('.', '').replace(' ', '_') for column in df.columns]
 
                 for col in df.select_dtypes(include=["datetime64[ns]"]).columns:
                     df[col]= df[col].dt.date
+
+                if request.query_params.get("preview") == "true":
+                    invalid_serializer = []
+                    for row_index, row in df.iterrows():
+                        serializer = serializer_class(data=row.to_dict())
+                        if not serializer.is_valid():
+                            invalid_serializer.append({
+                                "row": int(row_index) + 2 + header_result.header_row_index,
+                                "name": row.get("name") or f"Row {int(row_index) + 1}",
+                                "error": serializer.errors,
+                            })
+                    return Response({**preview, "invalid_documents": invalid_serializer}, status=200)
+
+                if request.query_params.get("confirm_import") != "true":
+                    return Response({"message": "Import preview confirmation is required."}, status=409)
 
                 #df = df.applymap(lambda x: None if pd.isna(x) else x)
                 #df = df.replace({pd.NA: None, np.nan: None})
