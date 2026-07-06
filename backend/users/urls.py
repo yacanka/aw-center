@@ -7,7 +7,9 @@ urlpatterns = [
     path('token/', views.CustomAuthToken.as_view(), name='token_auth'),
     path('logout/', views.LogoutView.as_view(), name='logout'),
     path('me/', views.MeView.as_view(), name='me'),
-    path('permissions/', views.PermissionListView.as_view(), name='me'),
+    path('permissions/', views.PermissionListView.as_view(), name='permissions'),
+    path('groups/', views.GroupView.as_view(), name='groups'),
+    path('groups/<int:pk>/', views.GroupView.as_view(), name='group-detail'),
     path('change_password/', views.PasswordChangeView.as_view(), name='change_password'),
 
     path('preferences/', views.UserPreferencesView.as_view(), name='preferences'),

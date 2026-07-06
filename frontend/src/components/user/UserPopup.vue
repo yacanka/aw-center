@@ -9,10 +9,10 @@
     <n-form ref="formRef" :model="user" :rules="rules">
       <n-grid :x-gap="12" :cols="12">
         <n-form-item-gi span="2" path="username" label="Username">
-          <n-input v-model:value="user.username" disbaled @keydown.enter.prevent />
+          <n-input v-model:value="user.username" disabled @keydown.enter.prevent />
         </n-form-item-gi>
         <n-form-item-gi span="4" path="email" label="Email">
-          <n-input v-model:value="user.email" disbaled @keydown.enter.prevent />
+          <n-input v-model:value="user.email" disabled @keydown.enter.prevent />
         </n-form-item-gi>
         <n-form-item-gi span="3" path="first_name" label="First Name">
           <n-input v-model:value="user.first_name" @keydown.enter.prevent />
@@ -20,7 +20,16 @@
         <n-form-item-gi span="3" path="last_name" label="Last Name">
           <n-input v-model:value="user.last_name" @keydown.enter.prevent />
         </n-form-item-gi>
-        <n-form-item-gi span="12" path="permissions" label="Permissions">
+        <n-form-item-gi span="12" path="groups" label="Groups">
+          <n-select
+            v-model:value="user.groups"
+            multiple
+            clearable
+            :options="groupOptions"
+            placeholder="Select user groups"
+          />
+        </n-form-item-gi>
+        <n-form-item-gi span="12" path="permissions" label="Direct Permissions">
           <n-transfer
             v-model:value="user.user_permissions"
             :options="transferOptions"
@@ -80,15 +89,25 @@ const showModal = ref(false)
 const user = ref<IUser>({} as IUser)
 const store = useAuthStore()
 const transferOptions = ref<{ label: string; value: number }[]>([])
+const groupOptions = ref<{ label: string; value: number }[]>([])
 
 function openModal(value: IUser) {
   let dummy: IUser = { ...value }
   user.value = dummy
+  user.value.groups = value.groups || []
+  user.value.permissions = value.permissions || []
   user.value.permissions.sort()
-  transferValues.value = user.value.permissions.map((permission) => permission.id)
+  transferValues.value = user.value.permissions.map((permission) => Number(permission.id))
   transferOptions.value = store.getPermissions.map((permission) => ({
-    label: permission.content_type.app_label.toUpperCase() + ' | ' + permission.codename,
-    value: permission.id
+    label:
+      String(permission.content_type?.app_label || 'AUTH').toUpperCase() +
+      ' | ' +
+      permission.codename,
+    value: Number(permission.id)
+  }))
+  groupOptions.value = store.getGroups.map((group) => ({
+    label: String(group.name),
+    value: Number(group.id)
   }))
 
   showModal.value = true

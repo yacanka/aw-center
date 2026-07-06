@@ -360,3 +360,10 @@
 2. Updated the CompDoc store to refresh field options from the active project's backend before column settings are opened, with a local fallback for availability resilience.
 3. Kept client-only virtual table columns available by merging server model fields with the existing frontend field defaults.
 4. Added focused backend metadata tests to protect the frontend-safe field contract.
+
+## 53. User role/group management expansion
+
+1. Added authenticated role/group management endpoints under `/auth/groups/`, protected by Django `auth.*_group` permissions.
+2. Extended user serialization with `group_details` so the frontend can display assigned roles without losing the existing writable `groups` primary-key contract.
+3. Updated the user management popup to assign groups alongside direct permissions and fixed disabled username/email fields.
+4. Added regression tests for group endpoint authorization, group permission assignment, and user-group assignment response shape.
