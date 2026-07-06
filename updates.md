@@ -360,3 +360,10 @@
 2. Updated the CompDoc store to refresh field options from the active project's backend before column settings are opened, with a local fallback for availability resilience.
 3. Kept client-only virtual table columns available by merging server model fields with the existing frontend field defaults.
 4. Added focused backend metadata tests to protect the frontend-safe field contract.
+
+## 53. Compliance document table filter import and TypeScript hardening
+
+1. Restored the missing `getStringFilterMenuFunc` import in `CompDocTable.vue`, fixing the runtime `ReferenceError` during setup.
+2. Normalized dynamic compliance-document field values before using them as issue-cache keys, DocProof search arguments, and status color keys.
+3. Hardened panel/ATA option updates and table row keys to avoid undefined index/key paths.
+4. Adjusted the column-settings composable to handle Naive UI's mixed table-column union safely when reading persisted column metadata.
