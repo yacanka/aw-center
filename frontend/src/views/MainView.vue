@@ -265,3 +265,9 @@ async function loadProjectRegistry() {
   }
 }
 </script>
+
+<style scoped>
+.transparent {
+  background-color: transparent !important;
+}
+</style>

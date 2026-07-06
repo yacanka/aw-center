@@ -626,8 +626,8 @@ function handlePageSizeInput(number: number) {
 }
 
 async function openColumnSettings() {
-  await refreshColumnSelections()
   columnSettingsManager.open()
+  await refreshColumnSelections()
 }
 
 async function refreshColumnSelections() {
