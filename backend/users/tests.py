@@ -231,3 +231,56 @@ class UserSecurityTests(TestCase):
         self.assertTrue(
             self.target_user.user_permissions.filter(id=self.change_user_permission.id).exists()
         )
+
+
+class UserGroupManagementTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin_user = User.objects.create_superuser(
+            username="group_admin",
+            password="StrongPass!123",
+            email="group-admin@example.com",
+        )
+        self.regular_user = User.objects.create_user(
+            username="group_regular",
+            password="StrongPass!123",
+            email="group-regular@example.com",
+        )
+        self.view_user_permission = Permission.objects.get(codename="view_user")
+
+    def test_regular_user_cannot_list_groups(self):
+        self.client.force_authenticate(user=self.regular_user)
+
+        response = self.client.get("/auth/groups/")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_create_group_with_permissions(self):
+        self.client.force_authenticate(user=self.admin_user)
+        payload = {
+            "name": "Document Controllers",
+            "permission_ids": [self.view_user_permission.id],
+        }
+
+        response = self.client.post("/auth/groups/", payload, format="json")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["name"], "Document Controllers")
+        self.assertEqual(response.data["permissions"][0]["codename"], "view_user")
+
+    def test_admin_can_assign_group_to_user(self):
+        from django.contrib.auth.models import Group
+
+        group = Group.objects.create(name="Auditors")
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.patch(
+            f"/auth/users/{self.regular_user.pk}/",
+            {"groups": [group.id]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.regular_user.refresh_from_db()
+        self.assertTrue(self.regular_user.groups.filter(name="Auditors").exists())
+        self.assertEqual(response.data["group_details"][0]["name"], "Auditors")

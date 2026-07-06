@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model, update_session_auth_hash
-from django.contrib.auth.models import Permission, update_last_login
+from django.contrib.auth.models import Group, Permission, update_last_login
 from django.conf import settings
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -10,12 +10,13 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .permissions import UserPermission
+from .permissions import GroupPermission, UserPermission
 from common.views import paginated_response
 from .serializers import (
     PasswordChangeSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
+    GroupSerializer,
     PermissionSerializer,
     UserPreferencesSerializer,
     UserSerializer,
@@ -79,6 +80,42 @@ class UserView(APIView):
         user = get_object_or_404(self._user_queryset(), pk=pk)
         user.delete()
         return Response("User deleted.", status=status.HTTP_204_NO_CONTENT)
+
+
+class GroupView(APIView):
+    permission_classes = [IsAuthenticated, GroupPermission]
+
+    def _group_queryset(self):
+        return Group.objects.prefetch_related("permissions__content_type")
+
+    def get(self, request, pk=None):
+        if pk:
+            group = get_object_or_404(self._group_queryset(), pk=pk)
+            return Response(GroupSerializer(group).data)
+
+        groups = self._group_queryset().order_by("name")
+        name = request.query_params.get("name")
+        if name:
+            groups = groups.filter(name__icontains=name)
+        return paginated_response(request, groups, GroupSerializer)
+
+    def post(self, request):
+        serializer = GroupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        group = serializer.save()
+        return Response(GroupSerializer(group).data, status=status.HTTP_201_CREATED)
+
+    def patch(self, request, pk):
+        group = get_object_or_404(self._group_queryset(), pk=pk)
+        serializer = GroupSerializer(group, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        group = serializer.save()
+        return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        group = get_object_or_404(self._group_queryset(), pk=pk)
+        group.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 PUBLIC_ENDPOINTS = {

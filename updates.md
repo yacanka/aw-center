@@ -361,6 +361,12 @@
 3. Kept client-only virtual table columns available by merging server model fields with the existing frontend field defaults.
 4. Added focused backend metadata tests to protect the frontend-safe field contract.
 
+## 53. User role/group management expansion
+
+1. Added authenticated role/group management endpoints under `/auth/groups/`, protected by Django `auth.*_group` permissions.
+2. Extended user serialization with `group_details` so the frontend can display assigned roles without losing the existing writable `groups` primary-key contract.
+3. Updated the user management popup to assign groups alongside direct permissions and fixed disabled username/email fields.
+4. Added regression tests for group endpoint authorization, group permission assignment, and user-group assignment response shape.
 ## 53. Compliance document table filter import and TypeScript hardening
 
 1. Restored the missing `getStringFilterMenuFunc` import in `CompDocTable.vue`, fixing the runtime `ReferenceError` during setup.
@@ -381,13 +387,13 @@
 3. Added a regression test that scans concrete repository models and fails if a model is added without default ordering.
 4. Generated metadata-only migrations for the affected Django apps so model option changes remain explicit and reproducible.
 
-## 11. Compliance document column settings popup fix
+## 56. Compliance document column settings popup fix
 
 1. Column settings state is now created as a Vue reactive object inside the composable.
 2. Opening the settings modal now triggers a render immediately after the fields request completes, instead of waiting for an unrelated UI update such as page-size changes.
 3. The fix keeps the existing fields refresh flow and localStorage-backed column preference behavior unchanged.
 
-## 56. README project-wide documentation refresh
+## 57. README project-wide documentation refresh
 
 1. README was rewritten to reflect the current Django/Vue application structure, backend route surface, frontend screens, project registry, security model, and deployment foundations.
 2. Launcher documentation was expanded with command responsibilities, online/offline workflows, run behavior, generated environment files, options, and trade-offs.
