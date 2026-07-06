@@ -45,5 +45,5 @@ transformers
 torch
 
 # Windows-only automation used by DOORS, Outlook, and PowerPoint helpers
-pywin32
-WMI
+pywin32; sys_platform == "win32"
+WMI; sys_platform == "win32"
