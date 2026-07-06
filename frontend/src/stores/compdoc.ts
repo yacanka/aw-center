@@ -36,6 +36,26 @@ function fieldToSelectOption(field: ICompDocFieldMetadata) {
   return { label: field.label, value: field.key }
 }
 
+function applyDerivedStatusFields(row: ICompDoc) {
+  const statusFlow = Array.isArray(row.status_flow) ? row.status_flow : []
+  if (statusFlow.length === 0) {
+    row.status = 'Unknown'
+    return
+  }
+
+  row.ubm_target_date = statusFlow[0]?.date
+  row.ubm_delivery_date = statusFlow[1]?.date
+  applyDelayedStatus(statusFlow, row)
+  row.status = statusFlow[statusFlow.length - 1]?.status || 'Unknown'
+}
+
+function applyDelayedStatus(statusFlow: Record<string, any>[], row: ICompDoc) {
+  if (!SHOW_DELAYED_COMPDOCS || statusFlow.length !== 1) return
+  if (statusFlow[0]?.status !== 'to_be_issued') return
+  if ((getDaysDifference(getTodayEUFormat(), String(row.ubm_target_date || '')) || 0) <= 0) return
+  statusFlow[0].status = 'delayed'
+}
+
 function mergeFieldMetadata(serverFields: ICompDocFieldMetadata[]) {
   const fieldsByKey = new Map(serverFields.map((field) => [field.key, field]))
   Object.keys(createEmpty()).forEach((key) =>
@@ -54,26 +74,7 @@ export const useCompdocStore = defineStore('compdoc', {
   }),
   getters: {
     getCompdocs: (state) => {
-      state.compdocs.forEach((row) => {
-        if (row.status_flow.length > 0) {
-          row.ubm_target_date = row.status_flow[0].date
-          if (row.status_flow.length > 1) {
-            row.ubm_delivery_date = row.status_flow[1].date
-          }
-          if (SHOW_DELAYED_COMPDOCS) {
-            if (
-              row.status_flow.length == 1 &&
-              row.status_flow[0].status == 'to_be_issued' &&
-              (getDaysDifference(getTodayEUFormat(), row?.ubm_target_date) || 0) > 0
-            ) {
-              row.status_flow[0].status = 'delayed'
-            }
-          }
-          row.status = row.status_flow[row.status_flow.length - 1].status
-        } else {
-          row.status = 'Unknown'
-        }
-      })
+      state.compdocs.forEach(applyDerivedStatusFields)
       return state.compdocs
     },
     getProjectName: (state) => state.projectName,

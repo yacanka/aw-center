@@ -368,7 +368,13 @@
 3. Hardened panel/ATA option updates and table row keys to avoid undefined index/key paths.
 4. Adjusted the column-settings composable to handle Naive UI's mixed table-column union safely when reading persisted column metadata.
 
-## 54. Deterministic model ordering for paginated querysets
+## 54. Compliance document table defensive runtime hardening
+
+1. Column settings now normalize runtime and persisted setting rows before applying them, so incomplete dynamic-input rows or malformed localStorage data cannot call string methods on null/undefined keys.
+2. The CompDoc table keeps non-data control columns addressable by falling back from column `key` to column `type`, preserving the expand column while filtering invalid user-created rows.
+3. CompDoc status derivation now treats missing or non-array `status_flow` values as an unknown status instead of throwing during table rendering.
+
+## 55. Deterministic model ordering for paginated querysets
 
 1. Added default `Meta.ordering` definitions to repository-owned Django models that can be exposed through paginated querysets, including project compliance documents, panels, responsibles, organization data, DCC, DDF, user preferences, presentations, and release-note seen records.
 2. The shared abstract project models now carry stable ordering so all project-specific apps inherit the same deterministic pagination behavior.
