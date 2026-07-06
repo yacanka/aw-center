@@ -380,3 +380,9 @@
 2. The shared abstract project models now carry stable ordering so all project-specific apps inherit the same deterministic pagination behavior.
 3. Added a regression test that scans concrete repository models and fails if a model is added without default ordering.
 4. Generated metadata-only migrations for the affected Django apps so model option changes remain explicit and reproducible.
+
+## 11. Compliance document column settings popup fix
+
+1. Column settings state is now created as a Vue reactive object inside the composable.
+2. Opening the settings modal now triggers a render immediately after the fields request completes, instead of waiting for an unrelated UI update such as page-size changes.
+3. The fix keeps the existing fields refresh flow and localStorage-backed column preference behavior unchanged.
