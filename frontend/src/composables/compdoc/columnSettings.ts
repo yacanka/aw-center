@@ -21,6 +21,8 @@ export interface ColumnSettingsState {
   list: IColumnSetting[]
 }
 
+type ConfigurableColumn = DataTableColumn<ICompDoc> & Record<string, any>
+
 interface ColumnSettingsDependencies {
   allColumns: Ref<DataTableColumns<ICompDoc>>
   currentColumns: Ref<DataTableColumns<ICompDoc>>
@@ -87,10 +89,10 @@ function readSavedSettings() {
 }
 
 function createDefaultSettings(columns: DataTableColumns<ICompDoc>) {
-  return columns.map((column) => createColumnSetting(column as DataTableColumn<ICompDoc>))
+  return columns.map((column) => createColumnSetting(column as ConfigurableColumn))
 }
 
-function createColumnSetting(column: DataTableColumn<ICompDoc>) {
+function createColumnSetting(column: ConfigurableColumn) {
   return {
     key: String(column.key || ''),
     title: String(column.title || ''),
@@ -109,10 +111,11 @@ function buildColumn(setting: IColumnSetting, dependencies: ColumnSettingsDepend
 }
 
 function findExistingColumn(key: string, columns: DataTableColumns<ICompDoc>) {
-  return columns.find((column) => String((column as DataTableColumn<ICompDoc>).key) === key)
+  return columns.find((column) => String((column as ConfigurableColumn).key) === key) as
+    ConfigurableColumn | undefined
 }
 
-function mergeExistingColumn(column: DataTableColumn<ICompDoc>, setting: IColumnSetting) {
+function mergeExistingColumn(column: ConfigurableColumn, setting: IColumnSetting) {
   return {
     ...column,
     width: setting.width || column.width,
@@ -137,7 +140,7 @@ function resolveSorter(setting: IColumnSetting) {
   return setting.sorter ? 'default' : false
 }
 
-function resolveEllipsis(setting: IColumnSetting, column: DataTableColumn<ICompDoc>) {
+function resolveEllipsis(setting: IColumnSetting, column: ConfigurableColumn) {
   if (setting.ellipsis === undefined) return column.ellipsis
   return setting.ellipsis ? { tooltip: true } : false
 }
