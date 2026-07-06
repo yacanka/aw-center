@@ -1,12 +1,12 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import ContentType, Permission
+from django.contrib.auth.models import ContentType, Group, Permission
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import serializers
-from rest_framework.serializers import CharField, ModelSerializer, Serializer
+from rest_framework.serializers import CharField, ListField, ModelSerializer, Serializer
 
 from dcc.service.MailSender import SendMail, html_to_text, replace_all_keys
 from .models import UserPreferences
@@ -28,6 +28,38 @@ class PermissionSerializer(ModelSerializer):
     class Meta:
         model = Permission
         fields = ["id", "name", "codename", "content_type"]
+
+
+class GroupSerializer(ModelSerializer):
+    permissions = PermissionSerializer(many=True, read_only=True)
+    permission_ids = ListField(child=serializers.IntegerField(), required=False, write_only=True)
+
+    class Meta:
+        model = Group
+        fields = ["id", "name", "permissions", "permission_ids"]
+        read_only_fields = ["id", "permissions"]
+
+    def validate_permission_ids(self, value):
+        existing_count = Permission.objects.filter(id__in=value).count()
+        if existing_count != len(set(value)):
+            raise serializers.ValidationError("Unknown permission id supplied.")
+        return value
+
+    def create(self, validated_data):
+        permission_ids = validated_data.pop("permission_ids", [])
+        group = super().create(validated_data)
+        self._set_permissions(group, permission_ids)
+        return group
+
+    def update(self, instance, validated_data):
+        permission_ids = validated_data.pop("permission_ids", None)
+        group = super().update(instance, validated_data)
+        if permission_ids is not None:
+            self._set_permissions(group, permission_ids)
+        return group
+
+    def _set_permissions(self, group, permission_ids):
+        group.permissions.set(Permission.objects.filter(id__in=permission_ids))
 
 
 class UserPreferencesSerializer(ModelSerializer):
@@ -57,6 +89,7 @@ class UserPreferencesSerializer(ModelSerializer):
 class UserSerializer(ModelSerializer):
     password = CharField(write_only=True, required=False, allow_blank=False)
     permissions = PermissionSerializer(source="user_permissions", many=True, read_only=True)
+    group_details = GroupSerializer(source="groups", many=True, read_only=True)
     preferences = UserPreferencesSerializer(required=False)
 
     class Meta:
@@ -69,6 +102,7 @@ class UserSerializer(ModelSerializer):
             "first_name",
             "last_name",
             "groups",
+            "group_details",
             "permissions",
             "user_permissions",
             "last_login",

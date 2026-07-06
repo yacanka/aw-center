@@ -172,6 +172,7 @@ onMounted(() => {
   if (hasPermission.value) {
     fetchUsers()
     store.fetchPermissions({ page_size: 200 })
+    store.fetchGroups({ page_size: 200 })
   }
 })
 

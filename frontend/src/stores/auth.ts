@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
-import { IUser, IPermission } from '@/models/auth'
+import { IUser, IPermission, IGroup } from '@/models/auth'
 import { handleRequest } from '@/composables/promise'
 import { setAuthToken } from '@/services/http'
 import { notifyError, notifySuccess } from '@/services/notify'
@@ -26,8 +26,10 @@ export const useAuthStore = defineStore('auth', {
     token: '' as string,
     users: [] as IUser[],
     permissions: [] as IPermission[],
+    groups: [] as IGroup[],
     usersPagination: { count: 0, next: null, previous: null } as PaginationMeta,
     permissionsPagination: { count: 0, next: null, previous: null } as PaginationMeta,
+    groupsPagination: { count: 0, next: null, previous: null } as PaginationMeta,
     loading: false,
     ipAddress: axios.defaults.baseURL
   }),
@@ -36,6 +38,7 @@ export const useAuthStore = defineStore('auth', {
     getUsers: (state) => state.users,
     getToken: (state) => state.token,
     getPermissions: (state) => state.permissions,
+    getGroups: (state) => state.groups,
     isLoading: (state) => state.loading
   },
   actions: {
@@ -171,6 +174,22 @@ export const useAuthStore = defineStore('auth', {
       )
       this.permissionsPagination =
         getPaginationMeta<IPermission>(response) || this.permissionsPagination
+    },
+    async fetchGroups(query: PaginationQuery = {}) {
+      this.loading = true
+      const response = await handleRequest<IGroup[]>(
+        axios.get(`${API_PATH}/groups/`, { params: compactPaginationQuery(query) }),
+        (data) => {
+          this.groups = data
+        },
+        (errorMsg) => {
+          notifyError(errorMsg)
+        },
+        () => {
+          this.loading = false
+        }
+      )
+      this.groupsPagination = getPaginationMeta<IGroup>(response) || this.groupsPagination
     },
     async changePassword(password: any) {
       this.loading = true
