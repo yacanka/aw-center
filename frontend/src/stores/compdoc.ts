@@ -1,8 +1,7 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
-import { ICompDoc } from '@/models/compdocs'
+import { ICompDoc, ICompDocFieldMetadata, ICompDocFieldsResponse } from '@/models/compdocs'
 import { toTitleCase } from '@/utils/text'
-import { nullCheck } from '@/utils/general'
 import { getDaysDifference, getTodayEUFormat } from '@/utils/time'
 import { createEmpty } from './datatable'
 import { handleRequest } from '@/composables/promise'
@@ -22,12 +21,35 @@ const successNotification = notifySuccess
 const COMP_DOCS_PATH = 'compdocs'
 const bonusFieldProjects = ['aesa']
 
+function createLocalFieldMetadata(key: string) {
+  return {
+    key,
+    label: toTitleCase(key.replaceAll('_', ' ')),
+    width: 15,
+    sorter: true,
+    filter: true,
+    ellipsis: true
+  }
+}
+
+function fieldToSelectOption(field: ICompDocFieldMetadata) {
+  return { label: field.label, value: field.key }
+}
+
+function mergeFieldMetadata(serverFields: ICompDocFieldMetadata[]) {
+  const fieldsByKey = new Map(serverFields.map((field) => [field.key, field]))
+  Object.keys(createEmpty()).forEach((key) =>
+    fieldsByKey.set(key, fieldsByKey.get(key) || createLocalFieldMetadata(key))
+  )
+  return Array.from(fieldsByKey.values())
+}
+
 export const useCompdocStore = defineStore('compdoc', {
   state: () => ({
     projectName: '',
     compdocs: [] as ICompDoc[],
     loading: true,
-    fields: [] as { label: string; value: string }[],
+    fields: [] as ICompDocFieldMetadata[],
     pagination: { count: 0, next: null, previous: null } as PaginationMeta
   }),
   getters: {
@@ -55,12 +77,7 @@ export const useCompdocStore = defineStore('compdoc', {
       return state.compdocs
     },
     getProjectName: (state) => state.projectName,
-    getCompdocFields: (state) => {
-      if (nullCheck(state.fields)) {
-        useCompdocStore().createCompDocFields()
-      }
-      return state.fields
-    },
+    getCompdocFields: (state) => state.fields.map(fieldToSelectOption),
     getUploadUrl: (state) => `${BASE_URL}/${state.projectName}/compdocs/upload/`,
     getUpdateUrl: (state) => `${BASE_URL}/${state.projectName}/compdocs/update/`,
     isLoading: (state) => state.loading
@@ -76,11 +93,21 @@ export const useCompdocStore = defineStore('compdoc', {
       return bonusFieldProjects.includes(this.projectName)
     },
     createCompDocFields() {
-      const obj = createEmpty()
-      for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          this.fields.push({ label: toTitleCase(key.replaceAll('_', ' ')), value: key })
-        }
+      this.fields = Object.keys(createEmpty()).map(createLocalFieldMetadata)
+    },
+    async fetchCompDocFields() {
+      try {
+        return await handleRequest<ICompDocFieldsResponse>(
+          axios.get(`${this.projectName}/${COMP_DOCS_PATH}/fields/`),
+          (data) => {
+            this.fields = mergeFieldMetadata(data.fields)
+          },
+          () => {
+            this.createCompDocFields()
+          }
+        )
+      } catch {
+        return null
       }
     },
     async fetchCompdocs(query: PaginationQuery = {}) {
@@ -138,7 +165,8 @@ export const useCompdocStore = defineStore('compdoc', {
     },
     async deleteCompdoc(compDocId: Number) {
       this.loading = true
-      await handleRequest<void>( // Void response expected
+      await handleRequest<void> // Void response expected
+      (
         axios.delete(`${this.projectName}/${COMP_DOCS_PATH}/${compDocId}/`),
         () => {
           this.compdocs = this.compdocs.filter((doc: ICompDoc) => doc.id !== compDocId)
@@ -153,7 +181,8 @@ export const useCompdocStore = defineStore('compdoc', {
     },
     async deleteCompdocs() {
       this.loading = true
-      return await handleRequest<any>( // Void response expected
+      return await handleRequest<any> // Void response expected
+      (
         axios.delete(`${this.projectName}/${COMP_DOCS_PATH}/`),
         (data) => {
           this.compdocs = []
