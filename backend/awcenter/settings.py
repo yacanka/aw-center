@@ -61,6 +61,9 @@ def get_default_auth_cookie_secure(debug):
 
 CERTIFICATES_DIR = BASE_DIR / "certificates"
 CUSTOM_TEMPLATE_DIR = BASE_DIR / "custom_templates"
+REPOSITORY_DIR = BASE_DIR.parent
+FRONTEND_DIST_DIR = env.path("FRONTEND_DIST_DIR", default=REPOSITORY_DIR / "frontend" / "dist")
+FRONTEND_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
 
 FRONTEND_RESET_URL = env.str(
     "FRONTEND_RESET_URL",
@@ -157,6 +160,7 @@ TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
+            FRONTEND_DIST_DIR,
             BASE_DIR / "templates",
         ],
         'APP_DIRS': True,
@@ -226,6 +230,8 @@ DATE_FORMAT = 'd.m.Y'
 STATIC_URL = '/core/'
 STATIC_ROOT = BASE_DIR / 'static'
 STATICFILES_DIRS = [BASE_DIR / 'core']
+if FRONTEND_ASSETS_DIR.exists():
+    STATICFILES_DIRS.append(('assets', FRONTEND_ASSETS_DIR))
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
