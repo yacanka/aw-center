@@ -3,6 +3,9 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 class DDF(models.Model):
+    class Meta:
+        ordering = ["-created_time", "doc_no", "id"]
+
     project = models.CharField()
     doc_name = models.CharField()
     doc_no = models.CharField()

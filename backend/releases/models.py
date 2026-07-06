@@ -53,6 +53,7 @@ class ReleaseNoteSeen(models.Model):
     acknowledged_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        ordering = ["-seen_at", "user_id", "release_note_id"]
         unique_together = [("user", "release_note")]
         indexes = [
             models.Index(fields=["user", "release_note"]),

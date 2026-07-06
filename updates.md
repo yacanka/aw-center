@@ -367,3 +367,10 @@
 2. Normalized dynamic compliance-document field values before using them as issue-cache keys, DocProof search arguments, and status color keys.
 3. Hardened panel/ATA option updates and table row keys to avoid undefined index/key paths.
 4. Adjusted the column-settings composable to handle Naive UI's mixed table-column union safely when reading persisted column metadata.
+
+## 54. Deterministic model ordering for paginated querysets
+
+1. Added default `Meta.ordering` definitions to repository-owned Django models that can be exposed through paginated querysets, including project compliance documents, panels, responsibles, organization data, DCC, DDF, user preferences, presentations, and release-note seen records.
+2. The shared abstract project models now carry stable ordering so all project-specific apps inherit the same deterministic pagination behavior.
+3. Added a regression test that scans concrete repository models and fails if a model is added without default ordering.
+4. Generated metadata-only migrations for the affected Django apps so model option changes remain explicit and reproducible.

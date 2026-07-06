@@ -27,6 +27,7 @@ LOI_CHOICES = [
 class CompDocBase(models.Model):
     class Meta:
         abstract = True
+        ordering = ["-created_time", "name", "id"]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -69,6 +70,7 @@ class CompDocBase(models.Model):
 class PanelBase(models.Model):
     class Meta:
         abstract = True
+        ordering = ["ata", "name"]
 
     name = models.CharField()
     discipline = models.CharField()
@@ -95,6 +97,7 @@ class Titles(models.TextChoices):
 class ResponsibleBase(models.Model):
     class Meta:
         abstract = True
+        ordering = ["name", "person_id"]
 
     person_id = models.CharField(max_length=6)
     name = models.CharField()
