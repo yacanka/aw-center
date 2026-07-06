@@ -62,7 +62,7 @@ def get_default_auth_cookie_secure(debug):
 CERTIFICATES_DIR = BASE_DIR / "certificates"
 CUSTOM_TEMPLATE_DIR = BASE_DIR / "custom_templates"
 REPOSITORY_DIR = BASE_DIR.parent
-FRONTEND_DIST_DIR = env.path("FRONTEND_DIST_DIR", default=REPOSITORY_DIR / "frontend" / "dist")
+FRONTEND_DIST_DIR = Path(env.path("FRONTEND_DIST_DIR", default=REPOSITORY_DIR / "frontend" / "dist"))
 FRONTEND_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
 
 FRONTEND_RESET_URL = env.str(
