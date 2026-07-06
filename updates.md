@@ -367,3 +367,9 @@
 2. Normalized dynamic compliance-document field values before using them as issue-cache keys, DocProof search arguments, and status color keys.
 3. Hardened panel/ATA option updates and table row keys to avoid undefined index/key paths.
 4. Adjusted the column-settings composable to handle Naive UI's mixed table-column union safely when reading persisted column metadata.
+
+## 54. Compliance document table defensive runtime hardening
+
+1. Column settings now normalize runtime and persisted setting rows before applying them, so incomplete dynamic-input rows or malformed localStorage data cannot call string methods on null/undefined keys.
+2. The CompDoc table keeps non-data control columns addressable by falling back from column `key` to column `type`, preserving the expand column while filtering invalid user-created rows.
+3. CompDoc status derivation now treats missing or non-array `status_flow` values as an unknown status instead of throwing during table rendering.
