@@ -7,10 +7,28 @@ export interface ICompDoc {
   [key: string]: unknown
 }
 
+export interface ICompDocFieldMetadata {
+  key: string
+  label: string
+  type?: string
+  width?: number | string
+  sorter?: boolean
+  filter?: boolean
+  ellipsis?: boolean
+}
+
+export interface ICompDocFieldsResponse {
+  fields: ICompDocFieldMetadata[]
+}
+
 export interface IColumnSetting {
   key: string
-  title: string
-  visible: boolean
+  title?: string
+  visible?: boolean
+  width?: number | string
+  sorter?: boolean
+  filter?: boolean
+  ellipsis?: boolean
 }
 
 export interface IHistory {

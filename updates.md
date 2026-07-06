@@ -346,3 +346,17 @@
 2. Added `FRONTEND_DIST_DIR` and `FRONTEND_ASSETS_DIR` settings so deployments can mount or publish frontend build artifacts from a dedicated immutable artifact location.
 3. Django now serves the SPA shell directly from the configured Vite `dist` directory and exposes hashed Vite assets through the existing `/core/assets/...` static URL contract.
 4. This keeps backend source directories free of generated frontend artifacts and makes CI/CD artifact ownership explicit.
+
+## 51. Compliance document table column settings refactor
+
+1. Extracted compliance document table column preference persistence, reset, option locking, and dynamic column creation into a dedicated frontend composable.
+2. Kept `CompDocTable.vue` responsible for screen orchestration while the composable owns table-column configuration rules, improving SOLID separation of concerns.
+3. Hardened saved column settings parsing by dropping malformed localStorage state instead of breaking the table render path.
+4. Extended the column setting TypeScript contract to describe width, sorter, filter, and ellipsis preferences used by the settings UI.
+
+## 52. Server-driven compliance document table fields
+
+1. Added a shared backend compliance-document field metadata helper and per-project `compdocs/fields/` endpoints so the frontend can discover current CompDoc model fields from the server.
+2. Updated the CompDoc store to refresh field options from the active project's backend before column settings are opened, with a local fallback for availability resilience.
+3. Kept client-only virtual table columns available by merging server model fields with the existing frontend field defaults.
+4. Added focused backend metadata tests to protect the frontend-safe field contract.

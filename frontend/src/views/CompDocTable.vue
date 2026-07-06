@@ -1,26 +1,16 @@
 <script setup lang="ts">
-import { h, ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
+import { h, ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import {
   NButton,
   NDataTable,
   NSpace,
   NTag,
-  NUpload,
   NIcon,
-  NEllipsis,
-  NTooltip,
   NSpin,
   NText,
-  NInput,
-  NFormItem,
-  NForm,
-  NDatePicker,
   NSelect,
   DataTableColumns,
-  PopoverTrigger,
-  PopoverInst,
   PopoverProps,
-  DataTableColumn,
   SelectOption,
   PaginationInfo
 } from 'naive-ui'
@@ -35,21 +25,16 @@ import {
   ChannelAdd24Regular,
   Add24Regular,
   DataBarVertical24Regular,
-  Edit24Regular,
   Delete24Regular,
   Eye24Regular,
   Branch24Regular,
   DocumentArrowDown20Regular,
-  Document24Regular,
-  ContractDownLeft16Filled
+  Document24Regular
 } from '@vicons/fluent'
 import { useRoute } from 'vue-router'
-import { toTitleCase } from '@/utils/text'
 import { getType } from '@/utils/general'
 import {
   getDateFilterMenuFunc,
-  getStringFilterMenuFunc,
-  getArrayFilterMenuFunc,
   getStringFilterFunc,
   getArrayFilterFunc,
   getDateFilterFunc,
@@ -65,16 +50,16 @@ import {
   mapWithConcurrencyLimit,
   waitForRetry
 } from '@/composables/compdoc/table'
-import { SelectBaseOption } from 'naive-ui/es/select/src/interface'
+import { useCompdocColumnSettings } from '@/composables/compdoc/columnSettings'
 
 const route = useRoute()
 const store = useCompdocStore()
 const orgs = useOrgsStore()
 const proofStore = useDocproofStore()
 
-const columnSettings = ref<{ visible: boolean; list: IColumnSetting[] }>({
+const columnSettings = ref({
   visible: false,
-  list: []
+  list: [] as IColumnSetting[]
 })
 
 const page = ref(1)
@@ -103,7 +88,7 @@ const issueCheckProgress = ref({
 const ISSUE_CHECK_CONCURRENCY_LIMIT = 4
 const ISSUE_CHECK_RETRY_LIMIT = 1
 const ISSUE_CHECK_RETRY_DELAY_MS = 600
-const columnSelections: SelectOption[] = store.getCompdocFields
+const columnSelections: SelectOption[] = []
 
 const popupComponent = ref()
 const uploadPopup = ref()
@@ -469,6 +454,16 @@ const columns = ref<DataTableColumns<ICompDoc>>([
   }
 ])
 
+const columnSettingsManager = useCompdocColumnSettings({
+  allColumns: columns,
+  currentColumns,
+  columnSelections,
+  filterValue,
+  onFilter,
+  onClean
+})
+columnSettings.value = columnSettingsManager.state
+
 watch(
   () => route.params.project,
   (new_value, old_value) => {
@@ -630,81 +625,29 @@ function handlePageSizeInput(number: number) {
   }
 }
 
-function openColumnSettings() {
-  handleFieldChange(null, null)
-  columnSettings.value.visible = true
+async function openColumnSettings() {
+  await refreshColumnSelections()
+  columnSettingsManager.open()
 }
 
-function handleFieldChange(value: string | null, option: SelectBaseOption | null) {
-  for (const option of columnSelections) {
-    const locked = columnSettings.value.list.some((item) => item.key == option.value)
-    option.disabled = locked
-  }
+async function refreshColumnSelections() {
+  await store.fetchCompDocFields()
+  columnSelections.splice(0, columnSelections.length, ...store.getCompdocFields)
+}
+
+function handleFieldChange() {
+  columnSettingsManager.handleFieldChange()
 }
 
 function applyColumnSettings() {
-  currentColumns.value = []
-  for (let column of columnSettings.value.list) {
-    const targetCol: any = columns.value.find((col: any) => {
-      return col.key == column.key
-    })
-
-    if (targetCol) {
-      if (column.sorter != null) {
-        targetCol.sorter = column.sorter ? 'default' : null
-      }
-
-      if (column.ellipsis != null) {
-        targetCol.ellipsis = column.ellipsis ? { tooltip: true } : null
-      }
-
-      if (column.filter != null) {
-        if (targetCol.filter == null) {
-          targetCol.filter = column.filter
-            ? column.key?.includes('date')
-              ? getDateFilterFunc(column.key)
-              : getStringFilterFunc(column.key)
-            : null
-        }
-
-        if (!targetCol.renderFilterMenu && !targetCol.filterOptions) {
-          targetCol.renderFilterMenu = getStringFilterMenuFunc(column.key, filterValue, onFilter)
-        }
-      }
-
-      if (column.width != null) {
-        targetCol.width = column.width
-      }
-      currentColumns.value.push(targetCol)
-    } else {
-      currentColumns.value.push({
-        title: toTitleCase(column.key?.replaceAll('_', ' ')),
-        key: column.key,
-        sorter: column.sorter ? 'default' : null,
-        width: column.width ? column.width : 2,
-        renderFilterMenu: column.filter
-          ? column.key?.includes('date')
-            ? getDateFilterMenuFunc(column.key, onFilter, onClean)
-            : getStringFilterMenuFunc(column.key, filterValue, onFilter)
-          : null,
-        filter: column.filter
-          ? column.key?.includes('date')
-            ? getDateFilterFunc(column.key)
-            : getStringFilterFunc(column.key)
-          : null,
-        ellipsis: column.ellipsis ? { tooltip: true } : null
-      })
-    }
-  }
-  localStorage.setItem('compdocs>column_settings', JSON.stringify(columnSettings.value.list))
+  columnSettingsManager.apply()
 }
 
 function resetColumnSettings() {
-  localStorage.removeItem('compdocs>column_settings')
-  loadColumnSettings()
+  columnSettingsManager.reset()
 }
 
-function handleFilterChange(filters: any) {
+function handleFilterChange(filters: Record<string, unknown>) {
   for (let filter in filters) {
     filterValue.value[filter] = filters[filter]
   }
@@ -713,25 +656,11 @@ function handleFilterChange(filters: any) {
 }
 
 function loadColumnSettings() {
-  const savedColumnSettingsRaw = localStorage.getItem('compdocs>column_settings')
-  const savedColumnSettings = savedColumnSettingsRaw ? JSON.parse(savedColumnSettingsRaw) : null
-
-  if (savedColumnSettings) {
-    columnSettings.value.list = savedColumnSettings
-  } else {
-    columnSettings.value.list = columns.value.map((column: any) => {
-      return {
-        key: column.key,
-        width: column.width,
-        sorter: column.sorter ? true : false,
-        filter: column.filter ? true : false,
-        ellipsis: column.ellipsis ? true : false
-      }
-    })
-  }
+  columnSettingsManager.load()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await refreshColumnSelections()
   loadColumnSettings()
   applyColumnSettings()
 })
