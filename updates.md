@@ -339,3 +339,10 @@
 1. Centralized frontend theme resolution in `frontend/src/services/theme.ts` so unauthenticated screens and authenticated preference updates use the same dark/light fallback logic.
 2. Updated the root Naive UI config provider to resolve its initial theme from the system preference when no user preference has been loaded yet, preventing light Naive components on a dark first login screen.
 3. Reused the same theme application helper after session bootstrap, login, and settings theme updates to keep CSS variables and Naive UI theme state aligned.
+
+## 50. Frontend build artifact serving architecture
+
+1. Removed the post-build copy pattern from `frontend/scripts/postbuild.js`; the script now verifies that Vite generated `dist/index.html` and `dist/assets` without mutating backend directories.
+2. Added `FRONTEND_DIST_DIR` and `FRONTEND_ASSETS_DIR` settings so deployments can mount or publish frontend build artifacts from a dedicated immutable artifact location.
+3. Django now serves the SPA shell directly from the configured Vite `dist` directory and exposes hashed Vite assets through the existing `/core/assets/...` static URL contract.
+4. This keeps backend source directories free of generated frontend artifacts and makes CI/CD artifact ownership explicit.

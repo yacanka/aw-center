@@ -118,3 +118,9 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 
 1. **P2 - Project-specific aliases:** If projects use different local naming conventions, add project-level alias configuration while keeping the common default mapping as fallback.
 2. **P2 - Import audit trail:** Store uploaded filename, importing user, detected mappings, and import result counts for compliance traceability.
+
+## 50. Frontend artifact deployment follow-up
+
+1. **P1 - Deployment pipeline alignment:** Update production deployment scripts to build frontend as an immutable artifact and mount/copy only `frontend/dist` to the runtime path configured by `FRONTEND_DIST_DIR`.
+2. **P2 - CDN/static offload:** For higher traffic deployments, serve `/core/assets/` from Nginx/CDN object storage while keeping Django responsible only for the SPA fallback and API routes.
+3. **P2 - Build artifact smoke test:** Add a CI smoke test that runs `npm run build` and verifies Django can return `/app/` with `FRONTEND_DIST_DIR` pointed at the generated artifact.
