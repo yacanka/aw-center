@@ -88,7 +88,7 @@ const issueCheckProgress = ref({
 const ISSUE_CHECK_CONCURRENCY_LIMIT = 4
 const ISSUE_CHECK_RETRY_LIMIT = 1
 const ISSUE_CHECK_RETRY_DELAY_MS = 600
-const columnSelections: SelectOption[] = store.getCompdocFields
+const columnSelections: SelectOption[] = []
 
 const popupComponent = ref()
 const uploadPopup = ref()
@@ -625,8 +625,14 @@ function handlePageSizeInput(number: number) {
   }
 }
 
-function openColumnSettings() {
+async function openColumnSettings() {
+  await refreshColumnSelections()
   columnSettingsManager.open()
+}
+
+async function refreshColumnSelections() {
+  await store.fetchCompDocFields()
+  columnSelections.splice(0, columnSelections.length, ...store.getCompdocFields)
 }
 
 function handleFieldChange() {
@@ -653,7 +659,8 @@ function loadColumnSettings() {
   columnSettingsManager.load()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await refreshColumnSelections()
   loadColumnSettings()
   applyColumnSettings()
 })

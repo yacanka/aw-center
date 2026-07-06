@@ -17,6 +17,7 @@ from pprint import pprint
 import math
 from utils.arrays import safe_get
 from common.compdoc_import import LIST_IMPORT_FIELDS, build_mapping_preview, choose_header_row, read_mapped_excel
+from common.compdoc_fields import get_compdoc_field_metadata
 
 PAGINATION_QUERY_PARAMETERS = {"page", "page_size"}
 TEXT_FIELD_TYPES = {"CharField", "TextField", "EmailField"}
@@ -104,6 +105,16 @@ def responsible_view_set_factory(model, view_serializer_class, view_permission_c
             return qs
 
     return DynamicResponsibleViewSet
+
+
+def compdoc_fields_view_factory(model, view_permission_classes):
+    class CompDocFieldsView(APIView):
+        def get(self, request):
+            return Response({"fields": get_compdoc_field_metadata(model)}, status=status.HTTP_200_OK)
+
+        permission_classes = view_permission_classes
+
+    return CompDocFieldsView
 
 def view_set_factory(model, serializer_class, view_permission_classes):
     class DynamicViewSet(APIView):

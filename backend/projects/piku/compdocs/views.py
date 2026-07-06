@@ -1,7 +1,7 @@
 from projects.piku.models import CompDoc
 from projects.piku.serializers import CompDocSerializer, HistorySerializer
 
-from common.views import view_set_factory, view_set_obj_factory, upload_compdoc_factory, excel_creator_factory, history_view_set_factory
+from common.views import view_set_factory, view_set_obj_factory, upload_compdoc_factory, excel_creator_factory, history_view_set_factory, compdoc_fields_view_factory
 
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
@@ -12,3 +12,4 @@ CompDocUpload = upload_compdoc_factory(CompDoc, CompDocSerializer, [AllowAny])
 ExcelCreator = excel_creator_factory(CompDoc, CompDocSerializer, [AllowAny])
 
 HistoryView = history_view_set_factory(CompDoc, HistorySerializer, [AllowAny])
+CompDocFields = compdoc_fields_view_factory(CompDoc, [AllowAny])

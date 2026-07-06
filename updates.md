@@ -353,3 +353,10 @@
 2. Kept `CompDocTable.vue` responsible for screen orchestration while the composable owns table-column configuration rules, improving SOLID separation of concerns.
 3. Hardened saved column settings parsing by dropping malformed localStorage state instead of breaking the table render path.
 4. Extended the column setting TypeScript contract to describe width, sorter, filter, and ellipsis preferences used by the settings UI.
+
+## 52. Server-driven compliance document table fields
+
+1. Added a shared backend compliance-document field metadata helper and per-project `compdocs/fields/` endpoints so the frontend can discover current CompDoc model fields from the server.
+2. Updated the CompDoc store to refresh field options from the active project's backend before column settings are opened, with a local fallback for availability resilience.
+3. Kept client-only virtual table columns available by merging server model fields with the existing frontend field defaults.
+4. Added focused backend metadata tests to protect the frontend-safe field contract.
