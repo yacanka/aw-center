@@ -1694,6 +1694,11 @@ def parse_arguments() -> LauncherConfig:
         help="Preferred frontend development server port. Default: 5173",
     )
     parser.add_argument(
+        "--no-backend-reload",
+        action="store_true",
+        help="Prevent backend server from reloading.",
+    )
+    parser.add_argument(
         "--ignore-packages",
         action="store_true",
         help="Ignore package-related operations.",
