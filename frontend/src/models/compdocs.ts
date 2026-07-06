@@ -9,8 +9,12 @@ export interface ICompDoc {
 
 export interface IColumnSetting {
   key: string
-  title: string
-  visible: boolean
+  title?: string
+  visible?: boolean
+  width?: number | string
+  sorter?: boolean
+  filter?: boolean
+  ellipsis?: boolean
 }
 
 export interface IHistory {
