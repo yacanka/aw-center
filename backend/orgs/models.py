@@ -7,6 +7,9 @@ class Project(models.Model):
     name = models.CharField()
     slug = models.SlugField(unique=True)
 
+    class Meta:
+        ordering = ["name", "id"]
+
     def __str__(self):
         return self.name
 
@@ -31,6 +34,7 @@ class Panel(models.Model):
     )
 
     class Meta:
+        ordering = ["project__name", "ata", "name", "id"]
         constraints = [
             models.UniqueConstraint(fields=["project", "ata"], name="ata_chapter")
         ]
@@ -39,6 +43,9 @@ class Panel(models.Model):
         return self.name
 
 class Responsible(models.Model):
+    class Meta:
+        ordering = ["project__name", "name", "person_id", "id"]
+
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="people")
     panel = models.ForeignKey(Panel, on_delete=models.CASCADE, related_name="people", null=True, blank=True)
 
@@ -51,6 +58,9 @@ class Responsible(models.Model):
         return self.name
 
 class People(models.Model):
+    class Meta:
+        ordering = ["name", "person_id"]
+
     person_id = models.CharField(unique=True, max_length=6, db_index=True)
     name = models.CharField(db_index=True)
     email = models.EmailField(db_index=True)

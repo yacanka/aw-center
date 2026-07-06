@@ -373,3 +373,10 @@
 1. Column settings now normalize runtime and persisted setting rows before applying them, so incomplete dynamic-input rows or malformed localStorage data cannot call string methods on null/undefined keys.
 2. The CompDoc table keeps non-data control columns addressable by falling back from column `key` to column `type`, preserving the expand column while filtering invalid user-created rows.
 3. CompDoc status derivation now treats missing or non-array `status_flow` values as an unknown status instead of throwing during table rendering.
+
+## 55. Deterministic model ordering for paginated querysets
+
+1. Added default `Meta.ordering` definitions to repository-owned Django models that can be exposed through paginated querysets, including project compliance documents, panels, responsibles, organization data, DCC, DDF, user preferences, presentations, and release-note seen records.
+2. The shared abstract project models now carry stable ordering so all project-specific apps inherit the same deterministic pagination behavior.
+3. Added a regression test that scans concrete repository models and fails if a model is added without default ordering.
+4. Generated metadata-only migrations for the affected Django apps so model option changes remain explicit and reproducible.

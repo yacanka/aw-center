@@ -120,6 +120,7 @@ class UserPreferences(models.Model):
         verbose_name = 'User Preference'
         verbose_name_plural = 'User Preferences'
         db_table = 'user_preferences'
+        ordering = ['user__username', 'user_id']
 
     def __str__(self):
         return f"{self.user.username}'s Preferences"

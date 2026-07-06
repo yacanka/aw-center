@@ -9,6 +9,9 @@ class Presentation(models.Model):
         ("pending", "Pending"), ("converting", "Converting"), ("ready", "Ready"), ("failed", "Failed")
     ])
 
+    class Meta:
+        ordering = ["-created_at", "title", "id"]
+
     def __str__(self):
         return self.title
 
