@@ -1,4 +1,4 @@
-import type { Ref } from 'vue'
+import { reactive, type Ref } from 'vue'
 import type { DataTableColumn, DataTableColumns, SelectOption } from 'naive-ui'
 import type { IColumnSetting, ICompDoc } from '@/models/compdocs'
 import { toTitleCase } from '@/utils/text'
@@ -34,7 +34,7 @@ interface ColumnSettingsDependencies {
 
 /** Manage persisted compliance document table column preferences. */
 export function useCompdocColumnSettings(dependencies: ColumnSettingsDependencies) {
-  const state: ColumnSettingsState = { visible: false, list: [] }
+  const state = reactive<ColumnSettingsState>({ visible: false, list: [] })
 
   return {
     state,
