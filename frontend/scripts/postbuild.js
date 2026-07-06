@@ -1,10 +1,21 @@
 const fs = require('fs')
 const path = require('path')
 
-const dist = path.join(__dirname, '../dist')
+const frontendDistDirectory = path.resolve(__dirname, '../dist')
+const frontendIndexFile = path.join(frontendDistDirectory, 'index.html')
+const frontendAssetsDirectory = path.join(frontendDistDirectory, 'assets')
 
-const templates = path.join(__dirname, '../../backend/templates')
-const statics = path.join(__dirname, '../../backend/core')
+function assertPathExists(filePath, description) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`${description} was not generated: ${filePath}`)
+  }
+}
 
-fs.cpSync(path.join(dist, 'index.html'), path.join(templates, 'index.html'))
-fs.cpSync(path.join(dist, 'assets'), path.join(statics, 'assets'), { recursive: true })
+function summarizeBuildOutput() {
+  assertPathExists(frontendIndexFile, 'Frontend entry file')
+  assertPathExists(frontendAssetsDirectory, 'Frontend assets directory')
+
+  console.log('Frontend build verified for Django serving from frontend/dist.')
+}
+
+summarizeBuildOutput()
