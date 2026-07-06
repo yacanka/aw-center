@@ -216,6 +216,7 @@ class LauncherConfig:
     backend_port: int
     frontend_port: int
     no_backend_reload: bool
+    ignore_packages: bool
 
 
 def executable(name: str) -> str:
@@ -896,7 +897,8 @@ def prepare_offline_bundle(config: LauncherConfig) -> None:
             host=config.host,
             backend_port=config.backend_port,
             frontend_port=config.frontend_port,
-            no_backend_reload=config.no_backend_reload
+            no_backend_reload=config.no_backend_reload,
+            ignore_packages=config.ignore_packages
         )
 
         run(
@@ -1052,7 +1054,9 @@ def offline_package_roots(config: LauncherConfig) -> list[Path]:
                 "Run 'launcher.py prepare-offline' first, or use --skip-backend."
             )
         roots.append(BACKEND)
-        roots.append(config.offline_dir / "wheels")
+
+        if not config.ignore_packages:
+            roots.append(config.offline_dir / "wheels")
 
     if not config.skip_frontend:
         ensure_frontend_layout()
@@ -1062,7 +1066,9 @@ def offline_package_roots(config: LauncherConfig) -> list[Path]:
                 "Run 'launcher.py prepare-offline' first, or use --skip-frontend."
             )
         roots.append(FRONTEND)
-        roots.append(config.offline_dir / "npm-cache")
+
+        if not config.ignore_packages:
+            roots.append(config.offline_dir / "npm-cache")
 
     # Preserve deterministic order and avoid duplicate roots.
     unique_roots: list[Path] = []
@@ -1579,6 +1585,7 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
     backend_port = args.backend_port
     frontend_port = args.frontend_port
     no_backend_reload = args.no_backend_reload
+    ignore_packages = args.ignore_packages
 
     if command in {"prepare-offline", "package-offline", "install", "check", "all", "run"}:
         scope = prompt_choice(
@@ -1620,7 +1627,8 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
         host=host,
         backend_port=backend_port,
         frontend_port=frontend_port,
-        no_backend_reload=no_backend_reload
+        no_backend_reload=no_backend_reload,
+        ignore_packages=ignore_packages
     )
 
     print("\nSelected configuration")
@@ -1636,6 +1644,7 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
     print(f"  Backend port  : {config.backend_port}")
     print(f"  Frontend port : {config.frontend_port}")
     print(f"  No backend reload: {config.no_backend_reload}")
+    print(f"  Ignore packages: {config.ignore_packages}")
 
     if not prompt_bool("Run with these settings?", True):
         raise RuntimeError("Interactive launcher run was cancelled by the user.")
@@ -1684,6 +1693,11 @@ def parse_arguments() -> LauncherConfig:
         default=5173,
         help="Preferred frontend development server port. Default: 5173",
     )
+    parser.add_argument(
+        "--ignore-packages",
+        action="store_true",
+        help="Ignore package-related operations.",
+    )
 
     args = parser.parse_args()
 
@@ -1711,6 +1725,7 @@ def parse_arguments() -> LauncherConfig:
         backend_port=args.backend_port,
         frontend_port=args.frontend_port,
         no_backend_reload=args.no_backend_reload,
+        ignore_packages=args.ignore_packages
     )
 
 def main() -> int:
