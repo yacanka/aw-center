@@ -35,6 +35,7 @@ import { useRoute } from 'vue-router'
 import { getType } from '@/utils/general'
 import {
   getDateFilterMenuFunc,
+  getStringFilterMenuFunc,
   getStringFilterFunc,
   getArrayFilterFunc,
   getDateFilterFunc,
@@ -129,7 +130,7 @@ const columns = ref<DataTableColumns<ICompDoc>>([
     width: 15,
     sorter: 'default',
     filterOptions: [],
-    filter: getArrayFilterFunc('panel'),
+    filter: getArrayFilterFunc('panel') as any,
     ellipsis: {
       tooltip: true
     }
@@ -165,7 +166,8 @@ const columns = ref<DataTableColumns<ICompDoc>>([
     align: 'center',
     width: 15,
     render(row) {
-      const issueNo = coverPageIssueList.value[row.cover_page_no]
+      const coverPageNumber = String(row.cover_page_no || '')
+      const issueNo = coverPageIssueList.value[coverPageNumber]
       if (issueNo === undefined) {
         return h(
           NText,
@@ -180,14 +182,14 @@ const columns = ref<DataTableColumns<ICompDoc>>([
               ;(e.currentTarget as HTMLElement).classList.remove('hovered')
             },
             onDblclick: () => {
-              coverPageIssueList.value[row.cover_page_no] = null
+              coverPageIssueList.value[coverPageNumber] = null
               proofStore
-                .search(row.cover_page_no)
+                .search(coverPageNumber)
                 .then((res) => {
-                  coverPageIssueList.value[row.cover_page_no] = res
+                  coverPageIssueList.value[coverPageNumber] = res
                 })
                 .catch(() => {
-                  coverPageIssueList.value[row.cover_page_no] = undefined
+                  coverPageIssueList.value[coverPageNumber] = undefined
                 })
             }
           },
@@ -240,7 +242,8 @@ const columns = ref<DataTableColumns<ICompDoc>>([
     render(row) {
       const body: any = []
       if (row.tech_doc_no) {
-        const issueNo1 = techIssueList.value[row.tech_doc_no]
+        const techDocumentNumber = String(row.tech_doc_no)
+        const issueNo1 = techIssueList.value[techDocumentNumber]
         if (issueNo1 === undefined) {
           body[0] = h(
             NText,
@@ -255,14 +258,14 @@ const columns = ref<DataTableColumns<ICompDoc>>([
                 ;(e.currentTarget as HTMLElement).classList.remove('hovered')
               },
               onDblclick: () => {
-                techIssueList.value[row.tech_doc_no] = null
+                techIssueList.value[techDocumentNumber] = null
                 proofStore
-                  .search(row.tech_doc_no)
+                  .search(techDocumentNumber)
                   .then((res) => {
-                    techIssueList.value[row.tech_doc_no] = res
+                    techIssueList.value[techDocumentNumber] = res
                   })
                   .catch(() => {
-                    techIssueList.value[row.tech_doc_no] = undefined
+                    techIssueList.value[techDocumentNumber] = undefined
                   })
               }
             },
@@ -282,7 +285,8 @@ const columns = ref<DataTableColumns<ICompDoc>>([
       }
 
       if (row.tech_doc_no_2) {
-        const issueNo2 = techIssueList.value[row.tech_doc_no_2]
+        const secondTechDocumentNumber = String(row.tech_doc_no_2)
+        const issueNo2 = techIssueList.value[secondTechDocumentNumber]
         if (issueNo2 === undefined) {
           body[1] = h(
             NText,
@@ -297,14 +301,14 @@ const columns = ref<DataTableColumns<ICompDoc>>([
                 ;(e.currentTarget as HTMLElement).classList.remove('hovered')
               },
               onDblclick: () => {
-                techIssueList.value[row.tech_doc_no_2] = null
+                techIssueList.value[secondTechDocumentNumber] = null
                 proofStore
-                  .search(row.tech_doc_no_2)
+                  .search(secondTechDocumentNumber)
                   .then((res) => {
-                    techIssueList.value[row.tech_doc_no_2] = res
+                    techIssueList.value[secondTechDocumentNumber] = res
                   })
                   .catch(() => {
-                    techIssueList.value[row.tech_doc_no_2] = undefined
+                    techIssueList.value[secondTechDocumentNumber] = undefined
                   })
               }
             },
@@ -329,14 +333,14 @@ const columns = ref<DataTableColumns<ICompDoc>>([
   {
     title: 'UBM Target Date',
     key: 'ubm_target_date',
-    filter: getDateFilterFunc('ubm_target_date'),
+    filter: getDateFilterFunc('ubm_target_date') as any,
     renderFilterMenu: getDateFilterMenuFunc('ubm_target_date', onFilter, onClean),
     width: 13
   },
   {
     title: 'UBM Delivery Date',
     key: 'ubm_delivery_date',
-    filter: getDateFilterFunc('ubm_delivery_date'),
+    filter: getDateFilterFunc('ubm_delivery_date') as any,
     renderFilterMenu: getDateFilterMenuFunc('ubm_delivery_date', onFilter, onClean),
     width: 13
   },
@@ -353,26 +357,22 @@ const columns = ref<DataTableColumns<ICompDoc>>([
     sorter: 'default',
     filterOptions: statusOptions,
     //renderFilterMenu: getArrayFilterMenuFunc("status", onFilter, onClean),
-    filter: getArrayFilterFunc('status'),
+    filter: getArrayFilterFunc('status') as any,
     render(row) {
       return h(
         NTag,
         {
           color: {
-            color: statusColors[row.status]?.color25,
-            textColor: statusColors[row.status]?.color
+            color: statusColors[String(row.status)]?.color25,
+            textColor: statusColors[String(row.status)]?.color
           },
           bordered: false
         },
         {
           default: () => {
             if (row.status) {
-              return (
-                (row.status == 'delayed' ? 'to_be_issued' : row.status).charAt(0).toUpperCase() +
-                (row.status == 'delayed' ? 'to_be_issued' : row.status)
-                  .slice(1)
-                  .replaceAll('_', ' ')
-              )
+              const status = String(row.status) == 'delayed' ? 'to_be_issued' : String(row.status)
+              return status.charAt(0).toUpperCase() + status.slice(1).replaceAll('_', ' ')
             }
           }
         }
@@ -434,7 +434,7 @@ const columns = ref<DataTableColumns<ICompDoc>>([
                     negativeText: 'No',
                     onPositiveClick: () => {
                       store
-                        .deleteCompdoc(row.id)
+                        .deleteCompdoc(row.id as number)
                         .then(() => {
                           console.log('Request deleted: ', row.name)
                         })
@@ -477,12 +477,12 @@ watch(
     orgs.fetchPanels().then(() => {
       const panelIndex = columns.value.findIndex((item: any) => item.key == 'panel')
       if (panelIndex !== -1) {
-        columns.value[panelIndex].filterOptions = orgs.getPanelOptions
+        columns.value[panelIndex].filterOptions = orgs.getPanelOptions as any
       }
 
       const ataIndex = columns.value.findIndex((item: any) => item.key == 'ata')
-      if (panelIndex !== -1) {
-        columns.value[ataIndex].filterOptions = orgs.getAtaOptions
+      if (ataIndex !== -1) {
+        columns.value[ataIndex].filterOptions = orgs.getAtaOptions as any
       }
     })
   },
@@ -517,7 +517,7 @@ function showpUploadForm() {
 }
 
 function rowKey(row: ICompDoc) {
-  return row.id
+  return row.id || 0
 }
 
 function showAddCompDocForm(mode: string) {
@@ -626,8 +626,8 @@ function handlePageSizeInput(number: number) {
 }
 
 async function openColumnSettings() {
-  await refreshColumnSelections()
   columnSettingsManager.open()
+  await refreshColumnSelections()
 }
 
 async function refreshColumnSelections() {

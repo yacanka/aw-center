@@ -367,3 +367,35 @@
 2. Extended user serialization with `group_details` so the frontend can display assigned roles without losing the existing writable `groups` primary-key contract.
 3. Updated the user management popup to assign groups alongside direct permissions and fixed disabled username/email fields.
 4. Added regression tests for group endpoint authorization, group permission assignment, and user-group assignment response shape.
+## 53. Compliance document table filter import and TypeScript hardening
+
+1. Restored the missing `getStringFilterMenuFunc` import in `CompDocTable.vue`, fixing the runtime `ReferenceError` during setup.
+2. Normalized dynamic compliance-document field values before using them as issue-cache keys, DocProof search arguments, and status color keys.
+3. Hardened panel/ATA option updates and table row keys to avoid undefined index/key paths.
+4. Adjusted the column-settings composable to handle Naive UI's mixed table-column union safely when reading persisted column metadata.
+
+## 54. Compliance document table defensive runtime hardening
+
+1. Column settings now normalize runtime and persisted setting rows before applying them, so incomplete dynamic-input rows or malformed localStorage data cannot call string methods on null/undefined keys.
+2. The CompDoc table keeps non-data control columns addressable by falling back from column `key` to column `type`, preserving the expand column while filtering invalid user-created rows.
+3. CompDoc status derivation now treats missing or non-array `status_flow` values as an unknown status instead of throwing during table rendering.
+
+## 55. Deterministic model ordering for paginated querysets
+
+1. Added default `Meta.ordering` definitions to repository-owned Django models that can be exposed through paginated querysets, including project compliance documents, panels, responsibles, organization data, DCC, DDF, user preferences, presentations, and release-note seen records.
+2. The shared abstract project models now carry stable ordering so all project-specific apps inherit the same deterministic pagination behavior.
+3. Added a regression test that scans concrete repository models and fails if a model is added without default ordering.
+4. Generated metadata-only migrations for the affected Django apps so model option changes remain explicit and reproducible.
+
+## 56. Compliance document column settings popup fix
+
+1. Column settings state is now created as a Vue reactive object inside the composable.
+2. Opening the settings modal now triggers a render immediately after the fields request completes, instead of waiting for an unrelated UI update such as page-size changes.
+3. The fix keeps the existing fields refresh flow and localStorage-backed column preference behavior unchanged.
+
+## 57. README project-wide documentation refresh
+
+1. README was rewritten to reflect the current Django/Vue application structure, backend route surface, frontend screens, project registry, security model, and deployment foundations.
+2. Launcher documentation was expanded with command responsibilities, online/offline workflows, run behavior, generated environment files, options, and trade-offs.
+3. Backend and frontend environment variables were documented with local-development examples, production cookie/CORS guidance, and external binary configuration notes.
+4. Functional modules now describe DCC/JIRA, DDF, CompDoc, DOORS, DocProof, Excel, Word, PDF, Outlook, PPTX Gallery, Media Converter, organizations, users/auth, release notes, and SPA serving.

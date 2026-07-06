@@ -3,6 +3,9 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 class JIRA_DCC(models.Model):
+    class Meta:
+        ordering = ["-created_time", "issue", "id"]
+
     issue = models.CharField(max_length=255)
     ecd_name = models.CharField(max_length=255)
     dcc_path = models.CharField(max_length=512, verbose_name="DCC Folder Path", null=True, blank=True, )
