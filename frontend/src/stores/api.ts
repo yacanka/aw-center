@@ -7,7 +7,6 @@ import { IDdf } from '@/models/ddf'
 import { IPerson, IPanel, IProject, IResponsible } from '@/models/orgs'
 import { IMsg } from '@/models/outlook'
 import { toTitleCase } from '@/utils/text'
-import { nullCheck } from '@/utils/general'
 import { useUserStore } from './user'
 import { handleRequest } from '@/composables/promise'
 import { API_BASE_URL } from '@/services/http'
@@ -466,7 +465,9 @@ export const useOrgsStore = defineStore('orgs', {
     projects: [] as IProject[],
     panels: [] as IPanel[],
     responsibles: [] as IResponsible[],
-    people: [] as IPerson[]
+    people: [] as IPerson[],
+    peopleFetched: false,
+    peopleRequest: null as Promise<unknown> | null
   }),
   getters: {
     isLoading: (state) => state.loading,
@@ -489,14 +490,11 @@ export const useOrgsStore = defineStore('orgs', {
       state.responsibles.sort((a, b) =>
         a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })
       ),
-    getPeople: (state) => {
-      if (nullCheck(state.people)) {
-        useOrgsStore().fetchPeople()
-      }
-      return state.people.sort((a, b) =>
+    getPeople: (state) =>
+      [...state.people].sort((a, b) =>
         a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })
-      )
-    }
+      ),
+    hasFetchedPeople: (state) => state.peopleFetched
   },
   actions: {
     setProject(projectName: string) {
@@ -693,20 +691,24 @@ export const useOrgsStore = defineStore('orgs', {
         () => (this.loading = false)
       )
     },
-    async fetchPeople() {
+    async fetchPeople(forceRefresh = false) {
+      if (this.peopleRequest && !forceRefresh) return this.peopleRequest
+      if (this.peopleFetched && !forceRefresh) return this.people
+
       this.loading = true
-      await handleRequest<any>(
+      this.peopleRequest = handleRequest<IPerson[]>(
         axios.get(`${API_PATHS.orgs}/people/`),
         (data) => {
           this.people = data
+          this.peopleFetched = true
         },
-        (errorMsg) => {
-          errorNotification(errorMsg)
-        },
+        (errorMsg) => errorNotification(errorMsg),
         () => {
           this.loading = false
+          this.peopleRequest = null
         }
       )
+      return this.peopleRequest
     },
     async createPerson(newPersonData: IPerson) {
       this.loading = true
