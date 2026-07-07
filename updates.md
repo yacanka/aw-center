@@ -399,3 +399,9 @@
 2. Launcher documentation was expanded with command responsibilities, online/offline workflows, run behavior, generated environment files, options, and trade-offs.
 3. Backend and frontend environment variables were documented with local-development examples, production cookie/CORS guidance, and external binary configuration notes.
 4. Functional modules now describe DCC/JIRA, DDF, CompDoc, DOORS, DocProof, Excel, Word, PDF, Outlook, PPTX Gallery, Media Converter, organizations, users/auth, release notes, and SPA serving.
+
+## 58. Django admin Projects grouping
+
+1. Added a custom AW Center Django admin site that merges project-specific admin app sections into one synthetic `Projects` section.
+2. Preserved each original project model admin URL while prefixing model display names with the project name for readability inside the grouped section.
+3. Added regression tests for the grouped admin index, synthetic Projects app index, and URL reversibility.
