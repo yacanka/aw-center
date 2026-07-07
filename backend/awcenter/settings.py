@@ -77,7 +77,7 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
+    'awcenter.admin.AwCenterAdminConfig',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
