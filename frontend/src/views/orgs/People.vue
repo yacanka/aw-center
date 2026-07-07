@@ -171,6 +171,7 @@ const activePanel = ref(null)
 onMounted(() => {
   const projectTab = localStorage.getItem('activeProjectTab')
   activeProject.value = projectTab ? projectTab : null
+  store.fetchPeople()
 })
 </script>
 

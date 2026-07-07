@@ -405,3 +405,9 @@
 1. Added a custom AW Center Django admin site that merges project-specific admin app sections into one synthetic `Projects` section.
 2. Preserved each original project model admin URL while prefixing model display names with the project name for readability inside the grouped section.
 3. Added regression tests for the grouped admin index, synthetic Projects app index, and URL reversibility.
+
+## 59. Organization people empty-list fetch loop guard
+
+1. Removed the side-effecting `getPeople` getter request trigger that treated an empty people array as missing data and repeatedly called `orgs/people/` during renders.
+2. Added explicit people fetch state and in-flight request reuse so an empty successful response is cached as a valid loaded state.
+3. Moved the People page fetch to component mount, keeping data loading intentional and preventing render-time API calls.
