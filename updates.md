@@ -430,3 +430,10 @@
 2. Updated the PDF comparer fallback extractor to import and report pypdf instead of PyPDF2.
 3. Kept the existing pdfplumber-first extraction order, with pypdf remaining as the secondary parser for resilience.
 
+
+## 63. Outlook ECR effectivity normalization and JIRA matching
+
+1. Added deterministic backend parsing for ECR effectivity groups such as `4-5431 (1BC)`, `1-12, 50, 5431 (1BC)`, and sequential mixed groups.
+2. The parsed values are normalized into semicolon-separated backend multiselect text before being returned to the Outlook ECR approval UI.
+3. When a JIRA session is available, the backend loads the configured task effectivity field options from JIRA create metadata and replaces each normalized value with the closest allowed option.
+4. The Outlook ECR task flow now connects to JIRA before parsing attachments so parsed approval data can show JIRA-matched effectivity values before task creation.
