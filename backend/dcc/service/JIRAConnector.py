@@ -141,6 +141,19 @@ class JiraConnector:
             for key, value in fields.items()
         ]
 
+
+    def get_create_field_allowed_values(self, project_key, issue_type_name, field_id):
+        """Return allowed values for a create-screen field from JIRA createmeta."""
+        metadata = self.jira.createmeta(
+            projectKeys=project_key,
+            issuetypeNames=issue_type_name,
+            expand='projects.issuetypes.fields'
+        )
+        projects = metadata.get('projects', [])
+        issue_types = projects[0].get('issuetypes', []) if projects else []
+        fields = issue_types[0].get('fields', {}) if issue_types else {}
+        return fields.get(field_id, {}).get('allowedValues', [])
+
     def build_subtask_fields(self, summary, description='', assignee=None, duedate=None, extra_fields=None):
         """Build the fields payload used by JIRA create_issue for sub-tasks."""
         fields = {

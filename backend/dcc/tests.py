@@ -13,6 +13,7 @@ from rest_framework.test import APIClient
 from dcc.models import JIRA_DCC
 
 from dcc.service.JIRAConnector import JiraConnector
+from dcc.service.effectivity import match_effectivity_options, normalize_effectivity_text
 from dcc.service.reminder_rate_limit import reserve_reminder_email_slot
 from dcc.service.text_parsing import (
     check_panel_text,
@@ -67,6 +68,28 @@ class DccTextParsingTests(SimpleTestCase):
         self.assertEqual(classify_dcc(classification), ("Major", assignee))
         self.assertEqual(classify_dcc([("Unknown", None)]), (None, None))
 
+    def test_normalize_effectivity_reorders_single_group(self):
+        self.assertEqual(normalize_effectivity_text("4-5431 (1BC)"), "1BC 4-5431")
+
+    def test_normalize_effectivity_expands_multiple_group_values(self):
+        self.assertEqual(
+            normalize_effectivity_text("1-12, 50, 5431 (1BC)"),
+            "1BC 1-12; 1BC-50; 1BC-5431",
+        )
+
+    def test_normalize_effectivity_handles_sequential_groups(self):
+        self.assertEqual(
+            normalize_effectivity_text("1-12, 80 (4AV) 9 (HC2) 1-9, 15-18 (AX2)"),
+            "4AV 1-12; 4AV-80; HC2 9; AX2 1-9; AX2 15-18",
+        )
+
+    def test_match_effectivity_options_uses_closest_allowed_values(self):
+        options = [{"value": "4AV 1-12"}, {"value": "4AV-080"}, {"value": "HC2 9"}]
+        self.assertEqual(
+            match_effectivity_options("1-12, 80 (4AV) 9 (HC2)", options),
+            "4AV 1-12; 4AV-080; HC2 9",
+        )
+
 
 class JiraConnectorSubtaskFieldTests(SimpleTestCase):
     """Verify dynamic sub-task payload construction without a JIRA server."""
@@ -101,6 +124,18 @@ class JiraConnectorSubtaskFieldTests(SimpleTestCase):
         self.assertEqual(fields[0]["id"], "summary")
         self.assertEqual(fields[0]["name"], "Summary")
         self.assertTrue(fields[0]["required"])
+
+    def test_get_create_field_allowed_values_returns_target_field_options(self):
+        connector = JiraConnector.__new__(JiraConnector)
+        connector.jira = SimpleNamespace(createmeta=lambda **_: {
+            "projects": [{"issuetypes": [{"fields": {
+                "customfield_34115": {"allowedValues": [{"value": "4AV 1-12"}]},
+            }}]}]
+        })
+
+        options = connector.get_create_field_allowed_values("CHN", "Task", "customfield_34115")
+
+        self.assertEqual(options, [{"value": "4AV 1-12"}])
 
 
 class DccTemplateResolverTests(SimpleTestCase):

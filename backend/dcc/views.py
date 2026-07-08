@@ -33,6 +33,8 @@ from .service.text_parsing import (
     parse_labels,
     parse_multiselect,
 )
+from .service.effectivity import match_effectivity_options, normalize_effectivity_text
+
 from utils.converters import date_parser
 
 from io import BytesIO
@@ -205,7 +207,7 @@ def create_issue(request):
             'customfield_45000': data["ecd_no"].split("/")[0].strip(), #customfield_13712
             'customfield_45001': data["ecd_no"].split("/")[1].strip(), #customfield_14297
             'customfield_45002': f"DCC - {project_definition.dcc_label} - {str(datetime.now().year)} - XXX", #customfield_21271
-            'customfield_34115': parse_multiselect(data["effectivity"]),
+            'customfield_34115': parse_multiselect(resolve_effectivity_value(_jira, data.get("effectivity", ""))),
         }
 
         issue = _jira.create_issue(issue_fields)
@@ -245,6 +247,25 @@ def get_folder_status(request):
     except Exception as e:
         return Response(f"Something went wrong: {e}", status=400)
 
+def resolve_effectivity_value(jira_client, raw_effectivity: str) -> str:
+    """Normalize effectivity and map it to closest JIRA multiselect options."""
+    options = jira_client.get_create_field_allowed_values("CHN", "Task", "customfield_34115")
+    return match_effectivity_options(raw_effectivity, options)
+
+
+def enrich_effectivity(ecd_parsed: dict, session_id: str | None) -> dict:
+    """Add normalized and, when possible, JIRA-matched effectivity to parsed ECR data."""
+    raw_effectivity = ecd_parsed.get("effectivity", "")
+    ecd_parsed["effectivity_original"] = raw_effectivity
+    ecd_parsed["effectivity_normalized"] = normalize_effectivity_text(raw_effectivity)
+    if session_id:
+        jira_client = JiraConnector(server_url=JIRA_URL, jira_session_id=session_id)
+        ecd_parsed["effectivity"] = resolve_effectivity_value(jira_client, raw_effectivity)
+    else:
+        ecd_parsed["effectivity"] = ecd_parsed["effectivity_normalized"]
+    return ecd_parsed
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def upload_ecd(request):
@@ -253,7 +274,7 @@ def upload_ecd(request):
         try:
             ecd_file = request.FILES["file"]
             ecd_parsed = safe_ecd_parse(ecd_file)
-            return Response(ecd_parsed)
+            return Response(enrich_effectivity(ecd_parsed, request.POST.get("JSESSIONID")))
         except Exception as e:
             return Response({"message": f"Something went wrong: {e}"}, 400)
 
