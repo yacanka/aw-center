@@ -238,6 +238,17 @@
 ## 34. DCC reminder email hourly rate limit
 
 1. DCC Watcher reminder emails now reserve one hourly send slot per `JIRA_DCC` table record before Outlook/JIRA work starts.
+
+## 35. Production readiness hardening pass
+
+1. Backend settings now support `DATABASE_URL`, `DB_OLD_URL`, `DATABASE_CONN_MAX_AGE`, `CACHE_URL`, proxy SSL headers, explicit cookie SameSite values, and structured console logging.
+2. Added unauthenticated `/health/live/` and `/health/ready/` endpoints; readiness checks database and cache dependencies and returns 503 when a dependency is unavailable.
+3. Replaced production request `print(...)` logging with the `awcenter.requests` logger to avoid ad-hoc stdout formatting and payload logging.
+4. Backend Docker runtime now uses Gunicorn instead of Django `runserver`; Compose now wires PostgreSQL and Redis through environment URLs and includes a backend healthcheck.
+5. Added `.env.example` and `deploy/nginx/awcenter.conf` so production environment variables and reverse proxy headers are documented without committing secrets.
+6. Frontend Axios now defaults to same-origin when `VITE_API_URL` is omitted, supports `VITE_API_TIMEOUT_MS`, and suppresses startup performance console output outside development.
+7. Verification completed: backend full test suite passed, Django `check` passed, Django `check --deploy` passed with production-like env overrides, frontend `typecheck:ci` passed, frontend production build passed, and `npm audit --audit-level=high` found no vulnerabilities.
+8. Remaining local risks: the current SQLite database has unapplied migrations, Docker is unavailable in this workstation environment, and repository-wide Prettier check still fails in four pre-existing frontend files.
 2. Repeated reminder attempts inside the one-hour cooldown return HTTP 429 with `retry_after_seconds` in the standardized error payload.
 3. The cooldown state is stored on the DCC row with an atomic conditional database update to reduce duplicate sends from rapid repeated clicks.
 4. Regression tests cover initial reservation, one-hour expiry, and endpoint throttling behavior.

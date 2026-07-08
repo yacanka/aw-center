@@ -86,6 +86,8 @@ fsspec==2026.6.0
     #   torch
 h11==0.16.0
     # via httpcore
+gunicorn==23.0.0
+    # via -r requirements.in
 hf-xet==1.5.1
     # via huggingface-hub
 httpcore==1.0.9
@@ -176,6 +178,8 @@ pillow==12.3.0
     #   pdfplumber
 pycparser==3.0
     # via cffi
+psycopg[binary]==3.2.13
+    # via -r requirements.in
 pygments==2.20.0
     # via rich
 pyparsing==3.3.2
@@ -202,6 +206,8 @@ pyyaml==6.0.3
     #   transformers
 red-black-tree-mod==1.22
     # via extract-msg
+redis==6.4.0
+    # via -r requirements.in
 regex==2026.6.28
     # via transformers
 requests==2.34.2

@@ -1,7 +1,7 @@
 """Tests for AW Center API error contract enforcement."""
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.test import APIRequestFactory
@@ -170,6 +170,42 @@ class ServerSideFilterTests(TestCase):
         """Repeated params are converted to safe field __in lookups."""
 
         request = self.factory.get("/users/", {"username": ["alice", "bob"]})
-        queryset = filtered_queryset(request, self.user_model.objects.order_by("username"))
+        queryset = filtered_queryset(
+            request, self.user_model.objects.order_by("username")
+        )
 
-        self.assertEqual(list(queryset.values_list("username", flat=True)), ["alice", "bob"])
+        self.assertEqual(
+            list(queryset.values_list("username", flat=True)), ["alice", "bob"]
+        )
+
+
+class HealthEndpointTests(TestCase):
+    """Verify unauthenticated operational health endpoints."""
+
+    def test_live_endpoint_is_public(self):
+        """Liveness returns a minimal successful response without auth."""
+
+        response = self.client.get("/health/live/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_ready_endpoint_reports_database_and_cache(self):
+        """Readiness includes dependency checks for orchestration probes."""
+
+        response = self.client.get("/health/ready/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "ok")
+        self.assertEqual(response.json()["checks"], {"database": True, "cache": True})
+
+    @override_settings(
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
+    )
+    def test_ready_endpoint_fails_when_cache_is_unavailable(self):
+        """Readiness returns 503 when a required dependency is unavailable."""
+
+        response = self.client.get("/health/ready/")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertFalse(response.json()["checks"]["cache"])
