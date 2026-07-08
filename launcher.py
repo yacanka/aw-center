@@ -87,6 +87,9 @@ Run the production profile through the repository Cheroot WSGI server:
     py -3.11 launcher.py run --profile production
     py -3.11 launcher.py run --profile production --host 0.0.0.0 --backend-port 8443
 
+The production profile runs collectstatic before startup so WhiteNoise can
+serve Vite assets from STATIC_ROOT.
+
 When both backend and frontend are started, the launcher writes the selected
 backend URL to frontend/.env.local so Vite can expose it to the Vue app:
 
@@ -708,8 +711,7 @@ def run_production_server(config: LauncherConfig) -> None:
     run([venv_python(), "manage.py", "check", "--deploy"], cwd=BACKEND)
     run([venv_python(), "manage.py", "migrate", "--check"], cwd=BACKEND)
 
-    if config.collect_static:
-        run([venv_python(), "manage.py", "collectstatic", "--noinput"], cwd=BACKEND)
+    run([venv_python(), "manage.py", "collectstatic", "--noinput"], cwd=BACKEND)
 
     print("\nProduction server starting with Cheroot over HTTPS.")
     run([venv_python(), "run_cheroot.py"], cwd=BACKEND)
@@ -1788,7 +1790,7 @@ def parse_arguments() -> LauncherConfig:
     parser.add_argument(
         "--collect-static",
         action="store_true",
-        help="Run collectstatic before production startup.",
+        help="Deprecated: production startup always runs collectstatic.",
     )
 
     args = parser.parse_args()

@@ -122,9 +122,10 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 
 ## 50. Frontend artifact deployment follow-up
 
-1. **P1 - Deployment pipeline alignment:** Update production deployment scripts to build frontend as an immutable artifact and mount/copy only `frontend/dist` to the runtime path configured by `FRONTEND_DIST_DIR`.
-2. **P2 - CDN/static offload:** For higher traffic deployments, serve `/core/assets/` from Nginx/CDN object storage while keeping Django responsible only for the SPA fallback and API routes.
-3. **P2 - Build artifact smoke test:** Add a CI smoke test that runs `npm run build` and verifies Django can return `/app/` with `FRONTEND_DIST_DIR` pointed at the generated artifact.
+1. **Tamamlandı - Launcher static collection:** `launcher.py run --profile production` artık Cheroot başlamadan önce `collectstatic --noinput` çalıştırır; `/core/assets/...` dosyaları WhiteNoise tarafından `STATIC_ROOT` üzerinden servis edilir.
+2. **P1 - Deployment pipeline alignment:** Update production deployment scripts to build frontend as an immutable artifact and mount/copy only `frontend/dist` to the runtime path configured by `FRONTEND_DIST_DIR`.
+3. **P2 - CDN/static offload:** For higher traffic deployments, serve `/core/assets/` from Nginx/CDN object storage while keeping Django responsible only for the SPA fallback and API routes.
+4. **P2 - Build artifact smoke test:** Add a CI smoke test that runs `npm run build` and verifies Django can return `/app/` with `FRONTEND_DIST_DIR` pointed at the generated artifact.
 
 ## 60. DocProof follow-up recommendations
 

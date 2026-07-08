@@ -81,8 +81,12 @@ class LauncherTests(unittest.TestCase):
         self, _: mock.Mock, venv_python_mock: mock.Mock, run_mock: mock.Mock, __: mock.Mock
     ) -> None:
         """Missing virtual environments should be created by the active interpreter."""
-        venv_python_mock.return_value = Path("/tmp/missing-venv/bin/python")
-        launcher.ensure_virtual_environment()
+        fake_virtual_environment = Path("/tmp/missing-venv")
+        venv_python_mock.return_value = fake_virtual_environment / "bin" / "python"
+
+        with mock.patch.object(launcher, "VENV", fake_virtual_environment):
+            launcher.ensure_virtual_environment()
+
         run_mock.assert_called_once()
 
     @mock.patch("launcher.virtual_environment_version", return_value=(3, 9, 13))
@@ -122,6 +126,34 @@ class ProductionRunTests(unittest.TestCase):
         launcher.run_application(config)
         development_mock.assert_called_once_with(config)
         production_mock.assert_not_called()
+
+    @mock.patch("launcher.run")
+    @mock.patch("launcher.ensure_frontend_build_artifacts")
+    @mock.patch("launcher.ensure_production_certificates")
+    @mock.patch("launcher.configure_production_runtime_env")
+    @mock.patch("launcher.ensure_existing_virtual_environment")
+    def test_production_profile_always_collects_static(
+        self,
+        _: mock.Mock,
+        __: mock.Mock,
+        ___: mock.Mock,
+        ____: mock.Mock,
+        run_mock: mock.Mock,
+    ) -> None:
+        """Production startup should collect static assets before Cheroot starts."""
+        config = launcher_config(command="run")
+        config = launcher.LauncherConfig(**{**config.__dict__, "run_profile": "production"})
+
+        launcher.run_production_server(config)
+
+        commands = [call.args[0] for call in run_mock.call_args_list]
+        collectstatic_command = [
+            launcher.venv_python(),
+            "manage.py",
+            "collectstatic",
+            "--noinput",
+        ]
+        self.assertIn(collectstatic_command, commands)
 
 
 if __name__ == "__main__":
