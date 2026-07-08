@@ -411,3 +411,9 @@
 1. Removed the side-effecting `getPeople` getter request trigger that treated an empty people array as missing data and repeatedly called `orgs/people/` during renders.
 2. Added explicit people fetch state and in-flight request reuse so an empty successful response is cached as a valid loaded state.
 3. Moved the People page fetch to component mount, keeping data loading intentional and preventing render-time API calls.
+
+## 60. Launcher production run profile
+
+1. Added a `launcher.py run --profile production` path that starts AW Center through the existing Cheroot HTTPS WSGI entry point instead of Django/Vite development servers.
+2. Production startup now requires an explicit `backend/.env`, forces `DEBUG=False`, updates the selected host/port, verifies TLS certificate files, verifies frontend build artifacts, runs Django deploy and migration checks, and can optionally run `collectstatic` with `--collect-static`.
+3. Preserved the default `launcher.py run` development behavior and added unit tests for run-profile dispatch.

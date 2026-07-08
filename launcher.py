@@ -82,6 +82,11 @@ Run only one side:
     py -3.11 launcher.py run --skip-frontend
     py -3.11 launcher.py run --skip-backend
 
+Run the production profile through the repository Cheroot WSGI server:
+
+    py -3.11 launcher.py run --profile production
+    py -3.11 launcher.py run --profile production --host 0.0.0.0 --backend-port 8443
+
 When both backend and frontend are started, the launcher writes the selected
 backend URL to frontend/.env.local so Vite can expose it to the Vue app:
 
@@ -147,6 +152,7 @@ COMMAND_CHOICES = (
     "run",
 )
 MODE_CHOICES = ("auto", "online", "offline")
+RUN_PROFILE_CHOICES = ("development", "production")
 
 
 def project_score(path: Path) -> int:
@@ -217,6 +223,8 @@ class LauncherConfig:
     frontend_port: int
     no_backend_reload: bool
     ignore_packages: bool
+    run_profile: str
+    collect_static: bool
 
 
 def executable(name: str) -> str:
@@ -656,6 +664,65 @@ def run_development_servers(config: LauncherConfig) -> None:
         stop_processes(processes)
 
 
+
+def ensure_production_env_file() -> None:
+    """Require an explicit backend .env for production startup."""
+    ensure_backend_layout()
+
+    if not (BACKEND / ".env").is_file():
+        raise RuntimeError("backend/.env is required for production runs.")
+
+
+def ensure_production_certificates() -> None:
+    """Require Cheroot TLS certificate files before production startup."""
+    missing = [name for name in ("AWCenter.crt", "AWCenter.key") if not (BACKEND / name).is_file()]
+
+    if missing:
+        raise RuntimeError(f"Missing production TLS file(s) under backend/: {', '.join(missing)}")
+
+
+def configure_production_runtime_env(host: str, port: int) -> None:
+    """Update production-safe runtime address values without creating dev defaults."""
+    ensure_production_env_file()
+    update_env_values(BACKEND / ".env", {"DEBUG": "False", "IPV4_ADDRESS": host, "PORT": str(port)})
+
+
+def ensure_frontend_build_artifacts() -> None:
+    """Require Vite build artifacts used by Django SPA serving."""
+    missing = [path for path in (FRONTEND / "dist" / "index.html", FRONTEND / "dist" / "assets") if not path.exists()]
+
+    if missing:
+        relative = ", ".join(str(path.relative_to(ROOT)) for path in missing)
+        raise RuntimeError(f"Frontend build artifacts are missing: {relative}. Run 'npm run build'.")
+
+
+def run_production_server(config: LauncherConfig) -> None:
+    """Run AW Center with production Django settings through Cheroot."""
+    if config.skip_backend:
+        raise RuntimeError("Production profile requires the backend; remove --skip-backend.")
+
+    ensure_existing_virtual_environment()
+    configure_production_runtime_env(config.host, config.backend_port)
+    ensure_production_certificates()
+    ensure_frontend_build_artifacts()
+    run([venv_python(), "manage.py", "check", "--deploy"], cwd=BACKEND)
+    run([venv_python(), "manage.py", "migrate", "--check"], cwd=BACKEND)
+
+    if config.collect_static:
+        run([venv_python(), "manage.py", "collectstatic", "--noinput"], cwd=BACKEND)
+
+    print("\nProduction server starting with Cheroot over HTTPS.")
+    run([venv_python(), "run_cheroot.py"], cwd=BACKEND)
+
+
+def run_application(config: LauncherConfig) -> None:
+    """Dispatch the run command to the selected runtime profile."""
+    if config.run_profile == "production":
+        run_production_server(config)
+        return
+
+    run_development_servers(config)
+
 def virtual_environment_version() -> tuple[int, int, int]:
     """Return the Python version inside the project virtual environment."""
     version_script = "import sys; print('.'.join(map(str, sys.version_info[:3])))"
@@ -898,7 +965,9 @@ def prepare_offline_bundle(config: LauncherConfig) -> None:
             backend_port=config.backend_port,
             frontend_port=config.frontend_port,
             no_backend_reload=config.no_backend_reload,
-            ignore_packages=config.ignore_packages
+            ignore_packages=config.ignore_packages,
+            run_profile=config.run_profile,
+            collect_static=config.collect_static
         )
 
         run(
@@ -1586,6 +1655,8 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
     frontend_port = args.frontend_port
     no_backend_reload = args.no_backend_reload
     ignore_packages = args.ignore_packages
+    run_profile = args.profile
+    collect_static = args.collect_static
 
     if command in {"prepare-offline", "package-offline", "install", "check", "all", "run"}:
         scope = prompt_choice(
@@ -1606,7 +1677,8 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
         changes_zip_value = prompt_text("Git changes ZIP output path", default_changes)
 
     if command == "run":
-        host = prompt_text("Development server host", host)
+        run_profile = prompt_choice("Run profile", RUN_PROFILE_CHOICES, run_profile)
+        host = prompt_text("Server host", host)
         backend_port = prompt_int("Preferred backend port", backend_port)
         frontend_port = prompt_int("Preferred frontend port", frontend_port)
 
@@ -1628,7 +1700,9 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
         backend_port=backend_port,
         frontend_port=frontend_port,
         no_backend_reload=no_backend_reload,
-        ignore_packages=ignore_packages
+        ignore_packages=ignore_packages,
+        run_profile=run_profile,
+        collect_static=collect_static
     )
 
     print("\nSelected configuration")
@@ -1645,6 +1719,8 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
     print(f"  Frontend port : {config.frontend_port}")
     print(f"  No backend reload: {config.no_backend_reload}")
     print(f"  Ignore packages: {config.ignore_packages}")
+    print(f"  Run profile    : {config.run_profile}")
+    print(f"  Collect static : {config.collect_static}")
 
     if not prompt_bool("Run with these settings?", True):
         raise RuntimeError("Interactive launcher run was cancelled by the user.")
@@ -1703,6 +1779,17 @@ def parse_arguments() -> LauncherConfig:
         action="store_true",
         help="Ignore package-related operations.",
     )
+    parser.add_argument(
+        "--profile",
+        choices=RUN_PROFILE_CHOICES,
+        default="development",
+        help="Run profile for the run command. Use production for Cheroot/HTTPS.",
+    )
+    parser.add_argument(
+        "--collect-static",
+        action="store_true",
+        help="Run collectstatic before production startup.",
+    )
 
     args = parser.parse_args()
 
@@ -1730,7 +1817,9 @@ def parse_arguments() -> LauncherConfig:
         backend_port=args.backend_port,
         frontend_port=args.frontend_port,
         no_backend_reload=args.no_backend_reload,
-        ignore_packages=args.ignore_packages
+        ignore_packages=args.ignore_packages,
+        run_profile=args.profile,
+        collect_static=args.collect_static
     )
 
 def main() -> int:
@@ -1770,7 +1859,7 @@ def main() -> int:
             validate_project(config)
 
         elif config.command == "run":
-            run_development_servers(config)
+            run_application(config)
 
         return 0
 
