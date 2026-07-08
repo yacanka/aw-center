@@ -678,11 +678,18 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `AW_USERNAME` | Varsayılan boş | DocProof/DOORS gibi entegrasyonlarda kullanılır; hassas kabul edilmelidir. |
 | `AW_PASSWORD` | Varsayılan boş | DocProof/DOORS gibi entegrasyonlarda kullanılır; hassas kabul edilmelidir. |
 | `FFMPEG_EXECUTABLE` | Varsayılan `ffmpeg` | Media Converter için FFmpeg binary adı/path'i. |
+| `DATABASE_URL` | Varsayılan `backend/db.sqlite3` | Primary database URL'i. Production için PostgreSQL önerilir. |
+| `DB_OLD_URL` | Varsayılan `backend/db_old.sqlite3` | Legacy database bağlantısı. |
+| `DATABASE_CONN_MAX_AGE` | Varsayılan `60` | Persistent database connection süresi. |
+| `CACHE_URL` | Varsayılan local memory cache | Redis gibi production cache backend URL'i. |
+| `LOG_LEVEL` | Varsayılan `INFO` | Django ve uygulama console log seviyesi. |
 | `FRONTEND_DIST_DIR` | Varsayılan `frontend/dist` | Django'nun SPA shell ve Vite asset çıktısını aradığı dizin. |
 | `FRONTEND_RESET_URL` | Ortama göre hesaplanır | Parola reset linklerinde kullanılan frontend login URL'i. |
 | `ALLOWED_HOSTS` | `IPV4_ADDRESS`, `127.0.0.1`, `localhost` | Django allowed hosts listesi. |
 | `CORS_ALLOWED_ORIGINS` | `DEBUG=False` iken zorunlu | Production CORS origin allowlist. |
 | `CSRF_TRUSTED_ORIGINS` | Varsayılan boş liste | Cross-site POST/PUT/PATCH/DELETE için trusted origin listesi. |
+| `SECURE_SSL_REDIRECT` | `DEBUG=False` iken varsayılan `True` | HTTP isteklerini HTTPS'e yönlendirir. TLS proxy arkasında topolojiye göre ayarlanmalıdır. |
+| `USE_X_FORWARDED_HOST` | `DEBUG=False` iken varsayılan `True` | Reverse proxy host header'ını kullanır. |
 | `AUTH_COOKIE_NAME` | Varsayılan `auth_token` | DRF token cookie adı. |
 | `AUTH_COOKIE_MAX_AGE` | Varsayılan 14 gün | Auth cookie ömrü, saniye cinsinden. |
 | `AUTH_COOKIE_SAMESITE` | `DEBUG=True`: `Lax`, `DEBUG=False`: `None` | Browser cookie SameSite politikası. |
@@ -697,13 +704,14 @@ FFMPEG_EXECUTABLE=ffmpeg
 | Değişken | Açıklama |
 |---|---|
 | `VITE_API_URL` | Axios base URL. Launcher tarafından otomatik yazılır. |
+| `VITE_API_TIMEOUT_MS` | Axios request timeout değeri. Varsayılan 10000 ms. |
 | `VITE_API_BASE_URL` | Launcher'ın compatibility için yazdığı backend URL adı. |
 | `VITE_BACKEND_URL` | Launcher'ın compatibility için yazdığı backend URL adı. |
 | `VITE_SERVER_URL` | Launcher'ın compatibility için yazdığı backend URL adı. |
 | `VITE_JIRA_SERVER` | Frontend JIRA linkleri için gösterim URL'i; yoksa fallback kullanılır. |
 | `VITE_VERSION` | Main view'de sürüm gösterimi. |
 | `VITE_APP_TITLE` | Home ekranı başlığı. |
-| `SHOW_DELAYED_COMPDOCS` | CompDoc gecikme göstergeleri için okunuyor; Vite varsayılan olarak `VITE_` prefix'siz değişkenleri expose etmez. Bu davranış deployment'ta ayrıca doğrulanmalıdır. |
+| `VITE_SHOW_DELAYED_COMPDOCS` | CompDoc gecikme göstergeleri için production-safe Vite değişken adı. |
 
 ### Production Cookie/CORS Önerileri
 
@@ -816,16 +824,30 @@ Repository aşağıdaki deployment yapı taşlarını içerir:
 
 - `backend/Dockerfile`: Django backend image temeli.
 - `frontend/Dockerfile`: Vite build + statik servis image temeli.
-- `docker-compose.yml`: Backend, frontend static serving ve PostgreSQL adayı içeren local orchestration.
+- `docker-compose.yml`: Backend, frontend static serving, PostgreSQL ve Redis içeren local production-like orchestration.
+- `.env.example`: Production environment sözleşmesi için secrets içermeyen örnek.
+- `deploy/nginx/awcenter.conf`: TLS terminasyonu önündeki reverse proxy için başlangıç Nginx örneği.
 - `.github/workflows/ci.yml`: Backend/frontend check, build ve audit adımları.
 - `docs/deployment.md`: Deployment detayları.
 
 Önemli deployment kararları:
 
-- Mevcut Django settings varsayılan olarak SQLite kullanır; PostgreSQL'e geçiş için settings/database stratejisi ayrıca planlanmalıdır.
+- Mevcut Django settings local varsayılan olarak SQLite kullanır; production `DATABASE_URL` ile PostgreSQL'e geçirilmelidir.
 - Frontend build çıktısı immutable artifact olarak `frontend/dist` altında tutulmalı veya `FRONTEND_DIST_DIR` ile mount edilmelidir.
 - Production secret yönetimi environment/secret manager üzerinden yapılmalıdır.
 - HTTPS, HSTS, secure cookie ve CORS/CSRF listeleri deployment topolojisine göre doğrulanmalıdır.
+
+### Production İlk Kurulum Akışı
+
+```bash
+docker compose build
+docker compose run --rm backend python manage.py migrate
+docker compose run --rm backend python manage.py collectstatic --noinput
+docker compose up -d
+curl -fsS http://localhost:8000/health/ready/
+```
+
+`docker-compose.yml` içindeki örnek secret ve parolalar sadece local doğrulama içindir. Production'da bunlar secret manager veya platform environment ayarlarıyla değiştirilmelidir.
 
 ---
 

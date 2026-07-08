@@ -4,12 +4,18 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      DEBUG: "True"
+      SECRET_KEY: change-me-with-a-real-secret
+      DEBUG: "False"
       IPV4_ADDRESS: 0.0.0.0
       PORT: 8000
       ALLOWED_HOSTS: 127.0.0.1,localhost,backend
       CORS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
       CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      DATABASE_URL: postgres://awcenter:change-me-local-only@database:5432/awcenter
+      CACHE_URL: redis://redis:6379/1
+      AUTH_COOKIE_SECURE: "False"
+      AUTH_COOKIE_SAMESITE: Lax
+      SECURE_SSL_REDIRECT: "False"
       DOCPROOF_URL: http://docproof.local
       DOORS_EXECUTABLE: /usr/bin/false
       JIRA_LEGACY_URL: http://jira-legacy.local
@@ -22,6 +28,13 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health/ready/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build:
@@ -52,7 +65,19 @@ services:
     ports:
       - "5432:5432"
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis-data:/data
+
 volumes:
   backend-media:
   backend-static:
   postgres-data:
+  redis-data:

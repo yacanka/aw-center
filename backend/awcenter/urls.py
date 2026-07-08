@@ -5,10 +5,12 @@ from django.conf.urls.static import static
 
 from projects.routing import get_project_urlpatterns
 
-from .views import redirect_to_app, download_file
+from .views import download_file, health_live, health_ready, redirect_to_app
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('health/live/', health_live, name='health_live'),
+    path('health/ready/', health_ready, name='health_ready'),
     path('', redirect_to_app),
     path('app/', include('core.urls')),
     path('dcc/', include('dcc.urls')),

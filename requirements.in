@@ -16,6 +16,9 @@ django-environ
 django-extensions
 whitenoise
 cheroot
+gunicorn
+psycopg[binary]
+redis
 
 # Integrations and HTTP clients
 jira

@@ -78,6 +78,7 @@ Backend–frontend iletişimi Axios üzerinden REST benzeri endpoint'lerle yür�
 5. **P2 - Store/API modülerleştirme:** `frontend/src/stores/api.ts` dosyasını domain servislerine böl.
 6. **P2 - Build doğrulanabilirliği:** Frontend entry/build sorunları giderildi; kalan iş tam TypeScript strict hata listesini modül modül kapatmak.
 7. **P2 - Query ölçüm testleri:** Kritik list endpoint'lerine regression amaçlı query count testleri ekle.
+8. **P2 - Frontend format borcu:** Repository-wide Prettier check halen `UploadPopup.vue`, `stores/api.ts`, `jiraFieldInput.ts` ve `MainView.vue` dosyalarında mevcut format drift'i nedeniyle başarısız.
 
 ## 9. Uygulanan hata contract patch'i
 
@@ -130,3 +131,11 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 1. **P1 - Service boundary:** Move DocProof HTTP client helpers from `views.py` into a dedicated `client.py` or `services.py` once adjacent integration modules can be updated safely.
 2. **P1 - Contract tests with fixture payloads:** Capture representative DocProof JSON payload fixtures and add tests for missing keys, malformed payloads, and multiple document types.
 3. **P2 - Authentication policy review:** Confirm whether `docproof/test/` and `docproof/search/` must remain `AllowAny`; if not, switch to authenticated access in a coordinated frontend/backend change.
+
+## 70. Production readiness hardening follow-up
+
+1. **Tamamlandı - Health/readiness:** `/health/live/` ve `/health/ready/` eklendi; readiness database/cache kontrolü yapar.
+2. **Tamamlandı - Env-driven runtime:** Primary/legacy database URL, Redis cache URL, logging level, proxy SSL header ve cookie SameSite ayarları environment üzerinden yönetilebilir.
+3. **Tamamlandı - Container runtime:** Backend Dockerfile artık Django `runserver` yerine Gunicorn kullanır; Compose PostgreSQL ve Redis bağlantılarını production'a yakın URL sözleşmesiyle verir.
+4. **Kalan risk - Migration state:** Local SQLite veritabanında birden fazla app için uygulanmamış migration bulunuyor; production deploy öncesi `python manage.py migrate` kontrollü çalıştırılmalı.
+5. **Kalan risk - Docker doğrulama:** Bu ortamda Docker binary bulunmadığı için image build veya Compose runtime smoke test çalıştırılamadı.

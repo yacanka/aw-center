@@ -2,9 +2,14 @@ import axios from 'axios'
 import type { InternalAxiosRequestConfig } from 'axios'
 import { readString, STORAGE_KEYS } from '@/services/storage'
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL
+export const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+const DEFAULT_TIMEOUT_MILLISECONDS = 10000
+const API_TIMEOUT_MILLISECONDS = Number(
+  import.meta.env.VITE_API_TIMEOUT_MS || DEFAULT_TIMEOUT_MILLISECONDS
+)
 
 axios.defaults.baseURL = API_BASE_URL
+axios.defaults.timeout = API_TIMEOUT_MILLISECONDS
 axios.defaults.withCredentials = true
 axios.defaults.xsrfCookieName = 'csrftoken'
 axios.defaults.xsrfHeaderName = 'X-CSRFToken'

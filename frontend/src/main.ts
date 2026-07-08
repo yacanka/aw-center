@@ -11,6 +11,7 @@ import { applyPreferredTheme } from './services/theme'
 
 const pinia = createPinia()
 const app = createApp(App)
+const isDevelopmentMode = import.meta.env.DEV
 app.use(pinia)
 app.use(router)
 app.use(naive)
@@ -62,10 +63,12 @@ function startStartupPerformanceMeasurements() {
 }
 
 function logFirstContentfulPaint(entry: PerformanceEntry) {
+  if (!isDevelopmentMode) return
   console.info(`[performance] first contentful paint: ${entry.startTime.toFixed(2)}ms`)
 }
 
 function logPerformanceMeasure(name: string) {
+  if (!isDevelopmentMode) return
   const measure = performance.getEntriesByName(name).at(-1)
   if (!measure) return
   console.info(`[performance] ${name}: ${measure.duration.toFixed(2)}ms`)
