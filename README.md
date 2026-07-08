@@ -480,7 +480,7 @@ python3.11 launcher.py all
 | `install` | Backend ve frontend bağımlılıklarını kurar. |
 | `check` | Backend ve frontend doğrulamalarını çalıştırır. |
 | `all` | Önce install, sonra check çalıştırır. |
-| `run` | Backend ve frontend geliştirme sunucularını başlatır. |
+| `run` | Varsayılan olarak backend ve frontend geliştirme sunucularını; `--profile production` ile Cheroot tabanlı production HTTPS serverını başlatır. |
 
 ### En Sık Kullanılan Akışlar
 
@@ -519,6 +519,14 @@ Port seçerek çalıştırma:
 ```bash
 python launcher.py run --host 127.0.0.1 --backend-port 8000 --frontend-port 5173
 ```
+
+Production profiliyle çalıştırma:
+
+```bash
+python launcher.py run --profile production --host 0.0.0.0 --backend-port 8443
+```
+
+Production profili geliştirme serverı kullanmaz. Launcher `backend/.env` dosyasında `DEBUG=False`, `IPV4_ADDRESS` ve `PORT` değerlerini günceller; `manage.py check --deploy`, `manage.py migrate --check` ve isteğe bağlı `--collect-static` kontrolünü çalıştırır; ardından `backend/run_cheroot.py` üzerinden HTTPS Cheroot WSGI serverını başlatır. Bu profil başlamadan önce `backend/AWCenter.crt`, `backend/AWCenter.key` ve `frontend/dist` build çıktılarının varlığını doğrular.
 
 Sadece backend:
 
