@@ -424,3 +424,9 @@
 1. Added a `launcher.py run --profile production` path that starts AW Center through the existing Cheroot HTTPS WSGI entry point instead of Django/Vite development servers.
 2. Production startup now requires an explicit `backend/.env`, forces `DEBUG=False`, updates the selected host/port, verifies TLS certificate files, verifies frontend build artifacts, runs Django deploy and migration checks, and can optionally run `collectstatic` with `--collect-static`.
 3. Preserved the default `launcher.py run` development behavior and added unit tests for run-profile dispatch.
+## 62. PyPDF2 dependency removal
+
+1. Removed the legacy PyPDF2 package from backend dependency manifests while keeping pypdf as the supported PDF reader.
+2. Updated the PDF comparer fallback extractor to import and report pypdf instead of PyPDF2.
+3. Kept the existing pdfplumber-first extraction order, with pypdf remaining as the secondary parser for resilience.
+
