@@ -182,8 +182,6 @@ pyparsing==3.3.2
     # via oletools
 pypdf==6.14.2
     # via -r requirements.in
-pypdf2==3.0.1
-    # via -r requirements.in
 pypdfium2==5.11.0
     # via pdfplumber
 python-dateutil==2.9.0.post0

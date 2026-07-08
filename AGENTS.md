@@ -70,7 +70,7 @@ This file provides project-specific instructions for AI agents and maintainers w
 - WhiteNoise.
 - django-environ.
 - Cheroot HTTPS serving script.
-- File/data processing imports found in backend code include Pandas, NumPy, openpyxl, python-docx/docxtpl/docx2txt, PyPDF2/pypdf/pdfplumber, BeautifulSoup, Pillow, requests, JIRA, and Office/Windows automation libraries.
+- File/data processing imports found in backend code include Pandas, NumPy, openpyxl, python-docx/docxtpl/docx2txt, pypdf/pdfplumber, BeautifulSoup, Pillow, requests, JIRA, and Office/Windows automation libraries.
 - Root `requirements.txt` is committed for backend Python dependencies and targets Python 3.14 compatibility. There is no `pyproject.toml`, `Pipfile`, or lock file committed for backend Python dependencies.
 
 ### Frontend

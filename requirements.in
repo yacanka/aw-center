@@ -34,8 +34,6 @@ pandas
 pdfplumber
 Pillow
 pypdf
-# PyPDF2 is legacy; keep only if old code imports PyPDF2 directly.
-PyPDF2
 python-dateutil
 python-docx
 

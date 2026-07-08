@@ -11,7 +11,7 @@ warnings.filterwarnings("ignore", message=".*cropbox.*")
 
 logging.getLogger("pdfplumber").setLevel(logging.ERROR)
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
-logging.getLogger("PyPDF2").setLevel(logging.ERROR)
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 try:
     import pdfplumber
     HAS_PDFPLUMBER = True
@@ -19,10 +19,10 @@ except ImportError as e:
     HAS_PDFPLUMBER = False
 
 try:
-    from PyPDF2 import PdfReader
-    HAS_PYPDF2 = True
+    from pypdf import PdfReader
+    HAS_PYPDF = True
 except ImportError:
-    HAS_PYPDF2 = False
+    HAS_PYPDF = False
 
 
 @dataclass
@@ -119,9 +119,9 @@ class PDFExtractor:
             all_lines=all_lines
         )
 
-    def extract_with_pypdf2(self, file_path: str) -> PDFDocument:
-        if not HAS_PYPDF2:
-            raise ImportError("PyPDF2 yüklü değil. pip install PyPDF2")
+    def extract_with_pypdf(self, file_path: str) -> PDFDocument:
+        if not HAS_PYPDF:
+            raise ImportError("pypdf yüklü değil. pip install pypdf")
 
         pages_data = []
         metadata = {}
@@ -139,7 +139,7 @@ class PDFExtractor:
                     pages_data.append((i + 1, text))
 
         except Exception as e:
-            raise Exception(f"PDF okuma hatası (PyPDF2): {str(e)}")
+            raise Exception(f"PDF okuma hatası (pypdf): {str(e)}")
 
         page_contents, all_lines = self._process_pages(pages_data)
 
@@ -158,13 +158,13 @@ class PDFExtractor:
                     return self.extract_with_pdfplumber(file_path)
                 except:
                     pass
-            if HAS_PYPDF2:
-                return self.extract_with_pypdf2(file_path)
-            raise ImportError("PDF okuyucu bulunamadı. pip install pdfplumber PyPDF2")
+            if HAS_PYPDF:
+                return self.extract_with_pypdf(file_path)
+            raise ImportError("PDF okuyucu bulunamadı. pip install pdfplumber pypdf")
         elif method == "pdfplumber":
             return self.extract_with_pdfplumber(file_path)
         else:
-            return self.extract_with_pypdf2(file_path)
+            return self.extract_with_pypdf(file_path)
 
 
 class TextPreprocessor:
