@@ -526,7 +526,7 @@ Production profiliyle çalıştırma:
 python launcher.py run --profile production --host 0.0.0.0 --backend-port 8443
 ```
 
-Production profili geliştirme serverı kullanmaz. Launcher `backend/.env` dosyasında `DEBUG=False`, `IPV4_ADDRESS` ve `PORT` değerlerini günceller; `manage.py check --deploy`, `manage.py migrate --check` ve isteğe bağlı `--collect-static` kontrolünü çalıştırır; ardından `backend/run_cheroot.py` üzerinden HTTPS Cheroot WSGI serverını başlatır. Bu profil başlamadan önce `backend/AWCenter.crt`, `backend/AWCenter.key` ve `frontend/dist` build çıktılarının varlığını doğrular.
+Production profili geliştirme serverı kullanmaz. Launcher `backend/.env` dosyasında `DEBUG=False`, `IPV4_ADDRESS` ve `PORT` değerlerini günceller; `manage.py check --deploy`, `manage.py migrate --check` ve `collectstatic --noinput` kontrollerini çalıştırır; ardından `backend/run_cheroot.py` üzerinden HTTPS Cheroot WSGI serverını başlatır. Bu profil başlamadan önce `backend/AWCenter.crt`, `backend/AWCenter.key` ve `frontend/dist` build çıktılarının varlığını doğrular.
 
 Sadece backend:
 

@@ -433,8 +433,14 @@
 ## 61. Launcher production run profile
 
 1. Added a `launcher.py run --profile production` path that starts AW Center through the existing Cheroot HTTPS WSGI entry point instead of Django/Vite development servers.
-2. Production startup now requires an explicit `backend/.env`, forces `DEBUG=False`, updates the selected host/port, verifies TLS certificate files, verifies frontend build artifacts, runs Django deploy and migration checks, and can optionally run `collectstatic` with `--collect-static`.
+2. Production startup now requires an explicit `backend/.env`, forces `DEBUG=False`, updates the selected host/port, verifies TLS certificate files, verifies frontend build artifacts, runs Django deploy and migration checks, and always runs `collectstatic --noinput` before Cheroot starts.
 3. Preserved the default `launcher.py run` development behavior and added unit tests for run-profile dispatch.
+
+## 61.1 Launcher production static verification
+
+1. `launcher.py run --profile production` now collects static files unconditionally so WhiteNoise can serve Vite `/core/assets/...` files from `STATIC_ROOT`.
+2. Verified the production profile locally with Cheroot HTTPS after adding local ignored TLS files and applying pending local migrations.
+3. Confirmed `/health/ready/`, `/app/`, the main JavaScript asset, the main CSS asset, and the Naive UI vendor asset return HTTP 200 instead of static 404.
 ## 62. PyPDF2 dependency removal
 
 1. Removed the legacy PyPDF2 package from backend dependency manifests while keeping pypdf as the supported PDF reader.
