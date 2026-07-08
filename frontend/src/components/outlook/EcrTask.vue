@@ -251,6 +251,7 @@ async function detectEcrProgress() {
     const element = pdfFileList[index]
     const formData = new FormData()
     formData.append('file', element)
+    formData.append('JSESSIONID', sessionPopup.value.input)
     try {
       const res = await dcc.uploadEcd(formData)
       res.approved = undefined
@@ -500,6 +501,18 @@ function createJiraSubTaskSuccess() {
 
 const taskList: TaskItem[] = [
   {
+    title: 'Connect JIRA',
+    descriptions: {
+      onSuccess: 'Connected to JIRA account successfully.',
+      onError: 'Error while connecting to JIRA. Is session ID correct?'
+    },
+    events: {
+      ProgressEvent: getJiraSession,
+      SuccessEvent: connectJiraSuccess,
+      ErrorEvent: onError
+    }
+  },
+  {
     title: 'Detect ECR',
     descriptions: {
       onSuccess: 'ECR files found',
@@ -520,18 +533,6 @@ const taskList: TaskItem[] = [
     events: {
       ProgressEvent: ecrApproveProgress,
       SuccessEvent: onSuccess,
-      ErrorEvent: onError
-    }
-  },
-  {
-    title: 'Connect JIRA',
-    descriptions: {
-      onSuccess: 'Connected to JIRA account successfully.',
-      onError: 'Error while connecting to JIRA. Is session ID correct?'
-    },
-    events: {
-      ProgressEvent: getJiraSession,
-      SuccessEvent: connectJiraSuccess,
       ErrorEvent: onError
     }
   },
