@@ -124,3 +124,9 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 1. **P1 - Deployment pipeline alignment:** Update production deployment scripts to build frontend as an immutable artifact and mount/copy only `frontend/dist` to the runtime path configured by `FRONTEND_DIST_DIR`.
 2. **P2 - CDN/static offload:** For higher traffic deployments, serve `/core/assets/` from Nginx/CDN object storage while keeping Django responsible only for the SPA fallback and API routes.
 3. **P2 - Build artifact smoke test:** Add a CI smoke test that runs `npm run build` and verifies Django can return `/app/` with `FRONTEND_DIST_DIR` pointed at the generated artifact.
+
+## 60. DocProof follow-up recommendations
+
+1. **P1 - Service boundary:** Move DocProof HTTP client helpers from `views.py` into a dedicated `client.py` or `services.py` once adjacent integration modules can be updated safely.
+2. **P1 - Contract tests with fixture payloads:** Capture representative DocProof JSON payload fixtures and add tests for missing keys, malformed payloads, and multiple document types.
+3. **P2 - Authentication policy review:** Confirm whether `docproof/test/` and `docproof/search/` must remain `AllowAny`; if not, switch to authenticated access in a coordinated frontend/backend change.

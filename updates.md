@@ -412,7 +412,14 @@
 2. Added explicit people fetch state and in-flight request reuse so an empty successful response is cached as a valid loaded state.
 3. Moved the People page fetch to component mount, keeping data loading intentional and preventing render-time API calls.
 
-## 60. Launcher production run profile
+## 60. DocProof integration safety refactor
+
+1. Removed DocProof login from module import time so Django startup, checks, and tests no longer perform external network calls.
+2. Split DocProof search into small parsing/request helpers with explicit timeouts and Axios-safe query parameter encoding on the backend request side.
+3. Replaced print-based error reporting with module logging and avoided logging decoded credentials.
+4. Added focused DocProof regression tests for EDMS selection, issue parsing, timeout/params usage, retry behavior, and legacy missing-document messages.
+
+## 61. Launcher production run profile
 
 1. Added a `launcher.py run --profile production` path that starts AW Center through the existing Cheroot HTTPS WSGI entry point instead of Django/Vite development servers.
 2. Production startup now requires an explicit `backend/.env`, forces `DEBUG=False`, updates the selected host/port, verifies TLS certificate files, verifies frontend build artifacts, runs Django deploy and migration checks, and can optionally run `collectstatic` with `--collect-static`.
