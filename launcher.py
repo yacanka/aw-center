@@ -146,11 +146,16 @@ from typing import Sequence
 MINIMUM_PYTHON = (3, 11)
 NETWORK_PROBES = ("pypi.org", "registry.npmjs.org")
 COMMAND_CHOICES = (
+    "setup",
+    "check",
+    "test",
+    "dev",
+    "prod",
     "prepare-offline",
     "package-offline",
     "package-changes",
+    "interactive",
     "install",
-    "check",
     "all",
     "run",
 )
@@ -209,26 +214,136 @@ OFFLINE = ROOT / "offline"
 REQUIREMENTS = ROOT / "requirements.txt"
 
 
+
+
+@dataclass(frozen=True)
+class ProjectPaths:
+    """Resolved repository paths used by launcher services."""
+
+    root: Path
+    backend: Path
+    frontend: Path
+    venv: Path
+    offline: Path
+    requirements: Path
+
+
+@dataclass(frozen=True)
+class RuntimeOptions:
+    """Server runtime options shared by development and production workflows."""
+
+    host: str
+    backend_port: int
+    frontend_port: int
+    skip_backend: bool
+    skip_frontend: bool
+    no_backend_reload: bool
+
+
+@dataclass(frozen=True)
+class OfflineOptions:
+    """Offline preparation and packaging options."""
+
+    mode: str
+    offline_dir: Path
+    offline_zip: Path
+    changes_zip: Path
+    ignore_packages: bool
+
 @dataclass(frozen=True)
 class LauncherConfig:
     """Runtime configuration selected from command-line arguments."""
 
     command: str
-    mode: str
-    offline_dir: Path
-    offline_zip: Path
-    changes_zip: Path
-    skip_frontend: bool
-    skip_backend: bool
+    paths: ProjectPaths
+    runtime: RuntimeOptions
+    offline: OfflineOptions
     fix_migrations: bool
-    host: str
-    backend_port: int
-    frontend_port: int
-    no_backend_reload: bool
-    ignore_packages: bool
     run_profile: str
     collect_static: bool
 
+    @property
+    def mode(self) -> str:
+        """Return dependency installation mode."""
+        return self.offline.mode
+
+    @property
+    def offline_dir(self) -> Path:
+        """Return offline bundle directory."""
+        return self.offline.offline_dir
+
+    @property
+    def offline_zip(self) -> Path:
+        """Return offline ZIP output path."""
+        return self.offline.offline_zip
+
+    @property
+    def changes_zip(self) -> Path:
+        """Return Git changes ZIP output path."""
+        return self.offline.changes_zip
+
+    @property
+    def skip_frontend(self) -> bool:
+        """Return whether frontend operations are skipped."""
+        return self.runtime.skip_frontend
+
+    @property
+    def skip_backend(self) -> bool:
+        """Return whether backend operations are skipped."""
+        return self.runtime.skip_backend
+
+    @property
+    def host(self) -> str:
+        """Return runtime host."""
+        return self.runtime.host
+
+    @property
+    def backend_port(self) -> int:
+        """Return backend port."""
+        return self.runtime.backend_port
+
+    @property
+    def frontend_port(self) -> int:
+        """Return frontend port."""
+        return self.runtime.frontend_port
+
+    @property
+    def no_backend_reload(self) -> bool:
+        """Return whether Django autoreload is disabled."""
+        return self.runtime.no_backend_reload
+
+    @property
+    def ignore_packages(self) -> bool:
+        """Return whether package payloads are excluded."""
+        return self.offline.ignore_packages
+
+
+
+def build_config(
+    *,
+    command: str,
+    mode: str,
+    offline_dir: Path,
+    offline_zip: Path,
+    changes_zip: Path,
+    skip_frontend: bool,
+    skip_backend: bool,
+    fix_migrations: bool,
+    host: str,
+    backend_port: int,
+    frontend_port: int,
+    no_backend_reload: bool,
+    ignore_packages: bool,
+    run_profile: str,
+    collect_static: bool,
+) -> LauncherConfig:
+    """Build a launcher config from focused option groups."""
+    paths = ProjectPaths(ROOT, BACKEND, FRONTEND, VENV, OFFLINE, REQUIREMENTS)
+    runtime = RuntimeOptions(
+        host, backend_port, frontend_port, skip_backend, skip_frontend, no_backend_reload
+    )
+    offline = OfflineOptions(mode, offline_dir, offline_zip, changes_zip, ignore_packages)
+    return LauncherConfig(command, paths, runtime, offline, fix_migrations, run_profile, collect_static)
 
 def executable(name: str) -> str:
     """Return a platform-specific executable name."""
@@ -339,7 +454,7 @@ def run(command: Sequence[str | Path], cwd: Path | None = None) -> None:
     working_dir = validate_working_directory(cwd)
     argv = [str(part) for part in command]
 
-    print(f"\n[{working_dir}]$ {format_command(command)}")
+    print(f"[RUN]  {format_command(command)} (cwd: {working_dir})")
 
     completed = subprocess.run(
         argv,
@@ -364,7 +479,7 @@ def run_result(
     working_dir = validate_working_directory(cwd)
     argv = [str(part) for part in command]
 
-    print(f"\n[{working_dir}]$ {format_command(command)}")
+    print(f"[RUN]  {format_command(command)} (cwd: {working_dir})")
 
     completed = subprocess.run(
         argv,
@@ -425,7 +540,7 @@ def find_free_port(
 
         if is_tcp_port_free(host, port):
             if port != preferred_port:
-                print(f"WARN: {host}:{preferred_port} is busy; using {host}:{port} instead.")
+                print(f"[WARN] {host}:{preferred_port} is busy; using {host}:{port} instead.")
             return port
 
     raise RuntimeError(
@@ -511,7 +626,7 @@ def start_process(
     """Start a long-running subprocess with inherited console output."""
     working_dir = validate_working_directory(cwd)
 
-    print(f"\n[{working_dir}]$ {format_command(command)}")
+    print(f"[RUN]  {format_command(command)} (cwd: {working_dir})")
 
     return subprocess.Popen(
         [str(part) for part in command],
@@ -668,12 +783,47 @@ def run_development_servers(config: LauncherConfig) -> None:
 
 
 
+
+def read_env_values(env_file: Path) -> dict[str, str]:
+    """Read simple KEY=value entries from an env file."""
+    values: dict[str, str] = {}
+    if not env_file.exists():
+        return values
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def ensure_production_env_values() -> None:
+    """Validate production-only environment values before startup."""
+    values = read_env_values(BACKEND / ".env")
+    secret = values.get("SECRET_KEY", "")
+    if values.get("DEBUG", "").lower() == "true":
+        raise RuntimeError("Production requires DEBUG=False in backend/.env.")
+    if "local-development-secret" in secret or not secret:
+        raise RuntimeError("Production SECRET_KEY is missing or uses the development default.")
+    if values.get("ALLOWED_HOSTS", "") in {"", "*"}:
+        raise RuntimeError("Production ALLOWED_HOSTS must list explicit hosts; do not use '*'.")
+
+
+def ensure_production_port_available(host: str, port: int) -> None:
+    """Fail if the production backend port is already in use."""
+    if is_tcp_port_free(host, port):
+        return
+    raise RuntimeError(
+        f"Production port {port} is already in use.\n"
+        "        Use --backend-port <port> or stop the process using that port."
+    )
+
 def ensure_production_env_file() -> None:
     """Require an explicit backend .env for production startup."""
     ensure_backend_layout()
 
     if not (BACKEND / ".env").is_file():
-        raise RuntimeError("backend/.env is required for production runs.")
+        raise RuntimeError("Production backend/.env is required. Create backend/.env from your production template before running prod.")
 
 
 def ensure_production_certificates() -> None:
@@ -681,7 +831,7 @@ def ensure_production_certificates() -> None:
     missing = [name for name in ("AWCenter.crt", "AWCenter.key") if not (BACKEND / name).is_file()]
 
     if missing:
-        raise RuntimeError(f"Missing production TLS file(s) under backend/: {', '.join(missing)}")
+        raise RuntimeError(f"Missing backend/AWCenter.crt and/or backend/AWCenter.key. Missing: {', '.join(missing)}")
 
 
 def configure_production_runtime_env(host: str, port: int) -> None:
@@ -696,7 +846,7 @@ def ensure_frontend_build_artifacts() -> None:
 
     if missing:
         relative = ", ".join(str(path.relative_to(ROOT)) for path in missing)
-        raise RuntimeError(f"Frontend build artifacts are missing: {relative}. Run 'npm run build'.")
+        raise RuntimeError(f"Frontend build artifacts are missing: {relative}. Run `cd frontend && npm run build` or run `py -3.11 launcher.py test` if build is included there.")
 
 
 def run_production_server(config: LauncherConfig) -> None:
@@ -705,7 +855,9 @@ def run_production_server(config: LauncherConfig) -> None:
         raise RuntimeError("Production profile requires the backend; remove --skip-backend.")
 
     ensure_existing_virtual_environment()
+    ensure_production_port_available(config.host, config.backend_port)
     configure_production_runtime_env(config.host, config.backend_port)
+    ensure_production_env_values()
     ensure_production_certificates()
     ensure_frontend_build_artifacts()
     run([venv_python(), "manage.py", "check", "--deploy"], cwd=BACKEND)
@@ -809,7 +961,7 @@ def ensure_existing_virtual_environment() -> None:
     """Require an already-created virtual environment for check-only workflows."""
     if not venv_python().exists():
         raise RuntimeError(
-            ".venv does not exist. Run 'launcher.py install' or 'launcher.py all' first."
+            ".venv does not exist. Run `py -3.11 launcher.py setup` first."
         )
 
     ensure_python_version(virtual_environment_version(), "existing .venv")
@@ -828,7 +980,7 @@ def pip_install_command(config: LauncherConfig) -> list[str | Path]:
 def install_backend(config: LauncherConfig) -> None:
     """Install backend dependencies according to the selected mode."""
     if config.skip_backend:
-        print("SKIP: backend install")
+        print("[INFO] SKIP: backend install")
         return
 
     ensure_backend_layout()
@@ -877,7 +1029,7 @@ def frontend_install_command(
 
     if not frontend_uses_lockfile():
         print(
-            "WARN: frontend/package-lock.json not found; "
+            "[WARN] frontend/package-lock.json not found; "
             "using 'npm install' instead of 'npm ci'."
         )
 
@@ -892,7 +1044,7 @@ def frontend_install_command(
 def install_frontend(config: LauncherConfig) -> None:
     """Install frontend dependencies for online or prepared offline use."""
     if config.skip_frontend:
-        print("SKIP: frontend install")
+        print("[INFO] SKIP: frontend install")
         return
 
     ensure_frontend_layout()
@@ -954,7 +1106,7 @@ def prepare_offline_bundle(config: LauncherConfig) -> None:
 
         (config.offline_dir / "npm-cache").mkdir(parents=True, exist_ok=True)
 
-        online_config = LauncherConfig(
+        online_config = build_config(
             command=config.command,
             mode="online",
             offline_dir=config.offline_dir,
@@ -969,7 +1121,7 @@ def prepare_offline_bundle(config: LauncherConfig) -> None:
             no_backend_reload=config.no_backend_reload,
             ignore_packages=config.ignore_packages,
             run_profile=config.run_profile,
-            collect_static=config.collect_static
+            collect_static=config.collect_static,
         )
 
         run(
@@ -1452,7 +1604,7 @@ def run_first_existing_npm_script(candidates: Sequence[str], label: str) -> None
             run([npm_command(), "run", script], cwd=FRONTEND)
             return
 
-    print(f"SKIP: no frontend {label} script found. Tried: {', '.join(candidates)}")
+    print(f"[INFO] SKIP: no frontend {label} script found. Tried: {', '.join(candidates)}")
 
 
 def check_frontend() -> None:
@@ -1495,7 +1647,7 @@ def detect_mode(requested_mode: str, offline_dir: Path) -> str:
         return "offline"
 
     print(
-        "WARN: network probe failed and no offline bundle was found; "
+        "[WARN] network probe failed and no offline bundle was found; "
         "trying online mode because pip/npm may still use configured proxies."
     )
 
@@ -1529,7 +1681,7 @@ def resolve_mode_for_command(command: str, requested_mode: str, offline_dir: Pat
     if command == "prepare-offline":
         return "online"
 
-    if command in {"package-offline", "package-changes", "run"}:
+    if command in {"package-offline", "package-changes", "run", "dev", "prod", "check", "test"}:
         return requested_mode
 
     return detect_mode(requested_mode, offline_dir)
@@ -1635,8 +1787,8 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
 
     command = prompt_choice(
         "1) Choose the launcher command",
-        COMMAND_CHOICES,
-        args.command or "run",
+        ("setup", "check", "test", "dev", "prod", "prepare-offline", "package-offline", "package-changes"),
+        args.command or "dev",
     )
 
     requested_mode = prompt_choice(
@@ -1660,7 +1812,7 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
     run_profile = args.profile
     collect_static = args.collect_static
 
-    if command in {"prepare-offline", "package-offline", "install", "check", "all", "run"}:
+    if command in {"prepare-offline", "package-offline", "setup", "check", "test", "dev", "prod"}:
         scope = prompt_choice(
             "4) Which project side should be included?",
             ("both", "backend-only", "frontend-only"),
@@ -1668,7 +1820,7 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
         )
         skip_frontend, skip_backend = skip_flags_from_scope(scope)
 
-    if command in {"check", "all"}:
+    if command in {"check"}:
         fix_migrations = prompt_bool("Create/apply missing Django migrations automatically?", fix_migrations)
 
     if command == "package-offline":
@@ -1678,8 +1830,7 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
         default_changes = changes_zip_value or str(default_changes_zip_path())
         changes_zip_value = prompt_text("Git changes ZIP output path", default_changes)
 
-    if command == "run":
-        run_profile = prompt_choice("Run profile", RUN_PROFILE_CHOICES, run_profile)
+    if command in {"dev", "prod"}:
         host = prompt_text("Server host", host)
         backend_port = prompt_int("Preferred backend port", backend_port)
         frontend_port = prompt_int("Preferred frontend port", frontend_port)
@@ -1689,7 +1840,7 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
     changes_zip = resolve_changes_zip(changes_zip_value)
     mode = resolve_mode_for_command(command, requested_mode, offline_dir)
 
-    config = LauncherConfig(
+    config = build_config(
         command=command,
         mode=mode,
         offline_dir=offline_dir,
@@ -1704,7 +1855,7 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
         no_backend_reload=no_backend_reload,
         ignore_packages=ignore_packages,
         run_profile=run_profile,
-        collect_static=collect_static
+        collect_static=collect_static,
     )
 
     print("\nSelected configuration")
@@ -1730,9 +1881,18 @@ def interactive_configuration(args: argparse.Namespace) -> LauncherConfig:
     return config
 
 
+
+def effective_command(command: str, profile: str) -> str:
+    """Map legacy command aliases to primary launcher commands."""
+    if command == "install":
+        return "setup"
+    if command == "run":
+        return "prod" if profile == "production" else "dev"
+    return command
+
 def parse_arguments() -> LauncherConfig:
     """Parse command-line arguments into launcher configuration."""
-    parser = argparse.ArgumentParser(description="AW Center launcher")
+    parser = argparse.ArgumentParser(description="AW Center launcher. Recommended runtime commands: dev and prod.")
     parser.add_argument("command", nargs="?", choices=COMMAND_CHOICES)
     parser.add_argument("--interactive", "-i", action="store_true", help="Open an interactive menu for all launcher options.")
     parser.add_argument("--mode", choices=MODE_CHOICES, default="auto")
@@ -1795,7 +1955,7 @@ def parse_arguments() -> LauncherConfig:
 
     args = parser.parse_args()
 
-    if args.interactive:
+    if args.interactive or args.command == "interactive":
         return interactive_configuration(args)
 
     if args.command is None:
@@ -1806,8 +1966,8 @@ def parse_arguments() -> LauncherConfig:
     changes_zip = resolve_changes_zip(args.changes_zip)
     mode = resolve_mode_for_command(args.command, args.mode, offline_dir)
 
-    return LauncherConfig(
-        command=args.command,
+    return build_config(
+        command=effective_command(args.command, args.profile),
         mode=mode,
         offline_dir=offline_dir,
         offline_zip=offline_zip,
@@ -1821,52 +1981,160 @@ def parse_arguments() -> LauncherConfig:
         no_backend_reload=args.no_backend_reload,
         ignore_packages=args.ignore_packages,
         run_profile=args.profile,
-        collect_static=args.collect_static
+        collect_static=args.collect_static,
     )
 
+class BackendService:
+    """Coordinate backend-specific setup, checks, and runtime commands."""
+
+    def install_dependencies(self, config: LauncherConfig) -> None:
+        """Install backend dependencies for the selected mode."""
+        install_backend(config)
+
+    def write_dev_env_if_missing(self) -> None:
+        """Create the development env file when absent."""
+        write_development_env()
+
+    def check(self, config: LauncherConfig) -> None:
+        """Run Django checks and migration checks."""
+        check_backend_database(config)
+
+    def test(self) -> None:
+        """Run backend tests using pytest when available, otherwise Django tests."""
+        pytest = shutil.which("pytest")
+        command = [pytest] if pytest else [venv_python(), "manage.py", "test"]
+        run(command, cwd=BACKEND if not pytest else ROOT)
+
+
+class FrontendService:
+    """Coordinate frontend-specific setup, checks, tests, and build."""
+
+    def install_dependencies(self, config: LauncherConfig) -> None:
+        """Install frontend dependencies for the selected mode."""
+        install_frontend(config)
+
+    def check(self) -> None:
+        """Run configured frontend validation scripts."""
+        check_frontend()
+
+    def test(self) -> None:
+        """Run frontend test and build scripts when available."""
+        run_first_existing_npm_script(["test:ci", "test", "unit"], "test")
+        run_first_existing_npm_script(["build"], "build")
+
+
+class DevelopmentWorkflow:
+    """Run the development server workflow only."""
+
+    def run(self, config: LauncherConfig) -> None:
+        """Validate and start Django runserver and/or Vite."""
+        print("[INFO] Development workflow selected.")
+        run_development_servers(config)
+
+
+class ProductionWorkflow:
+    """Run the production Cheroot/HTTPS workflow only."""
+
+    def run(self, config: LauncherConfig) -> None:
+        """Validate and start the production Cheroot server."""
+        print("[INFO] Production workflow selected.")
+        run_production_server(config)
+
+
+class LauncherOrchestrator:
+    """Dispatch top-level launcher commands to focused workflows."""
+
+    def __init__(self, config: LauncherConfig) -> None:
+        """Create an orchestrator for one parsed configuration."""
+        self.config = config
+        self.backend = BackendService()
+        self.frontend = FrontendService()
+
+    def execute(self) -> None:
+        """Execute the requested launcher command."""
+        self.print_context()
+        actions = {
+            "setup": self.setup,
+            "check": self.check,
+            "test": self.test,
+            "dev": lambda: DevelopmentWorkflow().run(self.config),
+            "prod": lambda: ProductionWorkflow().run(self.config),
+            "prepare-offline": lambda: prepare_offline_bundle(self.config),
+            "package-offline": lambda: package_offline_bundle(self.config),
+            "package-changes": lambda: package_git_changes(self.config),
+            "all": self.all,
+            "interactive": self.interactive_alias,
+        }
+        actions[self.config.command]()
+
+    def print_context(self) -> None:
+        """Print the resolved launcher context."""
+        print(f"[INFO] Project root: {ROOT}")
+        print(f"[INFO] Command: {self.config.command}")
+        print(f"[INFO] Mode: {self.config.mode}")
+
+    def setup(self) -> None:
+        """Install dependencies and prepare local development defaults."""
+        ensure_python_version(current_python_version(), "launcher interpreter")
+        if not self.config.skip_backend:
+            self.backend.install_dependencies(self.config)
+            self.backend.write_dev_env_if_missing()
+        if not self.config.skip_frontend:
+            self.frontend.install_dependencies(self.config)
+        print("[OK] setup completed")
+
+    def check(self) -> None:
+        """Run non-production-fatal project checks."""
+        if not self.config.skip_backend:
+            self.backend.check(self.config)
+        if not self.config.skip_frontend:
+            self.frontend.check()
+        self.report_production_readiness()
+        print("[OK] check completed")
+
+    def test(self) -> None:
+        """Run backend tests, frontend tests, and frontend build when available."""
+        if not self.config.skip_backend:
+            ensure_existing_virtual_environment()
+            write_development_env()
+            self.backend.test()
+        if not self.config.skip_frontend:
+            ensure_frontend_layout()
+            ensure_node_and_npm()
+            self.frontend.test()
+        print("[OK] test completed")
+
+    def all(self) -> None:
+        """Run the legacy setup plus check alias."""
+        self.setup()
+        self.check()
+
+    def interactive_alias(self) -> None:
+        """Reject unreachable interactive alias after parsing."""
+        raise RuntimeError("Use `py -3.11 launcher.py interactive` or `--interactive`.")
+
+    def report_production_readiness(self) -> None:
+        """Report production readiness without failing the regular check command."""
+        missing = []
+        if not (BACKEND / ".env").is_file():
+            missing.append("backend/.env")
+        if not (BACKEND / "AWCenter.crt").is_file():
+            missing.append("backend/AWCenter.crt")
+        if not (BACKEND / "AWCenter.key").is_file():
+            missing.append("backend/AWCenter.key")
+        if missing:
+            print(f"[WARN] Production readiness missing: {', '.join(missing)}")
+
+
 def main() -> int:
-    """Run the requested launcher workflow."""
+    """Parse configuration and execute the requested launcher workflow."""
     try:
         config = parse_arguments()
-
-        print(f"Project root : {ROOT}")
-        print(f"Mode         : {config.mode}")
-        print(f"Offline dir  : {config.offline_dir}")
-        if config.command == "package-offline":
-            print(f"Offline ZIP  : {config.offline_zip}")
-        if config.command == "package-changes":
-            print(f"Changes ZIP  : {config.changes_zip}")
-
-        if config.command == "prepare-offline":
-            prepare_offline_bundle(config)
-
-        elif config.command == "package-offline":
-            package_offline_bundle(config)
-
-        elif config.command == "package-changes":
-            package_git_changes(config)
-
-        elif config.command == "install":
-            install_backend(config)
-            install_frontend(config)
-
-        elif config.command == "check":
-            if not config.skip_backend:
-                check_backend_database(config)
-
-            if not config.skip_frontend:
-                check_frontend()
-
-        elif config.command == "all":
-            validate_project(config)
-
-        elif config.command == "run":
-            run_application(config)
-
+        orchestrator = LauncherOrchestrator(config)
+        orchestrator.execute()
         return 0
-
     except Exception as error:
-        print(f"ERROR: {error}", file=sys.stderr)
+        print(f"[ERROR] {error}", file=sys.stderr)
         return 1
 
 
