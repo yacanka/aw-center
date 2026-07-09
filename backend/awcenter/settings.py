@@ -24,6 +24,7 @@ env.read_env(BASE_DIR / ".env")
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
+DEV_SECRET_KEY = "aw-center-local-development-secret-key-change-before-production-2026"
 SECRET_KEY = env.str("SECRET_KEY", default="")
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -31,7 +32,7 @@ DEBUG = env.bool("DEBUG", default=False)
 
 if not SECRET_KEY:
     if DEBUG:
-        SECRET_KEY = "dev-insecure-secret-key-change-me"
+        SECRET_KEY = DEV_SECRET_KEY
     else:
         raise ImproperlyConfigured("SECRET_KEY must be defined when DEBUG is False.")
 
@@ -270,10 +271,19 @@ CACHES = {
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = env.str("SESSION_COOKIE_SAMESITE", default="Lax")
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=not DEBUG)
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = env.str("CSRF_COOKIE_SAMESITE", default="Lax")
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG)
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000 if not DEBUG else 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=not DEBUG)
+SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=not DEBUG)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = env.bool("USE_X_FORWARDED_HOST", default=not DEBUG)
+X_FRAME_OPTIONS = "DENY"
 
 LOG_LEVEL = env.str("LOG_LEVEL", default="INFO")
 LOGGING = {
@@ -307,14 +317,3 @@ LOGGING = {
         },
     },
 }
-
-if not DEBUG:
-    SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True)
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000)
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
-    SECURE_REFERRER_POLICY = "same-origin"
-    X_FRAME_OPTIONS = "DENY"

@@ -84,7 +84,7 @@ def backend_env_template() -> str:
     """Return safe local-development backend environment content."""
     lines = [
         "DEBUG=True",
-        "SECRET_KEY=dev-insecure-secret-key-change-me",
+        "SECRET_KEY=aw-center-local-development-secret-key-change-before-production-2026",
         "IPV4_ADDRESS=127.0.0.1",
         "PORT=8000",
         "DOCPROOF_URL=http://localhost:9000",
