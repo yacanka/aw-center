@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      SECRET_KEY: change-me-with-a-real-secret
+      SECRET_KEY: local-compose-development-secret-key-change-before-production-2026
       DEBUG: "False"
       IPV4_ADDRESS: 0.0.0.0
       PORT: 8000

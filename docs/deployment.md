@@ -57,8 +57,10 @@ These variables are read by `backend/awcenter/settings.py`.
 | `AUTH_COOKIE_SAMESITE` | No | `Lax` in debug, `None` in production | Use `None` only with HTTPS secure cookies. |
 | `AUTH_COOKIE_SECURE` | No | `False` in debug, `True` in production | Keep enabled for production. |
 | `AUTH_TOKEN_RESPONSE_ENABLED` | No | Same as `DEBUG` | Disable in production unless a reviewed legacy need exists. |
-| `SECURE_SSL_REDIRECT` | No | `True` when `DEBUG=False` | Keep enabled behind HTTPS; disable only for local Compose without TLS. |
-| `SECURE_HSTS_SECONDS` | No | `31536000` when `DEBUG=False` | Production HSTS duration. |
+| `SECURE_SSL_REDIRECT` | No | `False` in debug, `True` in production | Keep enabled behind HTTPS; disable only for local Compose without TLS. |
+| `SECURE_HSTS_SECONDS` | No | `0` in debug, `31536000` in production | Production HSTS duration. |
+| `SESSION_COOKIE_SECURE` | No | `False` in debug, `True` in production | Keep enabled for production sessions. |
+| `CSRF_COOKIE_SECURE` | No | `False` in debug, `True` in production | Keep enabled for production CSRF cookies. |
 
 ## Required frontend build variables
 
