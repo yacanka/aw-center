@@ -454,3 +454,10 @@
 2. The parsed values are normalized into semicolon-separated backend multiselect text before being returned to the Outlook ECR approval UI.
 3. When a JIRA session is available, the backend loads the configured task effectivity field options from JIRA create metadata and replaces each normalized value with the closest allowed option.
 4. The Outlook ECR task flow now connects to JIRA before parsing attachments so parsed approval data can show JIRA-matched effectivity values before task creation.
+
+## 64. Django deployment security warning cleanup
+
+1. Replaced weak local development `SECRET_KEY` placeholders with a longer non-`django-insecure-` value so Django security checks no longer flag generated local templates for key entropy.
+2. Moved Django HTTPS, HSTS, secure-cookie, content-sniffing, referrer-policy, and frame-denial settings into explicit env-driven settings with production-safe defaults.
+3. Documented the debug/production defaults for SSL redirect, HSTS, session secure cookies, and CSRF secure cookies in README and deployment docs.
+4. Verified `manage.py check --deploy` passes with production-like environment overrides.

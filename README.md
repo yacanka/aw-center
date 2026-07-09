@@ -647,7 +647,7 @@ Backend `.env` dosyası `backend/.env` konumundan okunur. Gerçek secret, token,
 
 ```env
 DEBUG=True
-SECRET_KEY=dev-insecure-secret-key-change-me
+SECRET_KEY=aw-center-local-development-secret-key-change-before-production-2026
 IPV4_ADDRESS=127.0.0.1
 PORT=8000
 DOCPROOF_URL=http://localhost/docproof
@@ -688,14 +688,16 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `ALLOWED_HOSTS` | `IPV4_ADDRESS`, `127.0.0.1`, `localhost` | Django allowed hosts listesi. |
 | `CORS_ALLOWED_ORIGINS` | `DEBUG=False` iken zorunlu | Production CORS origin allowlist. |
 | `CSRF_TRUSTED_ORIGINS` | Varsayılan boş liste | Cross-site POST/PUT/PATCH/DELETE için trusted origin listesi. |
-| `SECURE_SSL_REDIRECT` | `DEBUG=False` iken varsayılan `True` | HTTP isteklerini HTTPS'e yönlendirir. TLS proxy arkasında topolojiye göre ayarlanmalıdır. |
+| `SECURE_SSL_REDIRECT` | `DEBUG=True`: `False`, `DEBUG=False`: `True` | HTTP isteklerini HTTPS'e yönlendirir. TLS proxy arkasında topolojiye göre ayarlanmalıdır. |
 | `USE_X_FORWARDED_HOST` | `DEBUG=False` iken varsayılan `True` | Reverse proxy host header'ını kullanır. |
 | `AUTH_COOKIE_NAME` | Varsayılan `auth_token` | DRF token cookie adı. |
 | `AUTH_COOKIE_MAX_AGE` | Varsayılan 14 gün | Auth cookie ömrü, saniye cinsinden. |
 | `AUTH_COOKIE_SAMESITE` | `DEBUG=True`: `Lax`, `DEBUG=False`: `None` | Browser cookie SameSite politikası. |
 | `AUTH_COOKIE_SECURE` | `DEBUG=True`: `False`, `DEBUG=False`: `True` | Auth cookie için Secure bayrağı. |
+| `SESSION_COOKIE_SECURE` | `DEBUG=True`: `False`, `DEBUG=False`: `True` | Session cookie için Secure bayrağı. |
+| `CSRF_COOKIE_SECURE` | `DEBUG=True`: `False`, `DEBUG=False`: `True` | CSRF cookie için Secure bayrağı. |
 | `AUTH_TOKEN_RESPONSE_ENABLED` | Varsayılan `DEBUG` | Local fallback için token'ın response body'de dönülmesine izin verir. Production'da kapalı kalmalıdır. |
-| `SECURE_HSTS_SECONDS` | `DEBUG=False` iken varsayılan `31536000` | HSTS süresi. |
+| `SECURE_HSTS_SECONDS` | `DEBUG=True`: `0`, `DEBUG=False`: `31536000` | HSTS süresi. |
 | `SOFFICE_BIN` | Varsayılan `soffice` | PPT/PDF dönüşümünde LibreOffice binary. |
 | `PDFTOPPM_BIN` | Varsayılan `pdftoppm` | Poppler PDF-to-image binary. |
 
