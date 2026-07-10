@@ -461,3 +461,10 @@
 2. Moved Django HTTPS, HSTS, secure-cookie, content-sniffing, referrer-policy, and frame-denial settings into explicit env-driven settings with production-safe defaults.
 3. Documented the debug/production defaults for SSL redirect, HSTS, session secure cookies, and CSRF secure cookies in README and deployment docs.
 4. Verified `manage.py check --deploy` passes with production-like environment overrides.
+
+## 65. Public signup endpoint fix
+
+1. Added a dedicated public `/auth/signup/` endpoint so anonymous registration no longer hits the authenticated user-management API.
+2. Kept `/auth/users/` protected for administrative user management and reused the existing serializer restrictions so anonymous signup cannot assign groups or permissions.
+3. Updated the frontend signup action to call `/auth/signup/` instead of `/auth/users/`.
+4. Added regression tests for successful anonymous signup and rejected authorization-field escalation during signup.
