@@ -120,6 +120,7 @@ class GroupView(APIView):
 
 PUBLIC_ENDPOINTS = {
     "CustomAuthToken": "Public login endpoint; credentials are validated by DRF token auth.",
+    "SignupView": "Public registration endpoint; authorization fields are rejected by the serializer.",
     "PasswordResetRequestAPIView": "Public request endpoint; response does not reveal account existence.",
     "PasswordResetConfirmAPIView": "Public confirmation endpoint; uid and token prove reset authorization.",
 }
@@ -157,6 +158,17 @@ class CustomAuthToken(ObtainAuthToken):
         if settings.AUTH_TOKEN_RESPONSE_ENABLED:
             payload["token"] = token.key
         return payload
+
+
+class SignupView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = UserSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        response_serializer = UserSerializer(user, context={"request": request})
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class LogoutView(APIView):
