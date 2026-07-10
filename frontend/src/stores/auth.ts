@@ -125,7 +125,7 @@ export const useAuthStore = defineStore('auth', {
     async signup(credentials: any) {
       this.loading = true
       await handleRequest<any>(
-        axios.post(`${API_PATH}/users/`, credentials),
+        axios.post(`${API_PATH}/signup/`, credentials),
         () => {
           notifySuccess('Registration successful')
         },

@@ -58,6 +58,32 @@ class UserSecurityTests(TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertFalse(User.objects.filter(username="u10003").exists())
 
+    def test_anonymous_user_can_signup_without_management_permission(self):
+        payload = {
+            "username": "u10003",
+            "email": "new-user@example.com",
+            "password": "StrongPass!123",
+        }
+
+        response = self.client.post("/auth/signup/", payload, format="json")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["username"], "u10003")
+        self.assertNotIn("password", response.data)
+        self.assertTrue(User.objects.filter(username="u10003").exists())
+
+    def test_anonymous_signup_cannot_assign_authorization_fields(self):
+        payload = {
+            "username": "u10004",
+            "password": "StrongPass!123",
+            "user_permissions": [self.change_user_permission.id],
+        }
+
+        response = self.client.post("/auth/signup/", payload, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username="u10004").exists())
+
     def test_debug_cookie_defaults_support_plain_http_refresh(self):
         from awcenter.settings import get_default_auth_cookie_samesite
         from awcenter.settings import get_default_auth_cookie_secure
