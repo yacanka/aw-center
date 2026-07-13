@@ -132,6 +132,7 @@ import argparse
 from datetime import datetime
 import json
 import os
+import secrets
 import shlex
 import time
 import zipfile
@@ -212,6 +213,7 @@ FRONTEND = ROOT / "frontend"
 VENV = ROOT / ".venv"
 OFFLINE = ROOT / "offline"
 REQUIREMENTS = ROOT / "requirements.txt"
+RUNTIME = ROOT / ".runtime"
 
 
 
@@ -345,6 +347,49 @@ def build_config(
     offline = OfflineOptions(mode, offline_dir, offline_zip, changes_zip, ignore_packages)
     return LauncherConfig(command, paths, runtime, offline, fix_migrations, run_profile, collect_static)
 
+
+
+def public_url(scheme: str, host: str, port: int) -> str:
+    """Return a browser-facing URL for the selected endpoint."""
+    browser_host = "localhost" if host in {"0.0.0.0", "::"} else host
+    return f"{scheme}://{browser_host}:{port}"
+
+
+def runtime_profile_dir(profile: str) -> Path:
+    """Return the isolated runtime directory for one launcher profile."""
+    return RUNTIME / profile
+
+
+def runtime_env_file(profile: str) -> Path:
+    """Return the isolated backend env file for one launcher profile."""
+    return runtime_profile_dir(profile) / "backend.env"
+
+
+def random_secret_key() -> str:
+    """Return a generated Django secret key suitable for local isolated profiles."""
+    return secrets.token_urlsafe(50)
+
+
+def ensure_runtime_directories(profile: str) -> Path:
+    """Create isolated runtime directories for database, media, and static files."""
+    profile_dir = runtime_profile_dir(profile)
+    for name in ("media", "static", "certificates"):
+        (profile_dir / name).mkdir(parents=True, exist_ok=True)
+    return profile_dir
+
+
+def write_runtime_env(profile: str, values: dict[str, str]) -> Path:
+    """Write or update a profile-specific backend env file."""
+    profile_dir = ensure_runtime_directories(profile)
+    env_file = profile_dir / "backend.env"
+    update_env_values(env_file, values)
+    return env_file
+
+
+def runtime_env_extra(profile: str) -> dict[str, str]:
+    """Return subprocess variables that bind Django to one isolated env file."""
+    return {"AWCENTER_ENV_FILE": str(runtime_env_file(profile))}
+
 def executable(name: str) -> str:
     """Return a platform-specific executable name."""
     return f"{name}.exe" if os.name == "nt" else name
@@ -449,7 +494,7 @@ def validate_working_directory(cwd: Path | None = None) -> Path:
     return working_dir
 
 
-def run(command: Sequence[str | Path], cwd: Path | None = None) -> None:
+def run(command: Sequence[str | Path], cwd: Path | None = None, env_extra: dict[str, str] | None = None) -> None:
     """Run a subprocess without ever using .venv as the working directory."""
     working_dir = validate_working_directory(cwd)
     argv = [str(part) for part in command]
@@ -459,7 +504,7 @@ def run(command: Sequence[str | Path], cwd: Path | None = None) -> None:
     completed = subprocess.run(
         argv,
         cwd=str(working_dir),
-        env=base_env(),
+        env=base_env(env_extra),
         check=False,
     )
 
@@ -474,6 +519,7 @@ def run(command: Sequence[str | Path], cwd: Path | None = None) -> None:
 def run_result(
     command: Sequence[str | Path],
     cwd: Path | None = None,
+    env_extra: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a command and return stdout/stderr for smart handling."""
     working_dir = validate_working_directory(cwd)
@@ -484,7 +530,7 @@ def run_result(
     completed = subprocess.run(
         argv,
         cwd=str(working_dir),
-        env=base_env(),
+        env=base_env(env_extra),
         check=False,
         capture_output=True,
         text=True,
@@ -575,30 +621,33 @@ def update_env_values(env_file: Path, values: dict[str, str]) -> None:
     env_file.write_text("\n".join(updated_lines).rstrip() + "\n", encoding="utf-8")
 
 
-def configure_backend_runtime_env(host: str, port: int) -> None:
-    """Make backend .env consistent with the selected runtime address."""
-    write_development_env()
-
-    allowed_hosts = ["127.0.0.1", "localhost"]
-
-    if host not in allowed_hosts:
-        allowed_hosts.append(host)
-
-    update_env_values(
-        BACKEND / ".env",
-        {
-            "IPV4_ADDRESS": host,
-            "PORT": str(port),
-            "ALLOWED_HOSTS": ",".join(allowed_hosts),
-        },
-    )
+def configure_backend_runtime_env(host: str, port: int) -> Path:
+    """Create an isolated development backend env for the selected address."""
+    allowed_hosts = ["127.0.0.1", "localhost", host]
+    unique_hosts = list(dict.fromkeys(allowed_hosts))
+    profile_dir = ensure_runtime_directories("development")
+    return write_runtime_env("development", {
+        "DEBUG": "True",
+        "SECRET_KEY": "aw-center-local-development-secret-key-change-before-production-2026",
+        "IPV4_ADDRESS": host,
+        "PORT": str(port),
+        "DOCPROOF_URL": "http://localhost:9000",
+        "DOORS_EXECUTABLE": "doors",
+        "JIRA_LEGACY_URL": "http://localhost:8080",
+        "JIRA_BTB_URL": "http://localhost:8080",
+        "ALLOWED_HOSTS": ",".join(unique_hosts),
+        "DATABASE_URL": f"sqlite:///{profile_dir / 'db.sqlite3'}",
+        "DB_OLD_URL": f"sqlite:///{profile_dir / 'db_old.sqlite3'}",
+        "MEDIA_ROOT": str(profile_dir / "media"),
+        "STATIC_ROOT": str(profile_dir / "static"),
+    })
 
 
 def configure_frontend_runtime_env(host: str, backend_port: int) -> None:
     """Write the selected backend URL for Vite/Vue development builds."""
     ensure_frontend_layout()
 
-    backend_url = f"http://{host}:{backend_port}"
+    backend_url = public_url("http", host, backend_port)
     env_file = FRONTEND / ".env.local"
 
     # Vite only exposes variables that start with VITE_.
@@ -717,10 +766,7 @@ def run_development_servers(config: LauncherConfig) -> None:
             start_process(
                 backend_command,
                 cwd=BACKEND,
-                env_extra={
-                    "IPV4_ADDRESS": config.host,
-                    "PORT": str(selected_backend_port),
-                },
+                env_extra={**runtime_env_extra("development"), "IPV4_ADDRESS": config.host, "PORT": str(selected_backend_port)},
             )
         )
 
@@ -746,10 +792,10 @@ def run_development_servers(config: LauncherConfig) -> None:
                 cwd=FRONTEND,
                 env_extra=(
                     {
-                        "VITE_API_BASE_URL": f"http://{config.host}:{selected_backend_port}",
-                        "VITE_BACKEND_URL": f"http://{config.host}:{selected_backend_port}",
-                        "VITE_API_URL": f"http://{config.host}:{selected_backend_port}",
-                        "VITE_SERVER_URL": f"http://{config.host}:{selected_backend_port}",
+                        "VITE_API_BASE_URL": public_url("http", config.host, selected_backend_port),
+                        "VITE_BACKEND_URL": public_url("http", config.host, selected_backend_port),
+                        "VITE_API_URL": public_url("http", config.host, selected_backend_port),
+                        "VITE_SERVER_URL": public_url("http", config.host, selected_backend_port),
                     }
                     if selected_backend_port is not None
                     else None
@@ -799,10 +845,10 @@ def read_env_values(env_file: Path) -> dict[str, str]:
 
 def ensure_production_env_values() -> None:
     """Validate production-only environment values before startup."""
-    values = read_env_values(BACKEND / ".env")
+    values = read_env_values(runtime_env_file("production"))
     secret = values.get("SECRET_KEY", "")
     if values.get("DEBUG", "").lower() == "true":
-        raise RuntimeError("Production requires DEBUG=False in backend/.env.")
+        raise RuntimeError("Production requires DEBUG=False in the isolated production runtime env.")
     if "local-development-secret" in secret or not secret:
         raise RuntimeError("Production SECRET_KEY is missing or uses the development default.")
     if values.get("ALLOWED_HOSTS", "") in {"", "*"}:
@@ -822,22 +868,45 @@ def ensure_production_env_file() -> None:
     """Require an explicit backend .env for production startup."""
     ensure_backend_layout()
 
-    if not (BACKEND / ".env").is_file():
-        raise RuntimeError("Production backend/.env is required. Create backend/.env from your production template before running prod.")
+    ensure_runtime_directories("production")
 
 
 def ensure_production_certificates() -> None:
     """Require Cheroot TLS certificate files before production startup."""
-    missing = [name for name in ("AWCenter.crt", "AWCenter.key") if not (BACKEND / name).is_file()]
-
-    if missing:
-        raise RuntimeError(f"Missing backend/AWCenter.crt and/or backend/AWCenter.key. Missing: {', '.join(missing)}")
+    cert_dir = runtime_profile_dir("production") / "certificates"
+    missing = [name for name in ("AWCenter.crt", "AWCenter.key") if not (cert_dir / name).is_file()]
+    if not missing:
+        return
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise RuntimeError("Production TLS certificates are missing and openssl is unavailable.")
+    run([openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "365", "-subj", "/CN=localhost", "-keyout", cert_dir / "AWCenter.key", "-out", cert_dir / "AWCenter.crt"], cwd=ROOT)
 
 
 def configure_production_runtime_env(host: str, port: int) -> None:
-    """Update production-safe runtime address values without creating dev defaults."""
+    """Create/update an isolated production-like env without touching dev state."""
     ensure_production_env_file()
-    update_env_values(BACKEND / ".env", {"DEBUG": "False", "IPV4_ADDRESS": host, "PORT": str(port)})
+    profile_dir = ensure_runtime_directories("production")
+    backend_url = public_url("https", host, port)
+    update_env_values(runtime_env_file("production"), {
+        "DEBUG": "False",
+        "SECRET_KEY": read_env_values(runtime_env_file("production")).get("SECRET_KEY") or random_secret_key(),
+        "IPV4_ADDRESS": host,
+        "PORT": str(port),
+        "DOCPROOF_URL": "http://localhost:9000",
+        "DOORS_EXECUTABLE": "doors",
+        "JIRA_LEGACY_URL": "http://localhost:8080",
+        "JIRA_BTB_URL": "http://localhost:8080",
+        "ALLOWED_HOSTS": ",".join(dict.fromkeys(["127.0.0.1", "localhost", host])),
+        "CORS_ALLOWED_ORIGINS": backend_url,
+        "CSRF_TRUSTED_ORIGINS": backend_url,
+        "DATABASE_URL": f"sqlite:///{profile_dir / 'db.sqlite3'}",
+        "DB_OLD_URL": f"sqlite:///{profile_dir / 'db_old.sqlite3'}",
+        "MEDIA_ROOT": str(profile_dir / "media"),
+        "STATIC_ROOT": str(profile_dir / "static"),
+        "TLS_CERT_FILE": str(profile_dir / "certificates" / "AWCenter.crt"),
+        "TLS_KEY_FILE": str(profile_dir / "certificates" / "AWCenter.key"),
+    })
 
 
 def ensure_frontend_build_artifacts() -> None:
@@ -860,13 +929,13 @@ def run_production_server(config: LauncherConfig) -> None:
     ensure_production_env_values()
     ensure_production_certificates()
     ensure_frontend_build_artifacts()
-    run([venv_python(), "manage.py", "check", "--deploy"], cwd=BACKEND)
-    run([venv_python(), "manage.py", "migrate", "--check"], cwd=BACKEND)
+    run([venv_python(), "manage.py", "check", "--deploy"], cwd=BACKEND, env_extra=runtime_env_extra("production"))
+    run([venv_python(), "manage.py", "migrate", "--check"], cwd=BACKEND, env_extra=runtime_env_extra("production"))
 
-    run([venv_python(), "manage.py", "collectstatic", "--noinput"], cwd=BACKEND)
+    run([venv_python(), "manage.py", "collectstatic", "--noinput"], cwd=BACKEND, env_extra=runtime_env_extra("production"))
 
     print("\nProduction server starting with Cheroot over HTTPS.")
-    run([venv_python(), "run_cheroot.py"], cwd=BACKEND)
+    run([venv_python(), "run_cheroot.py"], cwd=BACKEND, env_extra=runtime_env_extra("production"))
 
 
 def run_application(config: LauncherConfig) -> None:
@@ -1534,21 +1603,22 @@ def check_backend_database(config: LauncherConfig) -> None:
     """Run Django system, migration, and database consistency checks."""
     ensure_backend_layout()
     ensure_existing_virtual_environment()
-    write_development_env()
+    configure_backend_runtime_env(config.host, config.backend_port)
 
     python = venv_python()
 
-    run([python, "manage.py", "check"], cwd=BACKEND)
+    run([python, "manage.py", "check"], cwd=BACKEND, env_extra=runtime_env_extra("development"))
 
     migration_check = run_result(
         [python, "manage.py", "makemigrations", "--check", "--dry-run"],
         cwd=BACKEND,
+        env_extra=runtime_env_extra("development"),
     )
 
     if migration_check.returncode:
         if config.fix_migrations:
             print("\nMissing Django migration files detected. Creating migrations...")
-            run([python, "manage.py", "makemigrations"], cwd=BACKEND)
+            run([python, "manage.py", "makemigrations"], cwd=BACKEND, env_extra=runtime_env_extra("development"))
         else:
             raise RuntimeError(
                 "Django model changes require new migration files.\n"
@@ -1563,12 +1633,13 @@ def check_backend_database(config: LauncherConfig) -> None:
     migrate_check = run_result(
         [python, "manage.py", "migrate", "--check"],
         cwd=BACKEND,
+        env_extra=runtime_env_extra("development"),
     )
 
     if migrate_check.returncode:
         if config.fix_migrations:
             print("\nUnapplied Django migrations detected. Applying migrations...")
-            run([python, "manage.py", "migrate"], cwd=BACKEND)
+            run([python, "manage.py", "migrate"], cwd=BACKEND, env_extra=runtime_env_extra("development"))
         else:
             raise RuntimeError(
                 "There are unapplied Django migrations.\n"
@@ -2003,7 +2074,7 @@ class BackendService:
         """Run backend tests using pytest when available, otherwise Django tests."""
         pytest = shutil.which("pytest")
         command = [pytest] if pytest else [venv_python(), "manage.py", "test"]
-        run(command, cwd=BACKEND if not pytest else ROOT)
+        run(command, cwd=BACKEND if not pytest else ROOT, env_extra=runtime_env_extra("development"))
 
 
 class FrontendService:
@@ -2078,7 +2149,7 @@ class LauncherOrchestrator:
         ensure_python_version(current_python_version(), "launcher interpreter")
         if not self.config.skip_backend:
             self.backend.install_dependencies(self.config)
-            self.backend.write_dev_env_if_missing()
+            configure_backend_runtime_env(self.config.host, self.config.backend_port)
         if not self.config.skip_frontend:
             self.frontend.install_dependencies(self.config)
         print("[OK] setup completed")
@@ -2096,7 +2167,7 @@ class LauncherOrchestrator:
         """Run backend tests, frontend tests, and frontend build when available."""
         if not self.config.skip_backend:
             ensure_existing_virtual_environment()
-            write_development_env()
+            configure_backend_runtime_env(self.config.host, self.config.backend_port)
             self.backend.test()
         if not self.config.skip_frontend:
             ensure_frontend_layout()
@@ -2116,12 +2187,13 @@ class LauncherOrchestrator:
     def report_production_readiness(self) -> None:
         """Report production readiness without failing the regular check command."""
         missing = []
-        if not (BACKEND / ".env").is_file():
-            missing.append("backend/.env")
-        if not (BACKEND / "AWCenter.crt").is_file():
-            missing.append("backend/AWCenter.crt")
-        if not (BACKEND / "AWCenter.key").is_file():
-            missing.append("backend/AWCenter.key")
+        if not runtime_env_file("production").is_file():
+            missing.append(".runtime/production/backend.env")
+        cert_dir = runtime_profile_dir("production") / "certificates"
+        if not (cert_dir / "AWCenter.crt").is_file():
+            missing.append(".runtime/production/certificates/AWCenter.crt")
+        if not (cert_dir / "AWCenter.key").is_file():
+            missing.append(".runtime/production/certificates/AWCenter.key")
         if missing:
             print(f"[WARN] Production readiness missing: {', '.join(missing)}")
 

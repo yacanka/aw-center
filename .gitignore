@@ -148,3 +148,6 @@ models/
 offline/
 wheels/
 workspace/
+
+# Launcher isolated runtime profiles
+.runtime/
