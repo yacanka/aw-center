@@ -6,6 +6,9 @@ import environ
 
 env = environ.Env()
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "awcenter.settings")
+env_file = os.environ.get("AWCENTER_ENV_FILE")
+if env_file:
+    env.read_env(env_file)
 
 application = get_wsgi_application()
 
@@ -20,8 +23,8 @@ server = wsgi.Server(
     timeout=120
 )
 
-CERT_FILE = "AWCenter.crt"
-KEY_FILE = "AWCenter.key"
+CERT_FILE = env.str("TLS_CERT_FILE", default="AWCenter.crt")
+KEY_FILE = env.str("TLS_KEY_FILE", default="AWCenter.key")
 
 server.ssl_adapter = BuiltinSSLAdapter(CERT_FILE, KEY_FILE)
 

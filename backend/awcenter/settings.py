@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 from corsheaders.defaults import default_headers, default_methods
 from django.core.exceptions import ImproperlyConfigured
 import environ
@@ -18,7 +19,8 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env()
-env.read_env(BASE_DIR / ".env")
+ENV_FILE = Path(os.environ.get("AWCENTER_ENV_FILE", BASE_DIR / ".env"))
+env.read_env(ENV_FILE)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -224,14 +226,14 @@ DATE_FORMAT = 'd.m.Y'
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = '/core/'
-STATIC_ROOT = BASE_DIR / 'static'
+STATIC_ROOT = Path(env.path('STATIC_ROOT', default=BASE_DIR / 'static'))
 STATICFILES_DIRS = [BASE_DIR / 'core']
 if FRONTEND_ASSETS_DIR.exists():
     STATICFILES_DIRS.append(('assets', FRONTEND_ASSETS_DIR))
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = Path(env.path('MEDIA_ROOT', default=BASE_DIR / 'media'))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
