@@ -16,6 +16,7 @@ urlpatterns = [
     path('dcc/', include('dcc.urls')),
     path('auth/', include('users.urls')),
     path('doors/', include('doors.urls')),
+    path('teamcenter/', include('teamcenter.urls')),
     path('ddf/', include('ddf.urls')),
     path('docproof/', include('docproof.urls')),
     path('excel/', include('excel.urls')),

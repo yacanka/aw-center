@@ -468,3 +468,10 @@
 2. Kept `/auth/users/` protected for administrative user management and reused the existing serializer restrictions so anonymous signup cannot assign groups or permissions.
 3. Updated the frontend signup action to call `/auth/signup/` instead of `/auth/users/`.
 4. Added regression tests for successful anonymous signup and rejected authorization-field escalation during signup.
+
+## 66. Teamcenter and IBM Rational DOORS service integration
+
+1. Integrated the supplied Teamcenter 2506 REST/SOA client foundation as an authenticated Django application with CSRF/XSRF session handling, bounded retries/timeouts, TLS enforcement, response-size limits, and allowlisted query/data-management operations.
+2. Integrated the supplied DOORS OLE/DXL MVP into the existing DOORS application with COM thread initialization, escaped DXL builders, temporary-result cleanup, bounded object/result sizes, and shell-free optional client startup.
+3. Added authenticated read APIs and admin-only mutation APIs for both engineering systems without exposing external credentials or session tokens to the browser.
+4. Added Teamcenter and DOORS Agent screens, navigation, typed frontend API services, backend regression tests, environment documentation, and staging acceptance-test follow-up guidance.

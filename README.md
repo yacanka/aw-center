@@ -673,6 +673,20 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `PORT` | Zorunlu integer | Reset URL ve Cheroot bind port için kullanılır. |
 | `DOCPROOF_URL` | Zorunlu | DocProof entegrasyon base URL'i. |
 | `DOORS_EXECUTABLE` | Zorunlu | DOORS executable path'i. |
+| `DOORS_DATABASE` | Varsayılan boş | Opsiyonel DOORS `port@host` database seçimi. |
+| `DOORS_OLE_PROG_ID` | Varsayılan `DOORS.Application` | Windows OLE automation program ID. |
+| `DOORS_AUTO_START_CLIENT` | Varsayılan `False` | Aktif istemci yoksa DOORS'u açıkça başlatır. |
+| `DOORS_STARTUP_TIMEOUT_SECONDS` / `DOORS_RUN_TIMEOUT_SECONDS` | `30` / `120` | OLE başlangıç ve DXL çalışma sınırları. |
+| `DOORS_MAX_RESULT_BYTES` | Varsayılan `10485760` | DXL result dosyasının maksimum boyutu. |
+| `TEAMCENTER_BASE_URL` | Entegrasyon için zorunlu | Teamcenter web-tier context root'u. |
+| `TEAMCENTER_SERVICE_ROOT` | Varsayılan `RestServices` | `RestServices` veya deployment sözleşmesi. |
+| `TEAMCENTER_AUTH_MODE` | Varsayılan `password` | Server-side `password` veya `cookie` authentication. |
+| `TEAMCENTER_USERNAME` / `TEAMCENTER_PASSWORD` | Password mode için zorunlu | Secret manager'da tutulacak servis hesabı. |
+| `TEAMCENTER_JSESSIONID` / `TEAMCENTER_XSRF_TOKEN` | Cookie mode için | Aynı Teamcenter session'a ait server-side secret'lar. |
+| `TEAMCENTER_VERIFY_SSL` | Varsayılan `true` | Boolean veya internal CA bundle path'i; production'da kapatılamaz. |
+| `TEAMCENTER_CONNECT_TIMEOUT_SECONDS` / `TEAMCENTER_READ_TIMEOUT_SECONDS` | `10` / `60` | Bounded HTTP timeout değerleri. |
+| `TEAMCENTER_MAX_READ_RETRIES` | Varsayılan `2` | Yalnızca idempotent read çağrılarının retry sayısı. |
+| `TEAMCENTER_MAX_RESPONSE_BYTES` | Varsayılan `10485760` | Stream edilen Teamcenter response boyut sınırı. |
 | `JIRA_LEGACY_URL` | Zorunlu | Legacy JIRA URL'i. |
 | `JIRA_BTB_URL` | Zorunlu | Ana JIRA URL'i. |
 | `AW_USERNAME` | Varsayılan boş | DocProof/DOORS gibi entegrasyonlarda kullanılır; hassas kabul edilmelidir. |
@@ -807,6 +821,23 @@ CI workflow'u `.github/workflows/ci.yml` altında backend ve frontend kalite kap
 
 ---
 
+## Teamcenter ve DOORS Entegrasyonları
+
+Teamcenter ve IBM Rational DOORS istemcileri AW Center backend'ine gömülü adapter katmanları olarak entegredir. Frontend menüsündeki `Teamcenter` ve `DOORS > Agent` ekranları yalnızca sunucuda yapılandırılmış hesap/oturumları kullanır; tarayıcıdan Teamcenter parolası, `JSESSIONID`, XSRF token veya DOORS kimlik bilgisi alınmaz.
+
+Teamcenter için `TEAMCENTER_BASE_URL`, authentication mode ve ilgili server-side secret'ları `.env`/secret manager üzerinden tanımlayın. Production'da HTTPS ve TLS doğrulaması zorunludur. Okuma endpoint'leri authenticated kullanıcılara; property update endpoint'i yalnızca admin kullanıcılara açıktır. İstekler timeout, sınırlı read retry ve maksimum response boyutu ile çalışır.
+
+DOORS OLE entegrasyonu Windows, `pywin32` ve oturum açılmış bir DOORS desktop client gerektirir. Varsayılan davranış aktif istemciye bağlanmaktır; `DOORS_AUTO_START_CLIENT=False` güvenli varsayılan olarak korunur. Açılması gerekiyorsa executable ve opsiyonel database yalnızca subprocess argüman listesiyle aktarılır. Object listeleme 1000 kayıtla, DXL sonuç dosyası da yapılandırılabilir byte limitiyle sınırlandırılmıştır. Object create/update endpoint'leri yalnızca admin kullanıcılar içindir.
+
+Başlıca API yüzeyleri:
+
+- Teamcenter: `/teamcenter/status/`, `/teamcenter/probe/`, `/teamcenter/saved-queries/`, `/teamcenter/objects/load/`, `/teamcenter/objects/properties/`.
+- DOORS: `/doors/status/`, `/doors/modules/check/`, `/doors/objects/`, `/doors/objects/detail/`.
+
+Tüm environment anahtarlarının secrets içermeyen örnekleri [`.env.example`](.env.example) içinde bulunur.
+
+---
+
 ## Güvenlik Notları
 
 - `.env`, SQLite database, media upload, node_modules, build artifact, sertifika ve private key dosyaları commit edilmemelidir.
@@ -883,7 +914,11 @@ python launcher.py run
 
 ### DOORS işlemleri çalışmıyor
 
-`DOORS_EXECUTABLE` doğru path'i göstermeli ve ortam Windows/DOORS automation gereksinimlerini sağlamalıdır.
+Backend Windows üzerinde çalışmalı, `pywin32` kurulu olmalı ve varsayılan akışta kullanıcı DOORS desktop client'a giriş yapmış olmalıdır. `DOORS_EXECUTABLE`, `DOORS_OLE_PROG_ID` ve gerekiyorsa `DOORS_DATABASE` değerlerini doğrulayın.
+
+### Teamcenter bağlantısı çalışmıyor
+
+`TEAMCENTER_BASE_URL` web-tier context root'u göstermeli (örneğin `https://host/tc`), `TEAMCENTER_SERVICE_ROOT` deployment ile eşleşmeli ve seçilen authentication mode için server-side secret'lar tanımlanmalıdır. Internal CA kullanılıyorsa `TEAMCENTER_VERIFY_SSL` değerini CA bundle path'i olarak ayarlayın; production'da TLS doğrulamasını kapatmayın.
 
 ### PPTX/PDF preview çalışmıyor
 

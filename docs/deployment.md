@@ -39,6 +39,16 @@ These variables are read by `backend/awcenter/settings.py`.
 | `PORT` | Yes | None | Used in reset URL defaults and server binding helpers. |
 | `DOCPROOF_URL` | Yes | None | DocProof integration base URL. |
 | `DOORS_EXECUTABLE` | Yes | None | External DOORS executable path. |
+| `DOORS_DATABASE` | No | Empty | Optional DOORS `port@host` database selection. |
+| `DOORS_AUTO_START_CLIENT` | No | `False` | Keep disabled unless desktop process startup is explicitly required. |
+| `DOORS_MAX_RESULT_BYTES` | No | `10485760` | Maximum DXL result-file bytes. |
+| `TEAMCENTER_BASE_URL` | Integration only | Empty | Teamcenter web-tier context root; production requires HTTPS. |
+| `TEAMCENTER_SERVICE_ROOT` | No | `RestServices` | Deployed Teamcenter REST service root. |
+| `TEAMCENTER_AUTH_MODE` | No | `password` | Server-side `password` or `cookie` authentication. |
+| `TEAMCENTER_USERNAME` / `TEAMCENTER_PASSWORD` | Password mode | Empty | Sensitive Teamcenter service-account credentials. |
+| `TEAMCENTER_JSESSIONID` / `TEAMCENTER_XSRF_TOKEN` | Cookie mode | Empty | Sensitive session-bound Teamcenter cookies. |
+| `TEAMCENTER_VERIFY_SSL` | No | `true` | Boolean or internal CA bundle; cannot be false in production. |
+| `TEAMCENTER_MAX_RESPONSE_BYTES` | No | `10485760` | Maximum streamed Teamcenter response bytes. |
 | `JIRA_LEGACY_URL` | Yes | None | Legacy JIRA base URL. |
 | `JIRA_BTB_URL` | Yes | None | Main JIRA base URL. |
 | `AW_USERNAME` | No | Empty string | Sensitive integration username; keep external. |

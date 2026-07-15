@@ -79,6 +79,7 @@ Backend–frontend iletişimi Axios üzerinden REST benzeri endpoint'lerle yür�
 6. **P2 - Build doğrulanabilirliği:** Frontend entry/build sorunları giderildi; kalan iş tam TypeScript strict hata listesini modül modül kapatmak.
 7. **P2 - Query ölçüm testleri:** Kritik list endpoint'lerine regression amaçlı query count testleri ekle.
 8. **P2 - Frontend format borcu:** Repository-wide Prettier check halen `UploadPopup.vue`, `stores/api.ts`, `jiraFieldInput.ts` ve `MainView.vue` dosyalarında mevcut format drift'i nedeniyle başarısız.
+9. **P1 - Canlı Teamcenter/DOORS kabul testi:** Deployment secret'larıyla Teamcenter web-tier sözleşmesini ve Windows üzerinde gerçek DOORS OLE/DXL read/write akışlarını staging ortamında doğrula.
 
 ## 9. Uygulanan hata contract patch'i
 

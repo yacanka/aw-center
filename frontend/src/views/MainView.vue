@@ -71,10 +71,7 @@ import Popup from '@/components/GlobalPopup.vue'
 import { useUserStore } from '@/stores/user'
 import ReleaseNotesModal from '@/components/ReleaseNotesModal.vue'
 import { useReleaseNotesStore } from '@/stores/releaseNotes'
-import {
-  PROJECT_REGISTRY_FALLBACK,
-  fetchCompdocProjectRegistry
-} from '@/services/projectRegistry'
+import { PROJECT_REGISTRY_FALLBACK, fetchCompdocProjectRegistry } from '@/services/projectRegistry'
 import { formatApiError } from '@/services/apiError'
 import type { ProjectRegistryItem } from '@/models/projectRegistry'
 
@@ -165,8 +162,7 @@ const menuOptions = computed<ProjectMenuOption[]>(() => [
         label: 'Agent',
         key: '/doors/agent',
         name: 'agent',
-        icon: renderIcon(Glasses24Regular),
-        disabled: true
+        icon: renderIcon(Glasses24Regular)
       },
       {
         label: 'Script Generator',
@@ -175,6 +171,12 @@ const menuOptions = computed<ProjectMenuOption[]>(() => [
         icon: renderIcon(Edit24Regular)
       }
     ]
+  },
+  {
+    label: 'Teamcenter',
+    key: '/teamcenter/agent',
+    name: 'teamcenter',
+    icon: renderIcon(Glasses24Regular)
   },
   {
     label: 'Compare',
