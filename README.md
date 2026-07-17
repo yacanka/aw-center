@@ -657,6 +657,9 @@ JIRA_BTB_URL=http://localhost/jira
 AW_USERNAME=
 AW_PASSWORD=
 ALLOWED_HOSTS=127.0.0.1,localhost
+DEV_FRONTEND_PORT=5173
+DEV_SERVER_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000
+CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000
 AUTH_COOKIE_SAMESITE=Lax
 AUTH_COOKIE_SECURE=False
 AUTH_TOKEN_RESPONSE_ENABLED=True
@@ -699,9 +702,13 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `LOG_LEVEL` | Varsayılan `INFO` | Django ve uygulama console log seviyesi. |
 | `FRONTEND_DIST_DIR` | Varsayılan `frontend/dist` | Django'nun SPA shell ve Vite asset çıktısını aradığı dizin. |
 | `FRONTEND_RESET_URL` | Ortama göre hesaplanır | Parola reset linklerinde kullanılan frontend login URL'i. |
-| `ALLOWED_HOSTS` | `IPV4_ADDRESS`, `127.0.0.1`, `localhost` | Django allowed hosts listesi. |
+| `ALLOWED_HOSTS` | `IPV4_ADDRESS`, `127.0.0.1`, `localhost`; `DEBUG=True` iken `ALLOW_ALL_DEBUG_HOSTS=True` ile `*` | Django host doğrulaması. Dev ortamında wildcard yalnızca Bad Request üreten local/LAN host farklılıklarını engellemek için açıktır. |
+| `ALLOW_ALL_DEBUG_HOSTS` | `DEBUG=True`: `True` | Sadece local geliştirmede Django `DisallowedHost` kaynaklı Bad Request hatalarını önler. Production için etkisiz tutulmalıdır. |
+| `DEV_FRONTEND_PORT` | Varsayılan `5173` | Debug modunda Vite origin varsayılanlarını üretir. |
+| `DEV_SERVER_ORIGINS` | Debug modunda localhost/127.0.0.1 frontend ve backend originleri | Debug CORS ve CSRF trusted origin listelerinin ortak kaynağıdır. |
 | `CORS_ALLOWED_ORIGINS` | `DEBUG=False` iken zorunlu | Production CORS origin allowlist. |
-| `CSRF_TRUSTED_ORIGINS` | Varsayılan boş liste | Cross-site POST/PUT/PATCH/DELETE için trusted origin listesi. |
+| `CORS_ALLOWED_ORIGIN_REGEXES` | Debug modunda localhost/127.0.0.1 port regexleri | Port değiştiğinde local Vite/Django CORS preflight isteklerini ayrıca env yazmadan karşılar. |
+| `CSRF_TRUSTED_ORIGINS` | Debug modunda `DEV_SERVER_ORIGINS`; production varsayılan boş | Cross-site POST/PUT/PATCH/DELETE için trusted origin listesi. |
 | `SECURE_SSL_REDIRECT` | `DEBUG=True`: `False`, `DEBUG=False`: `True` | HTTP isteklerini HTTPS'e yönlendirir. TLS proxy arkasında topolojiye göre ayarlanmalıdır. |
 | `USE_X_FORWARDED_HOST` | `DEBUG=False` iken varsayılan `True` | Reverse proxy host header'ını kullanır. |
 | `AUTH_COOKIE_NAME` | Varsayılan `auth_token` | DRF token cookie adı. |

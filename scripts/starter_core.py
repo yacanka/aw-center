@@ -94,7 +94,9 @@ def backend_env_template() -> str:
         "AW_USERNAME=",
         "AW_PASSWORD=",
         "ALLOWED_HOSTS=127.0.0.1,localhost",
-        "CSRF_TRUSTED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173",
+        "DEV_FRONTEND_PORT=5173",
+        "DEV_SERVER_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000",
+        "CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000",
         "",
     ]
     return "\n".join(lines)
@@ -144,7 +146,8 @@ def start_process(command: list[str], cwd: Path, env: dict[str, str] | None = No
 def start_servers(host: str, backend_port: int, frontend_port: int) -> None:
     """Start Django and Vue development servers together."""
     ensure_backend_env()
-    frontend_env = {**os.environ, "VITE_API_URL": f"http://{host}:{backend_port}"}
+    backend_host = "127.0.0.1" if host == "0.0.0.0" else host
+    frontend_env = {**os.environ, "VITE_API_URL": f"http://{backend_host}:{backend_port}"}
     processes = [start_process(backend_command(host, backend_port), BACKEND_DIR)]
     processes.append(start_process(frontend_command(host, frontend_port), FRONTEND_DIR, frontend_env))
     wait_for_servers(processes)
