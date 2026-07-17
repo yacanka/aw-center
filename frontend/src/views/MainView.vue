@@ -62,7 +62,8 @@ import {
   Glasses24Regular,
   Edit24Regular,
   LinkSquare24Regular,
-  Cut24Regular
+  Cut24Regular,
+  Code24Regular
 } from '@vicons/fluent'
 import { Excel, Word, Pdf } from '@/stores/iconStore'
 import ParticleBackground from '@/components/ParticleBackground.vue'
@@ -169,6 +170,20 @@ const menuOptions = computed<ProjectMenuOption[]>(() => [
         key: '/doors/scripter',
         name: 'scripter',
         icon: renderIcon(Edit24Regular)
+      }
+    ]
+  },
+  {
+    label: 'Developer',
+    key: '/developer',
+    name: 'developer',
+    icon: renderIcon(Code24Regular),
+    children: [
+      {
+        label: 'DOORS',
+        key: '/developer/doors',
+        name: 'developerDoors',
+        icon: renderIcon(Door20Regular)
       }
     ]
   },
