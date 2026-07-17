@@ -58,6 +58,11 @@ const router = createRouter({
       component: lazyRoute(() => import('@/views/doors/DoorsAgent.vue'))
     },
     {
+      path: '/developer/doors',
+      name: 'developerDoors',
+      component: lazyRoute(() => import('@/views/doors/DoorsDeveloper.vue'))
+    },
+    {
       path: '/teamcenter/agent',
       name: 'teamcenterAgent',
       component: lazyRoute(() => import('@/views/teamcenter/TeamcenterAgent.vue'))

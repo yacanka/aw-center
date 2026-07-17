@@ -26,6 +26,10 @@ export type DoorsObjectList = {
   results: DoorsObject[]
 }
 
+export type DoorsLoop = 'module' | 'entire' | 'all' | 'document'
+export type DoorsPosition = 'first' | 'after' | 'before' | 'below' | 'below_last'
+export type DoorsScalarAttributes = Record<string, string | number | boolean | null>
+
 /** Returns non-secret Teamcenter integration readiness. */
 export async function fetchTeamcenterStatus() {
   return (await axios.get<TeamcenterStatus>('teamcenter/status/')).data
@@ -61,13 +65,65 @@ export async function checkDoorsModule(modulePath: string) {
 }
 
 /** Lists a bounded set of objects from a DOORS module. */
-export async function fetchDoorsObjects(modulePath: string, attributes: string[], limit: number) {
+export async function fetchDoorsObjects(
+  modulePath: string,
+  attributes: string[],
+  limit: number,
+  loop: DoorsLoop = 'entire'
+) {
   return (
     await axios.post<DoorsObjectList>('doors/objects/', {
       module_path: modulePath,
       attributes,
-      loop: 'entire',
+      loop,
       limit
+    })
+  ).data
+}
+
+/** Returns one DOORS object by absolute number. */
+export async function fetchDoorsObject(
+  modulePath: string,
+  absoluteNumber: number,
+  attributes: string[]
+) {
+  return (
+    await axios.post<DoorsObject>('doors/objects/detail/', {
+      module_path: modulePath,
+      absolute_number: absoluteNumber,
+      attributes
+    })
+  ).data
+}
+
+/** Updates scalar attributes on one DOORS object. */
+export async function updateDoorsObject(
+  modulePath: string,
+  absoluteNumber: number,
+  attributes: DoorsScalarAttributes
+) {
+  return (
+    await axios.patch<{ updated: boolean; absolute_number: number }>('doors/objects/update/', {
+      module_path: modulePath,
+      absolute_number: absoluteNumber,
+      attributes
+    })
+  ).data
+}
+
+/** Creates one DOORS object relative to an existing object or at the first position. */
+export async function createDoorsObject(
+  modulePath: string,
+  position: DoorsPosition,
+  relativeAbsoluteNumber: number | undefined,
+  attributes: DoorsScalarAttributes
+) {
+  return (
+    await axios.post<DoorsObject>('doors/objects/create/', {
+      module_path: modulePath,
+      position,
+      relative_absolute_number: relativeAbsoluteNumber,
+      attributes
     })
   ).data
 }
