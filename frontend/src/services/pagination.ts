@@ -27,6 +27,14 @@ export function isPaginatedResponse<T>(payload: unknown): payload is PaginatedRe
   )
 }
 
+/** Extracts result arrays from paginated or legacy list responses. */
+export function getPaginatedResults<T>(payload: unknown): T[] {
+  if (isPaginatedResponse<T>(payload)) return payload.results
+  if (Array.isArray(payload)) return payload as T[]
+
+  return []
+}
+
 /** Extracts pagination metadata from DRF responses for remote tables. */
 export function getPaginationMeta<T>(payload: unknown): PaginationMeta | null {
   if (!isPaginatedResponse<T>(payload)) return null

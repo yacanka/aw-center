@@ -48,12 +48,16 @@ class ResponsibleViewSet(ModelViewSet):
         return qs
 
 class PeopleViewSet(ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     serializer_class = PeopleSerializer
     queryset = People.objects.all()
 
     def get_queryset(self):
-        qs = People.objects.order_by("id")
+        qs = People.objects.order_by("name", "person_id")
+
+        search_text = self.request.query_params.get("search")
+        if search_text:
+            qs = qs.filter(name__icontains=search_text)
 
         person_id = self.request.query_params.get("person_id")
         if person_id:

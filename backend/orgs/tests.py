@@ -1,9 +1,12 @@
 from io import StringIO
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
 
-from orgs.models import Project
+from rest_framework.test import APIClient
+
+from orgs.models import People, Project
 from projects.registry import PROJECT_DEFINITIONS, get_enabled_project_definitions
 
 
@@ -59,3 +62,44 @@ class SyncProjectsCommandTests(TestCase):
         self.assertEqual(Project.objects.count(), len(PROJECT_DEFINITIONS))
         self.assertTrue(Project.objects.filter(slug="gokbey").exists())
         self.assertIn("skipped_disabled=0", output)
+
+
+class PeopleApiTests(TestCase):
+    """Verify people API authentication, search, and pagination behavior."""
+
+    def setUp(self):
+        """Create an authenticated API client and representative people rows."""
+        user = get_user_model().objects.create_user(username="architect", password="secret")
+        self.client = APIClient()
+        self.client.force_authenticate(user=user)
+        People.objects.bulk_create(
+            [
+                People(person_id="100001", name="Ada Lovelace", email="ada@example.com"),
+                People(person_id="100002", name="Grace Hopper", email="grace@example.com"),
+                People(person_id="100003", name="Alan Turing", email="alan@example.com"),
+            ]
+        )
+
+    def test_people_list_uses_drf_pagination(self):
+        """People list responses expose count and results for remote tables."""
+        response = self.client.get("/orgs/people/", {"page_size": 2})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 3)
+        self.assertEqual(len(response.data["results"]), 2)
+
+    def test_people_search_filters_by_name(self):
+        """The search query limits results to matching person names."""
+        response = self.client.get("/orgs/people/", {"search": "Grace"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["person_id"], "100002")
+
+    def test_people_list_requires_authentication(self):
+        """Anonymous clients cannot pull people data from the login screen."""
+        anonymous_client = APIClient()
+
+        response = anonymous_client.get("/orgs/people/")
+
+        self.assertEqual(response.status_code, 401)

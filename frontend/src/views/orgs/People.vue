@@ -33,6 +33,9 @@
       :columns="columns"
       :data="store.getPeople"
       :pagination="pagination"
+      :remote="true"
+      @update:page="handlePageUpdate"
+      @update:page-size="handlePageSizeUpdate"
       ref="table"
       :row-key="rowKey"
       size="tiny"
@@ -44,7 +47,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, h } from 'vue'
+import { computed, ref, onMounted, h } from 'vue'
 import { NSpace, NButton, NTag } from 'naive-ui'
 
 import { setUser, getUser, isAuthenticated, logout, setProjectName } from '@/stores/user'
@@ -67,9 +70,15 @@ const peoplePopup = ref(null)
 const peopleUpload = ref(null)
 
 const searchText = ref('')
-const pagination = {
-  pageSize: 24
-}
+const currentPage = ref(1)
+const currentPageSize = ref(24)
+const pagination = computed(() => ({
+  page: currentPage.value,
+  pageSize: currentPageSize.value,
+  itemCount: store.peoplePagination.count,
+  showSizePicker: true,
+  pageSizes: [24, 50, 100]
+}))
 
 const columns = [
   {
@@ -168,10 +177,25 @@ function rowKey(row) {
 const activeProject = ref(null)
 const activePanel = ref(null)
 
+function fetchPeoplePage() {
+  store.fetchPeople(true, { page: currentPage.value, page_size: currentPageSize.value })
+}
+
+function handlePageUpdate(page) {
+  currentPage.value = page
+  fetchPeoplePage()
+}
+
+function handlePageSizeUpdate(pageSize) {
+  currentPageSize.value = pageSize
+  currentPage.value = 1
+  fetchPeoplePage()
+}
+
 onMounted(() => {
   const projectTab = localStorage.getItem('activeProjectTab')
   activeProject.value = projectTab ? projectTab : null
-  store.fetchPeople()
+  fetchPeoplePage()
 })
 </script>
 
