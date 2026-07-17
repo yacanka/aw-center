@@ -475,3 +475,10 @@
 2. `NSearch` no longer depends on a preloaded full people array; it debounces typed names, queries the backend with a bounded page size, and applies the existing similarity ranking only to the returned page.
 3. The organization people table now uses remote pagination metadata from the backend instead of assuming all people are already loaded client-side.
 4. Login-screen warning noise is avoided by suppressing auth-warning side effects for intentional people fetches and skipping people requests when no authenticated user is present.
+
+## 67. Teamcenter and IBM Rational DOORS service integration
+
+1. Integrated the supplied Teamcenter 2506 REST/SOA client foundation as an authenticated Django application with CSRF/XSRF session handling, bounded retries/timeouts, TLS enforcement, response-size limits, and allowlisted query/data-management operations.
+2. Integrated the supplied DOORS OLE/DXL MVP into the existing DOORS application with COM thread initialization, escaped DXL builders, temporary-result cleanup, bounded object/result sizes, and shell-free optional client startup.
+3. Added authenticated read APIs and admin-only mutation APIs for both engineering systems without exposing external credentials or session tokens to the browser.
+4. Added Teamcenter and DOORS Agent screens, navigation, typed frontend API services, backend regression tests, environment documentation, and staging acceptance-test follow-up guidance.
