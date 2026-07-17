@@ -74,6 +74,23 @@ AW_PASSWORD = env.str("AW_PASSWORD", "")
 FFMPEG_EXECUTABLE = env.str("FFMPEG_EXECUTABLE", default="ffmpeg")
 
 
+def origin_url(scheme, host, port):
+    """Build a browser origin URL from scheme, host, and port."""
+    return f"{scheme}://{host}:{port}"
+
+
+def local_development_origins(frontend_port=5173, backend_port=8000):
+    """Return explicit local origins used by Vite and Django development."""
+    hosts = ("localhost", "127.0.0.1")
+    ports = (frontend_port, backend_port)
+    return [origin_url("http", host, port) for host in hosts for port in ports]
+
+
+def unique_items(items):
+    """Return items without duplicates while preserving declaration order."""
+    return list(dict.fromkeys(item for item in items if item))
+
+
 def get_default_auth_cookie_samesite(debug):
     """Return the safe default SameSite policy for the runtime mode."""
     return "Lax" if debug else "None"
@@ -98,6 +115,8 @@ FRONTEND_RESET_URL = env.str(
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[
     IPV4_ADDRESS, "127.0.0.1", "localhost"
 ])
+if DEBUG and env.bool("ALLOW_ALL_DEBUG_HOSTS", default=True):
+    ALLOWED_HOSTS = ["*"]
 
 # Application definition
 
@@ -151,19 +170,34 @@ MIDDLEWARE = [
 if not DEBUG:
     MIDDLEWARE += ['awcenter.middleware.RequestUserLogMiddleware']
 
+DEV_FRONTEND_PORT = env.int("DEV_FRONTEND_PORT", default=5173)
+DEV_BACKEND_PORT = env.int("DEV_BACKEND_PORT", default=PORT)
+DEV_SERVER_ORIGINS = env.list(
+    "DEV_SERVER_ORIGINS",
+    default=local_development_origins(DEV_FRONTEND_PORT, DEV_BACKEND_PORT),
+)
+
 if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-    CORS_ALLOWED_ORIGINS = []
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = unique_items(DEV_SERVER_ORIGINS)
+    CORS_ALLOWED_ORIGIN_REGEXES = env.list(
+        "CORS_ALLOWED_ORIGIN_REGEXES",
+        default=[r"^https?://localhost:\d+$", r"^https?://127\.0\.0\.1:\d+$"],
+    )
 else:
     CORS_ALLOW_ALL_ORIGINS = False
     CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
-    if not CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGIN_REGEXES = env.list("CORS_ALLOWED_ORIGIN_REGEXES", default=[])
+    if not CORS_ALLOWED_ORIGINS and not CORS_ALLOWED_ORIGIN_REGEXES:
         raise ImproperlyConfigured("CORS_ALLOWED_ORIGINS must be set when DEBUG is False.")
 
 CORS_ALLOW_HEADERS = list(default_headers)
 CORS_ALLOW_METHODS = list(default_methods)
 CORS_ALLOW_CREDENTIALS = True
-CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=unique_items(DEV_SERVER_ORIGINS) if DEBUG else [],
+)
 
 # Browser authentication strategy:
 # - The SPA uses a DRF token stored in an HttpOnly auth cookie.

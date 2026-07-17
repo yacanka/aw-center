@@ -17,6 +17,8 @@ class StarterHelperTests(unittest.TestCase):
         content = starter.backend_env_template()
         self.assertIn("DEBUG=True", content)
         self.assertIn("IPV4_ADDRESS=127.0.0.1", content)
+        self.assertIn("DEV_SERVER_ORIGINS=http://localhost:5173", content)
+        self.assertIn("CSRF_TRUSTED_ORIGINS=http://localhost:5173", content)
         self.assertNotIn("CORS_ALLOW_ALL_ORIGINS", content)
 
     def test_executable_name_adds_windows_suffix_only_on_windows(self) -> None:

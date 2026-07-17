@@ -621,11 +621,24 @@ def update_env_values(env_file: Path, values: dict[str, str]) -> None:
     env_file.write_text("\n".join(updated_lines).rstrip() + "\n", encoding="utf-8")
 
 
-def configure_backend_runtime_env(host: str, port: int) -> Path:
+def browser_host(host: str) -> str:
+    """Return a browser-usable host for wildcard server binds."""
+    return "127.0.0.1" if host == "0.0.0.0" else host
+
+
+def development_origins(host: str, backend_port: int, frontend_port: int) -> str:
+    """Return comma-separated browser origins trusted in local development."""
+    hosts = dict.fromkeys(["localhost", "127.0.0.1", browser_host(host)])
+    origins = [f"http://{item}:{port}" for item in hosts for port in (frontend_port, backend_port)]
+    return ",".join(dict.fromkeys(origins))
+
+
+def configure_backend_runtime_env(host: str, port: int, frontend_port: int = 5173) -> Path:
     """Create an isolated development backend env for the selected address."""
-    allowed_hosts = ["127.0.0.1", "localhost", host]
+    allowed_hosts = ["127.0.0.1", "localhost", browser_host(host)]
     unique_hosts = list(dict.fromkeys(allowed_hosts))
     profile_dir = ensure_runtime_directories("development")
+    origins = development_origins(host, port, frontend_port)
     return write_runtime_env("development", {
         "DEBUG": "True",
         "SECRET_KEY": "aw-center-local-development-secret-key-change-before-production-2026",
@@ -636,6 +649,9 @@ def configure_backend_runtime_env(host: str, port: int) -> Path:
         "JIRA_LEGACY_URL": "http://localhost:8080",
         "JIRA_BTB_URL": "http://localhost:8080",
         "ALLOWED_HOSTS": ",".join(unique_hosts),
+        "DEV_FRONTEND_PORT": str(frontend_port),
+        "DEV_SERVER_ORIGINS": origins,
+        "CSRF_TRUSTED_ORIGINS": origins,
         "DATABASE_URL": f"sqlite:///{profile_dir / 'db.sqlite3'}",
         "DB_OLD_URL": f"sqlite:///{profile_dir / 'db_old.sqlite3'}",
         "MEDIA_ROOT": str(profile_dir / "media"),
@@ -647,7 +663,7 @@ def configure_frontend_runtime_env(host: str, backend_port: int) -> None:
     """Write the selected backend URL for Vite/Vue development builds."""
     ensure_frontend_layout()
 
-    backend_url = public_url("http", host, backend_port)
+    backend_url = public_url("http", browser_host(host), backend_port)
     env_file = FRONTEND / ".env.local"
 
     # Vite only exposes variables that start with VITE_.
@@ -733,7 +749,7 @@ def run_development_servers(config: LauncherConfig) -> None:
             reserved_ports=reserved_ports,
         )
         reserved_ports.add(selected_backend_port)
-        configure_backend_runtime_env(config.host, selected_backend_port)
+        configure_backend_runtime_env(config.host, selected_backend_port, config.frontend_port)
 
     if not config.skip_frontend:
         ensure_frontend_layout()
@@ -792,10 +808,10 @@ def run_development_servers(config: LauncherConfig) -> None:
                 cwd=FRONTEND,
                 env_extra=(
                     {
-                        "VITE_API_BASE_URL": public_url("http", config.host, selected_backend_port),
-                        "VITE_BACKEND_URL": public_url("http", config.host, selected_backend_port),
-                        "VITE_API_URL": public_url("http", config.host, selected_backend_port),
-                        "VITE_SERVER_URL": public_url("http", config.host, selected_backend_port),
+                        "VITE_API_BASE_URL": public_url("http", browser_host(config.host), selected_backend_port),
+                        "VITE_BACKEND_URL": public_url("http", browser_host(config.host), selected_backend_port),
+                        "VITE_API_URL": public_url("http", browser_host(config.host), selected_backend_port),
+                        "VITE_SERVER_URL": public_url("http", browser_host(config.host), selected_backend_port),
                     }
                     if selected_backend_port is not None
                     else None
@@ -1580,6 +1596,9 @@ def development_env_content() -> str:
         "AW_USERNAME=",
         "AW_PASSWORD=",
         "ALLOWED_HOSTS=127.0.0.1,localhost",
+        "DEV_FRONTEND_PORT=5173",
+        "DEV_SERVER_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000",
+        "CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000",
         "",
     ]
 
@@ -1603,7 +1622,7 @@ def check_backend_database(config: LauncherConfig) -> None:
     """Run Django system, migration, and database consistency checks."""
     ensure_backend_layout()
     ensure_existing_virtual_environment()
-    configure_backend_runtime_env(config.host, config.backend_port)
+    configure_backend_runtime_env(config.host, config.backend_port, config.frontend_port)
 
     python = venv_python()
 
