@@ -7,13 +7,14 @@ import { IDdf } from '@/models/ddf'
 import { IPerson, IPanel, IProject, IResponsible } from '@/models/orgs'
 import { IMsg } from '@/models/outlook'
 import { toTitleCase } from '@/utils/text'
-import { useUserStore } from './user'
+import { isAuthenticated, useUserStore } from './user'
 import { handleRequest } from '@/composables/promise'
 import { API_BASE_URL } from '@/services/http'
 import { notifyError, notifySuccess } from '@/services/notify'
 import {
   compactPaginationQuery,
   getPaginationMeta,
+  getPaginatedResults,
   PaginationMeta,
   PaginationQuery
 } from '@/services/pagination'
@@ -466,6 +467,7 @@ export const useOrgsStore = defineStore('orgs', {
     panels: [] as IPanel[],
     responsibles: [] as IResponsible[],
     people: [] as IPerson[],
+    peoplePagination: { count: 0, next: null, previous: null } as PaginationMeta,
     peopleFetched: false,
     peopleRequest: null as Promise<unknown> | null
   }),
@@ -691,13 +693,18 @@ export const useOrgsStore = defineStore('orgs', {
         () => (this.loading = false)
       )
     },
-    async fetchPeople(forceRefresh = false) {
-      if (this.peopleRequest && !forceRefresh) return this.peopleRequest
-      if (this.peopleFetched && !forceRefresh) return this.people
+    async fetchPeople(forceRefresh = false, query: PaginationQuery = {}) {
+      if (!isAuthenticated()) return []
+      if (this.peopleRequest && !forceRefresh && Object.keys(query).length == 0) {
+        return this.peopleRequest
+      }
+      if (this.peopleFetched && !forceRefresh && Object.keys(query).length == 0) {
+        return this.people
+      }
 
       this.loading = true
       this.peopleRequest = handleRequest<IPerson[]>(
-        axios.get(`${API_PATHS.orgs}/people/`),
+        axios.get(`${API_PATHS.orgs}/people/`, { params: compactPaginationQuery(query) }),
         (data) => {
           this.people = data
           this.peopleFetched = true
@@ -706,9 +713,26 @@ export const useOrgsStore = defineStore('orgs', {
         () => {
           this.loading = false
           this.peopleRequest = null
-        }
+        },
+        { suppressAuthenticationWarning: true }
       )
-      return this.peopleRequest
+      const response = await this.peopleRequest
+      this.peoplePagination = getPaginationMeta<IPerson>(response) || this.peoplePagination
+      return response
+    },
+    async searchPeople(searchText: string, pageSize = 20) {
+      if (!isAuthenticated() || searchText.trim().length == 0) return []
+
+      const response = await handleRequest<IPerson[]>(
+        axios.get(`${API_PATHS.orgs}/people/`, {
+          params: compactPaginationQuery({ search: searchText.trim(), page_size: pageSize })
+        }),
+        () => undefined,
+        () => undefined,
+        undefined,
+        { suppressAuthenticationWarning: true }
+      )
+      return getPaginatedResults<IPerson>(response)
     },
     async createPerson(newPersonData: IPerson) {
       this.loading = true

@@ -20,7 +20,9 @@ export interface IResponsible {
 
 export interface IPerson {
   id?: number
+  person_id?: string
   name?: string
+  email?: string
   mail?: string
   [key: string]: unknown
 }

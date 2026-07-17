@@ -469,7 +469,14 @@
 3. Updated the frontend signup action to call `/auth/signup/` instead of `/auth/users/`.
 4. Added regression tests for successful anonymous signup and rejected authorization-field escalation during signup.
 
-## 66. Teamcenter and IBM Rational DOORS service integration
+## 66. People search remote pagination
+
+1. `orgs/people/` now requires authentication, uses the existing DRF pagination contract, and supports a dedicated `search` query parameter for name-based lookup.
+2. `NSearch` no longer depends on a preloaded full people array; it debounces typed names, queries the backend with a bounded page size, and applies the existing similarity ranking only to the returned page.
+3. The organization people table now uses remote pagination metadata from the backend instead of assuming all people are already loaded client-side.
+4. Login-screen warning noise is avoided by suppressing auth-warning side effects for intentional people fetches and skipping people requests when no authenticated user is present.
+
+## 67. Teamcenter and IBM Rational DOORS service integration
 
 1. Integrated the supplied Teamcenter 2506 REST/SOA client foundation as an authenticated Django application with CSRF/XSRF session handling, bounded retries/timeouts, TLS enforcement, response-size limits, and allowlisted query/data-management operations.
 2. Integrated the supplied DOORS OLE/DXL MVP into the existing DOORS application with COM thread initialization, escaped DXL builders, temporary-result cleanup, bounded object/result sizes, and shell-free optional client startup.
