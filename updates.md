@@ -482,3 +482,9 @@
 2. Integrated the supplied DOORS OLE/DXL MVP into the existing DOORS application with COM thread initialization, escaped DXL builders, temporary-result cleanup, bounded object/result sizes, and shell-free optional client startup.
 3. Added authenticated read APIs and admin-only mutation APIs for both engineering systems without exposing external credentials or session tokens to the browser.
 4. Added Teamcenter and DOORS Agent screens, navigation, typed frontend API services, backend regression tests, environment documentation, and staging acceptance-test follow-up guidance.
+
+## 68. Launcher development login readiness
+
+1. `launcher.py dev` now prepares the isolated development database with migrations before starting Django, avoiding runtime auth failures from missing tables.
+2. The development workflow creates or refreshes a DEBUG-only local superuser (`u10001`) and prints its local password, so the login screen has a known valid account when the runtime database is empty.
+3. Added regression coverage for the development-user command and its production safety guard.
