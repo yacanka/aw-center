@@ -468,3 +468,10 @@
 2. Kept `/auth/users/` protected for administrative user management and reused the existing serializer restrictions so anonymous signup cannot assign groups or permissions.
 3. Updated the frontend signup action to call `/auth/signup/` instead of `/auth/users/`.
 4. Added regression tests for successful anonymous signup and rejected authorization-field escalation during signup.
+
+## 66. People search remote pagination
+
+1. `orgs/people/` now requires authentication, uses the existing DRF pagination contract, and supports a dedicated `search` query parameter for name-based lookup.
+2. `NSearch` no longer depends on a preloaded full people array; it debounces typed names, queries the backend with a bounded page size, and applies the existing similarity ranking only to the returned page.
+3. The organization people table now uses remote pagination metadata from the backend instead of assuming all people are already loaded client-side.
+4. Login-screen warning noise is avoided by suppressing auth-warning side effects for intentional people fetches and skipping people requests when no authenticated user is present.

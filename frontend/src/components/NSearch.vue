@@ -15,7 +15,7 @@
         :value="value"
         :status="currentStatus"
         :placeholder="placeholder"
-        clerable
+        clearable
         @input="updateValue"
         @change="handleChange"
         @focus="isFocused = true"
@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, PropType, watchEffect } from 'vue'
+import { ref, computed, nextTick, PropType } from 'vue'
 import { findMostSimilarWord } from '@/utils/general'
 import { IPerson } from '@/models/orgs'
 import { useOrgsStore } from '@/stores/api'
@@ -45,18 +45,9 @@ import { useOrgsStore } from '@/stores/api'
 type ModType = 'id' | 'name' | 'mail'
 
 const props = defineProps({
-  value: {
-    type: String,
-    default: ''
-  },
-  id: {
-    type: String,
-    default: ''
-  },
-  placeholder: {
-    type: String,
-    default: ''
-  },
+  value: { type: String, default: '' },
+  id: { type: String, default: '' },
+  placeholder: { type: String, default: '' },
   defaultMod: {
     type: String as PropType<ModType>,
     default: 'id',
@@ -66,35 +57,24 @@ const props = defineProps({
       return result
     }
   },
-  style: {
-    type: Object,
-    default: null
-  },
-  list: {
-    type: Array<IPerson>,
-    default: () => [],
-    validator: (value) => {
-      return Array.isArray(value)
-    }
-  }
+  style: { type: Object, default: null },
+  list: { type: Array<IPerson>, default: () => [] }
 })
 
-const currentPerson = ref<IPerson | undefined>({} as IPerson)
+const emit = defineEmits(['update:value', 'change'])
+const currentPerson = ref<IPerson | undefined>()
 const currentMod = ref(props.defaultMod)
 const inputRef = ref()
 const showDropdown = ref(false)
 const isFocused = ref(false)
-const options = ref([] as IPerson[])
-const emit = defineEmits(['update:value', 'change'])
+const options = ref<IPerson[]>([])
 const store = useOrgsStore()
 
-const currentStatus = computed(() =>
-  isFocused.value
-    ? props.value.length != 0 && options.value.length == 0
-      ? 'warning'
-      : 'success'
-    : 'default'
-)
+const currentStatus = computed(() => {
+  if (!isFocused.value) return 'default'
+  if (props.value.length != 0 && options.value.length == 0) return 'warning'
+  return 'success'
+})
 
 const modOptions = [
   { label: 'ID', value: 'id' },
@@ -102,34 +82,24 @@ const modOptions = [
   { label: 'Mail', value: 'mail' }
 ]
 
-let timeout: any
-const updateValue = (value: string) => {
-  const setDropdownMenu = () => {
-    const result = search(value, 2, 4, 10)
-    options.value = result
-    showDropdown.value = true
-  }
+let timeout: ReturnType<typeof setTimeout> | null = null
+let requestOrder = 0
 
-  if (timeout) {
-    clearTimeout(timeout)
-  }
-
-  if (value.length != 0) {
-    timeout = setTimeout(setDropdownMenu, 500)
-  } else {
-    showDropdown.value = false
-  }
-
+function updateValue(value: string) {
+  if (timeout) clearTimeout(timeout)
   emit('update:value', value)
+
+  if (value.trim().length == 0) {
+    resetDropdown()
+    return
+  }
+
+  timeout = setTimeout(() => searchPeople(value), 350)
 }
 
-const handleChange = (value: string) => {
+function handleChange(value: string) {
   emit('change', value)
 }
-
-onMounted(() => {
-  currentPerson.value = props.list.find((person) => person.person_id == props.value)
-})
 
 function handleClickOutside() {
   showDropdown.value = false
@@ -137,19 +107,14 @@ function handleClickOutside() {
 
 function handleModUpdate(val: ModType) {
   currentMod.value = val
-  if (props.value) {
-    setText()
-  }
+  if (props.value) setText()
 }
 
 function setText() {
-  if (currentMod.value == 'name') {
-    emit('update:value', currentPerson.value?.name)
-  } else if (currentMod.value == 'id') {
-    emit('update:value', currentPerson.value?.person_id)
-  } else if (currentMod.value == 'mail') {
-    emit('update:value', currentPerson.value?.email)
-  }
+  const person = currentPerson.value
+  if (currentMod.value == 'name') emit('update:value', person?.name)
+  if (currentMod.value == 'id') emit('update:value', person?.person_id)
+  if (currentMod.value == 'mail') emit('update:value', person?.email)
 }
 
 function handleSelect(key: string | number, option: IPerson) {
@@ -157,42 +122,44 @@ function handleSelect(key: string | number, option: IPerson) {
   showDropdown.value = false
   inputRef.value.focus()
   setText()
-  nextTick(() => {
-    inputRef.value.blur()
-  })
+  nextTick(() => inputRef.value.blur())
 }
 
-function search(
-  searchText: string,
-  wordRatio: number,
-  sentenceRatio: number,
-  maxCount: number | null = null
-) {
-  let list: IPerson[] = []
-  for (let i = 0; i < props.list.length; i++) {
-    const item = props.list[i]
-    const parts = item.name.split(' ')
-    let result: { distance: number; word: null } | null
+async function searchPeople(searchText: string) {
+  const order = ++requestOrder
+  try {
+    const remotePeople = await store.searchPeople(searchText, 40)
+    if (order != requestOrder) return
 
-    result = findMostSimilarWord(searchText, [
-      item.name.substring(0, searchText.length + sentenceRatio - 1)
-    ])
-    if (result && result.distance < sentenceRatio) {
-      list.push(item)
-    }
-
-    result = findMostSimilarWord(searchText, parts)
-    if (result && result.distance < wordRatio) {
-      list.push(item)
-    }
-
-    list = [...new Set(list)]
-
-    if (maxCount && list.length == maxCount) {
-      break
-    }
+    options.value = chooseBestPeople(searchText, remotePeople, 10)
+    showDropdown.value = options.value.length > 0
+  } catch {
+    if (order == requestOrder) resetDropdown()
   }
-  return list
+}
+
+function resetDropdown() {
+  options.value = []
+  showDropdown.value = false
+}
+
+function chooseBestPeople(searchText: string, people: IPerson[], maxCount: number) {
+  const result: IPerson[] = []
+  for (const person of people) {
+    if (!person.name || !isSimilarName(searchText, person.name)) continue
+    result.push(person)
+    if (result.length == maxCount) break
+  }
+  return result
+}
+
+function isSimilarName(searchText: string, personName: string) {
+  const sentence = personName.substring(0, searchText.length + 3)
+  const sentenceMatch = findMostSimilarWord(searchText, [sentence])
+  if (sentenceMatch && sentenceMatch.distance < 4) return true
+
+  const wordMatch = findMostSimilarWord(searchText, personName.split(' '))
+  return !!wordMatch && wordMatch.distance < 2
 }
 </script>
 
