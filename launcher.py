@@ -90,8 +90,12 @@ Run the production profile through the repository Cheroot WSGI server:
 The production profile runs collectstatic before startup so WhiteNoise can
 serve Vite assets from STATIC_ROOT.
 
-When both backend and frontend are started, the launcher writes the selected
-backend URL to frontend/.env.local so Vite can expose it to the Vue app:
+When both backend and frontend are started, the launcher migrates the isolated
+development database, ensures a local-only development login user, and writes
+the selected backend URL to frontend/.env.local so Vite can expose it to the
+Vue app. The default local login printed by the backend preparation step is
+`u10001` / `AwCenterDev!123`.
+
 
     VITE_API_BASE_URL=http://127.0.0.1:<selected-backend-port>
 
@@ -731,6 +735,18 @@ def frontend_dev_script() -> str:
     )
 
 
+def prepare_development_backend(config: LauncherConfig, backend_port: int) -> None:
+    """Prepare the local development database before serving requests."""
+    configure_backend_runtime_env(config.host, backend_port, config.frontend_port)
+    env_extra = {
+        **runtime_env_extra("development"),
+        "IPV4_ADDRESS": config.host,
+        "PORT": str(backend_port),
+    }
+    run([venv_python(), "manage.py", "migrate", "--noinput"], cwd=BACKEND, env_extra=env_extra)
+    run([venv_python(), "manage.py", "ensure_development_user"], cwd=BACKEND, env_extra=env_extra)
+
+
 def run_development_servers(config: LauncherConfig) -> None:
     """Run backend and frontend development servers with port conflict protection."""
     if config.skip_backend and config.skip_frontend:
@@ -749,7 +765,7 @@ def run_development_servers(config: LauncherConfig) -> None:
             reserved_ports=reserved_ports,
         )
         reserved_ports.add(selected_backend_port)
-        configure_backend_runtime_env(config.host, selected_backend_port, config.frontend_port)
+        prepare_development_backend(config, selected_backend_port)
 
     if not config.skip_frontend:
         ensure_frontend_layout()

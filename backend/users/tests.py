@@ -1,5 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
@@ -310,3 +312,24 @@ class UserGroupManagementTests(TestCase):
         self.regular_user.refresh_from_db()
         self.assertTrue(self.regular_user.groups.filter(name="Auditors").exists())
         self.assertEqual(response.data["group_details"][0]["name"], "Auditors")
+
+
+class DevelopmentUserCommandTests(TestCase):
+    @override_settings(DEBUG=True)
+    def test_command_creates_debug_only_login_user(self):
+        call_command(
+            "ensure_development_user",
+            username="u20002",
+            password="AwCenterDev!123",
+            verbosity=0,
+        )
+
+        user = User.objects.get(username="u20002")
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.check_password("AwCenterDev!123"))
+
+    @override_settings(DEBUG=False)
+    def test_command_rejects_non_debug_settings(self):
+        with self.assertRaisesMessage(CommandError, "DEBUG=True"):
+            call_command("ensure_development_user", verbosity=0)
