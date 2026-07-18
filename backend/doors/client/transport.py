@@ -1,10 +1,13 @@
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import DoorsClientConfig
 from .exceptions import DoorsConnectionError, DoorsDxlError
+
+CONNECTION_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,13 +28,22 @@ class DoorsOleTransport:
     def connect(self) -> "DoorsOleTransport":
         """Connect to an active client or explicitly start one."""
         automation = self.load_automation()
-        if self.config.prefer_active_instance:
-            self.application = self.get_active_application(automation)
-        if self.application is None and self.config.auto_start_client:
-            self.start_client(automation)
+        with CONNECTION_LOCK:
+            if self.config.prefer_active_instance:
+                self.application = self.get_active_application(automation)
+            if self.application is None:
+                self.connect_or_start(automation)
         if self.application is None:
             raise DoorsConnectionError("An authenticated DOORS desktop client is required.")
         return self
+
+    def connect_or_start(self, automation) -> None:
+        """Connect to a running process or start one only when none exists."""
+        if self.is_client_running():
+            self.application = self.wait_for_application(automation)
+            return
+        if self.config.auto_start_client:
+            self.start_client(automation)
 
     @staticmethod
     def load_automation():
@@ -47,7 +59,34 @@ class DoorsOleTransport:
         try:
             return automation.GetActiveObject(self.config.ole_program_id)
         except Exception:
+            return self.dispatch_running_application(automation)
+
+    def dispatch_running_application(self, automation):
+        """Bind through Dispatch only when the DOORS process already exists."""
+        if not self.is_client_running():
             return None
+        try:
+            return automation.Dispatch(self.config.ole_program_id)
+        except Exception:
+            return None
+
+    def is_client_running(self) -> bool:
+        """Return whether the configured DOORS executable is running."""
+        process_name = self.config.executable.name.casefold()
+        try:
+            processes = self.load_process_inspector()().Win32_Process()
+            return any(str(process.Name).casefold() == process_name for process in processes)
+        except Exception as error:
+            raise DoorsConnectionError("Unable to inspect running DOORS processes.") from error
+
+    @staticmethod
+    def load_process_inspector():
+        """Load the Windows process inspector used to prevent duplicate clients."""
+        try:
+            from wmi import WMI
+        except ImportError as error:
+            raise DoorsConnectionError("WMI is required for DOORS process inspection.") from error
+        return WMI
 
     def start_client(self, automation) -> None:
         """Start the configured executable without shell interpolation."""

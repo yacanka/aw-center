@@ -158,6 +158,7 @@
 
 1. Applied the same incremental extraction pattern to `backend/word/views.py` by moving document comparison and DOCX rendering helpers into focused service modules.
 2. Added Word comparison characterization tests to protect normalization, tokenization, threshold, and paragraph-alignment behavior.
+
 3. Split the compliance-document Pinia store out of `frontend/src/stores/api.ts` into `frontend/src/stores/compdoc.ts` while preserving the existing `useCompdocStore` export from `api.ts`.
 4. Extracted pure CompDoc table query, retry, concurrency, and document-number collection helpers from `CompDocTable.vue` into `frontend/src/composables/compdoc/table.ts`.
 5. Public routes, store names, and existing component imports remain backward-compatible for current consumers.
@@ -488,3 +489,10 @@
 1. `launcher.py dev` now prepares the isolated development database with migrations before starting Django, avoiding runtime auth failures from missing tables.
 2. The development workflow creates or refreshes a DEBUG-only local superuser (`u10001`) and prints its local password, so the login screen has a known valid account when the runtime database is empty.
 3. Added regression coverage for the development-user command and its production safety guard.
+
+## 69. DOORS active-client reuse correction
+
+1. The API-backed DOORS transport now falls back from `GetActiveObject` to a process-guarded `Dispatch` call, matching the proven behavior in the legacy DOORS view.
+2. A running `doors.exe` is allowed time to expose its OLE object and is never replaced by another auto-started process merely because the Running Object Table lookup missed it.
+3. Connection attempts are serialized inside the worker process so concurrent requests cannot independently start duplicate DOORS clients during startup.
+4. Regression tests cover ROT lookup fallback, duplicate-start prevention, and the valid no-process auto-start path.
