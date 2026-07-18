@@ -44,6 +44,68 @@ class DoorsClientFoundationTests(SimpleTestCase):
 
         self.assertEqual(command, [r"C:\IBM\DOORS\doors.exe", "-d", "36677@doors.example"])
 
+    def test_running_client_uses_dispatch_when_rot_lookup_fails(self):
+        """A running DOORS process is reused even when ROT lookup misses it."""
+        transport = DoorsOleTransport(DoorsClientConfig(r"C:\IBM\DOORS\doors.exe"))
+        automation = Mock()
+        automation.GetActiveObject.side_effect = RuntimeError("not registered")
+        automation.Dispatch.return_value = Mock()
+
+        with patch.object(transport, "is_client_running", return_value=True):
+            application = transport.get_active_application(automation)
+
+        self.assertIs(application, automation.Dispatch.return_value)
+        automation.Dispatch.assert_called_once_with("DOORS.Application")
+
+    def test_process_inspection_matches_configured_executable_name(self):
+        """Process inspection identifies the configured DOORS executable."""
+        transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
+        inspector = Mock()
+        inspector.return_value.Win32_Process.return_value = [Mock(Name="DOORS.EXE")]
+
+        with patch.object(transport, "load_process_inspector", return_value=inspector):
+            is_running = transport.is_client_running()
+
+        self.assertTrue(is_running)
+
+    def test_running_client_is_not_started_again_when_ole_is_not_ready(self):
+        """An existing process blocks auto-start while its OLE object initializes."""
+        transport = DoorsOleTransport(
+            DoorsClientConfig(r"C:\IBM\DOORS\doors.exe", auto_start_client=True)
+        )
+        automation = Mock()
+        with (
+            patch.object(transport, "load_automation", return_value=automation),
+            patch.object(transport, "get_active_application", return_value=None),
+            patch.object(transport, "is_client_running", return_value=True),
+            patch.object(
+                transport,
+                "wait_for_application",
+                side_effect=DoorsConnectionError("not ready"),
+            ),
+            patch.object(transport, "start_client") as start_client,
+        ):
+            with self.assertRaises(DoorsConnectionError):
+                transport.connect()
+        start_client.assert_not_called()
+
+    def test_absent_client_can_still_be_started_when_enabled(self):
+        """Auto-start remains available when no DOORS process exists."""
+        config = DoorsClientConfig(r"C:\IBM\DOORS\doors.exe", auto_start_client=True)
+        transport = DoorsOleTransport(config)
+        automation = Mock()
+
+        with (
+            patch.object(transport, "load_automation", return_value=automation),
+            patch.object(transport, "get_active_application", return_value=None),
+            patch.object(transport, "is_client_running", return_value=False),
+            patch.object(transport, "start_client") as start_client,
+        ):
+            start_client.side_effect = lambda _: setattr(transport, "application", Mock())
+            transport.connect()
+
+        start_client.assert_called_once_with(automation)
+
     def test_update_serializer_rejects_nested_attribute_values(self):
         """Nested data cannot be stringified into unexpected DXL assignments."""
         serializer = ObjectUpdateSerializer(
