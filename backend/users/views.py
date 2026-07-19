@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .permissions import GroupPermission, UserPermission
+from .login_serializer import LoginSerializer
 from common.views import paginated_response
 from .serializers import (
     PasswordChangeSerializer,
@@ -120,14 +121,16 @@ class GroupView(APIView):
 
 PUBLIC_ENDPOINTS = {
     "CustomAuthToken": "Public login endpoint; credentials are validated by DRF token auth.",
-    "SignupView": "Public registration endpoint; authorization fields are rejected by the serializer.",
     "PasswordResetRequestAPIView": "Public request endpoint; response does not reveal account existence.",
     "PasswordResetConfirmAPIView": "Public confirmation endpoint; uid and token prove reset authorization.",
+    "InvitationInspectView": "Public token inspection; the high-entropy token proves access.",
+    "InvitationAcceptView": "Public single-use account creation authorized by a locked invitation.",
 }
 
 
 class CustomAuthToken(ObtainAuthToken):
     permission_classes = [AllowAny]
+    serializer_class = LoginSerializer
 
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
@@ -158,17 +161,6 @@ class CustomAuthToken(ObtainAuthToken):
         if settings.AUTH_TOKEN_RESPONSE_ENABLED:
             payload["token"] = token.key
         return payload
-
-
-class SignupView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        serializer = UserSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        response_serializer = UserSerializer(user, context={"request": request})
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class LogoutView(APIView):

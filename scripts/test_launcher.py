@@ -141,6 +141,7 @@ class ProductionRunTests(unittest.TestCase):
         development_mock.assert_called_once_with(config)
         production_mock.assert_not_called()
 
+    @mock.patch("launcher.ensure_production_port_available")
     @mock.patch("launcher.run")
     @mock.patch("launcher.ensure_frontend_build_artifacts")
     @mock.patch("launcher.ensure_production_env_values")
@@ -155,6 +156,7 @@ class ProductionRunTests(unittest.TestCase):
         ____: mock.Mock,
         _____: mock.Mock,
         run_mock: mock.Mock,
+        port_mock: mock.Mock,
     ) -> None:
         """Production startup should collect static assets before Cheroot starts."""
         config = launcher_config(command="run")
@@ -162,6 +164,7 @@ class ProductionRunTests(unittest.TestCase):
 
         launcher.run_production_server(config)
 
+        port_mock.assert_called_once_with(config.host, config.backend_port)
         commands = [call.args[0] for call in run_mock.call_args_list]
         collectstatic_command = [
             launcher.venv_python(),

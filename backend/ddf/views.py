@@ -16,6 +16,7 @@ from docx import Document
 from collections import OrderedDict
 import json
 import requests
+from awcenter.file_security import WORD_POLICY, validate_request_upload
 
 
 PUBLIC_ENDPOINTS = {}
@@ -82,10 +83,9 @@ class UploadForm(forms.Form):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, DDFPermission])
 def upload_ddf(request):
+    word_file = validate_request_upload(request, "file", WORD_POLICY)
     form = UploadForm(request.POST, request.FILES)
     if form.is_valid():
-        word_file = request.FILES["file"]
-
         doc = Document(word_file)
 
         ddf = {}

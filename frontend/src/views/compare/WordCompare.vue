@@ -5,13 +5,13 @@
       justify="center"
       item-style="minWidth: 200px; width: 25vw"
     >
-      <n-upload :show-file-list="true" :max="1" accept=".doc,.docx" @change="handleFirstChange">
+      <n-upload :show-file-list="true" :max="1" accept=".docx,.docm" @change="handleFirstChange">
         <n-upload-dragger>
           <n-text style="font-size: 16px"> Click or drag a file to this area to upload </n-text>
           <n-p depth="3" style="margin: 8px 0 0 0"> Old Word file </n-p>
         </n-upload-dragger>
       </n-upload>
-      <n-upload :show-file-list="true" :max="1" accept=".doc,.docx" @change="handleSecondChange">
+      <n-upload :show-file-list="true" :max="1" accept=".docx,.docm" @change="handleSecondChange">
         <n-upload-dragger>
           <n-text style="font-size: 16px"> Click or drag a file to this area to upload </n-text>
           <n-p depth="3" style="margin: 8px 0 0 0"> New Word file </n-p>
@@ -63,6 +63,7 @@
 import { ref, onMounted } from 'vue'
 import { NModal, UploadFileInfo } from 'naive-ui'
 import axios from 'axios'
+import { selectedUploadFile } from '@/utils/uploads'
 import { useExcelStore } from '@/stores/api'
 import { popupStore } from '@/stores/popupStore'
 import { Document24Regular } from '@vicons/fluent'
@@ -97,11 +98,14 @@ function handleSecondChange(value: { fileList: UploadFileInfo[] }) {
 }
 
 function compareWords() {
+  const firstFile = selectedUploadFile(file1.value)
+  const secondFile = selectedUploadFile(file2.value)
+  if (!firstFile || !secondFile) return
   window.$loadingBar.start()
 
   const formData = new FormData()
-  formData.append('first', file1.value[0].file)
-  formData.append('second', file2.value[0].file)
+  formData.append('first', firstFile)
+  formData.append('second', secondFile)
   formData.append('json', JSON.stringify(parameters.value))
 
   axios

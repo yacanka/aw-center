@@ -38,6 +38,7 @@
 import { ref, onMounted } from 'vue'
 import { NModal, UploadFileInfo } from 'naive-ui'
 import axios from 'axios'
+import { selectedUploadFile } from '@/utils/uploads'
 import { useExcelStore } from '@/stores/api'
 import { popupStore } from '@/stores/popupStore'
 import { Document24Regular } from '@vicons/fluent'
@@ -65,11 +66,14 @@ function handleSecondChange(value: { fileList: UploadFileInfo[] }) {
 }
 
 function compareExcels() {
+  const firstFile = selectedUploadFile(file1.value)
+  const secondFile = selectedUploadFile(file2.value)
+  if (!firstFile || !secondFile) return
   window.$loadingBar.start()
 
   const formData = new FormData()
-  formData.append('first', file1.value[0].file)
-  formData.append('second', file2.value[0].file)
+  formData.append('first', firstFile)
+  formData.append('second', secondFile)
   formData.append('json', JSON.stringify(parameters.value))
 
   axios

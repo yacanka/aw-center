@@ -38,12 +38,7 @@ ContentMode = Literal["paragraph", "table", "both"]
 def load_sentence_transformer_classes():
     """Load optional sentence-transformers classes only when retrieval is used."""
     if importlib.util.find_spec("sentence_transformers") is None:
-        raise ImportError(
-            "NLP document retrieval dependencies are not installed because "
-            "their PyTorch dependency is currently blocked by CVE-2025-3000. "
-            "Install a non-vulnerable PyTorch-backed NLP stack before using "
-            "this Word paraphrase feature."
-        )
+        raise ImportError("Local document analysis dependencies are not installed.")
 
     from sentence_transformers import CrossEncoder, SentenceTransformer
 
@@ -546,55 +541,3 @@ class ExplainableDocxRetriever:
             "results": second_stage,
             "explanation": explanation
         }
-
-
-if __name__ == "__main__":
-    MODEL_PATH = r"C:\Users\t02077\Desktop\Code\Models\paraphrase-multilingual-MiniLM-L12-v2"  # bi-encoder klasörü
-    CROSS_ENCODER_MODEL = r"C:\Users\t02077\Desktop\Code\Models\ms-marco-MiniLM-L6-v2"
-    DOCX_FOLDER = r"C:\Users\t02077\Desktop\Code\Test\Hugging Face"
-
-    engine = ExplainableDocxRetriever(
-        model_path=MODEL_PATH,
-        cross_encoder_model=CROSS_ENCODER_MODEL,
-        #backend="openvino",   # None / "onnx" / "openvino"
-        content_mode="both",
-        use_heading_weight=True
-    )
-
-    engine.add_docx_folder(
-        DOCX_FOLDER,
-        sentence_group_size=3,
-        sentence_overlap=1,
-        char_limit=900
-    )
-
-    engine.build_index()
-
-    queries = [
-        "Do you have a list of compliance documents?",
-        "Who is the author?",
-        "Is there an attachments section?"
-    ]
-
-    for q in queries:
-        result = engine.search(q)
-        print("=" * 120)
-        print("QUERY      :", result["query"])
-        print("BEST SCORE :", f"{result['best_score']:.4f}")
-        print("EXPLANATION:")
-        print(result["explanation"])
-        print("-" * 120)
-
-        for i, item in enumerate(result["results"], start=1):
-            md = item["metadata"]
-            print(
-                f"[{i}] final={item['final_score']:.4f} "
-                f"bi={item['bi_score']:.4f} "
-                f"cross={item['cross_score_norm']:.4f} "
-                f"lexical={item['lexical_score']:.4f}"
-            )
-            print("file       :", md.get("file_name"))
-            print("source_type:", md.get("source_type"))
-            print("heading    :", md.get("heading"))
-            print("text       :", item["text"][:300])
-            print("-" * 120)

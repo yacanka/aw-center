@@ -37,7 +37,11 @@ AW Center aşağıdaki iş akışlarını destekler:
 - **PowerPoint gallery:** Sunum ve slayt yükleme, listeleme, görsel önizleme ve dış dönüşüm araçlarıyla galeri oluşturma.
 - **Medya dönüştürme:** FFmpeg tabanlı görüntü/ses/video dönüştürme, önizleme ve çıktı boyutu tahmini.
 - **Organizasyon yönetimi:** Proje, panel, sorumlu ve kişi kayıtlarının CRUD yönetimi ve kişi Excel yükleme.
-- **Kullanıcı ve yetki yönetimi:** Login/logout, HttpOnly token cookie, CSRF koruması, parola değiştirme, parola sıfırlama, kullanıcı tercihleri ve izin listesi.
+- **Kullanıcı ve yetki yönetimi:** Yönetici kontrollü hesap açma, 24 saatlik tek kullanımlık davetler, davet yaşam döngüsü denetimi, login/logout, HttpOnly token cookie, CSRF koruması, parola değiştirme, parola sıfırlama, kullanıcı tercihleri ve izin listesi. Anonim self-signup yoktur.
+- **Integration Hub:** JIRA, Teamcenter, DOORS, DocProof, Office ve medya köprülerinin secretsız yapılandırma/capability görünümü, isteğe bağlı canlı sağlık kontrolleri, circuit breaker koruması ve ilgili araçlara hızlı geçiş.
+- **Job Center:** Uzun süren işlemler için kalıcı sahiplik, ilerleme, kooperatif iptal, retry, worker lease recovery, audit olayları ve güvenli artifact indirme merkezi.
+- **Hızlı Komut:** `Ctrl/⌘ + K` ile tüm etkin araçları, proje akışlarını ve entegrasyon köprülerini Türkçe/İngilizce eşanlamlı veya küçük yazım hatalı aramayla açan, yetki filtreli ve kullanıcıya özel son-komut geçmişi.
+- **Merkezi erişim politikası:** Public allowlist dışındaki ekranlar varsayılan korumalıdır; route, sol menü ve Hızlı Komut aynı staff/permission kararını kullanır. Yetkisiz erişim açıklayıcı 403 ekranına, anonim erişim ise güvenli post-login dönüşüyle Login'e gider.
 - **Release notes:** Kullanıcı bazlı görülmemiş sürüm notları, toplu görüldü işaretleme ve onaylama.
 - **SPA shell serving:** Vue uygulamasının `/app/` altında Django tarafından servis edilmesi.
 
@@ -55,7 +59,8 @@ AW Center aşağıdaki iş akışlarını destekler:
   - `backend/run_cheroot.py`: Cheroot HTTPS sunucusu.
 - **Ana URL yönlendirme:** `backend/awcenter/urls.py`.
 - **Kimlik doğrulama:** `awcenter.authentication.CookieTokenAuthentication` ile DRF token; standart `Authorization: Token ...` header'ı ve `auth_token` cookie desteklenir.
-- **Varsayılan yetki:** DRF için global `IsAuthenticated`.
+- **Varsayılan yetki:** DRF için global `IsAuthenticated`; public route'lar merkezi test allowlist'iyle sınırlandırılır.
+- **İstek korelasyonu:** Her response `X-Request-ID` taşır; aynı değer standart API hatalarında ve backend loglarında destek referansı olarak bulunur.
 - **Veritabanı:** Varsayılan olarak SQLite (`backend/db.sqlite3`) ve eski veri için ikinci SQLite bağlantısı (`backend/db_old.sqlite3`).
 - **Statik dosyalar:** `/core/` URL kökü ve WhiteNoise `CompressedManifestStaticFilesStorage`.
 - **Medya dosyaları:** `backend/media`.
@@ -67,6 +72,7 @@ AW Center aşağıdaki iş akışlarını destekler:
 - **UI:** Naive UI.
 - **State:** Pinia.
 - **Router:** Vue Router, browser history kökü `/app/`.
+- **Route güvenliği:** `welcome`, `login` ve `invite` açıkça public işaretlenir; diğer route'lar deny-by-default authenticated kabul edilir. Hassas ekranlar merkezi access policy üzerinden staff veya doğrudan/grup kaynaklı Django permission kontrolü uygular.
 - **HTTP:** Axios merkezi yapılandırması `frontend/src/services/http.ts`.
 - **Build base:** Vite üretim base'i `/core/`.
 - **Kod bölme:** Ağır route'lar lazy-load edilir ve ortak loading skeleton kullanır.
@@ -223,8 +229,7 @@ Endpointler:
 
 - `POST /excel/get_excel_columns/`
 - `POST /excel/compare/`
-- `POST /excel/create_queue/`
-- `GET /excel/excel_to_cover_pages_stream/<uuid>/`
+- `POST /excel/jobs/cover-pages/`
 
 ### 7. Word Araçları
 
@@ -234,17 +239,18 @@ Frontend ekranları: `/app/compare/word`, `/app/translator`
 Özellikler:
 
 - Word doküman karşılaştırma.
-- Word analiz kuyruğu.
-- Word çeviri kuyruğu.
-- Uzun süren analyze/translate akışlarını UUID üzerinden takip etme.
-- Opsiyonel NLP paketleri varsayılan güvenli kurulumdan çıkarılmıştır; ilgili özellik çağrıldığında runtime bağımlılık ihtiyacı kontrollü hata mesajıyla bildirilir.
+- Açıklanabilir, kontrol listesi seçilebilir özel Word uyumluluk analizi.
+- Yerel modelle buluta içerik göndermeyen Word çevirisi.
+- Kalıcı Job Center üzerinden ilerleme, iptal, güvenli retry ve sahip-yetkili çıktı indirme.
+- Model/runtime hazırlığını dosya yolu veya belge içeriği göstermeden raporlayan Integration Hub kontrolü.
 
 Endpointler:
 
 - `POST /word/compare/`
-- `POST /word/create_queue/`
-- `GET /word/translate/<uuid>/`
-- `GET /word/analyze/<uuid>/`
+- `POST /word/jobs/translate/`
+- `POST /word/jobs/analyze/`
+- `GET /jobs/<uuid>/`
+- `GET /jobs/<uuid>/download/`
 
 ### 8. PDF Araçları
 
@@ -340,7 +346,7 @@ Endpoint grupları:
 ### 13. Kullanıcı, Auth ve Preferences
 
 Backend route kökü: `/auth/`
-Frontend ekranları: `/app/login`, `/app/users`, `/app/profile`, `/app/settings`
+Frontend ekranları: `/app/login`, `/app/invite`, `/app/users`, `/app/profile`, `/app/settings`
 
 Özellikler:
 
@@ -351,6 +357,8 @@ Frontend ekranları: `/app/login`, `/app/users`, `/app/profile`, `/app/settings`
 - Stale cookie recovery.
 - `/auth/me/` ile oturum bootstrap.
 - Kullanıcı CRUD.
+- E-postaya bağlı, 24 saatlik ve tek kullanımlık yönetici davetleri.
+- Davet durumlarını arama/filtreleme ve aktif daveti atomik iptal etme.
 - Yetki listesi.
 - Parola değiştirme.
 - Parola sıfırlama request/confirm akışı.
@@ -365,6 +373,10 @@ Endpointler:
 - `GET /auth/permissions/`
 - `GET/POST /auth/users/`
 - `GET/PUT/DELETE /auth/users/<id>/`
+- `GET/POST /auth/invitations/`
+- `DELETE /auth/invitations/<id>/`
+- `POST /auth/invitations/inspect/`
+- `POST /auth/invitations/accept/`
 - `POST /auth/change_password/`
 - `GET/PUT /auth/preferences/`
 - `POST /auth/preferences/reset/`
@@ -695,13 +707,23 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `AW_USERNAME` | Varsayılan boş | DocProof/DOORS gibi entegrasyonlarda kullanılır; hassas kabul edilmelidir. |
 | `AW_PASSWORD` | Varsayılan boş | DocProof/DOORS gibi entegrasyonlarda kullanılır; hassas kabul edilmelidir. |
 | `FFMPEG_EXECUTABLE` | Varsayılan `ffmpeg` | Media Converter için FFmpeg binary adı/path'i. |
+| `AWCENTER_MAX_DOCUMENT_UPLOAD_BYTES` | 50 MiB | PDF ve Office dokümanları için endpoint boyut sınırı. |
+| `AWCENTER_MAX_IMAGE_UPLOAD_BYTES` | 10 MiB | Slide görseli yükleme sınırı. |
+| `AWCENTER_MAX_ATTACHMENT_UPLOAD_BYTES` | 100 MiB | JIRA gibi köprülere gönderilen ek dosya sınırı. |
+| `AWCENTER_MAX_MEDIA_UPLOAD_BYTES` | 500 MiB | FFmpeg media input sınırı. |
+| `AWCENTER_ABSOLUTE_MAX_UPLOAD_BYTES` | 600 MiB | Multipart stream işlenirken uygulanan deployment-wide acil durdurma sınırı. |
+| `AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES` | 250 MiB | OOXML/ZIP içeriğinin toplam açılmış boyut sınırı. |
+| `AWCENTER_MAX_ARCHIVE_ENTRIES` | 5000 | OOXML/ZIP içindeki maksimum entry sayısı. |
 | `DATABASE_URL` | Varsayılan `backend/db.sqlite3` | Primary database URL'i. Production için PostgreSQL önerilir. |
 | `DB_OLD_URL` | Varsayılan `backend/db_old.sqlite3` | Legacy database bağlantısı. |
 | `DATABASE_CONN_MAX_AGE` | Varsayılan `60` | Persistent database connection süresi. |
 | `CACHE_URL` | Varsayılan local memory cache | Redis gibi production cache backend URL'i. |
+| `PRIVATE_MEDIA_ROOT` | Varsayılan `backend/private_media` | Job input/output artifact'larının public media servisinden ayrılmış özel storage kökü. |
 | `LOG_LEVEL` | Varsayılan `INFO` | Django ve uygulama console log seviyesi. |
 | `FRONTEND_DIST_DIR` | Varsayılan `frontend/dist` | Django'nun SPA shell ve Vite asset çıktısını aradığı dizin. |
 | `FRONTEND_RESET_URL` | Ortama göre hesaplanır | Parola reset linklerinde kullanılan frontend login URL'i. |
+| `FRONTEND_INVITATION_URL` | Ortama göre hesaplanır | Tek kullanımlık kullanıcı davetlerinin public kayıt ekranı; ham token URL fragment'ına eklenir. |
+| `TRUSTED_PROXY_COUNT` | Varsayılan `0` | Rate-limit istemci kimliği için güvenilen ters proxy sayısı; doğrudan bağlantıda `0`, tek Nginx katmanında `1`. |
 | `ALLOWED_HOSTS` | `IPV4_ADDRESS`, `127.0.0.1`, `localhost`; `DEBUG=True` iken `ALLOW_ALL_DEBUG_HOSTS=True` ile `*` | Django host doğrulaması. Dev ortamında wildcard yalnızca Bad Request üreten local/LAN host farklılıklarını engellemek için açıktır. |
 | `ALLOW_ALL_DEBUG_HOSTS` | `DEBUG=True`: `True` | Sadece local geliştirmede Django `DisallowedHost` kaynaklı Bad Request hatalarını önler. Production için etkisiz tutulmalıdır. |
 | `DEV_FRONTEND_PORT` | Varsayılan `5173` | Debug modunda Vite origin varsayılanlarını üretir. |
@@ -721,6 +743,24 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `SECURE_HSTS_SECONDS` | `DEBUG=True`: `0`, `DEBUG=False`: `31536000` | HSTS süresi. |
 | `SOFFICE_BIN` | Varsayılan `soffice` | PPT/PDF dönüşümünde LibreOffice binary. |
 | `PDFTOPPM_BIN` | Varsayılan `pdftoppm` | Poppler PDF-to-image binary. |
+| `PPTX_CONVERSION_TIMEOUT_SECONDS` | Varsayılan `180` | LibreOffice ve Poppler komutları için ayrı ayrı uygulanan timeout. |
+| `WORD_TRANSLATION_TR_EN_MODEL` / `WORD_TRANSLATION_EN_TR_MODEL` | `backend/models/...` | Cloud'a içerik göndermeyen iki yerel Word çeviri modelinin dizinleri. |
+| `WORD_ANALYZER_BI_MODEL` / `WORD_ANALYZER_CROSS_MODEL` | `backend/models/...` | Açıklanabilir uyumluluk analizi için yerel bi-encoder ve cross-encoder model dizinleri. |
+| `WORD_ANALYZER_MAX_UNITS` | `10000` | Tek bir analiz işinde indekslenebilecek maksimum paragraf/tablo semantik birimi. |
+| `COVER_PAGE_TEMPLATE_PATH` | `backend/custom_templates/cover_page_template.docx` | Varsa kullanılan güvenilir DocxTemplate; yoksa yerleşik güvenli cover-page düzeni kullanılır. |
+| `COVER_PAGE_MAX_ROWS` | `1000` | Tek bir cover-page job'ında işlenebilecek maksimum workbook satırı. |
+| `INTEGRATION_PROBE_CONNECT_TIMEOUT_SECONDS` / `INTEGRATION_PROBE_READ_TIMEOUT_SECONDS` | `2` / `3` | Integration Hub dış servis erişilebilirlik timeout'ları. |
+| `INTEGRATION_PROBE_CACHE_SECONDS` | `30` | Canlı health sonucunun cache süresi. |
+| `INTEGRATION_PROBE_REFRESH_COOLDOWN_SECONDS` | `5` | Aynı kullanıcının forced refresh çağrıları arasındaki minimum süre. |
+| `INTEGRATION_PROBE_FAILURE_THRESHOLD` | `3` | Circuit breaker açılmadan önceki ardışık başarısızlık sayısı. |
+| `INTEGRATION_PROBE_FAILURE_WINDOW_SECONDS` | `300` | Probe başarısızlık sayacının yaşam süresi. |
+| `INTEGRATION_PROBE_CIRCUIT_COOLDOWN_SECONDS` | `120` | Açık circuit'in dış çağrıları durdurduğu süre. |
+| `JOB_LEASE_SECONDS` | `60` | Worker kesintisini algılamak için job lease süresi. |
+| `JOB_HEARTBEAT_SECONDS` | `2` | Uzun çalışan executor'ların iptal ve lease kontrol aralığı. |
+| `JOB_WORKER_STALE_SECONDS` | `10` | Job Center'da worker'ın çevrimdışı sayılacağı heartbeat yaşı. |
+| `JOB_EXECUTION_TIMEOUT_SECONDS` | `900` | Bir job executor için mutlak çalışma sınırı. |
+| `JOB_MAX_OUTPUT_BYTES` | `1 GiB` | Worker tarafından kalıcı storage'a alınabilecek maksimum tekil çıktı boyutu. |
+| `JOB_ARTIFACT_RETENTION_DAYS` | `30` | Terminal job kayıtları ve özel artifact'ların saklama süresi. |
 
 ### Frontend Değişkenleri
 
@@ -778,6 +818,7 @@ cd frontend
 npm ci
 npm run dev
 npm run format:check
+npm run test:commands
 npm run typecheck
 npm run typecheck:ci
 npm run build
@@ -832,6 +873,8 @@ CI workflow'u `.github/workflows/ci.yml` altında backend ve frontend kalite kap
 
 Teamcenter ve IBM Rational DOORS istemcileri AW Center backend'ine gömülü adapter katmanları olarak entegredir. Frontend menüsündeki `Teamcenter` ve `DOORS > Agent` ekranları yalnızca sunucuda yapılandırılmış hesap/oturumları kullanır; tarayıcıdan Teamcenter parolası, `JSESSIONID`, XSRF token veya DOORS kimlik bilgisi alınmaz.
 
+`/app/integrations` ekranı ve authenticated `GET /integrations/` endpoint'i tüm köprüleri tek secretsız katalogda gösterir. Kullanıcı tarafından başlatılan `?probe=true` kontrolü dış servislerde credential göndermeyen kısa `HEAD` erişilebilirlik ölçümleri, yerel araçlarda process başlatmayan executable/package kontrolleri yapar. Kontroller paralel, cache'li, kullanıcı başına refresh-limitli ve ardışık hatalarda circuit-breaker korumalıdır; internal URL, credential veya ham exception metni response'a eklenmez.
+
 Teamcenter için `TEAMCENTER_BASE_URL`, authentication mode ve ilgili server-side secret'ları `.env`/secret manager üzerinden tanımlayın. Production'da HTTPS ve TLS doğrulaması zorunludur. Okuma endpoint'leri authenticated kullanıcılara; property update endpoint'i yalnızca admin kullanıcılara açıktır. İstekler timeout, sınırlı read retry ve maksimum response boyutu ile çalışır.
 
 DOORS OLE entegrasyonu Windows, `pywin32` ve oturum açılmış bir DOORS desktop client gerektirir. Varsayılan davranış aktif istemciye bağlanmaktır; `DOORS_AUTO_START_CLIENT=False` güvenli varsayılan olarak korunur. Açılması gerekiyorsa executable ve opsiyonel database yalnızca subprocess argüman listesiyle aktarılır. Object listeleme 1000 kayıtla, DXL sonuç dosyası da yapılandırılabilir byte limitiyle sınırlandırılmıştır. Object create/update endpoint'leri yalnızca admin kullanıcılar içindir.
@@ -843,6 +886,22 @@ Başlıca API yüzeyleri:
 
 Tüm environment anahtarlarının secrets içermeyen örnekleri [`.env.example`](.env.example) içinde bulunur.
 
+### API hata ve kurtarma sözleşmesi
+
+API hata cevapları aşağıdaki ortak alanları taşır:
+
+```json
+{
+  "detail": "The uploaded file is too large.",
+  "code": "UPLOAD_TOO_LARGE",
+  "retryable": false,
+  "recovery_hint": "Reduce the file size or split it into smaller inputs.",
+  "request_id": "support-reference"
+}
+```
+
+`retryable`, istemcinin aynı işlemi yeniden denemesinin anlamlı olup olmadığını; `recovery_hint`, kullanıcıya gösterilecek secretsız sonraki adımı belirtir. `request_id` backend log korelasyonu içindir ve destek talebine eklenmelidir. Field validation hataları ayrıca `errors` alanını kullanır. Frontend bütün standart hataları merkezi olarak biçimlendirir; domain bileşenlerinde doğrudan `response.data` ayrıştırılmamalıdır.
+
 ---
 
 ## Güvenlik Notları
@@ -850,6 +909,8 @@ Tüm environment anahtarlarının secrets içermeyen örnekleri [`.env.example`]
 - `.env`, SQLite database, media upload, node_modules, build artifact, sertifika ve private key dosyaları commit edilmemelidir.
 - `AW_USERNAME`, `AW_PASSWORD`, DRF token, `auth_token` cookie ve JIRA/DocProof credential değerleri secret kabul edilmelidir.
 - Global DRF permission `IsAuthenticated` olduğu için public endpoint açarken `AllowAny` bilinçli ve testli kullanılmalıdır.
+- Frontend route/menu filtreleri savunma ve kullanıcı deneyimi katmanıdır; gerçek yetkilendirme kararı her zaman backend endpoint permission sınıflarında uygulanmalıdır.
+- Login sonrası dönüş yalnız `/app/` içindeki normalize edilmiş yolları kabul eder; dış URL, protocol-relative URL, kontrol karakteri ve auth döngüsü oluşturabilecek hedefler reddedilir.
 - Cookie-backed token auth unsafe method'lar için CSRF kontrolü uygular.
 - Production'da `DEBUG=False`, güçlü `SECRET_KEY`, explicit `CORS_ALLOWED_ORIGINS` ve doğru `CSRF_TRUSTED_ORIGINS` kullanılmalıdır.
 - File upload endpointlerinde dosya türü, boyut, path traversal ve temporary file cleanup riskleri dikkate alınmalıdır.

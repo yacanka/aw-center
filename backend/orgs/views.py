@@ -1,9 +1,10 @@
 from django.shortcuts import render
 from django.forms import Form, FileField
+from awcenter.file_security import EXCEL_POLICY, validate_request_upload
 
 from rest_framework.viewsets import ModelViewSet
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -13,12 +14,12 @@ from .models import  Project, Panel, Responsible, People
 from utils.arrays import find_missing_elements
 
 class ProjectViewSet(ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     serializer_class = ProjectSerializer
     queryset = Project.objects.all()
 
 class PanelViewSet(ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     serializer_class = PanelSerializer
     queryset = Panel.objects.all()
 
@@ -31,7 +32,7 @@ class PanelViewSet(ModelViewSet):
         return qs
 
 class ResponsibleViewSet(ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     serializer_class = ResponsibleSerializer
     queryset = Responsible.objects.all()
 
@@ -73,17 +74,6 @@ class PeopleViewSet(ModelViewSet):
 
         return qs
 
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def Test(request):
-    data = {
-        "issue": "Merhaba JSON!",
-        "dcc_path": "asdsa/asdh",
-        "active": True,
-        "url": "http://www.google.com"
-    }
-    return Response(data)
-
 reference_list = [
     "Person ID",
     "Name",
@@ -96,9 +86,9 @@ class UploadForm(Form):
 @permission_classes([IsAuthenticated])
 class UploadPeople(APIView):
     def post(self, request):
+        excel_file = validate_request_upload(request, "file", EXCEL_POLICY)
         form = UploadForm(request.POST, request.FILES)
         if form.is_valid():
-            excel_file = request.FILES["file"]
             import pandas as pd
 
             df = pd.read_excel(excel_file)

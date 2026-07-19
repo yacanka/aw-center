@@ -47,7 +47,7 @@ class MediaToolsServiceTests(TestCase):
     def test_preview_falls_back_to_source_ratio_without_probe(self):
         """Preview still returns an estimate when ffprobe metadata is unavailable."""
 
-        upload = SimpleUploadedFile("sample.jpg", b"1234567890", content_type="image/jpeg")
+        upload = SimpleUploadedFile("sample.jpg", b"\xff\xd8\xffpayload", content_type="image/jpeg")
         parameters = MediaParameters("webp", width=100)
 
         result = estimate_output_size(upload, parameters)

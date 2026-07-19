@@ -237,6 +237,7 @@ const columns: any[] = [
                     positiveText: 'Yes',
                     negativeText: 'No',
                     onPositiveClick: () => {
+                      if (row.id === undefined) return
                       store
                         .deleteDcc(row.id)
                         .then(() => {
@@ -346,13 +347,14 @@ async function onApproved(data: any) {
 }
 
 const rowPropsAttr = (rowData: IDcc, rowIndex: number) => {
+  const rowKey = rowData.id ?? rowData.issue
   return {
     onDblclick: () => {
-      const isExpanded = expandedRowKeys.value.some((id) => id === rowData.id)
+      const isExpanded = expandedRowKeys.value.some((id) => id === rowKey)
       if (isExpanded) {
-        expandedRowKeys.value = expandedRowKeys.value.filter((id) => id !== rowData.id)
+        expandedRowKeys.value = expandedRowKeys.value.filter((id) => id !== rowKey)
       } else {
-        expandedRowKeys.value.push(rowData.id)
+        expandedRowKeys.value.push(rowKey)
       }
     }
   }
@@ -422,7 +424,7 @@ function onUpdateExpandedRowKeys(keys: Array<string | number>) {
       :data="store.getDccList"
       remote
       :pagination="pagination"
-      :row-key="(row) => row.id"
+      :row-key="(row: IDcc) => row.id ?? row.issue"
       size="small"
       :expanded-row-keys="expandedRowKeys"
       @update:page="handlePageUpdate"

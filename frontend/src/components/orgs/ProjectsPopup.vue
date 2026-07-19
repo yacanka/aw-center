@@ -84,6 +84,7 @@ async function addDatabase() {
 
 async function updateDatabase() {
   if (!(await validateForm(formRef.value))) return
+  if (project.value.id === undefined) throw new Error('Cannot update a project without an ID.')
   window.$orgsStore.updateProject(project.value.id, project.value)
   closeModal()
 }

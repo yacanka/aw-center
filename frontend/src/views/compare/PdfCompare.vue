@@ -34,6 +34,7 @@
 import { ref, onMounted } from 'vue'
 import { UploadFileInfo } from 'naive-ui'
 import axios from 'axios'
+import { selectedUploadFile } from '@/utils/uploads'
 
 const file1 = ref<UploadFileInfo[]>([])
 const file2 = ref<UploadFileInfo[]>([])
@@ -49,11 +50,14 @@ function handleSecondChange(value: { fileList: UploadFileInfo[] }) {
 }
 
 function comparePdfs() {
+  const firstFile = selectedUploadFile(file1.value)
+  const secondFile = selectedUploadFile(file2.value)
+  if (!firstFile || !secondFile) return
   window.$loadingBar.start()
 
   const formData = new FormData()
-  formData.append('first', file1.value[0].file)
-  formData.append('second', file2.value[0].file)
+  formData.append('first', firstFile)
+  formData.append('second', secondFile)
 
   axios
     .post(`${axios.defaults.baseURL}/pdf/compare/`, formData, {

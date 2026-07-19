@@ -8,6 +8,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from awcenter.api_errors import error_response
+from awcenter.file_security import (
+    ATTACHMENT_POLICY,
+    EXCEL_POLICY,
+    PDF_POLICY,
+    validate_request_upload,
+    validate_uploaded_file,
+)
 from rest_framework.views import APIView 
 from rest_framework import status
 
@@ -42,7 +49,6 @@ from pathlib import Path
 from base64 import b64decode, b64encode
 import json
 import requests
-import time
 import uuid
 from datetime import datetime
 import os
@@ -117,30 +123,6 @@ class JIRA_DCC_ViewSet(APIView):
         serializer = JIRA_DCC_Serializer(dcc)
         dcc.delete()
         return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def Test(request):
-    data = {
-        "issue": "Merhaba JSON!",
-        "dcc_path": "asdsa/asdh",
-        "active": True,
-        "url": "http://www.google.com"
-    }
-    return Response(data)
-
-def event_stream():
-    for i in range(101):
-        time.sleep(0.1)
-        yield f'data: {json.dumps({"status": "Processing", "percentage": i})}\n\n'
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def sse_test(request):
-    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no" #nginx için
-    return response
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, DCCPermission])
@@ -269,10 +251,10 @@ def enrich_effectivity(ecd_parsed: dict, session_id: str | None) -> dict:
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def upload_ecd(request):
+    ecd_file = validate_request_upload(request, "file", PDF_POLICY)
     form = UploadForm(request.POST, request.FILES)
     if form.is_valid():
         try:
-            ecd_file = request.FILES["file"]
             ecd_parsed = safe_ecd_parse(ecd_file)
             return Response(enrich_effectivity(ecd_parsed, request.POST.get("JSESSIONID")))
         except Exception as e:
@@ -454,28 +436,20 @@ def add_new_dcc(request):
 def add_attachment(request):
     from jira import JIRAError
 
-    print(request.data)
-    form = UploadForm(request.POST, request.FILES)
-    if form.is_valid():
-        try:
-            data = request.data
-            
-            file = data.get("file", None)
-            
-            if not file:
-                return Response({"message": "File not found."}, status=400)
-                
-            _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=data["JSESSIONID"])
-            _jira.set_issue(data["issue_key"])
-            _jira.add_attachment(file, filename=file.name)
-
-            return Response({"message": f"Attachment named {file.name} added to {data['issue_key']}"}, status=201)
-        except JIRAError as e:
-            return Response({"message": f"Jira Error: {e.response.text}"}, status=400)
-        except Exception as e:
-            return Response({"message": f"Something went wrong while adding attachment: {e}"}, status=400)
-        
-    return Response({"message": "Form is not valid"}, status=400)
+    file = validate_request_upload(request, "file", ATTACHMENT_POLICY)
+    try:
+        data = request.data
+        jira_client = JiraConnector(server_url=JIRA_URL, jira_session_id=data["JSESSIONID"])
+        jira_client.set_issue(data["issue_key"])
+        jira_client.add_attachment(file, filename=file.name)
+        detail = f"Attachment named {file.name} added to {data['issue_key']}"
+        return Response({"message": detail}, status=201)
+    except JIRAError as error:
+        return error_response(error.response.text, code="JIRA_ATTACHMENT_REJECTED")
+    except (KeyError, ValueError) as error:
+        return error_response(str(error), code="JIRA_ATTACHMENT_INVALID")
+    except Exception:
+        return error_response("Attachment upload failed.", code="JIRA_ATTACHMENT_ERROR")
 
 def create_subtask_action(uuid):
     from jira import JIRAError
@@ -694,6 +668,7 @@ def create_queue(request):
     file = request.FILES.get("file", None)
     data = {}
     if file:
+        validate_uploaded_file(file, EXCEL_POLICY)
         data["file"] = file.read()
         data["parameters"] = request.data.get("parameters", None)
     else:

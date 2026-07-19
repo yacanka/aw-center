@@ -368,27 +368,35 @@ async function addDatabase() {
 
 async function updateDatabase() {
   if (!(await validateForm(formRef.value))) return
+  if (compdoc.value.id === undefined) {
+    window.$message.error('Document identifier is missing.')
+    return
+  }
   await window.$compdocStore.updateCompdoc(compdoc.value.id, compdoc.value)
   closeModal()
 }
 
-function setPopupMode(mode: any) {
+function setPopupMode(mode: string) {
   popupMode.value = mode
 }
 
-function handleItemHeaderClick(value: any) {
-  if (value.expanded && compdoc.value.history == null) {
-    window.$compdocStore.fetchHistory(compdoc.value.id).then((res: IHistory[]) => {
-      let history = res
-      let newhistory = history.map((item: IHistory) => {
-        return { ...item, history_date: isoToTurkishDateTime(item.history_date) }
-      })
-      compdoc.value.history = newhistory
-    })
-  }
+async function handleItemHeaderClick(value: { expanded?: boolean }) {
+  if (!value.expanded || compdoc.value.history !== null) return
+  if (compdoc.value.id === undefined) return
+
+  const history = await window.$compdocStore.fetchHistory(compdoc.value.id)
+  compdoc.value.history = history.map(formatHistoryDate)
+}
+
+function formatHistoryDate(item: IHistory): IHistory {
+  return { ...item, history_date: isoToTurkishDateTime(item.history_date) }
 }
 
 async function copyToClipboard() {
+  if (!compdoc.value.path) {
+    window.$message.warning('Document path is unavailable.')
+    return
+  }
   try {
     await navigator.clipboard.writeText(compdoc.value.path)
     window.$message.success('Path Copied')

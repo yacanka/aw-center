@@ -30,6 +30,8 @@ services:
       JIRA_BTB_URL: http://jira-btb.local
     volumes:
       - backend-media:/app/media
+      - backend-models:/app/models
+      - backend-private:/app/private_media
       - backend-static:/app/static
     ports:
       - "8000:8000"
@@ -56,6 +58,34 @@ services:
       - "8080:80"
     depends_on:
       - backend
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "manage.py", "run_job_worker", "--poll-interval", "1"]
+    environment:
+      SECRET_KEY: local-compose-development-secret-key-change-before-production-2026
+      DEBUG: "False"
+      IPV4_ADDRESS: 0.0.0.0
+      PORT: 8000
+      ALLOWED_HOSTS: 127.0.0.1,localhost,worker
+      CORS_ALLOWED_ORIGINS: http://localhost:8080
+      DATABASE_URL: postgres://awcenter:change-me-local-only@database:5432/awcenter
+      CACHE_URL: redis://redis:6379/1
+      DOCPROOF_URL: http://docproof.local
+      DOORS_EXECUTABLE: /usr/bin/false
+      JIRA_LEGACY_URL: http://jira-legacy.local
+      JIRA_BTB_URL: http://jira-btb.local
+    volumes:
+      - backend-media:/app/media
+      - backend-models:/app/models
+      - backend-private:/app/private_media
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   database:
     image: postgres:17-alpine
@@ -86,6 +116,8 @@ services:
 
 volumes:
   backend-media:
+  backend-models:
+  backend-private:
   backend-static:
   postgres-data:
   redis-data:

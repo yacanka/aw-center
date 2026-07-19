@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin
 
-from .models import UserPreferences
+from .models import UserInvitation, UserPreferences
 
 class UserPreferencesInline(admin.StackedInline):
     model = UserPreferences
@@ -80,3 +80,20 @@ class UserPreferencesAdmin(admin.ModelAdmin):
     list_filter = ('theme', 'language', 'email_notifications')
     search_fields = ('user__username', 'user__email')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(UserInvitation)
+class UserInvitationAdmin(admin.ModelAdmin):
+    """Expose invitation audit state without any recoverable raw token."""
+
+    list_display = ('email', 'created_by', 'created_at', 'expires_at', 'used_at', 'revoked_at')
+    search_fields = ('email', 'created_by__username', 'used_by__username')
+    readonly_fields = (
+        'token_digest', 'email', 'created_by', 'groups', 'created_at',
+        'expires_at', 'used_at', 'used_by', 'revoked_at',
+    )
+
+    def has_add_permission(self, request):
+        """Require secure application services for invitation creation."""
+
+        return False

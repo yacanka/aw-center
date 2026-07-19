@@ -26,7 +26,7 @@
             striped
             :columns="panelStatusColumns"
             :data="panelStatus"
-            :row-key="(row: ICompDoc) => row.id"
+            :row-key="(row: PanelStatusRow) => row.panel"
             :row-props="rowPropsAttr"
           />
         </n-scrollbar>
@@ -36,7 +36,7 @@
         <n-space>
           <Pie
             :data="pieChartData"
-            :options="getPieChartOptionsLabel()"
+            :options="pieChartOptions"
             :width="480"
             :height="360"
             :key="JSON.stringify(pieChartData.datasets)"
@@ -165,9 +165,9 @@
     <n-space vertical>
       <n-card>
         <Line
-          :data="lineChartData"
+          :data="renderedLineChartData"
           :options="
-            getLineChartOptions(
+            createLineChartOptions(
               lineChartData.datasets[0]?.data[0]?.x,
               lineChartData.datasets[0]?.data[0]?.y
             )
@@ -273,9 +273,12 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, ref, onMounted } from 'vue'
+import { computed, defineAsyncComponent, ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
+import type { ChartData, ChartOptions, TooltipItem } from 'chart.js'
 import { useCompdocStore } from '@/stores/api'
+import type { ICompDoc } from '@/models/compdocs'
 import { statusOptions, statusColors } from '@/stores/datatable'
 import type { ProjectRegistryItem } from '@/models/projectRegistry'
 import { PROJECT_REGISTRY_FALLBACK, fetchCompdocProjectRegistry } from '@/services/projectRegistry'
@@ -303,10 +306,27 @@ interface ProjectOption {
   disabled: boolean
 }
 
+interface PanelStatusRow {
+  panel: string
+  [status: string]: string | number
+}
+
+interface LineChartPoint {
+  x: string
+  y: number
+}
+
+interface CalculatedLineChart {
+  today: LineChartPoint[]
+  scheduled: LineChartPoint[]
+  actual: LineChartPoint[]
+  lastScheduled?: LineChartPoint
+}
+
 const message = useMessage()
 const projectOptions = ref<ProjectOption[]>(PROJECT_REGISTRY_FALLBACK.map(createProjectOption))
 
-const panelStatusColumns: DataTableColumns<ICompDoc> = [
+const panelStatusColumns: DataTableColumns<PanelStatusRow> = [
   {
     title: 'Panels',
     key: 'panel',
@@ -323,8 +343,8 @@ const panelStatusColumns: DataTableColumns<ICompDoc> = [
     ellipsis: {
       tooltip: true
     },
-    render(row: Record<string, any>) {
-      return (row['to_be_issued'] || 0) + (row['delayed'] || 0) || null
+    render(row) {
+      return readStatusCount(row, 'to_be_issued') + readStatusCount(row, 'delayed') || null
     }
   },
   {
@@ -363,7 +383,7 @@ const panelStatusColumns: DataTableColumns<ICompDoc> = [
     width: 5,
     align: 'center',
     render(row) {
-      const total = Object.values(row).reduce((sum, val) => {
+      const total = Object.values(row).reduce<number>((sum, val) => {
         if (typeof val === 'number' && !isNaN(val)) {
           return sum + val
         }
@@ -375,9 +395,9 @@ const panelStatusColumns: DataTableColumns<ICompDoc> = [
 ]
 
 const activeTab = ref()
-const panelStatus = ref<any[]>([])
+const panelStatus = ref<PanelStatusRow[]>([])
 
-const pieChartData = ref({
+const pieChartData = ref<ChartData<'pie', number[], string>>({
   labels: statusOptions.map((item) => item.label),
   datasets: [
     {
@@ -389,7 +409,7 @@ const pieChartData = ref({
   ]
 })
 
-const barChartData = ref({
+const barChartData = ref<ChartData<'bar', number[], string>>({
   labels: ['Authority', 'UBM', 'AW'],
   datasets: [
     {
@@ -401,11 +421,7 @@ const barChartData = ref({
   ]
 })
 
-const lineChartPoint = ref({
-  x: null,
-  y: null
-})
-const lineChartData = ref({
+const lineChartData = ref<ChartData<'line', LineChartPoint[], string>>({
   datasets: [
     {
       label: 'Now',
@@ -436,16 +452,19 @@ const lineChartData = ref({
     }
   ]
 })
+const renderedLineChartData = computed(() => lineChartData.value as unknown as ChartData<'line'>)
 
-const viewPercentage = (context: any) => {
-  const meta = context.chart.getDatasetMeta(0)
+const viewPercentage = (context: TooltipItem<'bar'>) => {
   const dataset = context.dataset.data
 
-  const visibleData = dataset.filter((_: any, i: number) => !context.chart._hiddenIndices?.[i])
-  const visibleTotal = visibleData.reduce((a: number, b: number) => a + b, 0)
-  const value = context.raw
+  const visibleData = dataset.filter(
+    (value, index): value is number =>
+      typeof value === 'number' && context.chart.getDataVisibility(index)
+  )
+  const visibleTotal = visibleData.reduce((sum, value) => sum + value, 0)
+  const value = context.parsed.y ?? 0
 
-  const percentage = ((value / visibleTotal) * 100).toFixed(1)
+  const percentage = visibleTotal ? ((value / visibleTotal) * 100).toFixed(1) : '0.0'
   return `${value} (%${percentage})`
 }
 
@@ -475,24 +494,35 @@ const barChartOptions = {
   }
 }
 
-let statusCounter = ref<Record<string, any>>({})
+const statusCounter = ref<Record<string, number>>({})
+const pieChartOptions = getPieChartOptionsLabel() as unknown as ChartOptions<'pie'>
 
-function buildPieDataset(source: Record<string, number>) {
+function createLineChartOptions(start?: string, total?: number): ChartOptions<'line'> {
+  return getLineChartOptions(start, total) as unknown as ChartOptions<'line'>
+}
+
+function readStatusCount(source: Record<string, string | number>, status: string): number {
+  const value = source[status]
+  return typeof value === 'number' ? value : 0
+}
+
+function buildPieDataset(source: Record<string, string | number>) {
   const dataset = [
-    (source['to_be_issued'] || 0) + (SHOW_DELAYED_COMPDOCS ? 0 : source['delayed'] || 0),
-    source['airworthiness_review'] || 0,
-    source['to_be_re-submitted'] || 0,
-    source['to_be_updated'] || 0,
-    source['authority_review'] || 0,
-    source['authority_approved'] || 0
+    readStatusCount(source, 'to_be_issued') +
+      (SHOW_DELAYED_COMPDOCS ? 0 : readStatusCount(source, 'delayed')),
+    readStatusCount(source, 'airworthiness_review'),
+    readStatusCount(source, 'to_be_re-submitted'),
+    readStatusCount(source, 'to_be_updated'),
+    readStatusCount(source, 'authority_review'),
+    readStatusCount(source, 'authority_approved')
   ]
 
-  if (SHOW_DELAYED_COMPDOCS) dataset.push(source['delayed'] || 0)
+  if (SHOW_DELAYED_COMPDOCS) dataset.push(readStatusCount(source, 'delayed'))
   return dataset
 }
 
-const rowHoverID = ref(null)
-const rowPropsAttr = (rowData: Record<string, any>, rowIndex: number) => {
+const rowHoverID = ref<number | null>(null)
+const rowPropsAttr = (rowData: PanelStatusRow, rowIndex: number) => {
   return {
     style: {
       userSelect: 'none',
@@ -512,7 +542,7 @@ const rowPropsAttr = (rowData: Record<string, any>, rowIndex: number) => {
   }
 }
 
-const calculatedLineChart = ref<Record<string, any>>({})
+const calculatedLineChart = ref<CalculatedLineChart>({ today: [], scheduled: [], actual: [] })
 
 function calculate(compdocs: ICompDoc[]) {
   const calculatedBarChart = calculateBarChart(compdocs)
@@ -527,7 +557,7 @@ function calculate(compdocs: ICompDoc[]) {
 
   pieChartData.value.datasets[0].data = buildPieDataset(statusCounter.value)
 
-  calculatedLineChart.value = calculateLineChart(compdocs)
+  calculatedLineChart.value = calculateLineChart(compdocs) as CalculatedLineChart
   lineChartData.value.datasets[0].data = calculatedLineChart.value['today']
   lineChartData.value.datasets[1].data = calculatedLineChart.value['scheduled']
   lineChartData.value.datasets[2].data = calculatedLineChart.value['actual']
@@ -536,7 +566,7 @@ function calculate(compdocs: ICompDoc[]) {
   calculatePerformanceMetrics()
 }
 
-const performanceMetrics = ref<Record<string, Record<string, any>>>({
+const performanceMetrics = ref<Record<string, Record<string, number>>>({
   scheduled: {},
   actual: {},
   approved: {}
@@ -573,10 +603,10 @@ function calculatePerformanceMetrics() {
 }
 
 function calculatePanels(compdocs: ICompDoc[]) {
-  const panels: Record<string, any> = {}
+  const panels: Record<string, PanelStatusRow> = {}
 
   for (const compdoc of compdocs) {
-    const panelName = compdoc['panel']
+    const panelName = compdoc.panel
     if (panelName) {
       if (!panels[panelName]) {
         panels[panelName] = { panel: panelName }
@@ -584,7 +614,7 @@ function calculatePanels(compdocs: ICompDoc[]) {
 
       if (compdoc.status_flow.length > 0) {
         const status = compdoc.status_flow[compdoc.status_flow.length - 1].status
-        panels[panelName][status] = (panels[panelName][status] || 0) + 1
+        panels[panelName][status] = readStatusCount(panels[panelName], status) + 1
       }
     }
   }

@@ -83,7 +83,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { IPanel, IProject, IResponsible } from '@/models/orgs'
+import { IPanel, IProject, IResponsible, type OrganizationOption } from '@/models/orgs'
 import { FormRules, NModal } from 'naive-ui'
 import { Edit24Regular } from '@vicons/fluent'
 import { validateForm } from '@/composables/forms'
@@ -125,8 +125,8 @@ const formRef = ref()
 const showModal = ref(false)
 const person = ref<IResponsible>({} as IResponsible)
 const popupMode = ref()
-const projectOptions = ref([])
-const panelOptions = ref([])
+const projectOptions = ref<OrganizationOption[]>([])
+const panelOptions = ref<OrganizationOption[]>([])
 
 const titleOptions = [
   { value: 'AS', label: 'AS' },
@@ -162,6 +162,9 @@ async function addDatabase() {
 
 async function updateDatabase() {
   if (!(await validateForm(formRef.value))) return
+  if (person.value.id === undefined) {
+    throw new Error('Cannot update a responsible person without an ID.')
+  }
   window.$orgsStore.updateResponsible(person.value.id, person.value)
   closeModal()
 }

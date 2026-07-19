@@ -4,7 +4,6 @@ from . import api_views, views
 urlpatterns = [
     path('script/', views.create_script, name='script'),
     path('run_dxl/', views.run_dxl, name='run_dxl'),
-    path('test/', views.test, name='test'),
     path('status/', api_views.status_view, name='doors_status'),
     path('modules/check/', api_views.check_module, name='doors_check_module'),
     path('objects/', api_views.list_objects, name='doors_list_objects'),

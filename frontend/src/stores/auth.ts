@@ -64,7 +64,8 @@ export const useAuthStore = defineStore('auth', {
         },
         () => {
           this.loading = false
-        }
+        },
+        { suppressAuthenticationWarning: true }
       ).catch(() => undefined)
       return authenticatedUser
     },
@@ -112,22 +113,6 @@ export const useAuthStore = defineStore('auth', {
         () => {
           this.users = this.users.filter((user: IUser) => user.id !== userId)
           notifySuccess('Deleted successfully.')
-        },
-        (errorMsg) => {
-          notifyError(errorMsg)
-          console.log(errorMsg)
-        },
-        () => {
-          this.loading = false
-        }
-      )
-    },
-    async signup(credentials: any) {
-      this.loading = true
-      await handleRequest<any>(
-        axios.post(`${API_PATH}/signup/`, credentials),
-        () => {
-          notifySuccess('Registration successful')
         },
         (errorMsg) => {
           notifyError(errorMsg)

@@ -1,28 +1,35 @@
 export interface IProject {
   id?: number
-  name?: string
-  [key: string]: unknown
+  name: string
+  slug?: string
 }
 
 export interface IPanel {
   id?: number
-  name?: string
-  project?: number | string
-  [key: string]: unknown
+  name: string
+  slug?: string
+  project: string
+  ata: string
+  discipline?: string
 }
 
 export interface IResponsible {
   id?: number
-  name?: string
-  panel?: number | string
-  [key: string]: unknown
+  project: string
+  panel: string
+  name: string
+  email: string
+  title: string
+  panel_name?: string
+  person_id: string
 }
 
 export interface IPerson {
   id?: number
-  person_id?: string
-  name?: string
-  email?: string
+  person_id: string
+  name: string
+  email: string
   mail?: string
-  [key: string]: unknown
 }
+
+export type OrganizationOption = { label: string; value: string }

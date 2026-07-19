@@ -85,6 +85,9 @@ jobs:
       - name: Run TypeScript syntax checks
         run: npm run typecheck:ci
 
+      - name: Test quick command search
+        run: npm run test:ci
+
       - name: Build Vite assets
         run: npm run build
 

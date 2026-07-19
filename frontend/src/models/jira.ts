@@ -34,5 +34,24 @@ export interface IJira {
   issue?: string
   status?: string
   fields?: Record<string, JiraFieldValue>
-  [key: string]: unknown
+  components: Array<{ name: string }>
+  customfield_45000?: string
+  customfield_45002?: string
+  subtasks: JiraSubtask[]
+  ecd_path?: string | boolean
+  dcc_unsigned_path?: string | boolean
+  dcc_signed_path?: string | boolean
+  generalStatus?: boolean
+}
+
+export interface JiraSubtask {
+  key: string
+  fields: { summary: string; status: { name: string } }
+}
+
+export interface JiraIssueResponse {
+  fields: IJira
+  ecd_path?: string | boolean
+  dcc_unsigned_path?: string | boolean
+  dcc_signed_path?: string | boolean
 }

@@ -60,31 +60,10 @@ class UserSecurityTests(TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertFalse(User.objects.filter(username="u10003").exists())
 
-    def test_anonymous_user_can_signup_without_management_permission(self):
-        payload = {
-            "username": "u10003",
-            "email": "new-user@example.com",
-            "password": "StrongPass!123",
-        }
+    def test_public_signup_route_is_not_deployed(self):
+        response = self.client.post("/auth/signup/", {}, format="json")
 
-        response = self.client.post("/auth/signup/", payload, format="json")
-
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.data["username"], "u10003")
-        self.assertNotIn("password", response.data)
-        self.assertTrue(User.objects.filter(username="u10003").exists())
-
-    def test_anonymous_signup_cannot_assign_authorization_fields(self):
-        payload = {
-            "username": "u10004",
-            "password": "StrongPass!123",
-            "user_permissions": [self.change_user_permission.id],
-        }
-
-        response = self.client.post("/auth/signup/", payload, format="json")
-
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(User.objects.filter(username="u10004").exists())
+        self.assertEqual(response.status_code, 404)
 
     def test_debug_cookie_defaults_support_plain_http_refresh(self):
         from awcenter.settings import get_default_auth_cookie_samesite
@@ -205,16 +184,16 @@ class UserSecurityTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["username"], "u10001")
 
-    def test_invalid_login_returns_readable_validation_error(self):
+    def test_invalid_login_returns_readable_authentication_error(self):
         response = self.client.post(
             "/auth/token/",
             {"username": "u10001", "password": "wrong-password"},
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("detail", response.data)
-        self.assertIn("code", response.data)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data["code"], "AUTHENTICATION_FAILED")
+        self.assertIn("credentials", response.data["recovery_hint"])
 
     def test_anonymous_logout_is_rejected(self):
         response = self.client.post("/auth/logout/", format="json")

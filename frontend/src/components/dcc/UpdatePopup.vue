@@ -55,6 +55,7 @@ function closeModal() {
 
 async function updateDatabase() {
   if (!(await validateForm(formRef.value))) return
+  if (dcc.value.id === undefined) throw new Error('Cannot update a DCC without an ID.')
   window.$dccStore.updateDcc(dcc.value.id, dcc.value)
   closeModal()
 }

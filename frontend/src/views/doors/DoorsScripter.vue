@@ -87,6 +87,7 @@ import { useRoute } from 'vue-router'
 import { useDoorsStore, useExcelStore } from '@/stores/api'
 import { download } from 'naive-ui/es/_utils'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
+import { selectedUploadFile } from '@/utils/uploads'
 
 type OptionItem = { excel: string; doors: string; search: boolean }
 
@@ -144,20 +145,24 @@ async function downloadDxlLibrary() {
 }
 
 function createScript() {
+  const selectedFile = selectedUploadFile(fileList.value)
+  if (!selectedFile) return
   const filtered = columns.value.filter((item: OptionItem) => item.doors != '')
   const formData = new FormData()
-  formData.append('file', fileList.value[0].file)
+  formData.append('file', selectedFile)
   formData.append('json', JSON.stringify(filtered))
   doors.createScript(formData).then((res) => {
-    modal.value.content = res
+    modal.value.content = res ?? ''
     modal.value.show = true
   })
 }
 
 function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions) {
+  const selectedFile = selectedUploadFile([file])
+  if (!selectedFile) return onError()
   window.$loadingBar.start()
   const formData = new FormData()
-  formData.append('file', fileList.value[0].file)
+  formData.append('file', selectedFile)
   excel
     .getExcelColumns(formData)
     .then((res: string[]) => {

@@ -119,6 +119,7 @@ function closeModal() {
 
 async function updateDatabase() {
   if (!(await validateForm(formRef.value))) return
+  if (user.value.id === undefined) throw new Error('Cannot update a user without an ID.')
   window.$authStore.updateUser(user.value.id, user.value)
   closeModal()
 }

@@ -4,13 +4,12 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from uuid import uuid4
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
+from awcenter.file_security import MEDIA_POLICY, validate_uploaded_file
 
-ALLOWED_EXTENSIONS = {"mp4", "mov", "webm", "mkv", "avi", "mp3", "wav", "jpg", "jpeg", "png", "webp", "gif"}
-MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+ALLOWED_EXTENSIONS = {extension.lstrip(".") for extension in MEDIA_POLICY.extensions}
 
 
 @dataclass(frozen=True)
@@ -40,8 +39,7 @@ def parse_parameters(data: dict) -> MediaParameters:
 def validate_upload(uploaded_file: UploadedFile) -> str:
     """Validate uploaded media and return its normalized extension."""
 
-    if uploaded_file.size > MAX_UPLOAD_BYTES:
-        raise ValueError("Uploaded file is larger than 500 MB.")
+    validate_uploaded_file(uploaded_file, MEDIA_POLICY)
     extension = normalize_extension(Path(uploaded_file.name).suffix)
     return extension
 
@@ -58,16 +56,6 @@ def estimate_output_size(uploaded_file: UploadedFile, parameters: MediaParameter
         "duration_seconds": duration,
         "method": "bitrate" if duration and has_bitrate(parameters) else "source-ratio",
     }
-
-
-def convert_uploaded_media(uploaded_file: UploadedFile, parameters: MediaParameters) -> Path:
-    """Convert an uploaded media file and return the generated file path."""
-
-    input_extension = validate_upload(uploaded_file)
-    output_path = conversion_output_path(parameters.output_extension)
-    with temporary_upload(uploaded_file, input_extension) as input_path:
-        run_ffmpeg(input_path, output_path, parameters)
-    return output_path
 
 
 def normalize_extension(value: object) -> str:
@@ -150,13 +138,6 @@ def has_bitrate(parameters: MediaParameters) -> bool:
     return bool(parameters.video_bitrate_kbps or parameters.audio_bitrate_kbps)
 
 
-def run_ffmpeg(input_path: Path, output_path: Path, parameters: MediaParameters) -> None:
-    """Run FFmpeg with validated arguments and a bounded timeout."""
-
-    command = build_ffmpeg_command(input_path, output_path, parameters)
-    subprocess.run(command, capture_output=True, text=True, timeout=300, check=True)
-
-
 def build_ffmpeg_command(input_path: Path, output_path: Path, parameters: MediaParameters) -> list[str]:
     """Build a shell-free FFmpeg command from validated parameters."""
 
@@ -169,14 +150,6 @@ def build_ffmpeg_command(input_path: Path, output_path: Path, parameters: MediaP
         command.extend(["-b:a", f"{parameters.audio_bitrate_kbps}k"])
     command.append(str(output_path))
     return command
-
-
-def conversion_output_path(extension: str) -> Path:
-    """Create a unique output path for the converted media."""
-
-    output_dir = settings.MEDIA_ROOT / "conversions"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir / f"converted-{uuid4().hex}.{extension}"
 
 
 def get_ffprobe_path() -> str:

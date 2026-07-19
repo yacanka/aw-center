@@ -69,7 +69,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { IPanel, IProject } from '@/models/orgs'
+import { IPanel, IProject, type OrganizationOption } from '@/models/orgs'
 import { FormRules, NModal } from 'naive-ui'
 import { Edit24Regular } from '@vicons/fluent'
 import { validateForm } from '@/composables/forms'
@@ -99,7 +99,7 @@ const formRef = ref()
 const showModal = ref(false)
 const panel = ref<IPanel>({} as IPanel)
 const popupMode = ref()
-const projectOptions = ref([])
+const projectOptions = ref<OrganizationOption[]>([])
 
 function openModal(value: IPanel, mode: string) {
   popupMode.value = mode
@@ -107,7 +107,7 @@ function openModal(value: IPanel, mode: string) {
   panel.value = dummy
   showModal.value = true
   projectOptions.value = window.$orgsStore.getProjects.map((project: IProject) => {
-    return { label: project.name, value: project.slug }
+    return { label: project.name, value: project.name }
   })
 }
 
@@ -127,6 +127,7 @@ async function addDatabase() {
 
 async function updateDatabase() {
   if (!(await validateForm(formRef.value))) return
+  if (panel.value.id === undefined) throw new Error('Cannot update a panel without an ID.')
   try {
     await window.$orgsStore.updatePanel(panel.value.id, panel.value)
     closeModal()

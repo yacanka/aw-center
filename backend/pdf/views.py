@@ -7,7 +7,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from django.http import HttpResponse, HttpResponseBadRequest
 
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,6 +16,7 @@ from rest_framework import status
 from pypdf import PdfReader, PdfWriter
 from .comparer.text_comparator import PDFComparator, ComparisonOptions
 from .comparer.report_generator import HTMLReportGenerator
+from awcenter.file_security import PDF_POLICY, validate_request_upload
 
 def _split_plan(num_pages: int, parts: int | None, pages_per_part: int | None):
     if parts is None and pages_per_part is None:
@@ -38,9 +39,7 @@ def _split_plan(num_pages: int, parts: int | None, pages_per_part: int | None):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def split_pdf_zip(request):
-    f = request.FILES.get("file", None)
-    if not f:
-        return HttpResponseBadRequest("PDF file is needed.")
+    f = validate_request_upload(request, "file", PDF_POLICY)
 
     def _to_int(val):
         try:
@@ -95,11 +94,8 @@ def split_pdf_zip(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def compare_pdf(request):
-    first_pdf = request.FILES["first"]
-    second_pdf = request.FILES["second"]
-
-    if not first_pdf or not second_pdf:
-        return Response("Pdf not found.", status=400)
+    first_pdf = validate_request_upload(request, "first", PDF_POLICY)
+    second_pdf = validate_request_upload(request, "second", PDF_POLICY)
 
     try:
         result = comparator.compare(BytesIO(first_pdf.read()), BytesIO(second_pdf.read()))

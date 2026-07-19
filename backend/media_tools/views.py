@@ -1,22 +1,21 @@
-from pathlib import Path
+from dataclasses import asdict
 
-from django.http import FileResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from awcenter.api_errors import ErrorCodes, error_response
-from .services import convert_uploaded_media, estimate_output_size, parse_parameters
+from awcenter.file_security import MEDIA_POLICY, UploadSecurityError, validate_request_upload
+from jobs.api import job_creation_response
+from jobs.services import create_job
+from .services import estimate_output_size, parse_parameters
 
 
 def get_uploaded_file(request):
     """Return the uploaded media file or raise a validation error."""
 
-    uploaded_file = request.FILES.get("file")
-    if not uploaded_file:
-        raise ValueError("Media file is required.")
-    return uploaded_file
+    return validate_request_upload(request, "file", MEDIA_POLICY)
 
 
 def get_request_parameters(request):
@@ -36,34 +35,29 @@ def preview_media(request):
         return Response(estimate_output_size(uploaded_file, parameters))
     except ValueError as error:
         return error_response(str(error), ErrorCodes.VALIDATION_ERROR, response_status=status.HTTP_400_BAD_REQUEST)
+    except UploadSecurityError:
+        raise
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def convert_media(request):
-    """Convert an uploaded image, audio, or video file with FFmpeg."""
+def create_media_job(request):
+    """Validate and enqueue a durable media conversion job."""
 
     try:
         uploaded_file = get_uploaded_file(request)
         parameters = get_request_parameters(request)
-        output_path = convert_uploaded_media(uploaded_file, parameters)
-        return create_download_response(output_path)
+        job, created = create_job(
+            owner=request.user,
+            kind="media.convert",
+            title=f"Convert {uploaded_file.name}",
+            parameters=asdict(parameters),
+            uploaded_file=uploaded_file,
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
+            request_id=getattr(request, "request_id", ""),
+        )
+        return job_creation_response(job, created)
     except ValueError as error:
         return error_response(str(error), ErrorCodes.VALIDATION_ERROR, response_status=status.HTTP_400_BAD_REQUEST)
-    except Exception:
-        return error_response("Media conversion failed.", ErrorCodes.ERROR, response_status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-def create_download_response(output_path: Path) -> FileResponse:
-    """Create a download response for a generated conversion file."""
-
-    response = FileResponse(output_path.open("rb"), as_attachment=True, filename=output_path.name)
-    response["Content-Type"] = "application/octet-stream"
-    original_close = response.close
-
-    def close_with_cleanup():
-        original_close()
-        output_path.unlink(missing_ok=True)
-
-    response.close = close_with_cleanup
-    return response
+    except UploadSecurityError:
+        raise

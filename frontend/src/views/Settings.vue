@@ -7,6 +7,7 @@ import PasswordPopup from '@/components/settings/PasswordPopup.vue'
 import { logout } from '@/stores/user'
 import { useUserStore } from '@/stores/user'
 import { applyPreferredTheme } from '@/services/theme'
+import type { IPreferences } from '@/models/auth'
 
 const router = useRouter()
 const store = useUserStore()
@@ -29,7 +30,7 @@ function handleThemeUpdate(value: boolean) {
   store.updatePreference({ theme: value ? 'dark' : 'light' })
 }
 
-function handlePrefUpdate(pref: object) {
+function handlePrefUpdate(pref: IPreferences) {
   store.updatePreference(pref)
 }
 
@@ -86,7 +87,7 @@ onMounted(() => {
           v-model:value="preferences.language"
           size="small"
           :options="LANGUAGES"
-          @update:value="(value: string) => handlePrefUpdate({ language: value })"
+          @update:value="(value: 'en' | 'tr') => handlePrefUpdate({ language: value })"
           :style="{ width: '100%' }"
         >
           <template #checked> Enabled </template>

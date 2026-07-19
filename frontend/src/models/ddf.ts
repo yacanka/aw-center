@@ -1,6 +1,12 @@
 export interface IDdf {
   id?: number
-  status?: string
-  title?: string
-  [key: string]: unknown
+  project: string
+  doc_name: string
+  doc_no: string
+  doc_issue: string
+  date: string
+  commentor: string
+  comments: string[][]
+  comment_types: string[]
+  path?: string
 }

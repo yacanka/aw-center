@@ -1,145 +1,143 @@
-import os
-import subprocess
-import tempfile
+"""Safe, cross-platform PowerPoint slide conversion services."""
+
 from pathlib import Path
-from PIL import Image
+import subprocess
+from tempfile import TemporaryDirectory
+
 from django.conf import settings
+from django.db import transaction
+from PIL import Image
+
 from .models import Presentation, Slide
 
 try:
-    import win32com.client  # type: ignore
     import pythoncom  # type: ignore
+    import win32com.client  # type: ignore
 except ImportError:
-    win32com = None
     pythoncom = None
-
-# Gereksinimler:
-# - LibreOffice (soffice)
-# - poppler-utils (pdftoppm)
-# Windows'ta alternatif: yüklü PowerPoint COM ile export (ek fonksiyon altta)
-
-SOFFICE = os.environ.get("SOFFICE_BIN", "soffice")
-PDFTOPPM = os.environ.get("PDFTOPPM_BIN", "pdftoppm")
+    win32com = None
 
 
-def convert_pptx_to_images(presentation: Presentation, dpi: int = 150):
+def convert_pptx_to_images(presentation: Presentation, dpi: int = 150) -> None:
+    """Convert a presentation with the available platform adapter."""
+
+    _set_status(presentation, "converting")
     try:
-        # 1) PPTX -> PDF
-        convert_pptx_with_powerpoint(presentation)
-        #convert_pptx_with_soffice(presentation)
-
-        presentation.status = "ready"
-        presentation.save(update_fields=["status"])
-
-    except subprocess.CalledProcessError:
-        presentation.status = "failed"
-        presentation.save(update_fields=["status"])
+        with TemporaryDirectory(prefix="aw-pptx-") as work_directory:
+            exporter = _select_exporter()
+            images = exporter(presentation, Path(work_directory), dpi)
+            _save_slides(presentation, images)
+        _set_status(presentation, "ready")
+    except Exception:
+        _set_status(presentation, "failed")
         raise
 
 
+def convert_pptx_with_powerpoint(
+    presentation: Presentation, work_directory: Path, dpi: int = 150
+) -> list[Path]:
+    """Export slides with the Windows PowerPoint COM adapter."""
 
-
-def convert_pptx_with_powerpoint(presentation: Presentation):
-    """PowerPoint COM kullanarak PPTX'i slayt görsellerine dönüştürür"""
+    del dpi
     if win32com is None or pythoncom is None:
-        raise RuntimeError("PowerPoint COM conversion requires a Windows environment.")
+        raise RuntimeError("PowerPoint COM conversion is unavailable.")
+    output_directory = work_directory / "slides"
+    output_directory.mkdir(parents=True, exist_ok=True)
+    _powerpoint_export(Path(presentation.file.path), output_directory)
+    return sorted(path for path in output_directory.iterdir() if path.suffix.lower() == ".png")
 
-    pptx_path = Path(presentation.file.path)
-    slides_dir = Path(settings.MEDIA_ROOT) / "slides"
-    thumbs_dir = slides_dir / "thumbs"
-    slides_dir.mkdir(parents=True, exist_ok=True)
-    thumbs_dir.mkdir(parents=True, exist_ok=True)
 
-    presentation.status = "converting"
-    presentation.save(update_fields=["status"])
+def convert_pptx_with_soffice(
+    presentation: Presentation, work_directory: Path, dpi: int = 150
+) -> list[Path]:
+    """Export slides with bounded LibreOffice and Poppler subprocesses."""
 
+    source_path = Path(presentation.file.path)
+    _run_command(_soffice_command(source_path, work_directory))
+    pdf_path = work_directory / f"{source_path.stem}.pdf"
+    if not pdf_path.is_file():
+        raise RuntimeError("LibreOffice did not produce a PDF output.")
+    output_base = work_directory / "slide"
+    _run_command([settings.PDFTOPPM_BIN, "-png", "-r", str(dpi), str(pdf_path), str(output_base)])
+    return sorted(work_directory.glob("slide-*.png"))
+
+
+def _select_exporter():
+    if win32com is not None and pythoncom is not None:
+        return convert_pptx_with_powerpoint
+    return convert_pptx_with_soffice
+
+
+def _powerpoint_export(source_path: Path, output_directory: Path) -> None:
+    pythoncom.CoInitialize()
+    application = None
+    opened_presentation = None
     try:
-        # PowerPoint uygulamasını başlat (görünmeden)
-        pythoncom.CoInitialize()
-        app = win32com.client.Dispatch("PowerPoint.Application")
-        app.Visible = True
-
-        # PPTX dosyasını aç
-        pres = app.Presentations.Open(str(pptx_path), WithWindow=False)
-
-        # Slaytları PNG olarak dışa aktar
-        out_dir = slides_dir / f"pres_{presentation.id}"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        pres.Export(str(out_dir), "PNG")
-
-        pres.Close()
-        app.Quit()
-
-        # Oluşan PNG'leri sırala ve veritabanına kaydet
-        for idx, img_path in enumerate(sorted(out_dir.glob("*.PNG")), start=1):
-            im = Image.open(img_path)
-            im_thumb = im.copy()
-            im_thumb.thumbnail((512, 512))
-            thumb_path = thumbs_dir / f"{presentation.id}_{idx}_thumb.png"
-            im_thumb.save(thumb_path)
-
-            Slide.objects.update_or_create(
-                presentation=presentation, index=idx,
-                defaults={
-                    "image": f"slides/pres_{presentation.id}/{img_path.name}",
-                    "thumb": f"slides/thumbs/{presentation.id}_{idx}_thumb.png"
-                }
-            )
-
-        presentation.status = "ready"
-        presentation.save(update_fields=["status"])
-
-    except Exception as e:
-        presentation.status = "failed"
-        presentation.save(update_fields=["status"])
-        raise e
+        application = win32com.client.Dispatch("PowerPoint.Application")
+        opened_presentation = application.Presentations.Open(str(source_path), WithWindow=False)
+        opened_presentation.Export(str(output_directory), "PNG")
+    finally:
+        if opened_presentation is not None:
+            opened_presentation.Close()
+        if application is not None:
+            application.Quit()
+        pythoncom.CoUninitialize()
 
 
-def convert_pptx_with_soffice(presentation: Presentation):
-    pres_path = presentation.file.path
-    workdir = tempfile.mkdtemp(prefix="pptxconv_")
-    pdf_path = str(Path(workdir) / "out.pdf")
+def _soffice_command(source_path: Path, work_directory: Path) -> list[str]:
+    return [
+        settings.SOFFICE_BIN,
+        "--headless",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(work_directory),
+        str(source_path),
+    ]
 
-    presentation.status = "converting"
+
+def _run_command(command: list[str]) -> None:
+    subprocess.run(
+        command,
+        check=True,
+        capture_output=True,
+        timeout=settings.PPTX_CONVERSION_TIMEOUT_SECONDS,
+    )
+
+
+@transaction.atomic
+def _save_slides(presentation: Presentation, image_paths: list[Path]) -> None:
+    if not image_paths:
+        raise RuntimeError("Presentation conversion produced no slides.")
+    presentation.slides.all().delete()
+    for index, image_path in enumerate(image_paths, start=1):
+        _save_slide(presentation, image_path, index)
+
+
+def _save_slide(presentation: Presentation, image_path: Path, index: int) -> None:
+    slides_directory, thumbs_directory = _output_directories()
+    slide_name = f"{presentation.id}_{index}.png"
+    thumb_name = f"{presentation.id}_{index}_thumb.png"
+    with Image.open(image_path) as image:
+        image.save(slides_directory / slide_name)
+        thumbnail = image.copy()
+        thumbnail.thumbnail((512, 512))
+        thumbnail.save(thumbs_directory / thumb_name)
+    Slide.objects.update_or_create(
+        presentation=presentation,
+        index=index,
+        defaults={"image": f"slides/{slide_name}", "thumb": f"slides/thumbs/{thumb_name}"},
+    )
+
+
+def _output_directories() -> tuple[Path, Path]:
+    slides_directory = Path(settings.MEDIA_ROOT) / "slides"
+    thumbs_directory = slides_directory / "thumbs"
+    slides_directory.mkdir(parents=True, exist_ok=True)
+    thumbs_directory.mkdir(parents=True, exist_ok=True)
+    return slides_directory, thumbs_directory
+
+
+def _set_status(presentation: Presentation, status_value: str) -> None:
+    presentation.status = status_value
     presentation.save(update_fields=["status"])
-
-    subprocess.check_call([
-        SOFFICE, "--headless", "--convert-to", "pdf", "--outdir", workdir, pres_path
-    ])
-    # LibreOffice bazen çıktı dosya adını korur
-    guess_pdf = Path(workdir) / (Path(pres_path).stem + ".pdf")
-    if guess_pdf.exists():
-        pdf_path = str(guess_pdf)
-
-    # 2) PDF -> PNG'ler
-    # out-1.png, out-2.png ...
-    out_base = str(Path(workdir) / "out")
-    subprocess.check_call([PDFTOPPM, "-png", f"-r", str(dpi), pdf_path, out_base])
-
-    pngs = sorted(Path(workdir).glob("out-*.png"))
-
-    # 3) PNG'leri MEDIA_ROOT'a taşı ve Slide kaydet
-    for idx, p in enumerate(pngs, start=1):
-        # thumb üret
-        im = Image.open(p)
-        im_thumb = im.copy()
-        im_thumb.thumbnail((512, 512))
-
-        slides_dir = Path(settings.MEDIA_ROOT) / "slides"
-        thumbs_dir = slides_dir / "thumbs"
-        slides_dir.mkdir(parents=True, exist_ok=True)
-        thumbs_dir.mkdir(parents=True, exist_ok=True)
-
-        slide_filename = f"{presentation.id}_{idx}.png"
-        thumb_filename = f"{presentation.id}_{idx}_thumb.png"
-
-        slide_path = slides_dir / slide_filename
-        thumb_path = thumbs_dir / thumb_filename
-
-        im.save(slide_path)
-        im_thumb.save(thumb_path)
-
-        Slide.objects.update_or_create(
-            presentation=presentation, index=idx,
-            defaults={"image": f"slides/{slide_filename}", "thumb": f"slides/thumbs/{thumb_filename}"}
-        )

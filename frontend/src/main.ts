@@ -42,7 +42,8 @@ export async function initializeSession() {
 }
 
 async function redirectAfterSessionCheck(isLoaded: boolean) {
-  if (!isLoaded && router.currentRoute.value.name !== 'login') {
+  const isPublicPage = router.currentRoute.value.meta.public === true
+  if (!isLoaded && !isPublicPage) {
     await router.push({ name: 'login' })
   }
   if (isLoaded && router.currentRoute.value.name === 'login') {

@@ -1,25 +1,12 @@
-from django.shortcuts import render
-from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
-from django import forms
-from django.core.cache import cache
+from django.http import HttpResponse
 
-from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework import status
 
-import uuid
 import json
 from io import BytesIO
-from zipfile import ZipFile, ZIP_DEFLATED
-from base64 import b64decode, b64encode
-from time import sleep
-from utils.arrays import find_missing_elements
-
-class UploadForm(forms.Form):
-    file = forms.FileField()
+from awcenter.file_security import EXCEL_POLICY, validate_request_upload
+from .cover_pages import inspect_workbook_columns
 
 def read_excel_first_sheet(path):
     import pandas as pd
@@ -41,30 +28,19 @@ def pick_key_columns(df, key_cols=None):
             return [k]
     raise ValueError("Key column is not set and 'id' not found. Use key_cols=['...'].")
 
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def test(request):
-    return Response("HELP")
-
 @api_view(["POST"])
 def get_excel_columns(request):
-    form = UploadForm(request.POST, request.FILES)
-    if form.is_valid():
-        excel_file = request.FILES["file"]
-        import pandas as pd
-
-        df = pd.read_excel(excel_file)
-        return Response(df.columns.tolist())
-
-    return Response("Something went wrong.", status=400)
+    excel_file = validate_request_upload(request, "file", EXCEL_POLICY)
+    columns, _missing = inspect_workbook_columns(excel_file)
+    return Response(columns)
 
 @api_view(["POST"])
 def compare(request):
+    first_excel = validate_request_upload(request, "first", EXCEL_POLICY)
+    second_excel = validate_request_upload(request, "second", EXCEL_POLICY)
     try:
         import pandas as pd
 
-        first_excel = request.FILES["first"]
-        second_excel = request.FILES["second"]
         parameters = json.loads(request.data["json"])
         key_columns = parameters["keyColumns"]
 
@@ -156,108 +132,3 @@ def compare(request):
         #})
     except Exception as e:
         return Response({"detail": f"Something went wrong: {e}"}, status=400)
-
-reference_list = [
-    "Cover Page Number",
-    "Cover Page Issue",
-    "ATA Chapter",
-    "Disciplines",
-    "Technical Document Name",
-    "CAT",
-    "Requirements",
-    "MoC",
-    "Technical Document Number",
-    "Technical Document Issue",
-    "AS Name",
-    "CVE Name",
-]
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def create_queue(request):
-    file = request.FILES.get("file", None)
-    data = {}
-    if file:
-        data["file"] = file.read()
-        data["parameters"] = request.data.get("parameters", None)
-    else:
-        data = request.data
-
-    new_uuid = str(uuid.uuid4())
-    cache.set(new_uuid, data)
-    return Response(new_uuid)
-
-def excel_to_cover_pages_stream(request, uuid):
-    response = StreamingHttpResponse(excel_to_cover_pages_action(str(uuid)), content_type="text/event-stream")
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"
-    return response
-
-def excel_to_cover_pages_action(uuid):
-    import pandas as pd
-    from docxtpl import DocxTemplate
-
-    obj = cache.get(uuid, None)
-    if obj:
-        try:
-            parameters = json.loads(obj["parameters"])
-            df = pd.read_excel(BytesIO(obj["file"]))
-            missing_elements = find_missing_elements(df.columns, reference_list, ignore_case=True)
-            if len(missing_elements) > 0:
-                print(f"Missing column names exist: {missing_elements}")
-                raise ValueError(missing_elements)
-
-            yield f'data: {json.dumps({"status": "info", "content": "[]"})}\n\n'
-
-            df = df.dropna(subset=["Cover Page Number", "Cover Page Issue"], how="any")
-            cover_page_numbers = df["Cover Page Number"]
-
-            if not cover_page_numbers.empty:
-                cover_page_number = cover_page_numbers.iloc[0]
-                print(cover_page_number)
-            else:
-                yield f'data: {json.dumps({"status": "success", "content": "Cannot detect project type from cover page numbers."})}\n\n'
-                return
-
-            if "B30" in cover_page_number:
-                project_name = "F-16 Block-30 ÖZGÜR-2 Block-30 Özgür-2 Work Package"
-            else:
-                project_name = "Unkown"
-
-            placeholders = [str(column).strip().lower().replace(' ', '_') for column in df.columns]
-
-            loader_percentage = 0
-            yield f'data: {json.dumps({"status": "progress", "percentage": loader_percentage, "content": "Starting..."})}\n\n'
-            cover_page_count = len(df)
-            inc_size = int(100 / cover_page_count)
-
-            d = DocxTemplate("cover_page_template.docx")
-            zip_buffer = BytesIO()
-            with ZipFile(zip_buffer, mode="w", compression=ZIP_DEFLATED) as zf:
-                for i in range(0, cover_page_count):
-                    row = dict(zip(placeholders, df.iloc[i]))
-                    row["requirements"] = str(row["requirements"]).strip().replace("\n", ", ").replace(",, ", ", ")
-                    row["project_name"] = project_name
-                    d.render(row)
-                    cover_filename = str(row["cover_page_number"]).split("/")[0] + ".docx"
-                    cover_page_buf = BytesIO()
-                    d.save(cover_page_buf)
-                    cover_page_buf.seek(0)
-                    zf.writestr(cover_filename, cover_page_buf.read())
-
-                    loader_percentage += inc_size
-                    res_content = f"{row['cover_page_number']} - {row['disciplines']} - {row['technical_document_name']}"
-                    yield f'data: {json.dumps({"status": "progress", "percentage": loader_percentage, "content": res_content})}\n\n'
-                    sleep(0.1)
-
-            encoded = b64encode(zip_buffer.getvalue()).decode()
-            yield f'data: {json.dumps({"status": "success", "content": encoded})}\n\n'
-        except ValueError as e:
-            print("Unavailable column names. Check the Excel!")
-            yield f'data: {json.dumps({"status": "info", "content": str(e)})}\n\n'
-            yield f'data: {json.dumps({"status": "error", "content": "Some column names are missing in the Excel file. Please ensure all required columns are present."})}\n\n'
-        except Exception as e:
-            print(f"Error: {e}")
-            yield f'data: {json.dumps({"status": "error", "content": f"Something went wrong: {e}"})}\n\n'
-
-    return Response("Something went wrong.", status=400)

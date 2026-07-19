@@ -135,7 +135,7 @@ const columns: DataTableColumns<IDdf> = [
     title: 'Comments',
     key: 'comments',
     filter: (value, row) => {
-      return Boolean(~row.comments.indexOf(value as string))
+      return row.comments.some((comment) => comment.includes(String(value)))
     },
     width: 120,
     ellipsis: {
@@ -201,6 +201,7 @@ const columns: DataTableColumns<IDdf> = [
                     positiveText: 'Yes',
                     negativeText: 'No',
                     onPositiveClick: () => {
+                      if (row.id === undefined) return
                       store
                         .deleteDdf(row.id)
                         .then(() => {
@@ -270,7 +271,7 @@ function showpUploadForm() {
 }
 
 function rowKey(row: IDdf) {
-  return row.id
+  return row.id ?? `${row.project}:${row.doc_no}:${row.doc_issue}`
 }
 
 function showAddDdfForm(mode: string) {

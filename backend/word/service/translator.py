@@ -4,6 +4,7 @@ from docx import Document
 from io import BytesIO
 import threading
 from typing import Dict
+from django.conf import settings
 
 _lock = threading.Lock()
 _registry: Dict[str, "DocTranslator"] = {}
@@ -17,11 +18,6 @@ class DocTranslator:
 
     REVERSE_PLACEHOLDERS = {v: k for k, v in PLACEHOLDERS.items() if v}
 
-    MODELS = {
-        "tr2en": r"models\opus-mt-tr-en",
-        "en2tr": r"models\opus-mt-tc-big-en-tr"
-    }
-
     def __init__(self, translate_type=None):
         if importlib.util.find_spec("transformers") is None:
             raise ImportError(
@@ -33,7 +29,7 @@ class DocTranslator:
 
         from transformers import MarianMTModel, MarianTokenizer
 
-        model_id = self.MODELS.get(translate_type)
+        model_id = get_translation_model_path(translate_type)
         if not model_id:
             raise ValueError("Unsupported translate type.")
 
@@ -291,9 +287,11 @@ class DocTranslator:
 
     def translate_docx_req(self, input_bytes: BytesIO):
         doc = Document(input_bytes)
-        for p, i, total, ptype in self.iter_all_paragraphs(doc):
+        paragraphs = list(self.iter_all_paragraphs(doc))
+        total = len(paragraphs)
+        for index, (p, _index, _total, ptype) in enumerate(paragraphs, start=1):
             self.translate_paragraph_preserve_runs(p)
-            yield ("progress", (i, total, ptype))
+            yield ("progress", (index, total, ptype))
 
         buffer = BytesIO()
         doc.save(buffer)
@@ -309,3 +307,16 @@ def get_text_generator(generator_type) -> DocTranslator:
                 dt = DocTranslator(generator_type)
                 _registry[generator_type] = dt
     return dt
+
+
+def get_translation_model_path(translation_type):
+    """Resolve an allowlisted environment-backed local translation model."""
+
+    models = {
+        "tr2en": settings.WORD_TRANSLATION_TR_EN_MODEL,
+        "en2tr": settings.WORD_TRANSLATION_EN_TR_MODEL,
+    }
+    model_path = models.get(translation_type)
+    if not model_path:
+        raise ValueError("Unsupported translate type.")
+    return str(model_path)
