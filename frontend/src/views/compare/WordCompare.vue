@@ -64,7 +64,7 @@ import { ref, onMounted } from 'vue'
 import { NModal, UploadFileInfo } from 'naive-ui'
 import axios from 'axios'
 import { selectedUploadFile } from '@/utils/uploads'
-import { useExcelStore } from '@/stores/api'
+import { useExcelStore } from '@/stores/excel'
 import { popupStore } from '@/stores/popupStore'
 import { Document24Regular } from '@vicons/fluent'
 

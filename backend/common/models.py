@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 
 from django.utils import timezone
 from django.core.validators import RegexValidator
@@ -106,3 +107,49 @@ class ResponsibleBase(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class CompDocImportAudit(models.Model):
+    """Record a sanitized compliance-document import lifecycle."""
+
+    class Status(models.TextChoices):
+        PROCESSING = "processing", "Processing"
+        SUCCESS = "success", "Success"
+        PARTIAL = "partial", "Partial"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project_slug = models.CharField(max_length=64, db_index=True)
+    source_filename = models.CharField(max_length=255)
+    source_size = models.PositiveBigIntegerField(default=0)
+    source_sha256 = models.CharField(max_length=64, editable=False)
+    imported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="compdoc_import_audits",
+    )
+    imported_by_username = models.CharField(max_length=150)
+    request_id = models.CharField(max_length=64, blank=True)
+    header_row = models.PositiveSmallIntegerField(null=True)
+    mapped_columns = models.JSONField(default=list)
+    unmapped_columns = models.JSONField(default=list)
+    missing_columns = models.JSONField(default=list)
+    total_rows = models.PositiveIntegerField(default=0)
+    created_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    rejected_count = models.PositiveIntegerField(default=0)
+    error_summary = models.JSONField(default=list)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PROCESSING,
+        db_index=True,
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True)
+    duration_ms = models.PositiveIntegerField(null=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [models.Index(fields=["project_slug", "started_at"])]

@@ -33,7 +33,8 @@
 
 <script setup>
 import { defineAsyncComponent, ref, onMounted } from 'vue'
-import { statusOptions, statusColors } from '@/stores/datatable'
+import { statusColors, statusOptions } from '@/services/compdocCatalog'
+import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
 import {
   calculateBarChart,
   calculatePieChart,
@@ -49,7 +50,6 @@ const Bar = defineAsyncComponent(() => import('vue-chartjs').then((module) => mo
 const Line = defineAsyncComponent(() => import('vue-chartjs').then((module) => module.Line))
 ensureChartPluginsRegistered()
 
-const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 const showModal = ref(false)
 const activeTab = ref(null)
 const pieChartData = ref({

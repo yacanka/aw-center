@@ -14,9 +14,12 @@ import {
   SelectOption,
   PaginationInfo
 } from 'naive-ui'
-import { useCompdocStore, useDocproofStore, useOrgsStore } from '@/stores/api'
+import { useCompdocStore } from '@/stores/compdoc'
+import { useDocproofStore } from '@/stores/docproof'
+import { useOrgsStore } from '@/stores/organizations'
 import UpdateForm from '@/components/compdoc/CompDocPopup.vue'
 import UploadPopup from '@/components/compdoc/UploadPopup.vue'
+import ImportAuditHistory from '@/components/compdoc/ImportAuditHistory.vue'
 import Details from '@/components/compdoc/DetailedInfo.vue'
 import GraphComponent from '@/components/compdoc/Graph.vue'
 import DownloadComponent from '@/components/Downloader.vue'
@@ -32,18 +35,17 @@ import {
   Document24Regular
 } from '@vicons/fluent'
 import { useRoute } from 'vue-router'
+import { useUserStore } from '@/stores/user'
 import { getType } from '@/utils/general'
+import { getDateFilterMenuFunc } from '@/components/table/advancedFilterMenus'
+import { getStringFilterMenuFunc } from '@/components/table/valueFilterMenus'
 import {
-  getDateFilterMenuFunc,
-  getStringFilterMenuFunc,
-  getStringFilterFunc,
-  getArrayFilterFunc,
-  getDateFilterFunc,
-  statusOptions,
-  statusColors,
+  createEmptyCompdoc,
   mocOptions,
-  createEmpty
-} from '@/stores/datatable'
+  statusColors,
+  statusOptions
+} from '@/services/compdocCatalog'
+import { getArrayFilterFunc, getDateFilterFunc, getStringFilterFunc } from '@/services/tableFilters'
 import { IColumnSetting, ICompDoc } from '@/models/compdocs'
 import {
   buildCompdocTableQuery,
@@ -57,6 +59,10 @@ const route = useRoute()
 const store = useCompdocStore()
 const orgs = useOrgsStore()
 const proofStore = useDocproofStore()
+const userStore = useUserStore()
+const canViewImportAudits = computed(() =>
+  userStore.hasEffectiveRole('common', 'view_compdocimportaudit')
+)
 
 const columnSettings = ref({
   visible: false,
@@ -521,7 +527,7 @@ function rowKey(row: ICompDoc) {
 }
 
 function showAddCompDocForm(mode: string) {
-  popupComponent.value.openModal(createEmpty(), mode)
+  popupComponent.value.openModal(createEmptyCompdoc(), mode)
 }
 
 const getFilteredTable = () => {
@@ -681,6 +687,10 @@ onUnmounted(() => {
         </template>
         Import
       </n-button>
+      <ImportAuditHistory
+        :allowed="canViewImportAudits"
+        :project="String(route.params.project || '')"
+      />
       <n-button @click="showAddCompDocForm('new')" :focusable="false">
         <template #icon>
           <n-icon size="24">

@@ -2,12 +2,9 @@ import { reactive, type Ref } from 'vue'
 import type { DataTableColumn, DataTableColumns, SelectOption } from 'naive-ui'
 import type { IColumnSetting, ICompDoc } from '@/models/compdocs'
 import { toTitleCase } from '@/utils/text'
-import {
-  getDateFilterFunc,
-  getDateFilterMenuFunc,
-  getStringFilterFunc,
-  getStringFilterMenuFunc
-} from '@/stores/datatable'
+import { getDateFilterMenuFunc } from '@/components/table/advancedFilterMenus'
+import { getStringFilterMenuFunc } from '@/components/table/valueFilterMenus'
+import { getDateFilterFunc, getStringFilterFunc } from '@/services/tableFilters'
 
 const COLUMN_SETTINGS_STORAGE_KEY = 'compdocs>column_settings'
 const DISABLED_ACTION_KEY = 'actions'

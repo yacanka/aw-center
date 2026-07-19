@@ -38,7 +38,11 @@
     <template #footer>
       <n-space justify="end">
         <n-button @click="cancelPreview">Cancel</n-button>
-        <n-button type="primary" :loading="confirmingImport" @click="confirmImport"
+        <n-button
+          type="primary"
+          :loading="confirmingImport"
+          :disabled="Boolean(preview?.missing_columns.length)"
+          @click="confirmImport"
           >Confirm Import</n-button
         >
       </n-space>
@@ -59,7 +63,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import axios from 'axios'
-import { useCompdocStore } from '@/stores/api'
+import { useCompdocStore } from '@/stores/compdoc'
 import { popupStore } from '@/stores/popupStore'
 import { isPlainObject } from '@/utils/general'
 import { InvalidDocument } from '@/models/compdocs'

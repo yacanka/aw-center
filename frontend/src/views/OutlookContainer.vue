@@ -2,7 +2,7 @@
 import { h, ref } from 'vue'
 import { NUpload, NUploadDragger, NButton, NCard, NDataTable, useMessage, NSwitch } from 'naive-ui'
 import type { NotificationType } from 'naive-ui'
-import { useOutlookStore } from '@/stores/api'
+import { useOutlookStore } from '@/stores/outlook'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
 import { IAttachment, IMsg } from '@/models/outlook'

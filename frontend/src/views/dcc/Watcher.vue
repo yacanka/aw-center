@@ -2,7 +2,8 @@
 import { computed, h, ref, onMounted } from 'vue'
 import axios from 'axios'
 import { NButton, NDataTable, NSpace, NTag, NSpin, PaginationInfo } from 'naive-ui'
-import { useDccStore, useOrgsStore } from '@/stores/api'
+import { useDccStore } from '@/stores/dcc'
+import { useOrgsStore } from '@/stores/organizations'
 import { IDcc } from '@/models/dcc'
 import UpdateForm from '@/components/dcc/UpdatePopup.vue'
 import UploadForm from '@/components/dcc/UploadPopup.vue'
@@ -14,9 +15,9 @@ import { Add24Regular, SlideSearch24Regular, EqualCircle20Regular } from '@vicon
 import { IEcd } from '@/models/ecd'
 import {
   getBooleanFilterMenuFunc,
-  getStringFilterFunc,
   getStringFilterMenuFunc
-} from '@/stores/datatable'
+} from '@/components/table/valueFilterMenus'
+import { getStringFilterFunc } from '@/services/tableFilters'
 
 const store = useDccStore()
 const orgstore = useOrgsStore()

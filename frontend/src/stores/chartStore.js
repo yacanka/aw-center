@@ -3,6 +3,7 @@ import { getDaysDifference, parseDateFlex, getTodayEUFormat, findPreviousDate } 
 import 'chartjs-adapter-date-fns'
 import { parse } from 'date-fns'
 import { useUserStore } from './user'
+import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
 
 import {
   ArcElement,
@@ -45,8 +46,6 @@ export function ensureChartPluginsRegistered() {
 
   areChartPluginsRegistered = true
 }
-
-const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 
 export function calculateBarChart(compdocs) {
   let counter = {

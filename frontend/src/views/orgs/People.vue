@@ -58,7 +58,7 @@ import {
   ArrowReset24Regular,
   Checkmark24Regular
 } from '@vicons/fluent'
-import { useOrgsStore } from '@/stores/api'
+import { useOrgsStore } from '@/stores/organizations'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import PeoplePopup from '@/components/orgs/PeoplePopup.vue'
 import PeopleUpload from '@/components/orgs/PeopleUpload.vue'

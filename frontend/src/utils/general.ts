@@ -3,7 +3,7 @@ export function getType(value: any) {
   return Object.prototype.toString.call(value).slice(8, -1).toLowerCase()
 }
 
-export function isPlainObject(obj: any) {
+export function isPlainObject(obj: unknown): obj is Record<string, unknown> {
   return Object.prototype.toString.call(obj) === '[object Object]'
 }
 

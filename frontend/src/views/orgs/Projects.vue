@@ -35,7 +35,7 @@ import {
   Checkmark24Regular
 } from '@vicons/fluent'
 import { setUser, getUser, isAuthenticated, logout, setProjectName } from '@/stores/user'
-import { useOrgsStore } from '@/stores/api'
+import { useOrgsStore } from '@/stores/organizations'
 import ProjectsPopup from '@/components/orgs/ProjectsPopup.vue'
 
 import { RouterLink, RouterView, useRouter } from 'vue-router'

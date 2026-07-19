@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { usePptxStore } from '@/stores/api'
+import { usePptxStore } from '@/stores/presentations'
 import {
   useMessage,
   NUpload,
@@ -29,8 +29,7 @@ async function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestO
     window.$loadingBar.finish()
     msg.success('Uploaded and converted')
     emit('uploaded', { id: data.id, title: data.title })
-  } catch (err) {
-    console.error(err)
+  } catch {
     onError()
     window.$loadingBar.error()
   }

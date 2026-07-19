@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
-import { usePptxStore } from '@/stores/api'
-import { NDataTable, NButton, useMessage, NSpace } from 'naive-ui'
+import { onMounted, h } from 'vue'
+import { usePptxStore } from '@/stores/presentations'
+import { NDataTable, NButton, useMessage, NSpace, type DataTableColumns } from 'naive-ui'
+import type { Presentation } from '@/models/presentation'
 
 const emits = defineEmits<{ (e: 'select', p: { id: number; title: string }): void }>()
 const msg = useMessage()
-const rows = ref<any[]>([])
 const store = usePptxStore()
 
 async function fetchList() {
-  const data = await store.fetchPresentations()
-  rows.value = data
+  await store.fetchPresentations()
 }
 
 async function remove(id: number) {
@@ -27,20 +26,20 @@ async function reconvert(id: number) {
 
 onMounted(fetchList)
 
-const columns = [
+const columns: DataTableColumns<Presentation> = [
   { title: 'Title', key: 'title' },
   { title: 'Status', key: 'status' },
   {
     title: 'Slides',
     key: 'slides',
-    render(row: any) {
+    render(row) {
       return row.slides?.length ?? 0
     }
   },
   {
     title: 'Actions',
     key: 'actions',
-    render(row: any) {
+    render(row) {
       return h(
         NSpace,
         {},

@@ -27,7 +27,7 @@ Platform; JIRA, DOORS, Excel, Word, PDF, Outlook, DocProof, PowerPoint ve medya 
 AW Center aşağıdaki iş akışlarını destekler:
 
 - **DCC / ECD yönetimi:** JIRA tabanlı Design Change Control kayıtlarını izleme, oluşturma, güncelleme, değerlendirme, e-posta gönderimi ve belge üretimi.
-- **DDF ve CompDoc takibi:** Proje bazlı compliance document listeleri, Excel içe aktarma, önizleme/onay akışı, alan keşfi, dinamik kolon ayarları, grafikler ve durum takibi.
+- **DDF ve CompDoc takibi:** Proje bazlı compliance document listeleri, upsert destekli Excel içe aktarma, önizleme/onay akışı, SHA-256 kaynak kanıtlı import audit'i, alan keşfi, dinamik kolon ayarları, grafikler ve durum takibi.
 - **JIRA otomasyonları:** JIRA issue arama, issue detay okuma, subtask üretimi, Excel tabanlı toplu subtask üretimi ve akış durumlarının SSE ile canlı izlenmesi.
 - **DOORS otomasyonları:** Excel verisinden DXL script üretimi, DOORS çalıştırma entegrasyonu ve PoC linkleme ekranları.
 - **Doküman karşılaştırma:** Excel, Word ve PDF karşılaştırma araçları.
@@ -71,6 +71,7 @@ AW Center aşağıdaki iş akışlarını destekler:
 - **Framework:** Vue 3 + Vite + TypeScript.
 - **UI:** Naive UI.
 - **State:** Pinia.
+- **Domain state sınırları:** DCC, DDF, DOORS, DocProof, organizasyon, Excel, PowerPoint ve Outlook işlemleri ayrı typed Pinia store'larında tutulur; bileşenler merkezi bir API-store facade'ı yerine ilgili domain store'unu doğrudan kullanır.
 - **Router:** Vue Router, browser history kökü `/app/`.
 - **Route güvenliği:** `welcome`, `login` ve `invite` açıkça public işaretlenir; diğer route'lar deny-by-default authenticated kabul edilir. Hassas ekranlar merkezi access policy üzerinden staff veya doğrudan/grup kaynaklı Django permission kontrolü uygular.
 - **HTTP:** Axios merkezi yapılandırması `frontend/src/services/http.ts`.
@@ -171,6 +172,9 @@ Frontend ekranları: `/app/compdocs/:project`, `/app/compdocs/coverpagecreator`,
 - Dinamik kolon seçimi ve kullanıcı bazlı kolon tercihleri.
 - Excel import önizleme ve kullanıcı onayı sonrası kayıt.
 - Eksik kolon, unmapped kolon ve satır validation uyarılarını gösterme.
+- `cover_page_no` üzerinden create/update upsert ve satır bazlı kısmi başarı sayaçları.
+- Dosya adı/boyutu/SHA-256, importing user, request reference, detected mappings ve sonuç sayılarını saklayan import audit izi.
+- `common.view_compdocimportaudit` yetkisine bağlı proje bazlı geçmiş ve detay görünümü.
 - Server-side pagination ve filtreleme.
 - DocProof arama entegrasyonu.
 - Durum akışı ve gecikme göstergeleri.
@@ -178,6 +182,11 @@ Frontend ekranları: `/app/compdocs/:project`, `/app/compdocs/coverpagecreator`,
 - Doküman analiz ekranı.
 
 Proje bazlı CompDoc route'ları registry ile etkin projeler için bağlanır: `ozgur`, `piku`, `aesa`, `havasoj`, `hys`, `blok30`.
+
+Audit endpointleri:
+
+- `GET /projects/import-audits/`
+- `GET /projects/import-audits/<uuid>/`
 
 ### 4. DOORS Araçları
 
@@ -714,6 +723,7 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `AWCENTER_ABSOLUTE_MAX_UPLOAD_BYTES` | 600 MiB | Multipart stream işlenirken uygulanan deployment-wide acil durdurma sınırı. |
 | `AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES` | 250 MiB | OOXML/ZIP içeriğinin toplam açılmış boyut sınırı. |
 | `AWCENTER_MAX_ARCHIVE_ENTRIES` | 5000 | OOXML/ZIP içindeki maksimum entry sayısı. |
+| `AWCENTER_MAX_COMPDOC_IMPORT_ROWS` | 10000 | Tek CompDoc Excel importunda işlenecek maksimum veri satırı. |
 | `DATABASE_URL` | Varsayılan `backend/db.sqlite3` | Primary database URL'i. Production için PostgreSQL önerilir. |
 | `DB_OLD_URL` | Varsayılan `backend/db_old.sqlite3` | Legacy database bağlantısı. |
 | `DATABASE_CONN_MAX_AGE` | Varsayılan `60` | Persistent database connection süresi. |
@@ -775,6 +785,8 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `VITE_VERSION` | Main view'de sürüm gösterimi. |
 | `VITE_APP_TITLE` | Home ekranı başlığı. |
 | `VITE_SHOW_DELAYED_COMPDOCS` | CompDoc gecikme göstergeleri için production-safe Vite değişken adı. |
+
+Boolean Vite değişkenleri merkezi parser üzerinden değerlendirilir; `false`, `0`, `no` ve `off` metinleri kapalı kabul edilir. Böylece environment string değerleri yanlışlıkla bir özelliği etkinleştirmez.
 
 ### Production Cookie/CORS Önerileri
 

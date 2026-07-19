@@ -102,7 +102,7 @@ import { FormRules, NModal } from 'naive-ui'
 import { IEcd } from '@/models/ecd'
 import { validateForm } from '@/composables/forms'
 import NSearch from '@/components/NSearch.vue'
-import { useOrgsStore } from '@/stores/api'
+import { useOrgsStore } from '@/stores/organizations'
 
 const showModal = ref(false)
 const ecd = ref<IEcd>({} as IEcd)

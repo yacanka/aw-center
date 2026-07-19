@@ -53,7 +53,7 @@
 import { computed, ref, onMounted } from 'vue'
 import axios from 'axios'
 import { createAuthenticatedEventSource } from '@/services/eventSource'
-import { useOrgsStore } from '@/stores/api'
+import { useOrgsStore } from '@/stores/organizations'
 import SubtaskList from '@/components/jira/SubtaskList.vue'
 import { toTitleCase } from '@/utils/text'
 import { NotificationType } from 'naive-ui'

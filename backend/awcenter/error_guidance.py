@@ -30,6 +30,12 @@ _EXACT_GUIDANCE = {
     "UPLOAD_TOO_LARGE": ErrorGuidance(False, "Reduce the file size or split it into smaller inputs."),
     "UPLOAD_TYPE_UNSUPPORTED": ErrorGuidance(False, "Choose one of the supported file formats."),
     "UPLOAD_UNSAFE_NAME": ErrorGuidance(False, "Rename the file using a simple safe filename."),
+    "COMPDOC_IMPORT_CONFIRMATION_REQUIRED": ErrorGuidance(
+        False, "Review the detected mappings before confirming the import."
+    ),
+    "COMPDOC_IMPORT_COLUMNS_MISSING": ErrorGuidance(
+        False, "Add the listed required columns and upload the workbook again."
+    ),
     "IDEMPOTENCY_CONFLICT": ErrorGuidance(False, "Refresh the job list before submitting new data."),
     "INVITATION_EXPIRED": ErrorGuidance(False, "Ask an administrator to create a new invitation."),
     "INVITATION_REVOKED": ErrorGuidance(False, "Ask an administrator for the newest invitation."),
@@ -50,6 +56,7 @@ _EXACT_GUIDANCE = {
 }
 
 _PREFIX_GUIDANCE = (
+    ("COMPDOC_IMPORT_", ErrorGuidance(False, "Review the import audit and correct the workbook.")),
     ("UPLOAD_ARCHIVE_", ErrorGuidance(False, "Use a safe, unencrypted archive with fewer entries.")),
     ("UPLOAD_", ErrorGuidance(False, "Review the file requirements and choose another input.")),
     ("INVITATION_", ErrorGuidance(False, "Ask an administrator to review the invitation status.")),

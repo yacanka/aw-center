@@ -51,7 +51,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { IUser } from '@/models/auth'
-import { useAuthStore } from '@/stores/api'
+import { useAuthStore } from '@/stores/auth'
 import { FormRules, NModal } from 'naive-ui'
 import { validateForm } from '@/composables/forms'
 
