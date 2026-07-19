@@ -103,7 +103,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { Save24Regular } from '@vicons/fluent'
-import { useOrgsStore } from '@/stores/api'
+import { useOrgsStore } from '@/stores/organizations'
 import NInputWidth from '@/components/NInputWidth.vue'
 import JiraFieldInput from './JiraFieldInput.vue'
 import { IJiraField, ISubtaskItem, ISubtaskListItem, JiraFieldValue } from '@/models/jira'

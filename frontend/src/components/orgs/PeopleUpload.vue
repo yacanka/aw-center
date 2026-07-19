@@ -18,17 +18,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { NModal, NUpload, UploadCustomRequestOptions } from 'naive-ui'
-import { useOrgsStore } from '@/stores/api'
+import { useOrgsStore } from '@/stores/organizations'
 import { popupStore } from '@/stores/popupStore'
 import { isPlainObject } from '@/utils/general'
 
 const showModal = ref(false)
 const store = useOrgsStore()
 const popup = popupStore()
-
-onMounted(() => {})
 
 function openModal() {
   showModal.value = true
@@ -54,14 +52,14 @@ async function handleUploadReq({ file }: UploadCustomRequestOptions) {
     if (res.error_list) {
       let result = ''
       const error_list = res.error_list
-      error_list.forEach((person: any) => {
+      error_list.forEach((person) => {
         let errorText = ''
         if (isPlainObject(person.error)) {
           errorText = Object.entries(person.error)
             .map(([key, value]) => `${key}: ${value}`)
             .join('\n')
         } else {
-          errorText = person.error
+          errorText = String(person.error)
         }
         result += `[Name] ${person.name}\n[Error] ${errorText}\n\n`
       })

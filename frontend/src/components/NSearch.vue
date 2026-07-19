@@ -40,7 +40,7 @@
 import { ref, computed, nextTick, PropType } from 'vue'
 import { findMostSimilarWord } from '@/utils/general'
 import { IPerson } from '@/models/orgs'
-import { useOrgsStore } from '@/stores/api'
+import { useOrgsStore } from '@/stores/organizations'
 
 type ModType = 'id' | 'name' | 'mail'
 

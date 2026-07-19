@@ -49,6 +49,14 @@ class ErrorGuidanceTests(SimpleTestCase):
         self.assertTrue(guidance.retryable)
         self.assertNotIn("http", guidance.recovery_hint.lower())
 
+    def test_compdoc_import_guidance_points_to_audit_evidence(self):
+        """Import failures should direct users to evidence instead of blind retry."""
+
+        guidance = guidance_for("COMPDOC_IMPORT_FAILED", 500)
+
+        self.assertFalse(guidance.retryable)
+        self.assertIn("audit", guidance.recovery_hint)
+
     def test_existing_standard_response_is_enriched_by_middleware(self):
         """Legacy standard payloads gain guidance without changing their detail."""
 

@@ -631,3 +631,43 @@
 5. Rejected external, protocol-relative, control-character, overlong, and authentication-loop redirect targets before completing login.
 6. Added Node-native policy regression tests and a short-query fuzzy-search regression so `ddf` cannot surface unrelated PDF commands after DDF is permission-filtered.
 7. Browser-tested anonymous return routing, admin access, unprivileged menu/command filtering, direct-route denial, 403 recovery, and an empty warning/error console; the temporary account was deleted afterward.
+
+## 86. Domain-scoped frontend integration stores
+
+1. Removed the 1,013-line `stores/api.ts` facade and moved DCC, DDF, DOORS, DocProof, organization, Excel, PowerPoint, and Outlook state/request logic into explicit domain stores.
+2. Updated every consumer and global store type to import its domain directly, preventing unrelated integrations from being coupled through one module.
+3. Split organization state, project/panel/responsible actions, people-directory actions, and request lifecycle helpers into focused files below the repository's 200-line limit.
+4. Replaced avoidable `any` request boundaries with FormData and response contracts, removed request-layer console logging, and switched DocProof/JIRA filters to Axios `params` encoding.
+5. Fixed responsible deletion so it updates the responsible collection instead of corrupting the people directory, and corrected PowerPoint slide updates to use the authenticated `pptxgallery/slides` API root.
+6. Added typed presentation models and removed `any` rows/slides from the gallery list and carousel.
+7. Added a Node-native architectural regression suite that prevents the removed facade from returning, enforces domain files and size limits, and locks the two corrected mutation targets into CI.
+
+## 87. Typed and resilient table filtering foundation
+
+1. Removed the 405-line `stores/datatable.ts` mixed module and separated compliance-document catalog data, pure filter predicates, simple value menus, and advanced date/array menus.
+2. Replaced shared module-level filter state with state isolated per column renderer so similarly named columns on different screens cannot leak active filter values into each other.
+3. Fixed same-day date equality, which was previously rejected because a valid zero-day difference was treated as an error.
+4. Date filters now support the documented European and ISO formats and fail closed for malformed dates instead of throwing during table rendering.
+5. String, boolean, and array filters no longer assume every cell has an `indexOf` method and safely handle numeric, null, and array values.
+6. Replaced the non-exposed `SHOW_DELAYED_COMPDOCS` lookup with typed `VITE_SHOW_DELAYED_COMPDOCS` configuration and a boolean parser that does not treat the string `false` as enabled.
+7. Added four native filter/feature-flag regression tests and expanded the architectural boundary suite to prevent both removed monoliths from returning.
+
+## 88. Invitation direct-link reliability
+
+1. Fixed the startup race that redirected a directly opened public invitation URL to Login before Vue Router had resolved its route metadata.
+2. Session initialization now waits for router readiness, preserving anonymous access to `/app/invite#token` while protected routes remain deny-by-default.
+3. Updated the shared error formatter to extract normalized API payloads from Axios `Error` objects, so invalid, expired, used, and revoked links show actionable server guidance and request references instead of a generic HTTP status.
+4. Added native regression tests for Axios-style and ordinary JavaScript errors and connected them to the frontend CI test chain.
+5. Browser-smoke-tested a direct invitation URL and confirmed that it remains on the registration page with the sanitized `INVITATION_INVALID` recovery message.
+
+## 89. Audited CompDoc import pipeline
+
+1. Replaced the nested legacy upload routine with focused preparation, value-normalization, upsert, audit, API, and UI modules below the repository size limit.
+2. Fixed virtual Status/UBM-date header mapping and normalized safe status history without passing non-model fields to serializers.
+3. Added `cover_page_no` upserts with one-query existing-record loading, isolated row transactions, explicit created/updated/rejected counts, and an environment-backed 10,000-row processing limit.
+4. Added a durable import audit containing project, sanitized filename, size, SHA-256 source fingerprint, importing user snapshot, request reference, detected/missing/unmapped columns, counters, timing, and bounded error summaries.
+5. Added permission-protected, paginated project audit list/detail APIs and a CompDocs history UI with status/search filters, mapping evidence, and rejected-row diagnostics.
+6. Disabled confirmation when preview detects missing required columns and added actionable `COMPDOC_IMPORT_*` recovery guidance.
+7. Added regression coverage for preview mapping, create/update behavior, partial failures, structural failures, audit permissions, and secret-safe list/detail contracts.
+8. Browser-smoke-tested the Ozgur ledger and detail modal with no runtime errors, then removed the temporary user and audit record.
+9. Extracted the legacy CompDoc Excel exporter from `common/views.py`, removed debug output, split styling into bounded functions, and corrected alternating-row formatting to use the last column instead of the last row.

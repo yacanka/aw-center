@@ -9,7 +9,8 @@ import {
 } from '@/models/compdocs'
 import { toTitleCase } from '@/utils/text'
 import { getDaysDifference, getTodayEUFormat } from '@/utils/time'
-import { createEmpty } from './datatable'
+import { createEmptyCompdoc } from '@/services/compdocCatalog'
+import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
 import { handleRequest } from '@/composables/promise'
 import { API_BASE_URL } from '@/services/http'
 import { notifyError, notifySuccess } from '@/services/notify'
@@ -21,7 +22,6 @@ import {
 } from '@/services/pagination'
 
 const BASE_URL = API_BASE_URL
-const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 const errorNotification = notifyError
 const successNotification = notifySuccess
 const COMP_DOCS_PATH = 'compdocs'
@@ -64,7 +64,7 @@ function applyDelayedStatus(statusFlow: IStatusFlow[], row: ICompDoc) {
 
 function mergeFieldMetadata(serverFields: ICompDocFieldMetadata[]) {
   const fieldsByKey = new Map(serverFields.map((field) => [field.key, field]))
-  Object.keys(createEmpty()).forEach((key) =>
+  Object.keys(createEmptyCompdoc()).forEach((key) =>
     fieldsByKey.set(key, fieldsByKey.get(key) || createLocalFieldMetadata(key))
   )
   return Array.from(fieldsByKey.values())
@@ -100,7 +100,7 @@ export const useCompdocStore = defineStore('compdoc', {
       return bonusFieldProjects.includes(this.projectName)
     },
     createCompDocFields() {
-      this.fields = Object.keys(createEmpty()).map(createLocalFieldMetadata)
+      this.fields = Object.keys(createEmptyCompdoc()).map(createLocalFieldMetadata)
     },
     async fetchCompDocFields() {
       try {

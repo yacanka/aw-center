@@ -25,15 +25,3 @@ export function getFileNameAndExt(filename: string) {
 
   return { name, ext }
 }
-
-export function isJsonString(str: string): boolean {
-  if (typeof str !== 'string') return false
-  if (str.trim() === '') return false
-
-  try {
-    JSON.parse(str)
-    return true
-  } catch {
-    return false
-  }
-}

@@ -26,6 +26,7 @@ initializeSession()
  * Boots the authenticated browser session after the UI is mounted.
  */
 export async function initializeSession() {
+  await router.isReady()
   performance.mark('auth-ready-start')
   const userStore = useUserStore()
   const isLoaded = await userStore.fetchCurrentUser({

@@ -1,12 +1,8 @@
-import {
-  useDccStore,
-  useAuthStore,
-  useDdfStore,
-  useCompdocStore,
-  useDocproofStore,
-  useDoorsStore,
-  useOrgsStore
-} from '@/stores/api'
+import { useAuthStore } from '@/stores/auth'
+import { useCompdocStore } from '@/stores/compdoc'
+import { useDccStore } from '@/stores/dcc'
+import { useDdfStore } from '@/stores/ddf'
+import { useOrgsStore } from '@/stores/organizations'
 import { useUserStore } from '@/stores/user'
 
 declare global {

@@ -1,5 +1,3 @@
-import { isJsonString } from '@/utils/text'
-
 export const FALLBACK_ERROR_MESSAGE = 'Something went wrong.'
 
 export type ApiErrorPayload = {
@@ -43,8 +41,10 @@ function formatStandardError(data: ApiErrorPayload): string {
 }
 
 function getResponseData(data: unknown): unknown {
-  if (!isRecord(data) || !isRecord(data.response)) return undefined
-  return data.response.data
+  if (!isObjectLike(data)) return undefined
+  const response = Reflect.get(data, 'response')
+  if (!isObjectLike(response)) return undefined
+  return Reflect.get(response, 'data')
 }
 
 function formatLegacyObjectError(data: Record<string, unknown>): string {
@@ -56,6 +56,10 @@ function formatLegacyObjectError(data: Record<string, unknown>): string {
 
 function isRecord(data: unknown): data is Record<string, unknown> {
   return Object.prototype.toString.call(data) === '[object Object]'
+}
+
+function isObjectLike(data: unknown): data is object {
+  return typeof data === 'object' && data !== null
 }
 
 function parseJsonError(data: string): string {
@@ -73,4 +77,13 @@ function stringifyErrorValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(', ')
   if (isRecord(value)) return stringifyObjectErrors(value)
   return String(value)
+}
+
+function isJsonString(value: string): boolean {
+  try {
+    JSON.parse(value)
+    return value.trim().length > 0
+  } catch {
+    return false
+  }
 }

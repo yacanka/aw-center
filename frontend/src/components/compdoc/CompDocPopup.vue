@@ -312,9 +312,9 @@ import { ICompDoc, IHistory } from '@/models/compdocs'
 import { NModal, FormRules, FormInst } from 'naive-ui'
 import { Edit24Regular } from '@vicons/fluent'
 import { isoToTurkishDateTime, getTodayEUFormat } from '@/utils/time'
-import { useOrgsStore } from '@/stores/api'
+import { useOrgsStore } from '@/stores/organizations'
 import { checkArrayEquals } from '@/utils/array'
-import { statusOptions, statusColors, mocOptions, catOptions } from '@/stores/datatable'
+import { catOptions, mocOptions, statusColors, statusOptions } from '@/services/compdocCatalog'
 import { validateForm } from '@/composables/forms'
 
 const formRef = ref<FormInst | null>(null)

@@ -146,7 +146,7 @@
 import { ref, onMounted, computed } from 'vue'
 
 import { setUser, getUser, isAuthenticated, logout, setProjectName } from '@/stores/user'
-import { useDoorsStore } from '@/stores/api'
+import { useDoorsStore } from '@/stores/doors'
 import { checkArrayEquals } from '@/utils/array'
 import { NSwitch, useThemeVars } from 'naive-ui'
 

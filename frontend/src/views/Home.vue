@@ -277,9 +277,10 @@ import { computed, defineAsyncComponent, ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { ChartData, ChartOptions, TooltipItem } from 'chart.js'
-import { useCompdocStore } from '@/stores/api'
+import { useCompdocStore } from '@/stores/compdoc'
 import type { ICompDoc } from '@/models/compdocs'
-import { statusOptions, statusColors } from '@/stores/datatable'
+import { statusColors, statusOptions } from '@/services/compdocCatalog'
+import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
 import type { ProjectRegistryItem } from '@/models/projectRegistry'
 import { PROJECT_REGISTRY_FALLBACK, fetchCompdocProjectRegistry } from '@/services/projectRegistry'
 import { formatApiError } from '@/services/apiError'
@@ -296,7 +297,6 @@ const Pie = defineAsyncComponent(() => import('vue-chartjs').then((module) => mo
 const Line = defineAsyncComponent(() => import('vue-chartjs').then((module) => module.Line))
 ensureChartPluginsRegistered()
 
-const SHOW_DELAYED_COMPDOCS = import.meta.env.SHOW_DELAYED_COMPDOCS
 const appTitle = import.meta.env.VITE_APP_TITLE
 const compStore = useCompdocStore()
 

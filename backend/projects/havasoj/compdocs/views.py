@@ -1,7 +1,9 @@
 from projects.havasoj.models import CompDoc
 from projects.havasoj.serializers import CompDocSerializer, HistorySerializer
 
-from common.views import view_set_factory, view_set_obj_factory, upload_compdoc_factory, excel_creator_factory, history_view_set_factory, compdoc_fields_view_factory
+from common.compdoc_import_views import upload_compdoc_factory
+from common.compdoc_excel_export import excel_creator_factory
+from common.views import view_set_factory, view_set_obj_factory, history_view_set_factory, compdoc_fields_view_factory
 
 from rest_framework.permissions import IsAuthenticated
 

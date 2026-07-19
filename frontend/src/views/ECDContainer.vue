@@ -7,7 +7,7 @@ import SubtaskGenerator from '@/views/dcc/SubtaskGenerator.vue'
 import ExcelSubtaskGenerator from '@/views/dcc/ExcelSubtaskGenerator.vue'
 import Unauthorized from '@/views/Unauthorized.vue'
 import DCCCreator from '@/views/dcc/DCCCreator.vue'
-import { useDccStore } from '@/stores/api'
+import { useDccStore } from '@/stores/dcc'
 import { IUser } from '@/models/jira'
 import { nullCheck } from '@/utils/general'
 

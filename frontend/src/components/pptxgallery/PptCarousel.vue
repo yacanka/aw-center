@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { usePptxStore } from '@/stores/api'
+import { usePptxStore } from '@/stores/presentations'
+import type { PresentationSlide } from '@/models/presentation'
 import { NCarousel, NButton, NUpload, useMessage } from 'naive-ui'
 import {
   Settings24Regular,
@@ -16,7 +17,7 @@ import {
 } from '@vicons/fluent'
 
 const props = defineProps<{ presentationId: number; title: string }>()
-const slides = ref<any[]>([])
+const slides = ref<PresentationSlide[]>([])
 const msg = useMessage()
 const store = usePptxStore()
 

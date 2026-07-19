@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { FormRules } from 'naive-ui'
 import { useRouter, useRoute } from 'vue-router'
-import { useAuthStore } from '@/stores/api'
+import { useAuthStore } from '@/stores/auth'
 import { validateForm } from '@/composables/forms'
 import { useUserStore } from '@/stores/user'
 import { applyPreferredTheme } from '@/services/theme'

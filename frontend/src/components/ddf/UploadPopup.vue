@@ -22,7 +22,7 @@
 import { ref, onMounted } from 'vue'
 import { NModal, UploadCustomRequestOptions } from 'naive-ui'
 import axios from 'axios'
-import { useDdfStore } from '@/stores/api'
+import { useDdfStore } from '@/stores/ddf'
 import { popupStore } from '@/stores/popupStore'
 
 const showModal = ref(false)

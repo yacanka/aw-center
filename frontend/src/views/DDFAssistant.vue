@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h, ref, onMounted, onUnmounted } from 'vue'
 import { NButton, NDataTable, NSpace, NIcon, DataTableColumns, PaginationInfo } from 'naive-ui'
-import { useDdfStore } from '@/stores/api'
+import { useDdfStore } from '@/stores/ddf'
 import { setProjectName } from '@/stores/user'
 import { popupStore } from '@/stores/popupStore'
 import { IDdf } from '@/models/ddf'
@@ -19,12 +19,9 @@ import {
 } from '@vicons/fluent'
 import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
 import { FilterOptionValue, RowData } from 'naive-ui/es/data-table/src/interface'
-import {
-  getDateFilterFunc,
-  getDateFilterMenuFunc,
-  getStringFilterFunc,
-  getStringFilterMenuFunc
-} from '@/stores/datatable'
+import { getDateFilterMenuFunc } from '@/components/table/advancedFilterMenus'
+import { getStringFilterMenuFunc } from '@/components/table/valueFilterMenus'
+import { getDateFilterFunc, getStringFilterFunc } from '@/services/tableFilters'
 
 const route = useRoute()
 const popup = popupStore()
