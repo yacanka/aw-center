@@ -37,3 +37,16 @@ class GroupPermission(DjangoModelPermission):
         "PATCH": "auth.change_group",
         "DELETE": "auth.delete_group",
     }
+
+
+class CanInviteUsers(BasePermission):
+    """Require both staff status and explicit user-creation authority."""
+
+    def has_permission(self, request, view):
+        """Return whether the caller may create account invitations."""
+
+        return bool(
+            request.user.is_authenticated
+            and request.user.is_staff
+            and request.user.has_perm("auth.add_user")
+        )

@@ -49,11 +49,11 @@
           </n-button>
           <n-button
             type="success"
-            :loading="isConverting"
+            :loading="isQueueing"
             :disabled="!selectedFile"
             @click="convertFile"
           >
-            Convert and download
+            Queue conversion
           </n-button>
         </n-space>
       </n-form>
@@ -74,13 +74,11 @@
 
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import MediaUploadDropzone from '@/components/MediaUploadDropzone.vue'
 import { formatApiError } from '@/services/apiError'
-import {
-  convertMedia,
-  previewMediaConversion,
-  type MediaPreviewResult
-} from '@/services/mediaTools'
+import { previewMediaConversion, type MediaPreviewResult } from '@/services/mediaTools'
+import { createMediaJob } from '@/services/jobs'
 
 const customPreset = 'custom'
 const extensionValues = [
@@ -101,9 +99,10 @@ const videoBitrateOptions = createBitrateOptions([750, 1500, 3000, 6000, 12000])
 const audioBitrateOptions = createBitrateOptions([96, 128, 192, 256, 320])
 
 const selectedFile = ref<File | null>(null)
+const router = useRouter()
 const preview = ref<MediaPreviewResult | null>(null)
 const isPreviewing = ref(false)
-const isConverting = ref(false)
+const isQueueing = ref(false)
 const videoBitratePreset = ref<number | string>(1500)
 const audioBitratePreset = ref<number | string>(128)
 const parameters = reactive({
@@ -136,14 +135,15 @@ async function previewSize() {
 
 async function convertFile() {
   if (!selectedFile.value) return
-  isConverting.value = true
+  isQueueing.value = true
   try {
-    const blob = await convertMedia(selectedFile.value, parameters)
-    downloadBlob(blob, `converted.${parameters.output_extension}`)
+    await createMediaJob(selectedFile.value, parameters)
+    window.$message.success('Conversion queued in Job Center.')
+    await router.push('/jobs')
   } catch (error) {
     window.$message.error(formatApiError(error))
   } finally {
-    isConverting.value = false
+    isQueueing.value = false
   }
 }
 
@@ -158,15 +158,6 @@ function applyPreset(value: number | string, field: 'video_bitrate_kbps' | 'audi
   if (value === customPreset) return
 
   parameters[field] = Number(value)
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(url)
 }
 
 function formatBytes(bytes: number) {

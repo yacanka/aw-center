@@ -496,3 +496,138 @@
 2. A running `doors.exe` is allowed time to expose its OLE object and is never replaced by another auto-started process merely because the Running Object Table lookup missed it.
 3. Connection attempts are serialized inside the worker process so concurrent requests cannot independently start duplicate DOORS clients during startup.
 4. Regression tests cover ROT lookup fallback, duplicate-start prevention, and the valid no-process auto-start path.
+
+## 70. Production endpoint security baseline
+
+1. Project compliance-document, project organization, central organization, Word compare, Outlook attachment, DocProof search, and generated-file download endpoints now require authentication.
+2. Removed placeholder `/test/` and demo SSE routes from organizations, DCC, DOORS, Excel, and DocProof.
+3. Added a recursive URL regression test that permits `AllowAny` only for the explicitly approved health, login, and password-reset routes.
+4. Removed anonymous self-signup from both backend and frontend; account provisioning is now administrator-controlled.
+
+## 71. End-to-end request correlation
+
+1. Every request receives a validated or generated `X-Request-ID` response header.
+2. Standard API error payloads include the same `request_id`, and the frontend presents it as a support reference.
+3. Application and Django request logs include the same identifier without logging request bodies, tokens, credentials, or document content.
+4. Context cleanup and input validation prevent identifier leakage and log injection across requests.
+
+## 72. Integration Hub
+
+1. Added an authenticated, non-secret integration catalog for JIRA, Teamcenter, IBM Rational DOORS, DocProof, Office document processing, and FFmpeg media conversion.
+2. The catalog exposes readiness, capabilities, platform needs, and frontend routes without returning credentials, internal URLs, tokens, or executable paths.
+3. Added a lazy-loaded Integration Hub screen with readiness summary, capability cards, retry handling, and direct navigation to configured tools.
+4. Added backend contract, authorization, uniqueness, and secret-leakage regression tests.
+
+## 73. Frontend formatting quality gate
+
+1. Normalized the remaining Prettier drift in the compliance upload component, shared API store, and JIRA field helper.
+2. Restored the repository-wide `npm run format:check` quality gate without changing runtime behavior.
+
+## 74. Strict TypeScript production gate
+
+1. Replaced broad `any` and implicit model shapes across CompDoc, DCC, DDF, JIRA, Outlook, organization, user, upload, and dashboard flows with explicit contracts and null guards.
+2. Added shared upload-file validation so stale or missing browser file handles fail with a user-visible message before an API request is attempted.
+3. Isolated Chart.js and Naive UI version-specific type bridges at component boundaries while keeping domain data strongly typed.
+4. Verified the real `vue-tsc --noEmit` check, repository-wide Prettier check, and Vite production build all pass.
+
+## 75. Central upload security boundary
+
+1. Added environment-backed policies for document, image, attachment, media, archive expansion, and absolute multipart stream limits.
+2. PDF, OOXML, legacy Office, Outlook MSG, image, audio, and video uploads now require matching filenames, MIME declarations, magic bytes, and package structures before reaching domain parsers or FFmpeg.
+3. OOXML and ZIP inputs reject path traversal entries, encrypted entries, excessive entry counts, unsafe expansion sizes, and suspicious compression ratios without extracting the archive.
+4. Connected the shared validator to PDF, Word, Excel, Outlook, PowerPoint, DDF, DCC/JIRA, CompDoc, people import, DOORS, and Media Converter endpoints.
+5. Added streaming rejection and endpoint-matrix regression tests with stable upload error codes and request support references.
+
+## 76. Cross-platform PowerPoint conversion safety
+
+1. Replaced the Windows-only effective runtime path with automatic PowerPoint COM or LibreOffice/Poppler adapter selection.
+2. All external conversion commands now use shell-free argument arrays, captured output, and environment-backed timeouts.
+3. Intermediate PDF and slide artifacts live in an automatically cleaned temporary directory on both success and failure.
+4. Conversion records move deterministically through converting, ready, and failed states, and empty conversion output fails closed.
+
+## 77. Integration Hub live health and circuit breaker
+
+1. Added explicit live health checks for JIRA, Teamcenter, DocProof, DOORS, Office conversion tools, and FFmpeg without returning URLs, credentials, cookies, or raw exceptions.
+2. External origins are checked with anonymous bounded `HEAD` calls and production HTTPS enforcement; local adapters never start a process or open a COM session.
+3. All bridge checks execute in parallel, use bounded-TTL cache entries and stampede locks, and open a cooldown circuit after repeated failures.
+4. Forced refreshes are rate-limited per authenticated user so successful endpoints cannot be used for unbounded internal request generation.
+5. The Integration Hub screen now distinguishes configuration readiness from live availability and displays sanitized details, latency, timestamp, and cache/circuit source.
+6. Browser smoke testing moved status tags out of constrained card headers, restored readable integration names, and exposed health timestamp/source metadata in the rendered DOM.
+7. Route lazy loading now uses Vue Router-native import loaders, and authenticated shell requests no longer run while the login screen is anonymous.
+8. The oversized application shell was split from its typed menu factory, keeping both files below the repository's 200-line limit and preparing menu composition for future permission filtering.
+
+## 78. Durable Job Center and media worker
+
+1. Added owner-scoped durable Job, JobEvent, and WorkerHeartbeat records with immutable audit history and private input/output artifacts.
+2. Added safe idempotent enqueueing, SHA-256 integrity verification, cooperative cancellation, bounded retries, worker leases, interrupted-worker recovery, and sanitized terminal errors.
+3. Added a standalone `run_job_worker` process and Compose worker service sharing PostgreSQL and the private media volume with the backend.
+4. Migrated media conversion from a blocking HTTP download into the first durable executor, including FFmpeg timeout and child-process termination on cancellation.
+5. Added Job Center UI with worker availability, live polling, progress, cancel, retry, and owned artifact downloads.
+6. Added retention cleanup and deletion signals so expired or user-deleted jobs do not orphan private files.
+
+## 79. Durable Word and Excel document jobs
+
+1. Replaced Word translation's cache UUID and base64 SSE output with a durable private job artifact, global paragraph progress, cooperative cancellation, and local-model configuration.
+2. Replaced Excel cover-page cache/SSE generation with a bounded worker executor, canonical column validation, safe ZIP entry naming, row/output limits, and downloadable Job Center output.
+3. Removed unrelated JIRA session and browser state from the cover-page job contract so credentials can never enter durable job parameters.
+4. Added a trusted configurable cover-page template path with an automatically generated built-in Word fallback when no external template is deployed.
+5. Added retryability classification and sanitized recovery hints so deterministic input failures do not encourage ineffective retries.
+6. Added Local AI Toolkit readiness to Integration Hub without loading models or exposing filesystem paths.
+
+## 80. Explainable private compliance analysis
+
+1. Replaced the workstation-specific Doc Analyzer cache/SSE flow with an owner-scoped durable `word.analyze` job and private JSON report.
+2. Added five allowlisted compliance checks, bounded document units/evidence, sanitized recovery codes, and no internal path exposure in generated reports.
+3. Added content-free analysis summaries to Job Center while keeping document excerpts and explanations behind the authorized artifact download endpoint.
+4. Extended Local AI readiness to require both translation and sentence-transformer runtimes plus all four configured model directories without loading models.
+5. Removed hard-coded developer model/document paths and documented analyzer model deployment variables.
+6. Added API and worker regression tests for invalid checklists, report sanitization, summaries, and missing-model failures.
+
+## 81. Single-use user invitations
+
+1. Added administrator-created, email-bound invitation links that expire exactly 24 hours after creation and become unusable immediately after registration.
+2. Raw 256-bit tokens are returned only in URL fragments and API request bodies; the database stores only SHA-256 digests so reverse proxies and persistence never receive recoverable tokens.
+3. Invitation acceptance uses a database transaction and row lock, rechecks expiry and email availability, applies only administrator-selected groups, and records an auditable creator/consumer lifecycle.
+4. Creating a replacement link revokes the previous unused link for the same email, while authenticated sessions are prevented from accidentally registering a second account.
+5. Added public inspection/acceptance throttles with trusted-proxy-aware client identification, plus a public registration screen and admin copy-link modal.
+6. Added regression coverage for authorization, token storage, 24-hour expiry, group assignment, second use, revocation, invalid tokens, password policy, and throttling.
+
+## 82. Invitation lifecycle management
+
+1. Added an authorized, server-paginated invitation ledger with bounded search and active, used, expired, and revoked lifecycle filters.
+2. Added atomic, idempotent revocation for active invitations while preserving used and expired records as immutable audit states.
+3. Added a Users-page management modal showing recipient, groups, creator, timestamps, consumer, status, and permission-aware revoke actions without exposing token digests.
+4. Browser-tested creation, listing, and revocation end to end, then removed all temporary test records from the local database.
+5. Aligned login username validation with Django's 3–150 character contract after browser testing exposed that the legacy six-character rule would lock out valid invited accounts.
+6. Split password recovery into a focused component, added missing reset-confirmation validation, removed response logging, and return users to Login after a successful password change.
+7. Fixed stale-session recovery so a real `/auth/me/` 401 always clears browser authentication state even when warnings are suppressed, while cached startup remains available only for network failures.
+8. Isolated the launcher production-profile test from real host port availability so its result no longer depends on sandbox or workstation state.
+
+## 83. Actionable API error guidance
+
+1. Extended every normalized API failure with machine-readable `retryable` and user-facing `recovery_hint` fields while preserving field errors and request correlation IDs.
+2. Added a secrets-free guidance catalog for authentication, authorization, uploads, jobs, invitations, JIRA, Teamcenter, DOORS, local AI, cover-page, and subtask-field failures.
+3. Added exact-code, domain-prefix, and HTTP-status fallbacks so new integrations receive safe recovery behavior before explicit catalog entries are added.
+4. Updated the shared frontend formatter so every existing notification and error panel automatically presents the suggested next step and support reference.
+5. Published the error contract in README and added regression coverage for deterministic, transient, prefixed, legacy-standard, bounded, and secret-marker scenarios.
+6. Corrected invalid login credentials from generic validation 400 to enumeration-safe authentication 401 semantics, while malformed requests retain field validation guidance.
+7. Browser-tested the final login notification with sanitized detail, credential recovery guidance, and a request-correlated support reference.
+
+## 84. Permission-aware Quick Command center
+
+1. Added a global `Ctrl/⌘ + K` command palette derived from the same project-aware menu registry as the sidebar, preventing navigation metadata from drifting between two catalogs.
+2. Added accent-independent Turkish/English aliases, token matching, bounded typo tolerance, keyboard selection, and deterministic ranking without a network round trip.
+3. Disabled project entries are excluded, and the Users destination is removed from both the sidebar and command registry unless direct or group-derived Django permissions allow viewing users or issuing invitations.
+4. Recent commands are bounded and stored per user so shared browsers do not mix workflow history between accounts.
+5. Added Node-native unit tests for flattening, aliases, normalization, typo ranking, recency, and result limits; connected them to launcher/CI through `test:ci`.
+6. Browser-tested admin and unprivileged sessions, Turkish `çeviri` navigation, keyboard operation, recency, permission filtering, and a warning-free Vue runtime; the temporary unprivileged account was removed afterward.
+
+## 85. Deny-by-default frontend access policy
+
+1. Changed Vue Router to treat only Welcome, Login, and Invitation as explicit public routes; every other route now requires an authenticated user by default.
+2. Added one typed access-policy service for direct and group-derived Django permissions, staff requirements, route decisions, nested menu filtering, and safe post-login destinations.
+3. Applied the same policy to route guards, the sidebar, and Quick Command so hidden tools cannot drift between navigation surfaces.
+4. Added explicit policies for Users, DDF Assistant, and Developer/DOORS, plus a useful 403 screen that preserves the requested destination without clearing a valid session.
+5. Rejected external, protocol-relative, control-character, overlong, and authentication-loop redirect targets before completing login.
+6. Added Node-native policy regression tests and a short-query fuzzy-search regression so `ddf` cannot surface unrelated PDF commands after DDF is permission-filtered.
+7. Browser-tested anonymous return routing, admin access, unprivileged menu/command filtering, direct-route denial, 403 recovery, and an empty warning/error console; the temporary account was deleted afterward.

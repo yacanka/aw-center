@@ -1,26 +1,12 @@
-from django.shortcuts import render
-from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
-from django import forms
-from django.core.cache import cache
+from django.http import HttpResponse
 
-from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.views import APIView 
-from rest_framework import status
 
 import json
 from io import BytesIO
 
-from pathlib import Path
-import sys
-import time
-import uuid
-from base64 import b64decode, b64encode
-
-from word.service.translator import get_text_generator
-from word.service.paraphrase import ExplainableDocxRetriever
 from word.service.compare import (
     align_paragraphs_indexed,
     auto_thresholds,
@@ -31,22 +17,16 @@ from word.service.compare_rendering import (
     add_legend,
     write_sentence_aware_diff_with_ids,
 )
-
-# Utils
-
-class UploadForm(forms.Form):
-    file = forms.FileField()
-
-# DOCX / Excel report
+from awcenter.file_security import WORD_POLICY, validate_request_upload
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def compare(request):
     import pandas as pd
     from docx import Document
 
-    file1 = request.FILES["first"]
-    file2 = request.FILES["second"]
+    file1 = validate_request_upload(request, "first", WORD_POLICY)
+    file2 = validate_request_upload(request, "second", WORD_POLICY)
     parameters = json.loads(request.data["json"])
 
     equal_ratio = parameters["equal_ratio"]
@@ -304,148 +284,3 @@ def write_excel_report_openpyxl(out_excel, excel_rows, summary_stats, table_rows
                     FormulaRule(formula=[f'ISNUMBER(SEARCH("cell-changed",{chg_col}2))'],
                                 font=Font(color="FF1F4E78"))
                 )
-
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def create_queue(request):
-    file = request.FILES.get("file", None)
-    data = {}
-    if file:
-        data["file"] = {"name": file.name, "content": file.read()}
-        data["parameters"] = request.data.get("parameters", None)
-    else:
-        data = request.data
-        
-    new_uuid = str(uuid.uuid4())
-    cache.set(new_uuid, data)
-    return Response(new_uuid)
-
-def translate(request, uuid):
-    response = StreamingHttpResponse(translate_action(str(uuid)), content_type="text/event-stream")
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"
-    return response
-
-def translate_action(uuid):
-    obj = cache.get(uuid, None)
-    if obj:
-        try:
-            if not obj["file"]:
-                yield f'data: {json.dumps({"status": "error", "content": "File not found."})}\n\n'
-                return
-            
-            if obj["parameters"]:
-                parameters = json.loads(obj["parameters"])
-            else:
-                yield f'data: {json.dumps({"status": "error", "content": "Parameters not found."})}\n\n'
-                return
-            
-            translate_type = parameters["translate_type"]
-            
-            yield f'data: {json.dumps({"status": "progress", "percentage": 0, "content": f"Preparing to translate..."})}\n\n'
-            translator = get_text_generator(translate_type)
-            translated_docx = translator.translate_docx_req(BytesIO(obj["file"]["content"]))
-            
-            filename = obj["file"]["name"]
-            
-            for (status, item) in translated_docx:
-                if status == "progress":
-                    index, total, ptype = item
-                    percentage = int((index / total) * 100)
-                    yield f'data: {json.dumps({"status": "progress", "percentage": percentage, "content": f"Translating {ptype}... ({index}/{total})"})}\n\n'
-                elif status == "result":
-                    encoded = b64encode(item.getvalue()).decode()
-                    yield f'data: {json.dumps({"status": "success", "content": encoded, "filename": f"[{translate_type.upper()}] {filename}"})}\n\n'
-                    
-            return
-        except ValueError as e:
-            yield f'data: {json.dumps({"status": "error", "content": str(e)})}\n\n'
-        except Exception as e:
-            print(e)
-            yield f'data: {json.dumps({"status": "error", "content": "Something went wrong."})}\n\n'
-    else:
-        yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
-        
-
-def analyze(request, uuid):
-    response = StreamingHttpResponse(analyze_action(str(uuid)), content_type="text/event-stream")
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"
-    return response
-
-def analyze_action(uuid):
-    obj = cache.get(uuid, None)
-    if obj:
-        try:
-            if not obj["file"]:
-                yield f'data: {json.dumps({"status": "error", "content": "File not found."})}\n\n'
-                return
-            
-            MODEL_PATH = r"C:\Users\t02077\Desktop\Code\Models\paraphrase-multilingual-MiniLM-L12-v2"  # bi-encoder klasörü
-            CROSS_ENCODER_MODEL = r"C:\Users\t02077\Desktop\Code\Models\ms-marco-MiniLM-L6-v2"
-
-            yield f'data: {json.dumps({"status": "progress", "percentage": 0, "content": f"Encoding document..."})}\n\n'
-
-            engine = ExplainableDocxRetriever(
-                model_path=MODEL_PATH,
-                cross_encoder_model=CROSS_ENCODER_MODEL,
-                #backend="openvino",   # None / "onnx" / "openvino"
-                content_mode="both",
-                use_heading_weight=True
-            )
-
-            engine.add_docx_file(
-                BytesIO(obj["file"]["content"]),
-                obj["file"]["name"]
-            )
-
-            engine.build_index()
-
-            queries = [
-                "Does the document contain a list of compliance documents?",
-                "Does the document contain an abbreviations table?",
-                "Does the document contain attachments table?"
-            ]
-
-            queries_length = len(queries)
-            for i, q in enumerate(queries):
-                yield f'data: {json.dumps({"status": "progress", "percentage": i/queries_length*100, "content": f"[{i+1}/{queries_length}] Searching query: {q}"})}\n\n'
-                
-                result = engine.search(q)
-                print("=" * 120)
-                print("QUERY      :", result["query"])
-                print("BEST SCORE :", f"{result['best_score']:.4f}")
-                print("EXPLANATION:")
-                print(result["explanation"])
-                print("-" * 120)
-
-                for i, item in enumerate(result["results"][:3], start=1):
-                    md = item["metadata"]
-                    print(
-                        f"[{i}] final={item['final_score']:.4f} "
-                        f"bi={item['bi_score']:.4f} "
-                        f"cross={item['cross_score_norm']:.4f} "
-                        f"lexical={item['lexical_score']:.4f}"
-                    )
-                    print("file       :", md.get("file_name"))
-                    print("source_type:", md.get("source_type"))
-                    print("heading    :", md.get("heading"))
-                    print("text       :", item["text"][:300])
-                    print("-" * 120)
-                
-                yield f'data: {json.dumps({"status": "info", "content": json.dumps(result)})}\n\n'
-            
-            yield f'data: {json.dumps({"status": "progress", "percentage": 100, "content": f"Success"})}\n\n'
-            
-            yield f'data: {json.dumps({"status": "success", "content": "Process End"})}\n\n'
-                 
-            return
-        except ValueError as e:
-            yield f'data: {json.dumps({"status": "error", "content": str(e)})}\n\n'
-        except Exception as e:
-            print(e)
-            yield f'data: {json.dumps({"status": "error", "content": "Something went wrong."})}\n\n'
-    else:
-        yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
-        

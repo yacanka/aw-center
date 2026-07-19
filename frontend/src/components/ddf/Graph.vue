@@ -7,7 +7,7 @@
     :style="{ width: '600px' }"
   >
     <div style="height: 440px; display: flex; align-items: center">
-      <Pie :data="pieChartData" :options="pieChartOptions" :width="480" :height="360" />
+      <Pie :data="pieChartData" :options="chartOptions" :width="480" :height="360" />
     </div>
 
     <template #action>
@@ -18,6 +18,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, ref } from 'vue'
+import type { ChartData, ChartOptions } from 'chart.js'
 import { IDdf } from '@/models/ddf'
 import { ensureChartPluginsRegistered, pieChartOptions } from '@/stores/chartStore'
 
@@ -25,13 +26,13 @@ const Pie = defineAsyncComponent(() => import('vue-chartjs').then((module) => mo
 ensureChartPluginsRegistered()
 
 const showModal = ref(false)
+const chartOptions = pieChartOptions as ChartOptions<'pie'>
 
-const pieChartData = ref({
+const pieChartData = ref<ChartData<'pie', number[], string>>({
   labels: ['Teknik Görüş', 'Bilgi Görüşü', 'Editöryel Görüş', 'Panel Ekleme/Çıkarma'],
   datasets: [
     {
       data: [],
-      radius: '90%',
       backgroundColor: ['#0ecfbf', '#c5252d', '#ffd966', '#1463bd'],
       hoverBorderWidth: 3,
       hoverBorderColor: '#aaaaaa'

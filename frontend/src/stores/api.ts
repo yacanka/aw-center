@@ -24,6 +24,14 @@ const BASE_URL = API_BASE_URL
 const errorNotification = notifyError
 const successNotification = notifySuccess
 
+type AddDccRequest = { url: string; JSESSIONID: string | null }
+type DccMailRequest = {
+  issue: string
+  ccb_no: number | null
+  due_date: string | null
+  JSESSIONID: string
+}
+
 const API_PATHS = {
   dcc: 'dcc/api',
   doors: 'doors',
@@ -125,9 +133,9 @@ export const useDccStore = defineStore('dcc', {
         () => (this.loading = false)
       )
     },
-    async addDcc(newDccData: IDcc) {
+    async addDcc(newDccData: AddDccRequest) {
       this.loading = true
-      let dccData
+      let dccData: IDcc | undefined
       await handleRequest<IDcc>(
         axios.post('dcc/add/', newDccData),
         (data) => {
@@ -141,6 +149,7 @@ export const useDccStore = defineStore('dcc', {
         },
         () => (this.loading = false)
       )
+      if (!dccData) throw new Error('DCC response was empty.')
       return dccData
     },
     async getIssue(newDccData: any) {
@@ -173,7 +182,7 @@ export const useDccStore = defineStore('dcc', {
       )
       return newIssue
     },
-    async sendMail(data: IDcc) {
+    async sendMail(data: DccMailRequest) {
       window.$loadingBar.start()
       await handleRequest<any>(
         axios.post('dcc/send_mail/', data), // POST request
@@ -362,7 +371,7 @@ export const useDdfStore = defineStore('ddf', {
         () => (this.loading = false)
       )
     },
-    async updateDdf(ddfId: Number, updatedData: IDcc) {
+    async updateDdf(ddfId: Number, updatedData: IDdf) {
       this.loading = true
       await handleRequest<IDdf>(
         axios.put(`${API_PATHS.ddf}/${ddfId}/`, updatedData),
@@ -382,7 +391,8 @@ export const useDdfStore = defineStore('ddf', {
     },
     async deleteDdf(ddfId: Number) {
       this.loading = true
-      await handleRequest<void>( // Void response expected
+      await handleRequest<void> // Void response expected
+      (
         axios.delete(`${API_PATHS.ddf}/${ddfId}/`),
         () => {
           this.ddfList = this.ddfList.filter((ddf: IDdf) => ddf.id !== ddfId)
@@ -397,7 +407,8 @@ export const useDdfStore = defineStore('ddf', {
     },
     async deleteDdfs() {
       this.loading = true
-      await handleRequest<any>( // Void response expected
+      await handleRequest<any> // Void response expected
+      (
         axios.delete(`${API_PATHS.ddf}/`),
         (data) => {
           this.ddfList = []
@@ -493,9 +504,7 @@ export const useOrgsStore = defineStore('orgs', {
         a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })
       ),
     getPeople: (state) =>
-      [...state.people].sort((a, b) =>
-        a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })
-      ),
+      [...state.people].sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })),
     hasFetchedPeople: (state) => state.peopleFetched
   },
   actions: {
@@ -554,7 +563,8 @@ export const useOrgsStore = defineStore('orgs', {
     },
     async deleteProject(projectId: Number) {
       this.loading = true
-      await handleRequest<void>( // Void response expected
+      await handleRequest<void> // Void response expected
+      (
         axios.delete(`${API_PATHS.orgs}/projects/${projectId}/`),
         () => {
           this.projects = this.projects.filter((project: IProject) => project.id !== projectId)
@@ -617,7 +627,8 @@ export const useOrgsStore = defineStore('orgs', {
     },
     async deletePanel(panelId: Number) {
       this.loading = true
-      await handleRequest<void>( // Void response expected
+      await handleRequest<void> // Void response expected
+      (
         axios.delete(`${this.project}/${API_PATHS.orgs}/panels/${panelId}/`),
         () => {
           this.panels = this.panels.filter((panel: IPanel) => panel.id !== panelId)
@@ -679,7 +690,8 @@ export const useOrgsStore = defineStore('orgs', {
     },
     async deleteResponsible(responsibleId: Number) {
       this.loading = true
-      await handleRequest<void>( // Void response expected
+      await handleRequest<void> // Void response expected
+      (
         axios.delete(`${this.project}/${API_PATHS.orgs}/responsibles/${responsibleId}/`),
         () => {
           this.people = this.responsibles.filter(
@@ -767,7 +779,8 @@ export const useOrgsStore = defineStore('orgs', {
     },
     async deletePerson(personId: Number) {
       this.loading = true
-      await handleRequest<void>( // Void response expected
+      await handleRequest<void> // Void response expected
+      (
         axios.delete(`${API_PATHS.orgs}/people/${personId}/`),
         () => {
           this.people = this.people.filter((person: IPerson) => person.id !== personId)

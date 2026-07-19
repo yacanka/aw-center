@@ -94,11 +94,14 @@ import { useRoute } from 'vue-router'
 import { useDoorsStore, useExcelStore } from '@/stores/api'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
 import { formatApiError } from '@/services/apiError'
+import { selectedUploadFile } from '@/utils/uploads'
 
 type ListItem = {
   excel: string
   jira: string | null
 }
+
+type JiraOption = { value: string; label: string; disabled?: boolean }
 
 const route = useRoute()
 
@@ -116,7 +119,7 @@ const loadingBar = ref({
   percentage: 0,
   content: ''
 })
-const username = ref('Yaşar Can Kara (t02077)')
+const username = ref('')
 
 const columns = ref([])
 const fileList = ref<UploadFileInfo[]>([])
@@ -128,7 +131,7 @@ const modal = ref({
   content: ''
 })
 
-const jiraOptions = ref([
+const jiraOptions = ref<JiraOption[]>([
   { value: 'summary', label: 'Summary' },
   { value: 'description', label: 'Description' },
   { value: 'assignee', label: 'Assignee' },
@@ -157,9 +160,11 @@ function handleFieldChange(index: number, value: string) {
 }
 
 function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions) {
+  const selectedFile = selectedUploadFile([file])
+  if (!selectedFile) return onError()
   window.$loadingBar.start()
   const formData = new FormData()
-  formData.append('file', fileList.value[0].file)
+  formData.append('file', selectedFile)
   excel
     .getExcelColumns(formData)
     .then((res) => {
@@ -179,10 +184,12 @@ onMounted(() => {
 })
 
 function createSubtasks() {
+  const selectedFile = selectedUploadFile(fileList.value)
+  if (!selectedFile) return
   const parameters = { ...generator.value }
   parameters.list = parameters.list.filter((item) => item.jira != null)
   const formData = new FormData()
-  formData.append('file', fileList.value[0].file)
+  formData.append('file', selectedFile)
   formData.append('parameters', JSON.stringify(parameters))
   loadingBar.value.show = true
   loadingBar.value.status = 'default'

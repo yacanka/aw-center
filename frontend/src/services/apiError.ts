@@ -6,6 +6,9 @@ export type ApiErrorPayload = {
   detail: string
   code: string
   errors?: Record<string, unknown>
+  retryable?: boolean
+  recovery_hint?: string
+  request_id?: string
 }
 
 /**
@@ -13,8 +16,9 @@ export type ApiErrorPayload = {
  */
 export function isApiErrorPayload(data: unknown): data is ApiErrorPayload {
   if (!isRecord(data)) return false
-
-  return typeof data.detail === 'string' && typeof data.code === 'string'
+  if (typeof data.detail !== 'string' || typeof data.code !== 'string') return false
+  if (data.retryable !== undefined && typeof data.retryable !== 'boolean') return false
+  return data.recovery_hint === undefined || typeof data.recovery_hint === 'string'
 }
 
 /**
@@ -23,12 +27,19 @@ export function isApiErrorPayload(data: unknown): data is ApiErrorPayload {
 export function formatApiError(data: unknown): string {
   const responseData = getResponseData(data)
   if (responseData !== undefined) return formatApiError(responseData)
-  if (isApiErrorPayload(data)) return data.detail
+  if (isApiErrorPayload(data)) return formatStandardError(data)
   if (isRecord(data)) return formatLegacyObjectError(data)
   if (typeof data === 'string' && isJsonString(data)) return parseJsonError(data)
   if (data instanceof Error && data.message) return data.message
 
   return typeof data === 'string' && data ? data : FALLBACK_ERROR_MESSAGE
+}
+
+function formatStandardError(data: ApiErrorPayload): string {
+  const lines = [data.detail]
+  if (data.recovery_hint) lines.push(`Next step: ${data.recovery_hint}`)
+  if (data.request_id) lines.push(`Reference: ${data.request_id}`)
+  return lines.join('\n')
 }
 
 function getResponseData(data: unknown): unknown {

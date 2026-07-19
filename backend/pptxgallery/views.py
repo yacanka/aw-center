@@ -5,10 +5,22 @@ from django.db import transaction
 from .models import Presentation, Slide
 from .serializers import PresentationSerializer, PresentationCreateSerializer, SlideSerializer
 from .converters import convert_pptx_to_images
+from awcenter.file_security import (
+    IMAGE_POLICY,
+    PRESENTATION_POLICY,
+    validate_request_upload,
+    validate_uploaded_file,
+)
 
 class PresentationViewSet(viewsets.ModelViewSet):
     queryset = Presentation.objects.all().order_by("-created_at")
     serializer_class = PresentationSerializer
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def create(self, request, *args, **kwargs):
+        """Create and convert a presentation through the validated upload flow."""
+
+        return self.upload(request)
 
     def get_serializer_class(self):
         if self.action in ["create", "upload"]:
@@ -17,7 +29,7 @@ class PresentationViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"])
     def upload(self, request):
-        print(request.data)
+        validate_request_upload(request, "file", PRESENTATION_POLICY)
         ser = PresentationCreateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         pres = ser.save(status="pending")
@@ -28,7 +40,6 @@ class PresentationViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="reconvert")
     def reconvert(self, request, pk=None):
         pres = self.get_object()
-        pres.slides.all().delete()
         convert_pptx_to_images(pres)
         return Response(PresentationSerializer(pres, context={"request": request}).data)
 
@@ -42,6 +53,7 @@ class SlideViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         file_obj = request.FILES.get("image")
         if file_obj:
+            validate_uploaded_file(file_obj, IMAGE_POLICY)
             instance.image.save(file_obj.name, file_obj, save=True)
         if partial:
             return Response(SlideSerializer(instance, context={"request": request}).data)

@@ -69,6 +69,7 @@ import axios from 'axios'
 import { useRoute } from 'vue-router'
 import { useDoorsStore, useExcelStore } from '@/stores/api'
 import { getFileNameAndExt } from '@/utils/text'
+import { selectedUploadFile } from '@/utils/uploads'
 import { UploadFileInfo } from 'naive-ui'
 import { formatApiError } from '@/services/apiError'
 const route = useRoute()
@@ -99,9 +100,11 @@ function handleFileRemove(file: UploadFileInfo, fileList: Array<UploadFileInfo>,
 onMounted(() => {})
 
 function splitPdf() {
+  const selectedFile = selectedUploadFile(fileList.value)
+  if (!selectedFile) return
   window.$loadingBar.start()
   const formData = new FormData()
-  formData.append('file', fileList.value[0].file)
+  formData.append('file', selectedFile)
   formData.append('parameters', JSON.stringify(splitter.value))
   axios
     .post(`${axios.defaults.baseURL}/pdf/split_pdf_zip/`, formData, {

@@ -280,6 +280,12 @@ export function getPieChartOptionsLabel() {
   return pieChartOptionsLabel
 }
 
+/**
+ * Builds line-chart options with optional reference annotations.
+ *
+ * @param {string | number | null} [annotationX]
+ * @param {number | null} [annotationY]
+ */
 export function getLineChartOptions(annotationX = null, annotationY = null) {
   const lineChartOptions = {
     responsive: false,

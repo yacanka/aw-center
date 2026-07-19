@@ -65,10 +65,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { NSpace, NCard } from 'naive-ui'
-import { IJira } from '@/models/jira'
+import { IJira, type JiraIssueResponse } from '@/models/jira'
 
 const jiraServer = import.meta.env.VITE_JIRA_SERVER || 'https://jira.com'
-const props = defineProps(['dcc'])
+const props = defineProps<{ dcc: JiraIssueResponse }>()
 const jiraInfo = ref<IJira>({} as IJira)
 
 function goPage(url: string) {

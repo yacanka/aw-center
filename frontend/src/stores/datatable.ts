@@ -1,4 +1,5 @@
 import { h, ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
+import type { Component } from 'vue'
 import {
   NButton,
   NDataTable,
@@ -194,9 +195,9 @@ export function getDateFilterMenuFunc(attrib: string, onApplyEvent: any, onClean
               dateFilterContainer.value[attrib].type = val
             }
           }),
-          h(NDatePicker, {
+          h(NDatePicker as Component, {
             'formatted-value': dateFilterContainer.value[attrib]?.date || null,
-            'onUpdate:formatted-value': (val: string) => {
+            'onUpdate:formatted-value': (val: string | null) => {
               dateFilterContainer.value[attrib].date = val
             },
             firstDayOfWeek: 0,
@@ -382,20 +383,21 @@ export function getArrayFilterFunc(attrib: string) {
 }
 
 export function getDateFilterFunc(attrib: string) {
-  const filterFunc = (value: { date: string; type: string }, row: Record<string, any>) => {
+  const filterFunc = (value: FilterOptionValue, row: Record<string, any>) => {
     if (nullCheck(row[attrib])) return false
 
-    if (nullCheck(value.date) || nullCheck(value.type)) return true
+    const dateFilter = value as unknown as { date?: string; type?: string }
+    if (!dateFilter.date || !dateFilter.type) return true
 
-    const diff = getDaysDifference(row[attrib], value.date)
+    const diff = getDaysDifference(row[attrib], dateFilter.date)
     if (!diff) return false
 
-    if (value.type == '==' && diff == 0) return true
-    if (value.type == '!=' && diff != 0) return true
-    if (value.type == '>=' && diff >= 0) return true
-    if (value.type == '<=' && diff <= 0) return true
-    if (value.type == '>' && diff > 0) return true
-    if (value.type == '<' && diff < 0) return true
+    if (dateFilter.type == '==' && diff == 0) return true
+    if (dateFilter.type == '!=' && diff != 0) return true
+    if (dateFilter.type == '>=' && diff >= 0) return true
+    if (dateFilter.type == '<=' && diff <= 0) return true
+    if (dateFilter.type == '>' && diff > 0) return true
+    if (dateFilter.type == '<' && diff < 0) return true
 
     return false
   }

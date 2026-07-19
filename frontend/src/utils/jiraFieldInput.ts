@@ -18,7 +18,11 @@ export function resolveJiraFieldInputType(field: IJiraField): JiraFieldInputType
 }
 
 function isDateField(schemaType: string, fieldIdentity: string) {
-  return schemaType == 'date' || fieldIdentity.includes('duedate') || fieldIdentity.includes('start date')
+  return (
+    schemaType == 'date' ||
+    fieldIdentity.includes('duedate') ||
+    fieldIdentity.includes('start date')
+  )
 }
 
 function isPersonField(

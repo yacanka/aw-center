@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, h, ref, onMounted, onUnmounted } from 'vue'
-import { DataTableColumns, NButton, NDataTable, PaginationInfo } from 'naive-ui'
+import { DataTableColumns, PaginationInfo } from 'naive-ui'
 import { useAuthStore } from '@/stores/api'
 import { IUser, IPermission } from '@/models/auth'
 import UpdateForm from '@/components/user/UserPopup.vue'
 import Details from '@/components/user/DetailedInfo.vue'
 import Unauthorized from '@/views/Unauthorized.vue'
-import { Home20Regular } from '@vicons/fluent'
 import { useUserStore } from '@/stores/user'
 import { isoToTurkishDateTime } from '@/utils/time'
 import { getStringFilterFunc, getStringFilterMenuFunc } from '@/stores/datatable'
+import InvitationLinkCreator from '@/components/user/InvitationLinkCreator.vue'
+import InvitationManager from '@/components/user/InvitationManager.vue'
+import { userActionColumn } from '@/services/userTableColumns'
 
 const store = useAuthStore()
 const userStore = useUserStore()
@@ -25,10 +27,18 @@ const pagination = computed<Partial<PaginationInfo>>(() => ({
 }))
 
 const popupComponent = ref()
-const tableRef = ref()
-
 const filterValue = ref<Record<string, any>>({} as IUser)
-const hasPermission = ref(userStore.hasRole('auth', 'view_user'))
+const hasPermission = computed(() => hasEffectivePermission('view_user'))
+const canInvite = computed(
+  () =>
+    Boolean(userStore.getUser.is_superuser) ||
+    Boolean(userStore.getUser.is_staff && hasEffectivePermission('add_user'))
+)
+const canAccessPage = computed(() => hasPermission.value || canInvite.value)
+
+function hasEffectivePermission(codename: string): boolean {
+  return userStore.hasEffectiveRole('auth', codename)
+}
 
 const onFilter = (attrib: string, filterData: any) => {
   filterValue.value[attrib] = filterData
@@ -89,62 +99,23 @@ const columns: DataTableColumns<IUser> = [
     renderFilterMenu: getStringFilterMenuFunc('last_login', filterValue, onFilter),
     filter: getStringFilterFunc('last_login'),
     render(row: IUser) {
-      return isoToTurkishDateTime(row.last_login)
+      return row.last_login ? isoToTurkishDateTime(row.last_login) : 'Never'
     }
   },
-  {
-    title: 'Action',
-    key: 'actions',
-    width: 12,
-    render(row: IUser) {
-      return [
-        h(
-          NButton,
-          {
-            ghost: true,
-            size: 'small',
-            type: 'warning',
-            focusable: false,
-            onClick: () => {
-              popupComponent.value.openModal(row)
-            },
-            style: 'margin-right: 5px'
-          },
-          { default: () => 'Update' }
-        ),
-        h(
-          NButton,
-          {
-            ghost: true,
-            size: 'small',
-            type: 'error',
-            focusable: false,
-            style: 'margin-right: 5px',
-            onClick: () => {
-              window.$dialog.warning({
-                title: 'Delete',
-                content: 'Are you sure to delete?',
-                positiveText: 'Yes',
-                negativeText: 'No',
-                onPositiveClick: () => {
-                  store
-                    .deleteUser(row.id)
-                    .then(() => {
-                      console.log('Request deleted: ', row.username)
-                    })
-                    .catch((err: any) => {
-                      console.error('Error while deleting ', row.username, ': ', err)
-                    })
-                }
-              })
-            }
-          },
-          { default: () => 'Delete' }
-        )
-      ]
-    }
-  }
+  userActionColumn((user) => popupComponent.value.openModal(user), confirmDelete)
 ]
+
+function confirmDelete(user: IUser): void {
+  window.$dialog.warning({
+    title: 'Delete',
+    content: `Delete ${user.username || 'this user'}?`,
+    positiveText: 'Yes',
+    negativeText: 'No',
+    onPositiveClick: async () => {
+      if (user.id !== undefined) await store.deleteUser(user.id)
+    }
+  })
+}
 
 function fetchUsers() {
   return store.fetchUsers({
@@ -172,6 +143,8 @@ onMounted(() => {
   if (hasPermission.value) {
     fetchUsers()
     store.fetchPermissions({ page_size: 200 })
+  }
+  if (hasEffectivePermission('view_group') || userStore.getUser.is_superuser) {
     store.fetchGroups({ page_size: 200 })
   }
 })
@@ -182,23 +155,29 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="hasPermission">
-    <n-flex justify="end">
-      <n-text><strong>Total: </strong>{{ store.usersPagination.count }}</n-text>
+  <div v-if="canAccessPage">
+    <n-flex justify="space-between" align="center">
+      <n-space>
+        <InvitationLinkCreator :allowed="canInvite" :groups="store.getGroups" />
+        <InvitationManager :allowed="canInvite" />
+      </n-space>
+      <n-text v-if="hasPermission"
+        ><strong>Total: </strong>{{ store.usersPagination.count }}</n-text
+      >
     </n-flex>
     <n-data-table
-      ref="tableRef"
+      v-if="hasPermission"
       :loading="store.isLoading"
       striped
       :columns="columns"
       :data="store.getUsers"
       remote
       :pagination="pagination"
-      :row-key="(row: IUser) => row.id"
+      :row-key="(row: IUser) => row.id ?? row.username ?? row.email ?? 'unknown-user'"
       @update:page="handlePageUpdate"
       @update:page-size="handlePageSizeUpdate"
     />
-    <UpdateForm ref="popupComponent" />
+    <UpdateForm v-if="hasPermission" ref="popupComponent" />
   </div>
   <div v-else>
     <Unauthorized />

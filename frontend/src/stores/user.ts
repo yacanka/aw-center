@@ -5,23 +5,19 @@ import { handleRequest } from '@/composables/promise'
 import { setAuthToken } from '@/services/http'
 import { notifyError } from '@/services/notify'
 import { readJson, STORAGE_KEYS, removeKey, writeJson, writeString } from '@/services/storage'
+import { hasEffectivePermission } from '@/services/accessPolicy'
 
 type CurrentUserOptions = {
   allowCachedFallback?: boolean
   suppressAuthenticationWarning?: boolean
 }
 
-let currentUser: IUser | null = null
-
 export function setUser(user: IUser) {
-  currentUser = user
   writeJson(STORAGE_KEYS.user, user)
 }
 
 export function getUser() {
-  if (currentUser) return currentUser
-  currentUser = readJson<IUser | null>(STORAGE_KEYS.user, null)
-  return currentUser
+  return readJson<IUser | null>(STORAGE_KEYS.user, null)
 }
 
 export function isAuthenticated() {
@@ -29,7 +25,6 @@ export function isAuthenticated() {
 }
 
 export function logout() {
-  currentUser = null
   removeKey(STORAGE_KEYS.token)
   removeKey(STORAGE_KEYS.user)
   removeKey(STORAGE_KEYS.project)
@@ -73,6 +68,9 @@ export const useUserStore = defineStore('user', {
           permission.content_type?.app_label == app && permission.codename == role
       )
     },
+    hasEffectiveRole(app: string, role: string) {
+      return hasEffectivePermission(this.user, `${app}.${role}`)
+    },
     async updatePreference(preferencesData: IPreferences) {
       this.loading = true
       await handleRequest<IPreferences>(
@@ -98,15 +96,12 @@ export const useUserStore = defineStore('user', {
           this.setUser(data)
           isLoaded = true
         },
-        (errorMsg) => {
+        () => {
           isLoaded = this.restoreCachedUser(options)
-          if (!isLoaded) console.log(errorMsg)
         },
         () => (this.loading = false),
         { suppressAuthenticationWarning: options.suppressAuthenticationWarning }
-      ).catch((error) => {
-        requestError = error
-      })
+      ).catch((error) => (requestError = error))
       if (!isLoaded && requestError && !options.allowCachedFallback) throw requestError
       return isLoaded
     },

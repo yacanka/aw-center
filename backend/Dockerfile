@@ -12,6 +12,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
+        ffmpeg \
         libmagic1 \
         poppler-utils \
         libreoffice \
@@ -23,7 +24,7 @@ RUN python -m pip install --upgrade pip \
 
 COPY backend /app
 
-RUN mkdir -p /app/media /app/static \
+RUN mkdir -p /app/media /app/models /app/private_media /app/static \
     && adduser --disabled-password --gecos "" awcenter \
     && chown -R awcenter:awcenter /app
 

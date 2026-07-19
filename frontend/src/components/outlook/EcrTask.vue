@@ -120,6 +120,8 @@ import EcrUploadPopup from './EcrUploadPopup.vue'
 import SubtaskList from '../jira/SubtaskList.vue'
 import { toTitleCase } from '@/utils/text'
 import { IMsg, IPopup, TaskItem } from '@/models/outlook'
+import type { IAttachment } from '@/models/outlook'
+import { formatApiError } from '@/services/apiError'
 
 interface IEcdCheckItem extends IEcd {
   approved?: boolean
@@ -135,14 +137,14 @@ const currentTask = ref<TaskItem>({} as TaskItem)
 const approvePopup = ref()
 const userInfo = ref<IUser>()
 const ecrUploadPopup = ref()
-const sessionPopup = ref<IPopup>({
+const sessionPopup = ref<IPopup<string>>({
   closable: false,
   visible: false,
   title: '',
   input: '',
   onClick: null
 })
-const subtaskListPopup = ref<IPopup>({
+const subtaskListPopup = ref<IPopup<ISubtaskItem[]>>({
   closable: false,
   visible: false,
   title: '',
@@ -220,10 +222,10 @@ function nextTask() {
   }
 }
 
-function detectEcrSuccess(status: string) {
+function detectEcrSuccess(status: string | null = '') {
   const item = currentTask.value
   item.status = 'success'
-  item.description = `ECR files detected and parsed: ${status}`
+  item.description = `ECR files detected and parsed: ${status ?? ''}`
 
   nextTask()
 }
@@ -234,11 +236,12 @@ async function detectEcrProgress() {
   item.description = 'Parsing ECR files in attachments...'
 
   if (pdfFileList.length == 0) {
-    const pdfBase64List = msg.value.attachments.filter((attachment) =>
-      attachment.name.toLowerCase().endsWith('.pdf')
+    const pdfBase64List = msg.value.attachments.filter(
+      (attachment): attachment is IAttachment & { content_base64: string } =>
+        attachment.name.toLowerCase().endsWith('.pdf') && Boolean(attachment.content_base64)
     )
     pdfFileList = pdfBase64List.map(
-      (pdf) => new File([base64ToBytes(pdf.content_base64!)], pdf.name, { type: pdf.mime })
+      (pdf) => new File([base64ToBytes(pdf.content_base64)], pdf.name, { type: pdf.mime })
     )
   }
 
@@ -345,6 +348,7 @@ async function createJiraTaskProgress() {
       try {
         const created = await dcc.createIssue(payload)
         //const created = { issue: "CHN-7916" } // test
+        if (!created.issue) throw new Error('JIRA did not return an issue key.')
 
         item.description += 'Task created: ' + created.issue + '\n'
         createdIssueList.push(created.issue)
@@ -392,6 +396,7 @@ async function addAttachmentProgress() {
 
       const formData = new FormData()
       const file = pdfFileList[index]
+      if (!file) continue
 
       formData.append('file', file)
       formData.append('JSESSIONID', sessionPopup.value.input)
@@ -401,8 +406,8 @@ async function addAttachmentProgress() {
       item.description += `Attachment named "${file?.name}" added to ${createdIssue}.\n`
     }
     item.events.SuccessEvent()
-  } catch (e) {
-    item.events.ErrorEvent(e)
+  } catch (error) {
+    item.events.ErrorEvent(formatApiError(error))
   } finally {
     sessionPopup.value.visible = false
   }

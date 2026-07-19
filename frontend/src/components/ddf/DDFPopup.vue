@@ -217,6 +217,7 @@ async function addDatabase() {
 
 async function updateDatabase() {
   if (!(await validateForm(formRef.value))) return
+  if (ddf.value.id === undefined) throw new Error('Cannot update a DDF without an ID.')
   window.$ddfStore.updateDdf(ddf.value.id, ddf.value)
   closeModal()
 }
@@ -226,6 +227,7 @@ function setPopupMode(mode: string) {
 }
 
 async function copyToClipboard() {
+  if (!ddf.value.path) return
   try {
     await navigator.clipboard.writeText(ddf.value.path)
     window.$message.success('Path Copied')

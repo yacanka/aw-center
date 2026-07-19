@@ -3,7 +3,7 @@ from django import forms
 from django.conf import settings
 
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,6 +19,7 @@ import os
 from base64 import b64decode
 from utils.process import get_or_run
 from .dxl_library import get_ata_chapter_check, get_req_poc_linker
+from awcenter.file_security import EXCEL_POLICY, validate_request_upload
 
 
 AW_USERNAME = settings.AW_USERNAME
@@ -35,11 +36,6 @@ class UploadForm(forms.Form):
 
 def get_doors_process():
     return get_or_run("DOORS.Application", DOORS_PATH, DOORS_PARAMS)
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def test(request):
-    return Response("HELP")
 
 @api_view(["POST"])
 def run_dxl(request):
@@ -84,10 +80,10 @@ def run_dxl(request):
 
 @api_view(["POST"])
 def create_script(request):
+    excel_file = validate_request_upload(request, "file", EXCEL_POLICY)
     form = UploadForm(request.POST, request.FILES)
     if form.is_valid():
         try:
-            excel_file = request.FILES["file"]
             import pandas as pd
 
             data = json.loads(request.POST["json"])

@@ -1,6 +1,12 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
-import { ICompDoc, ICompDocFieldMetadata, ICompDocFieldsResponse } from '@/models/compdocs'
+import {
+  ICompDoc,
+  ICompDocFieldMetadata,
+  ICompDocFieldsResponse,
+  IHistory,
+  IStatusFlow
+} from '@/models/compdocs'
 import { toTitleCase } from '@/utils/text'
 import { getDaysDifference, getTodayEUFormat } from '@/utils/time'
 import { createEmpty } from './datatable'
@@ -49,7 +55,7 @@ function applyDerivedStatusFields(row: ICompDoc) {
   row.status = statusFlow[statusFlow.length - 1]?.status || 'Unknown'
 }
 
-function applyDelayedStatus(statusFlow: Record<string, any>[], row: ICompDoc) {
+function applyDelayedStatus(statusFlow: IStatusFlow[], row: ICompDoc) {
   if (!SHOW_DELAYED_COMPDOCS || statusFlow.length !== 1) return
   if (statusFlow[0]?.status !== 'to_be_issued') return
   if ((getDaysDifference(getTodayEUFormat(), String(row.ubm_target_date || '')) || 0) <= 0) return
@@ -196,13 +202,13 @@ export const useCompdocStore = defineStore('compdoc', {
         () => (this.loading = false)
       )
     },
-    async fetchHistory(compDocId: Number) {
+    async fetchHistory(compDocId: number) {
       this.loading = true
-      let res
-      await handleRequest<ICompDoc[]>(
+      let history: IHistory[] = []
+      await handleRequest<IHistory[]>(
         axios.get(`${this.projectName}/${COMP_DOCS_PATH}/${compDocId}/history/`),
         (data) => {
-          res = data
+          history = data
         },
         (errorMsg) => {
           errorNotification(errorMsg)
@@ -212,7 +218,7 @@ export const useCompdocStore = defineStore('compdoc', {
           this.loading = false
         }
       )
-      return res
+      return history
     },
     async createCoverPage(compDocData: ICompDoc) {
       this.loading = true

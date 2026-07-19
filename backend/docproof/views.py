@@ -10,7 +10,7 @@ from django.conf import settings
 from requests import Session
 from requests.exceptions import HTTPError, RequestException
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 LOGGER = logging.getLogger(__name__)
@@ -112,14 +112,7 @@ def search_params(document_number: str) -> dict[str, str]:
 
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
-def test(request):
-    """Return a lightweight DocProof route health response."""
-    return Response("DOCPROOF SUCCESS")
-
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def search(request):
     """Search DocProof and return the published issue number for a document."""
     document_number = request.query_params.get("document_no")

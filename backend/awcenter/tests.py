@@ -57,6 +57,8 @@ class ApiErrorContractTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["detail"], "Bad Request")
         self.assertEqual(response.data["code"], ErrorCodes.VALIDATION_ERROR)
+        self.assertFalse(response.data["retryable"])
+        self.assertIn("highlighted fields", response.data["recovery_hint"])
         self.assertIn("name", response.data["errors"])
 
     def test_not_found_error_uses_standard_contract(self):

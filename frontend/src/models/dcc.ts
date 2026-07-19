@@ -1,7 +1,7 @@
 export interface IDcc {
   id?: number
-  issue?: string
-  dcc_path?: string
-  active?: boolean
-  [key: string]: unknown
+  issue: string
+  ecd_name: string
+  dcc_path: string | null
+  active: boolean
 }

@@ -1,10 +1,9 @@
 from django.urls import path
 from . import views
+from .job_views import create_cover_page_job
 
 urlpatterns = [
     path('get_excel_columns/', views.get_excel_columns, name='get_excel_columns'),
     path('compare/', views.compare, name='compare'),
-    path('create_queue/', views.create_queue, name='create_queue'),
-    path('excel_to_cover_pages_stream/<uuid:uuid>/', views.excel_to_cover_pages_stream, name='excel_to_cover_pages_stream'),
-    path('test/', views.test, name='test'),
+    path('jobs/cover-pages/', create_cover_page_job, name='cover_page_job_create'),
 ]

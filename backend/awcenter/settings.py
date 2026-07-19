@@ -103,13 +103,41 @@ def get_default_auth_cookie_secure(debug):
 
 CERTIFICATES_DIR = BASE_DIR / "certificates"
 CUSTOM_TEMPLATE_DIR = BASE_DIR / "custom_templates"
+WORD_TRANSLATION_TR_EN_MODEL = Path(
+    env.path("WORD_TRANSLATION_TR_EN_MODEL", default=BASE_DIR / "models" / "opus-mt-tr-en")
+)
+WORD_TRANSLATION_EN_TR_MODEL = Path(
+    env.path("WORD_TRANSLATION_EN_TR_MODEL", default=BASE_DIR / "models" / "opus-mt-en-tr")
+)
+WORD_ANALYZER_BI_MODEL = Path(
+    env.path("WORD_ANALYZER_BI_MODEL", default=BASE_DIR / "models" / "paraphrase-multilingual")
+)
+WORD_ANALYZER_CROSS_MODEL = Path(
+    env.path("WORD_ANALYZER_CROSS_MODEL", default=BASE_DIR / "models" / "ms-marco-cross-encoder")
+)
+WORD_ANALYZER_MAX_UNITS = env.int("WORD_ANALYZER_MAX_UNITS", default=10000)
+COVER_PAGE_TEMPLATE_PATH = Path(
+    env.path("COVER_PAGE_TEMPLATE_PATH", default=CUSTOM_TEMPLATE_DIR / "cover_page_template.docx")
+)
+COVER_PAGE_MAX_ROWS = env.int("COVER_PAGE_MAX_ROWS", default=1000)
+COVER_PAGE_B30_PROJECT_LABEL = env.str(
+    "COVER_PAGE_B30_PROJECT_LABEL", default="F-16 Block-30 ÖZGÜR-2 Work Package"
+)
+COVER_PAGE_DEFAULT_PROJECT_LABEL = env.str(
+    "COVER_PAGE_DEFAULT_PROJECT_LABEL", default="AW Center Project"
+)
 REPOSITORY_DIR = BASE_DIR.parent
 FRONTEND_DIST_DIR = Path(env.path("FRONTEND_DIST_DIR", default=REPOSITORY_DIR / "frontend" / "dist"))
 FRONTEND_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
+PRIVATE_MEDIA_ROOT = Path(env.path("PRIVATE_MEDIA_ROOT", default=BASE_DIR / "private_media"))
 
 FRONTEND_RESET_URL = env.str(
     "FRONTEND_RESET_URL",
     default=f"http{'s' if not DEBUG else ''}://{IPV4_ADDRESS if not DEBUG else 'localhost'}:{PORT if not DEBUG else 5173}/app/login"
+)
+FRONTEND_INVITATION_URL = env.str(
+    "FRONTEND_INVITATION_URL",
+    default=f"http{'s' if not DEBUG else ''}://{IPV4_ADDRESS if not DEBUG else 'localhost'}:{PORT if not DEBUG else 5173}/app/invite",
 )
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[
@@ -150,10 +178,12 @@ INSTALLED_APPS = [
     'outlook',
     'releases',
     'media_tools',
+    'jobs',
     'corsheaders',
 ]
 
 MIDDLEWARE = [
+    'awcenter.request_context.RequestCorrelationMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -191,9 +221,10 @@ else:
     if not CORS_ALLOWED_ORIGINS and not CORS_ALLOWED_ORIGIN_REGEXES:
         raise ImproperlyConfigured("CORS_ALLOWED_ORIGINS must be set when DEBUG is False.")
 
-CORS_ALLOW_HEADERS = list(default_headers)
+CORS_ALLOW_HEADERS = [*default_headers, "x-request-id"]
 CORS_ALLOW_METHODS = list(default_methods)
 CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ["X-Request-ID"]
 CSRF_TRUSTED_ORIGINS = env.list(
     "CSRF_TRUSTED_ORIGINS",
     default=unique_items(DEV_SERVER_ORIGINS) if DEBUG else [],
@@ -298,6 +329,59 @@ MEDIA_ROOT = Path(env.path('MEDIA_ROOT', default=BASE_DIR / 'media'))
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+AWCENTER_MAX_DOCUMENT_UPLOAD_BYTES = env.int(
+    "AWCENTER_MAX_DOCUMENT_UPLOAD_BYTES", default=50 * 1024 * 1024
+)
+AWCENTER_MAX_IMAGE_UPLOAD_BYTES = env.int(
+    "AWCENTER_MAX_IMAGE_UPLOAD_BYTES", default=10 * 1024 * 1024
+)
+AWCENTER_MAX_MEDIA_UPLOAD_BYTES = env.int(
+    "AWCENTER_MAX_MEDIA_UPLOAD_BYTES", default=500 * 1024 * 1024
+)
+AWCENTER_ABSOLUTE_MAX_UPLOAD_BYTES = env.int(
+    "AWCENTER_ABSOLUTE_MAX_UPLOAD_BYTES", default=600 * 1024 * 1024
+)
+AWCENTER_MAX_ATTACHMENT_UPLOAD_BYTES = env.int(
+    "AWCENTER_MAX_ATTACHMENT_UPLOAD_BYTES", default=100 * 1024 * 1024
+)
+AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES = env.int(
+    "AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES", default=250 * 1024 * 1024
+)
+AWCENTER_MAX_ARCHIVE_ENTRIES = env.int("AWCENTER_MAX_ARCHIVE_ENTRIES", default=5000)
+SOFFICE_BIN = env.str("SOFFICE_BIN", default="soffice")
+PDFTOPPM_BIN = env.str("PDFTOPPM_BIN", default="pdftoppm")
+PPTX_CONVERSION_TIMEOUT_SECONDS = env.int("PPTX_CONVERSION_TIMEOUT_SECONDS", default=180)
+INTEGRATION_PROBE_CONNECT_TIMEOUT_SECONDS = env.float(
+    "INTEGRATION_PROBE_CONNECT_TIMEOUT_SECONDS", default=2.0
+)
+INTEGRATION_PROBE_READ_TIMEOUT_SECONDS = env.float(
+    "INTEGRATION_PROBE_READ_TIMEOUT_SECONDS", default=3.0
+)
+INTEGRATION_PROBE_CACHE_SECONDS = env.int("INTEGRATION_PROBE_CACHE_SECONDS", default=30)
+INTEGRATION_PROBE_REFRESH_COOLDOWN_SECONDS = env.int(
+    "INTEGRATION_PROBE_REFRESH_COOLDOWN_SECONDS", default=5
+)
+INTEGRATION_PROBE_MAX_WORKERS = env.int("INTEGRATION_PROBE_MAX_WORKERS", default=6)
+INTEGRATION_PROBE_FAILURE_THRESHOLD = env.int(
+    "INTEGRATION_PROBE_FAILURE_THRESHOLD", default=3
+)
+INTEGRATION_PROBE_FAILURE_WINDOW_SECONDS = env.int(
+    "INTEGRATION_PROBE_FAILURE_WINDOW_SECONDS", default=300
+)
+INTEGRATION_PROBE_CIRCUIT_COOLDOWN_SECONDS = env.int(
+    "INTEGRATION_PROBE_CIRCUIT_COOLDOWN_SECONDS", default=120
+)
+JOB_LEASE_SECONDS = env.int("JOB_LEASE_SECONDS", default=60)
+JOB_HEARTBEAT_SECONDS = env.int("JOB_HEARTBEAT_SECONDS", default=2)
+JOB_WORKER_STALE_SECONDS = env.int("JOB_WORKER_STALE_SECONDS", default=10)
+JOB_EXECUTION_TIMEOUT_SECONDS = env.int("JOB_EXECUTION_TIMEOUT_SECONDS", default=900)
+JOB_MAX_OUTPUT_BYTES = env.int("JOB_MAX_OUTPUT_BYTES", default=1024 * 1024 * 1024)
+JOB_ARTIFACT_RETENTION_DAYS = env.int("JOB_ARTIFACT_RETENTION_DAYS", default=30)
+FILE_UPLOAD_HANDLERS = [
+    "awcenter.upload_handlers.AbsoluteUploadLimitHandler",
+    "django.core.files.uploadhandler.MemoryFileUploadHandler",
+    "django.core.files.uploadhandler.TemporaryFileUploadHandler",
+]
 
 REST_FRAMEWORK = {
      'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -309,6 +393,7 @@ REST_FRAMEWORK = {
      'EXCEPTION_HANDLER': 'awcenter.api_errors.api_exception_handler',
      'DEFAULT_PAGINATION_CLASS': 'awcenter.pagination.StandardResultsSetPagination',
      'PAGE_SIZE': 50,
+     'NUM_PROXIES': env.int('TRUSTED_PROXY_COUNT', default=0),
 }
 
 CACHE_URL = env.str("CACHE_URL", default="")
@@ -350,13 +435,22 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "standard": {
-            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+            "format": (
+                "%(asctime)s %(levelname)s %(name)s "
+                "[request_id=%(request_id)s] %(message)s"
+            ),
+        },
+    },
+    "filters": {
+        "request_id": {
+            "()": "awcenter.request_context.RequestIdLogFilter",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "standard",
+            "filters": ["request_id"],
         },
     },
     "root": {

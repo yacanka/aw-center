@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { h, ref } from 'vue'
 import { NUpload, NUploadDragger, NButton, NCard, NDataTable, useMessage, NSwitch } from 'naive-ui'
+import type { NotificationType } from 'naive-ui'
 import { useOutlookStore } from '@/stores/api'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
@@ -11,7 +12,13 @@ const store = useOutlookStore()
 const fileList = ref<any[]>([])
 const msg = ref<null | IMsg>(null)
 const useInline = ref(true)
-const taskStatus = ref({
+const taskStatus = ref<{
+  visible: boolean
+  title: string
+  status: NotificationType | ''
+  description: string
+  module: string
+}>({
   visible: false,
   title: '',
   status: '',

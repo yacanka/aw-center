@@ -18,7 +18,8 @@
 
   <n-modal v-model:show="showPreviewModal" preset="card" title="Confirm Excel Import" width="900px">
     <n-alert type="info" :bordered="false">
-      Header row {{ preview?.header_row }} was detected. Review mappings and validation warnings before saving.
+      Header row {{ preview?.header_row }} was detected. Review mappings and validation warnings
+      before saving.
     </n-alert>
     <n-data-table :columns="mappingColumns" :data="preview?.mapped_columns || []" size="small" />
     <n-alert v-if="preview?.missing_columns.length" type="error" style="margin-top: 12px">
@@ -37,7 +38,9 @@
     <template #footer>
       <n-space justify="end">
         <n-button @click="cancelPreview">Cancel</n-button>
-        <n-button type="primary" :loading="confirmingImport" @click="confirmImport">Confirm Import</n-button>
+        <n-button type="primary" :loading="confirmingImport" @click="confirmImport"
+          >Confirm Import</n-button
+        >
       </n-space>
     </template>
   </n-modal>
@@ -45,7 +48,15 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { NModal, NUpload, UploadCustomRequestOptions, NButton, NDataTable, NSpace, NAlert } from 'naive-ui'
+import {
+  NModal,
+  NUpload,
+  UploadCustomRequestOptions,
+  NButton,
+  NDataTable,
+  NSpace,
+  NAlert
+} from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import axios from 'axios'
 import { useCompdocStore } from '@/stores/api'
@@ -116,7 +127,10 @@ async function handleUploadReq(options: UploadCustomRequestOptions) {
 async function previewImport(file: File) {
   window.$loadingBar.start()
   try {
-    const res = await axios.post<ImportPreview>(`${props.uploadUrl}?preview=true`, buildFormData(file))
+    const res = await axios.post<ImportPreview>(
+      `${props.uploadUrl}?preview=true`,
+      buildFormData(file)
+    )
     preview.value = res.data
     showPreviewModal.value = true
     window.$loadingBar.finish()
@@ -131,7 +145,10 @@ async function confirmImport() {
   confirmingImport.value = true
   window.$loadingBar.start()
   try {
-    const res = await axios.post(`${props.uploadUrl}?confirm_import=true`, buildFormData(pendingFile.value))
+    const res = await axios.post(
+      `${props.uploadUrl}?confirm_import=true`,
+      buildFormData(pendingFile.value)
+    )
     window.$loadingBar.finish()
     uploadCallbacks.value?.onFinish()
     showUploadSuccess(res.data.message, res.data.invalid_documents)

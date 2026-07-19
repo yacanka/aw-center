@@ -1,9 +1,9 @@
+from django.contrib.auth.models import Group, User
 from django.db import models
-from django.contrib.auth.models import User
+from django.db.models import Q
 from django.db.models.signals import post_save
+from django.db.models.functions import Lower
 from django.dispatch import receiver
-
-
 
 class UserPreferences(models.Model):
     """User preferences model - extends default User via OneToOneField"""
@@ -169,3 +169,32 @@ def get_user_preferences(user):
 
 # Monkey-patch User model for convenience (optional)
 User.add_to_class('get_preferences', lambda self: get_user_preferences(self))
+
+
+class UserInvitation(models.Model):
+    """Represent one email-bound, single-use account invitation."""
+
+    token_digest = models.CharField(max_length=64, unique=True, editable=False)
+    email = models.EmailField()
+    created_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="created_user_invitations"
+    )
+    groups = models.ManyToManyField(Group, blank=True, related_name="user_invitations")
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    used_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="accepted_invitation"
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["expires_at", "used_at"])]
+        constraints = [
+            models.UniqueConstraint(
+                Lower("email"),
+                condition=Q(used_at__isnull=True, revoked_at__isnull=True),
+                name="users_one_open_invitation_per_email",
+            )
+        ]

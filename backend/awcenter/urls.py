@@ -5,12 +5,13 @@ from django.conf.urls.static import static
 
 from projects.routing import get_project_urlpatterns
 
-from .views import download_file, health_live, health_ready, redirect_to_app
+from .views import download_file, health_live, health_ready, integrations, redirect_to_app
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('health/live/', health_live, name='health_live'),
     path('health/ready/', health_ready, name='health_ready'),
+    path('integrations/', integrations, name='integrations'),
     path('', redirect_to_app),
     path('app/', include('core.urls')),
     path('dcc/', include('dcc.urls')),
@@ -27,6 +28,7 @@ urlpatterns = [
     path('releases/', include('releases.urls')),
     path('pptxgallery/', include('pptxgallery.urls')),
     path('media-tools/', include('media_tools.urls')),
+    path('jobs/', include('jobs.urls')),
     path('projects/', include('projects.urls')),
     path('download/<str:filename>/', download_file, name='download_file'),
     *get_project_urlpatterns(),

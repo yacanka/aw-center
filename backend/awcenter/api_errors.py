@@ -1,13 +1,18 @@
 """Shared API error contract utilities for AW Center."""
 
+import logging
 from http import HTTPStatus
 
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
+from awcenter.error_guidance import guidance_for
+from awcenter.request_context import get_request_id
+
 DEFAULT_ERROR_CODE = "ERROR"
 VALIDATION_ERROR_CODE = "VALIDATION_ERROR"
+logger = logging.getLogger(__name__)
 
 
 class ErrorCodes:
@@ -38,7 +43,7 @@ class ApiErrorContractMiddleware:
     def process_template_response(self, request, response):
         """Normalize unrendered DRF error responses before rendering."""
 
-        return normalize_error_response(response)
+        return normalize_error_response(response, getattr(request, "request_id", None))
 
 
 _STATUS_CODE_MAP = {
@@ -55,10 +60,31 @@ def api_exception_handler(exception, context):
 
     response = exception_handler(exception, context)
     if response is None:
-        return None
+        return _unexpected_error_response(exception, context)
 
-    response.data = build_error_payload(response.data, response.status_code, exception)
+    request = context.get("request")
+    request_id = getattr(request, "request_id", None)
+    response.data = build_error_payload(
+        response.data, response.status_code, exception, request_id=request_id
+    )
     return response
+
+
+def _unexpected_error_response(exception, context):
+    request = context.get("request")
+    request_id = getattr(request, "request_id", None)
+    logger.error(
+        "Unhandled API exception type=%s",
+        exception.__class__.__name__,
+        extra={"request": request},
+    )
+    payload = build_error_payload(
+        {"detail": "An unexpected server error occurred."},
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        code="INTERNAL_ERROR",
+        request_id=request_id,
+    )
+    return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 def error_response(detail, code=DEFAULT_ERROR_CODE, errors=None, response_status=400):
@@ -70,34 +96,50 @@ def error_response(detail, code=DEFAULT_ERROR_CODE, errors=None, response_status
     return Response(payload, status=response_status)
 
 
-def build_error_payload(data, status_code, exception=None, code=None):
+def build_error_payload(data, status_code, exception=None, code=None, request_id=None):
     """Build a serializable API error payload with detail, code, and optional errors."""
 
     errors = _extract_errors(data)
     detail = _extract_detail(data) or _default_detail(status_code)
     error_code = code or _extract_code(data) or _exception_code(exception)
-    payload = {"detail": str(detail), "code": _normalize_code(error_code, status_code)}
+    normalized_code = _normalize_code(error_code, status_code)
+    payload = {"detail": str(detail), "code": normalized_code}
+    payload.update(guidance_for(normalized_code, status_code).as_payload())
     if errors is not None:
         payload["errors"] = errors
+    active_request_id = request_id or get_request_id()
+    if active_request_id != "-":
+        payload["request_id"] = active_request_id
     return payload
 
 
-def normalize_error_response(response):
+def normalize_error_response(response, request_id=None):
     """Normalize manual DRF error responses when they use legacy payloads."""
 
-    if not _should_normalize_response(response):
+    if not _is_error_response(response):
         return response
-
-    response.data = build_error_payload(response.data, response.status_code)
+    if not _is_standard_error_payload(response.data):
+        response.data = build_error_payload(
+            response.data, response.status_code, request_id=request_id
+        )
+    else:
+        response.data = _enrich_standard_payload(response.data, response.status_code, request_id)
     return response
 
 
-def _should_normalize_response(response):
+def _enrich_standard_payload(data, status_code, request_id=None):
+    payload = dict(data)
+    code = _normalize_code(payload.get("code"), status_code)
+    payload.update(guidance_for(code, status_code).as_payload())
+    if request_id:
+        payload.setdefault("request_id", request_id)
+    return payload
+
+
+def _is_error_response(response):
     if not isinstance(response, Response):
         return False
-    if response.status_code < status.HTTP_400_BAD_REQUEST:
-        return False
-    return not _is_standard_error_payload(response.data)
+    return response.status_code >= status.HTTP_400_BAD_REQUEST
 
 
 def _is_standard_error_payload(data):
@@ -123,7 +165,7 @@ def _extract_errors(data):
 
 
 def _validation_errors(data):
-    non_error_keys = {"detail", "message", "error", "code"}
+    non_error_keys = {"detail", "message", "error", "code", "retryable", "recovery_hint"}
     errors = {key: value for key, value in data.items() if key not in non_error_keys}
     return errors or None
 

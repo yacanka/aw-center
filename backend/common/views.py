@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django import forms
+from awcenter.file_security import EXCEL_POLICY, validate_request_upload
 from django.http import HttpResponse
 
 from rest_framework.viewsets import ModelViewSet
@@ -309,9 +310,9 @@ class UploadForm(forms.Form):
 def upload_compdoc_factory(model, serializer_class, view_permission_classes):
     class UploadCompDoc(APIView):
         def post(self, request):
+            excel_file = validate_request_upload(request, "file", EXCEL_POLICY)
             form = UploadForm(request.POST, request.FILES)
             if form.is_valid():
-                excel_file = request.FILES["file"]
                 import pandas as pd
 
                 model_fields = {field.name for field in model._meta.fields}

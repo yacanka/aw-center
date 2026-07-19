@@ -6,9 +6,13 @@ from django.core.cache import cache
 from django.db import connection
 from django.utils._os import safe_join
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 
 from pathlib import Path
+
+from awcenter.integration_hub import integration_catalog
+from awcenter.integration_probes import claim_refresh_slot, probe_catalog
 
 
 def redirect_to_app(request):
@@ -21,6 +25,8 @@ def index(request):
     return render(request, "index.html")
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def download_file(request, filename):
     """Download a media file by safe filename from MEDIA_ROOT."""
     try:
@@ -32,6 +38,19 @@ def download_file(request, filename):
         raise Http404("The specified file could not be located on the server")
 
     return FileResponse(file_path.open("rb"), as_attachment=True, filename=file_path.name)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def integrations(request):
+    """Return the non-secret integration capability and readiness catalog."""
+
+    catalog = integration_catalog()
+    if request.query_params.get("probe") == "true":
+        refresh_requested = request.query_params.get("refresh") == "true"
+        refresh = refresh_requested and claim_refresh_slot(request.user.pk)
+        catalog = probe_catalog(catalog, refresh=refresh)
+    return Response({"integrations": catalog})
 
 
 @api_view(["GET"])

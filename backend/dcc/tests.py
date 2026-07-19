@@ -259,7 +259,6 @@ class DccPermissionTests(TestCase):
 
     def test_anonymous_requests_are_rejected(self):
         endpoints = [
-            ("get", "/dcc/test/", None),
             ("get", "/dcc/api/", None),
             ("get", f"/dcc/api/{self.dcc.pk}/", None),
             ("get", "/dcc/issues/", None),

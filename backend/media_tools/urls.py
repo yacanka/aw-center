@@ -1,8 +1,8 @@
 from django.urls import path
 
-from .views import convert_media, preview_media
+from .views import create_media_job, preview_media
 
 urlpatterns = [
     path("preview/", preview_media, name="media_preview"),
-    path("convert/", convert_media, name="media_convert"),
+    path("jobs/", create_media_job, name="media_job_create"),
 ]

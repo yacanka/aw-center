@@ -22,6 +22,7 @@ Services:
 |---|---|---|
 | `backend` | Django runtime | `8000` |
 | `frontend` | Nginx-served Vite static assets | `8080` |
+| `worker` | Durable job executor and lease heartbeat | internal |
 | `database` | PostgreSQL production-grade database candidate | `5432` |
 | `redis` | Cache backend candidate | internal |
 
@@ -59,6 +60,8 @@ These variables are read by `backend/awcenter/settings.py`.
 | `CACHE_URL` | No | LocMem cache | Redis URL for production cache. |
 | `LOG_LEVEL` | No | `INFO` | Console logging level. |
 | `FRONTEND_RESET_URL` | No | Computed from debug, host, and port | Password reset frontend URL. |
+| `FRONTEND_INVITATION_URL` | No | Computed `/app/invite` URL | Public registration screen used by one-time invitation links. |
+| `TRUSTED_PROXY_COUNT` | No | `0` | Trusted reverse-proxy hops used for secure per-client throttling; set `1` for the bundled Nginx topology. |
 | `ALLOWED_HOSTS` | No | `IPV4_ADDRESS`, `127.0.0.1`, `localhost` | Comma-separated list parsed by django-environ. |
 | `CORS_ALLOWED_ORIGINS` | Production yes | Empty list | Required when `DEBUG=False`. |
 | `CSRF_TRUSTED_ORIGINS` | No | Empty list | Add HTTPS origins for cross-origin form/cookie flows. |
@@ -92,6 +95,16 @@ docker compose run --rm backend python manage.py collectstatic --noinput
 docker compose up -d
 curl -fsS http://localhost:8000/health/ready/
 ```
+
+The `worker` service runs `python manage.py run_job_worker`. Schedule
+`python manage.py cleanup_jobs` daily so terminal job artifacts follow the configured retention
+window. Backend and worker containers must mount the same `PRIVATE_MEDIA_ROOT` volume. This
+directory must never be exposed by Nginx; downloads pass through owner-authorized Django views.
+Local Word translation and analysis models are not baked into the image. Provision all four
+configured model directories through the shared `/app/models` volume so both Integration Hub and
+the worker see the same readiness state. Translation and explainable analysis run inside the
+worker; document content is not sent to a cloud model. Analysis evidence is stored only in the
+owner-authorized private job artifact.
 
 Use `deploy/nginx/awcenter.conf` as a starting point for reverse proxy headers and route forwarding. Production TLS termination must set `X-Forwarded-Proto: https` so Django's `SECURE_PROXY_SSL_HEADER` can identify secure requests.
 

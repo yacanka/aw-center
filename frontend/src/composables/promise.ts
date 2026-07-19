@@ -24,9 +24,8 @@ function isAuthenticationFailure(error: AxiosError<ErrorPayload>) {
 
 function handleAuthenticationFailure(error: AxiosError<ErrorPayload>, options: RequestOptions) {
   if (!isAuthenticationFailure(error)) return
-  if (options.suppressAuthenticationWarning) return
-
   clearStoredAuthentication()
+  if (options.suppressAuthenticationWarning) return
   notifyWarning('Login required.', 'Authentication Required')
 }
 
