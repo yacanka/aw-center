@@ -836,3 +836,12 @@
 5. Limited search input to 100 characters, fuzzy candidates to 500 records, query fragments to 16, and response pages through the shared maximum page-size policy.
 6. Removed obsolete people-page props and eager full-directory fetches from DCC and JIRA person fields; lookup components now remain correct regardless of the active table page.
 7. Added backend pagination/ranking/typo/field/input-boundary tests and frontend cancellation/request-shape/state regression tests.
+
+## 105. Conservative generic Django + Vue launcher
+
+1. Replaced the 2,249-line AW Center-specific launcher with a thin entry point and focused modules that discover `manage.py`, the Vue manifest, requirements, WSGI application, lockfile, and repository scripts.
+2. Removed launcher-owned `.env`, `.env.local`, generated secret, certificate, database, media, static, and `.runtime` profile management; runtime overrides now exist only in child-process environments.
+3. Made `dev` non-mutating by default: migrations require `--migrate`, requested ports never change silently, and all launcher-owned children stop together without PID files.
+4. Made `prod` environment-owned and server-neutral: it retains build, deploy checks, migration checks, collectstatic, explicit migration, and custom production-command parameters while defaulting to inferred WSGI plus Gunicorn on Unix.
+5. Retained online/offline setup, offline preparation, offline ZIP, and Git-change ZIP workflows with Git-tracked source selection and explicit exclusions for active env files, keys, runtime state, generated artifacts, dependency trees, and local databases; safe `.env.example`/`.env.sample` templates remain transferable.
+6. Added focused discovery, offline install, runtime non-persistence, explicit migration, custom production command, safe packaging, path resolution, and CLI contract tests.
