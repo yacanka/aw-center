@@ -13,10 +13,25 @@ def history_serializer_factory(model_class):
     return DynamicHistorySerializer
 
 def serializer_factory(model_class):
+    if hasattr(model_class, "history"):
+        return versioned_serializer_factory(model_class)
+
     class DynamicSerializer(ModelSerializer):
-        #history = DynamicHistorySerializer(many=True, read_only=True, source="history.all")
         class Meta:
             model = model_class
             fields = '__all__'
 
     return DynamicSerializer
+
+
+def versioned_serializer_factory(model_class):
+    """Return a CompDoc serializer exposing its read-only current history version."""
+
+    class DynamicVersionedSerializer(ModelSerializer):
+        source_history_id = serializers.IntegerField(read_only=True)
+
+        class Meta:
+            model = model_class
+            fields = '__all__'
+
+    return DynamicVersionedSerializer

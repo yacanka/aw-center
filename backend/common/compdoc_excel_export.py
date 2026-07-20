@@ -9,6 +9,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from rest_framework.views import APIView
 
+from .compdoc_permissions import StrictDjangoModelPermissions
+
 SHEET_NAME = "Compliance Documents"
 MAX_COLUMN_WIDTH = 50
 LIST_COLUMNS = {"Signature Panel", "Requirements", "Status Flow"}
@@ -26,7 +28,8 @@ def excel_creator_factory(model, serializer_class, view_permission_classes):
     class ExcelCreator(APIView):
         """Download the current project CompDocs as a styled workbook."""
 
-        permission_classes = view_permission_classes
+        queryset = model.objects.none()
+        permission_classes = [*view_permission_classes, StrictDjangoModelPermissions]
 
         def get(self, request):
             """Build and return one in-memory OOXML workbook."""

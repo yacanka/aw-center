@@ -13,7 +13,9 @@ class AttentionDecisionSerializer(serializers.Serializer):
     """Validate bounded attention item decisions."""
 
     item_id = serializers.RegexField(
-        r"^(job|import):[0-9a-f-]{36}$|^invitation:[1-9][0-9]*$",
+        r"^(job|import|jira-draft):[0-9a-f-]{36}$"
+        r"|^invitation:[1-9][0-9]*$"
+        r"|^compdoc-trace:[0-9a-f-]{36}:[1-9][0-9]*$",
         max_length=100,
     )
     action = serializers.ChoiceField(choices=("snooze", "dismiss"))

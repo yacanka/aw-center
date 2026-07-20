@@ -7,8 +7,14 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from common.action_center_models import ActionCenterDecision
+from jobs.models import JobStatus
 
-from .test_action_center import create_failed_job, create_partial_audit
+from .test_action_center import (
+    create_failed_job,
+    create_jira_draft,
+    create_job,
+    create_partial_audit,
+)
 
 User = get_user_model()
 
@@ -70,6 +76,17 @@ class ActionCenterDecisionTests(TestCase):
         self.assertEqual(unavailable.status_code, 400)
         self.assertEqual(invalid.status_code, 400)
         self.assertEqual(ActionCenterDecision.objects.count(), 0)
+
+    def test_jira_draft_identifier_supports_decisions(self):
+        """The decision contract accepts the existing unresolved JIRA draft item kind."""
+
+        source = create_job(self.user, "Analysis", JobStatus.SUCCEEDED)
+        draft = create_jira_draft(self.user, source, "approved")
+
+        response = self.post_decision(f"jira-draft:{draft.pk}", "dismiss")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertTrue(ActionCenterDecision.objects.filter(user=self.user).exists())
 
     def post_decision(self, item_id, action):
         """Post one action-center decision using the authenticated client."""

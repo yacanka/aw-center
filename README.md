@@ -37,11 +37,11 @@ AW Center aşağıdaki iş akışlarını destekler:
 - **Outlook `.msg` işlemleri:** Plain-text e-posta inceleme, kullanıcıya bağlı süreli ek indirme, kalıcı Word eki çıkarma ve Outlook → Word analiz köprüsü.
 - **PowerPoint gallery:** Sunum ve slayt yükleme, listeleme, görsel önizleme ve dış dönüşüm araçlarıyla galeri oluşturma.
 - **Medya dönüştürme:** FFmpeg tabanlı görüntü/ses/video dönüştürme, önizleme ve çıktı boyutu tahmini.
-- **Organizasyon yönetimi:** Proje, panel, sorumlu ve kişi kayıtlarının CRUD yönetimi ve kişi Excel yükleme.
+- **Organizasyon yönetimi:** Proje, panel, sorumlu ve kişi kayıtlarının CRUD yönetimi, kişi Excel yükleme ve ad/sicil/e-posta üzerinde sunucu-sıralamalı, typo-tolerant, sayfalı kişi arama. NSearch sonuçları toplam kayıt ve sonraki sayfa bilgisini korur; People tablosu aynı sunucu filtresiyle çalışır.
 - **Kullanıcı ve yetki yönetimi:** Yönetici kontrollü hesap açma, 24 saatlik tek kullanımlık davetler, davet yaşam döngüsü denetimi, login/logout, HttpOnly token cookie, CSRF koruması, parola değiştirme, parola sıfırlama, kullanıcı tercihleri ve izin listesi. Anonim self-signup yoktur.
 - **Integration Hub:** JIRA, Teamcenter, DOORS, DocProof, Office ve medya köprülerinin secretsız yapılandırma/capability görünümü, isteğe bağlı canlı sağlık kontrolleri, circuit breaker koruması ve ilgili araçlara hızlı geçiş.
 - **Job Center ve Workflow Accelerator:** Uzun süren işlemler için kalıcı sahiplik, ilerleme, kooperatif iptal, atomik/idempotent retry, worker lease recovery, audit olayları ve güvenli artifact indirme merkezi. Allowlist tabanlı recipe'ler bir aracın doğrulanmış çıktısını tarayıcıya indirmeden sonraki adıma aktarır; Word çeviri → analiz ve Outlook Word eki → analiz süreçleri tek izlenebilir akışta çalışır.
-- **Dikkat Merkezi:** Kullanıcının başarısız işlerini, bekleyen/başarısız JIRA taslaklarını, yetkili olduğu sorunlu CompDoc importlarını ve süresi yaklaşan davetleri tek önceliklendirilmiş ana sayfa kuyruğunda birleştirir; her kayıt doğrudan düzeltme ekranına gider ve kullanıcıya özel 24 saat erteleme/kapatma kararları desteklenir. API: `GET /action-center/`, `POST /action-center/decisions/`.
+- **Dikkat Merkezi:** Kullanıcının başarısız işlerini, bekleyen/başarısız JIRA taslaklarını, yetkili olduğu sorunlu CompDoc importlarını, DCC üretiminden sonra değişmiş CompDoc kaynaklarını ve süresi yaklaşan davetleri tek önceliklendirilmiş ana sayfa kuyruğunda birleştirir; her kayıt doğrudan düzeltme ekranına gider ve kullanıcıya özel 24 saat erteleme/kapatma kararları desteklenir. API: `GET /action-center/`, `POST /action-center/decisions/`.
 - **Hızlı Komut:** `Ctrl/⌘ + K` ile tüm etkin araçları, proje akışlarını ve entegrasyon köprülerini Türkçe/İngilizce eşanlamlı veya küçük yazım hatalı aramayla açan, yetki filtreli ve kullanıcıya özel son-komut geçmişi.
 - **Merkezi erişim politikası:** Public allowlist dışındaki ekranlar varsayılan korumalıdır; route, sol menü ve Hızlı Komut aynı staff/permission kararını kullanır. Yetkisiz erişim açıklayıcı 403 ekranına, anonim erişim ise güvenli post-login dönüşüyle Login'e gider.
 - **Release notes:** Kullanıcı bazlı görülmemiş sürüm notları, toplu görüldü işaretleme ve onaylama.
@@ -123,6 +123,15 @@ Frontend ekranları: `/app/dcc`, `/app/compare/...`, `/app/compdocs/...`
 - Excel tabanlı toplu subtask üretimi.
 - Geçici JIRA oturumuyla tek seferlik, kimlik bilgisi içermeyen ve kullanıcıya bağlı kaynak anlık görüntüsü yakalama.
 - Aynı immutable snapshot üzerinde gerçek proje template'iyle dry-render; proje, çıktı adı, panel sayısı, kaynak zamanı, eksik önerilen alanlar ve 15 dakikalık onay süresini worker başlamadan gösterme.
+- Template, önerilen JIRA alanları, panel kapsamı ve seçili CompDoc kaynaklarının teknik referans/otorite olgunluğunu ağırlıklı 0-100 readiness skoru ve açıklanabilir kontrol listesiyle değerlendirme.
+- Captured JIRA başlıkları, panel değerlendirmeleri, ATA, cover-page ve teknik doküman referanslarından yetki kontrollü, açıklanabilir CompDoc önerileri üretme; öneriler otomatik bağlanmaz ve en fazla 500 adaydan en güçlü 8 eşleşmeyle sınırlıdır.
+- Kullanıcının seçtiği önerileri JIRA'yı yeniden okumadan aynı bütünlüğü doğrulanmış snapshot'tan yeni bir immutable preview'a aktarma; eski preview atomik olarak superseded edilir ve iki sürüm `source_job` ile izlenir.
+- Readiness warning'lerinin tamamını kullanıcıya açıkça onaylatma; eksik veya değiştirilmiş acknowledgment listesini backend'de reddetme ve kabul edilen warning kodlarını içeriksiz immutable job audit event'i olarak saklama.
+- Compliance Documents ekranında seçilen en fazla 50 kaydı, JIRA component'inden çözülen aynı projeye ait olma ve proje `view_compdoc` yetkisiyle doğrulayıp son history sürümleriyle immutable DCC snapshot'ına bağlama.
+- Seçili CompDoc kayıtlarının canonical SHA-256 fingerprint'ini, durum dağılımını ve eksik teknik doküman referans sayısını önizlemede gösterme; doğrulanmış referansları template değişikliği gerektirmeyen bir DOCX izlenebilirlik eki olarak üretme.
+- Onaylanan CompDoc kaynaklarının ters DCC geçmişini ilgili kayıt detayında gösterme; kaynak history sürümü, fingerprint, güncel/eski kaynak durumu ve korunmuş job/retry durumu audit olarak saklanır.
+- Son 14 günde değişen ve en yeni onaylı DCC'si eski history sürümüne bağlı kalan CompDoc'ları çift yetki kontrollü Action Center uyarısına dönüştürme; uyarı doğrudan ilgili kayıt ve DCC geçmişini açar, yeni history sürümü önceki kapatma kararından bağımsız tekrar görünür.
+- Manuel CompDoc güncellemelerinde güncel Simple History sürümünü zorunlu optimistic concurrency anahtarı olarak kullanma; transaction ve row lock altında eski yazımları 409 ile reddetme, başarılı history kaydına aktörü bağlama ve yetkili kullanıcıya mevcut DCC etkisini kaydetmeden önce açıkça onaylatma.
 - Açık kullanıcı onayı verilene kadar worker'ın göremediği `awaiting_confirmation` durumu; onaydan sonra JIRA'yı yeniden okumadan aynı özel snapshot ile doğrulanmış DOCX üretme.
 - ECD dosyası yükleme ve assessment işlemleri.
 - DCC reminder/e-posta gönderimi.
@@ -143,6 +152,8 @@ Frontend ekranları: `/app/dcc`, `/app/compare/...`, `/app/compdocs/...`
 - `POST /dcc/create_issue/`
 - `POST /dcc/jobs/create-document/preview/`
 - `POST /dcc/jobs/create-document/<job-id>/confirm/`
+- `POST /dcc/jobs/create-document/<job-id>/compdoc-recommendations/`
+- `GET /dcc/compdoc-traceability/?project=<slug>&compdoc_id=<uuid>`
 - `POST /dcc/issue-drafts/<id>/preflight/`
 - `POST /dcc/issue-drafts/<id>/publish/`
 - `POST /dcc/send_mail/`
@@ -197,6 +208,45 @@ Frontend ekranları: `/app/compdocs/:project`, `/app/compdocs/coverpagecreator`,
 - Durum akışı ve gecikme göstergeleri.
 - Cover page üretimi.
 - Doküman analiz ekranı.
+- Yetkili kullanıcıların mevcut sayfalar arasında en fazla 50 CompDoc seçip doğrudan DCC Creator'a geçmesi; seçimler backend'de tekrar UUID, proje, kayıt varlığı ve yetki kontrolünden geçirilir.
+
+CompDoc API'leri yalnız oturum kontrolüne güvenmez; her proje uygulamasının kendi Django
+model yetkileri backend'de uygulanır:
+
+- `<project>.view_compdoc`: liste, UUID detay, geçmiş, alan metadata'sı ve Excel export.
+- `<project>.add_compdoc` + `<project>.change_compdoc`: manuel create/upsert ve Excel import.
+- `<project>.change_compdoc`: mevcut kaydı güncelleme.
+- `<project>.delete_compdoc`: tekil silme; toplu silme ayrıca `view_compdoc`, güncel kayıt
+  sayısı ve proje adını içeren tam onay cümlesi gerektirir.
+
+Production kullanıcı grupları oluşturulurken bu yetkiler proje bazında açıkça atanmalıdır.
+Frontend kontrolleri yalnız kullanıcı deneyimi sağlar; aynı matris bütün API uçlarında yeniden
+doğrulanır.
+
+CompDoc -> DCC köprüsü için kullanıcıda hem `dcc.add_jira_dcc` hem seçilen projenin
+`view_compdoc` yetkisi bulunmalıdır. DCC önizlemesi, idempotent replay ve confirmation anlarında
+CompDoc yetkisi yeniden denetlenir. Seçili kayıtlar değişse bile üretilen belge kullanıcının açıkça
+incelediği immutable history sürümlerini ve bunların SHA-256 fingerprint'ini taşır.
+
+Onay sonrası ters izlenebilirlik kaydı job retention'dan bağımsız saklanır. CompDoc detayındaki DCC
+geçmişini okumak için hem `dcc.view_jira_dcc` hem ilgili projenin `view_compdoc` yetkisi gerekir.
+Kaynak sonradan değişirse kayıt “older source version” olarak görünür; Job Center bağlantısı ise
+yalnız işi oluşturan kullanıcıya açılır. Preview veya süresi dolmuş onaysız işler kullanım audit'i
+oluşturmaz.
+
+DCC confirmation isteği, önizlemedeki `readiness_warning_codes` listesini
+`acknowledged_warning_codes` alanında eksiksiz taşır. Warning yoksa boş liste gönderilir. Backend
+yalnız güncel önizlemenin tam warning kümesini kabul eder; böylece UI kontrolünün atlanması veya eski
+bir önizleme kararının yeni risklere uygulanması mümkün değildir. CompDoc bağlamak opsiyoneldir ve
+tek başına skoru düşürmez; kaynak bağlandığında eksik teknik referanslar ve authority approval'a
+ulaşmamış durumlar insan incelemesi gerektirir.
+
+CompDoc önerileri yalnız ilgili proje modelinin `view_compdoc` yetkisi olan DCC sahibine gösterilir.
+Skor; açık cover-page/teknik referans, ATA, panel adı ve anlamlı doküman adı terimlerini deterministik
+ağırlıklarla birleştirir ve her eşleşmenin nedenini döndürür. Kullanıcı seçim yapmadıkça preview
+girdisine CompDoc eklenmez. Seçim uygulandığında endpoint source preview'ın SHA-256 doğrulanmış özel
+JSON girdisini kullanır; JIRA credential istemez veya JIRA'yı yeniden çağırmaz. Yeni preview başarıyla
+oluşursa eski preview çift confirmation riskini önlemek için retry edilemez superseded duruma geçer.
 
 Proje bazlı CompDoc route'ları registry ile etkin projeler için bağlanır: `ozgur`, `piku`, `aesa`, `havasoj`, `hys`, `blok30`.
 

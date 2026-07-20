@@ -42,6 +42,18 @@ _EXACT_GUIDANCE = {
     "COMPDOC_IMPORT_PREVIEW_MISMATCH": ErrorGuidance(
         False, "Preview the exact workbook you want to import, then confirm it."
     ),
+    "COMPDOC_IMPORT_DATABASE_CONFLICT": ErrorGuidance(
+        False, "Review a fresh import preview against the latest compliance documents."
+    ),
+    "COMPDOC_DELETE_COUNT_CONFLICT": ErrorGuidance(
+        False, "Refresh the document list and review the new total before deleting."
+    ),
+    "COMPDOC_VERSION_CONFLICT": ErrorGuidance(
+        False, "Reload the document, review the newer values, and reapply your changes."
+    ),
+    "COMPDOC_VERSION_REQUIRED": ErrorGuidance(
+        False, "Reload the document before editing so the current version can be verified."
+    ),
     "IDEMPOTENCY_CONFLICT": ErrorGuidance(False, "Refresh the job list before submitting new data."),
     "INVITATION_EXPIRED": ErrorGuidance(False, "Ask an administrator to create a new invitation."),
     "INVITATION_REVOKED": ErrorGuidance(False, "Ask an administrator for the newest invitation."),
@@ -74,11 +86,56 @@ _EXACT_GUIDANCE = {
     "DCC_PREVIEW_NOT_CONFIRMABLE": ErrorGuidance(
         False, "Create a new DCC preview and review its current state."
     ),
+    "DCC_READINESS_ACK_REQUIRED": ErrorGuidance(
+        False, "Review every readiness warning and enable the acknowledgement before confirming."
+    ),
+    "DCC_READINESS_ACK_INVALID": ErrorGuidance(
+        False, "Refresh the DCC preview and acknowledge only its current warning list."
+    ),
     "DCC_TEMPLATE_UNAVAILABLE": ErrorGuidance(
         False, "Ask an administrator to deploy the registered project DOCX template."
     ),
     "DCC_RENDER_FAILED": ErrorGuidance(
         False, "Ask an administrator to validate the registered template placeholders."
+    ),
+    "DCC_COMPDOC_FORBIDDEN": ErrorGuidance(
+        False, "Request view access for the selected project's compliance documents."
+    ),
+    "DCC_COMPDOC_PROJECT_MISMATCH": ErrorGuidance(
+        False, "Select compliance documents from the same project as the JIRA task."
+    ),
+    "DCC_COMPDOC_NOT_FOUND": ErrorGuidance(
+        False, "Return to Compliance Documents and select the current records again."
+    ),
+    "DCC_COMPDOC_LIMIT": ErrorGuidance(
+        False, "Reduce the compliance document selection to 50 records."
+    ),
+    "DCC_COMPDOC_SELECTION_REQUIRED": ErrorGuidance(
+        False, "Select at least one recommendation before creating an enriched preview."
+    ),
+    "DCC_COMPDOC_SELECTION_UNCHANGED": ErrorGuidance(
+        False, "Select a recommendation that is not already linked to this preview."
+    ),
+    "DCC_PREVIEW_SUPERSEDED": ErrorGuidance(
+        False, "Open the newer CompDoc-enriched preview from your recent DCC jobs."
+    ),
+    "DCC_COMPDOC_SNAPSHOT_INVALID": ErrorGuidance(
+        False, "Create a new DCC preview from the current compliance document selection."
+    ),
+    "DCC_COMPDOC_SOURCE_CHANGED": ErrorGuidance(
+        False, "Create a current-source preview and review it before confirmation."
+    ),
+    "DCC_COMPDOC_REFRESH_NOT_REQUIRED": ErrorGuidance(
+        False, "Review the trace; its DCC-visible fields do not require regeneration."
+    ),
+    "DCC_COMPDOC_REFRESH_SOURCE_ACTIVE": ErrorGuidance(
+        True, "Wait for the source DCC job to finish, then create the refreshed preview."
+    ),
+    "DCC_COMPDOC_REFRESH_SOURCE_ARCHIVED": ErrorGuidance(
+        False, "Capture the JIRA task again because its private snapshot has expired."
+    ),
+    "DCC_COMPDOC_REFRESH_SOURCE_INVALID": ErrorGuidance(
+        False, "Capture the JIRA task again because retained lineage could not be verified."
     ),
     "TEAMCENTER_NOT_CONFIGURED": ErrorGuidance(False, "Ask an administrator to configure Teamcenter."),
     "TEAMCENTER_AUTH_FAILED": ErrorGuidance(False, "Ask an administrator to verify Teamcenter credentials."),

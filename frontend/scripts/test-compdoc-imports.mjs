@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import axios from 'axios'
 
@@ -26,6 +27,49 @@ test('confirmation sends the signed decision with the exact file', async () => {
   assert.equal(captured.url, '/ozgur/compdocs/upload/?confirm_import=true')
   assert.equal(captured.data.get('confirmation_token'), 'signed-preview')
   assert.equal(captured.data.get('file'), file)
+})
+
+test('import UI refreshes database-conflicted previews without discarding the workbook', async () => {
+  const [component, composable] = await Promise.all([
+    readFile(new URL('../src/components/compdoc/UploadPopup.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/composables/useCompdocImport.ts', import.meta.url), 'utf8')
+  ])
+
+  assert.match(component, /previewNotice/)
+  assert.match(component, /protected against concurrent database changes/)
+  assert.match(composable, /COMPDOC_IMPORT_DATABASE_CONFLICT/)
+  assert.match(composable, /COMPDOC_IMPORT_PREVIEW_EXPIRED/)
+  assert.match(composable, /await loadPreview\(pendingFile\.value, true\)/)
+  assert.doesNotMatch(composable, /finally[\s\S]{0,100}resetUploadState/)
+})
+
+test('CompDoc UI gates every mutation with project model permissions', async () => {
+  const [table, popup] = await Promise.all([
+    readFile(new URL('../src/views/CompDocTable.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/compdoc/CompDocPopup.vue', import.meta.url), 'utf8')
+  ])
+
+  assert.match(table, /'view_compdoc'/)
+  assert.match(table, /'add_compdoc'/)
+  assert.match(table, /'change_compdoc'/)
+  assert.match(table, /'delete_compdoc'/)
+  assert.match(table, /v-if="canImport"/)
+  assert.match(table, /v-if="canCreate"/)
+  assert.match(table, /v-if="canDelete"/)
+  assert.match(table, /\[route\.params\.project, canView\.value, linkedCompdocId\.value\]/)
+  assert.match(popup, /popupMode == 'view' && canEdit/)
+})
+
+test('bulk delete requires the exact project phrase and reviewed server count', async () => {
+  const [component, store] = await Promise.all([
+    readFile(new URL('../src/components/compdoc/CompDocBulkDelete.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/stores/compdoc.ts', import.meta.url), 'utf8')
+  ])
+
+  assert.match(component, /DELETE \$\{props\.project\.toUpperCase\(\)\} COMPLIANCE DOCUMENTS/)
+  assert.match(component, /expected_count: props\.count/)
+  assert.match(store, /axios\.delete\([\s\S]*\{ data: payload \}/)
+  assert.match(store, /pagination = \{ count: 0, next: null, previous: null \}/)
 })
 
 async function captureRequest(callback, responseData) {
@@ -60,6 +104,7 @@ function previewResponse() {
     updated_count: 0,
     unchanged_count: 0,
     rejected_count: 0,
-    confirmation_token: 'signed-preview'
+    confirmation_token: 'signed-preview',
+    database_state_protected: true
   }
 }

@@ -33,6 +33,13 @@ export function formatApiError(data: unknown): string {
   return typeof data === 'string' && data ? data : FALLBACK_ERROR_MESSAGE
 }
 
+/** Returns the stable API error code from either a payload or an HTTP client error. */
+export function getApiErrorCode(data: unknown): string | undefined {
+  const responseData = getResponseData(data)
+  if (responseData !== undefined) return getApiErrorCode(responseData)
+  return isApiErrorPayload(data) ? data.code : undefined
+}
+
 function formatStandardError(data: ApiErrorPayload): string {
   const lines = [data.detail]
   if (data.recovery_hint) lines.push(`Next step: ${data.recovery_hint}`)

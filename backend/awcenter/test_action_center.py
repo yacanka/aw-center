@@ -88,8 +88,8 @@ class ActionCenterTests(TestCase):
         self.assertEqual(response.data["items"][0]["action_path"], f"/jobs?job={source.pk}")
         self.assertNotIn("description", str(response.data))
 
-    def test_all_sources_are_loaded_with_four_bounded_queries(self):
-        """Cross-domain aggregation does not create per-item query growth."""
+    def test_all_sources_are_loaded_with_bounded_queries(self):
+        """Cross-domain aggregation and trace discovery avoid per-item query growth."""
 
         self.user.is_staff = True
         self.user.is_superuser = True
@@ -98,7 +98,7 @@ class ActionCenterTests(TestCase):
         create_partial_audit()
         create_expiring_invitation(self.user)
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             response = self.client.get("/action-center/")
 
         self.assertEqual(response.data["summary"]["total"], 3)

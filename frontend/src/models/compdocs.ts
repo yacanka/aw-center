@@ -1,5 +1,6 @@
 export interface ICompDoc {
-  id?: number
+  id?: string
+  source_history_id?: number
   project?: string
   panel: string | null
   discipline?: string

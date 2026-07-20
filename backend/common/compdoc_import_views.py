@@ -21,10 +21,19 @@ from .compdoc_import_audit import (
     start_import_audit,
 )
 from .compdoc_import_pipeline import (
+    CompDocImportDatabaseConflict,
     CompDocImportLimitExceeded,
     execute_import,
     prepare_import,
     preview_import,
+)
+from .compdoc_permissions import CompDocImportPermissions
+from .compdoc_import_responses import (
+    confirmation_error_response,
+    confirmation_required_response,
+    database_conflict_response,
+    import_limit_response,
+    missing_columns_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +45,8 @@ def upload_compdoc_factory(model, serializer_class, view_permission_classes):
     class UploadCompDoc(APIView):
         """Preview and execute one project workbook import."""
 
-        permission_classes = view_permission_classes
+        queryset = model.objects.none()
+        permission_classes = [*view_permission_classes, CompDocImportPermissions]
 
         def post(self, request):
             """Preview mappings or execute a confirmed audited import."""
@@ -55,14 +65,17 @@ def preview_response(request, uploaded_file, model, serializer_class):
     """Return mappings, action impact, failures, and an exact-file confirmation."""
 
     prepared = prepare_import(uploaded_file, model)
-    result = preview_import(prepared, model, serializer_class)
-    confirmation = create_import_confirmation(uploaded_file, request.user, model)
+    result, database_fingerprint = preview_import(prepared, model, serializer_class)
+    confirmation = create_import_confirmation(
+        uploaded_file, request.user, model, database_fingerprint
+    )
     return Response(
         {
             **prepared.preview,
             **{key: result[key] for key in count_keys()},
             "invalid_documents": public_errors(result["errors"]),
             "confirmation_token": confirmation,
+            "database_state_protected": True,
         },
         status=status.HTTP_200_OK,
     )
@@ -72,37 +85,30 @@ def confirmed_import_response(request, uploaded_file, model, serializer_class):
     """Execute one confirmed import and always terminate its audit."""
 
     try:
-        source_sha256 = verify_import_confirmation(
+        confirmation = verify_import_confirmation(
             request.data.get("confirmation_token"), uploaded_file, request.user, model
         )
     except ImportConfirmationError as error:
         return confirmation_error_response(error)
-    audit = start_import_audit(request, model, uploaded_file, source_sha256)
+    audit = start_import_audit(
+        request, model, uploaded_file, confirmation.source_sha256
+    )
     try:
         prepared = prepare_import(uploaded_file, model)
         record_import_mapping(audit, prepared.preview, len(prepared.dataframe))
         if prepared.preview["missing_columns"]:
             return missing_columns_response(audit, prepared.preview["missing_columns"])
-        result = execute_import(prepared, model, serializer_class)
+        result = execute_import(
+            prepared, model, serializer_class, confirmation.database_fingerprint
+        )
         complete_import_audit(audit, result)
         return successful_import_response(audit, result)
+    except CompDocImportDatabaseConflict as error:
+        return database_conflict_response(audit, error)
     except CompDocImportLimitExceeded as error:
         return import_limit_response(audit, error)
     except Exception as error:
         return unexpected_import_response(audit, error)
-
-
-def import_limit_response(audit, error):
-    """Record and return a deterministic workbook row-limit failure."""
-
-    audit.total_rows = error.row_count
-    audit.save(update_fields=["total_rows"])
-    fail_import_audit(audit, error.default_code, str(error.detail))
-    return error_response(
-        str(error.detail),
-        code=error.default_code,
-        response_status=status.HTTP_400_BAD_REQUEST,
-    )
 
 
 def unexpected_import_response(audit, error):
@@ -118,39 +124,6 @@ def unexpected_import_response(audit, error):
         "The workbook could not be processed.",
         code="COMPDOC_IMPORT_FAILED",
         response_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    )
-
-
-def confirmation_required_response():
-    """Require the explicit preview-confirmation handshake."""
-
-    return error_response(
-        "Import preview confirmation is required.",
-        code="COMPDOC_IMPORT_CONFIRMATION_REQUIRED",
-        response_status=status.HTTP_409_CONFLICT,
-    )
-
-
-def confirmation_error_response(error):
-    """Return a stable conflict when the reviewed workbook identity is invalid."""
-
-    return error_response(
-        error.detail,
-        code=error.code,
-        response_status=status.HTTP_409_CONFLICT,
-    )
-
-
-def missing_columns_response(audit, missing_columns):
-    """Reject a confirmed workbook missing required mapped columns."""
-
-    detail = "Required workbook columns are missing."
-    fail_import_audit(audit, "COMPDOC_IMPORT_COLUMNS_MISSING", detail)
-    return error_response(
-        detail,
-        code="COMPDOC_IMPORT_COLUMNS_MISSING",
-        errors={"missing_columns": missing_columns},
-        response_status=status.HTTP_400_BAD_REQUEST,
     )
 
 

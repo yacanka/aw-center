@@ -7,7 +7,12 @@ from rest_framework.test import APIClient
 
 from projects.ozgur.models import CompDoc
 
-from .compdoc_import_test_utils import valid_row, workbook_upload, workbook_upload_bytes
+from .compdoc_import_test_utils import (
+    grant_model_permissions,
+    valid_row,
+    workbook_upload,
+    workbook_upload_bytes,
+)
 from .models import CompDocImportAudit
 
 User = get_user_model()
@@ -21,6 +26,7 @@ class CompDocImportAuditTests(TestCase):
 
         self.importer = User.objects.create_user("importer", password="StrongPass!123")
         self.viewer = User.objects.create_user("auditor", password="StrongPass!123")
+        grant_model_permissions(self.importer, CompDoc, "add", "change")
         self.viewer.user_permissions.add(
             Permission.objects.get(codename="view_compdocimportaudit")
         )
@@ -42,6 +48,7 @@ class CompDocImportAuditTests(TestCase):
         self.assertEqual(response.data["missing_columns"], [])
         self.assertEqual(response.data["created_count"], 1)
         self.assertTrue(response.data["confirmation_token"])
+        self.assertIs(response.data["database_state_protected"], True)
         self.assertEqual(CompDocImportAudit.objects.count(), 0)
 
     def test_confirmed_import_creates_then_updates_by_cover_page_number(self):

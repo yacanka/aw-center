@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { h, ref, onUnmounted, watch, computed, nextTick } from 'vue'
 import {
   NButton,
   NDataTable,
@@ -20,6 +20,8 @@ import { useOrgsStore } from '@/stores/organizations'
 import UpdateForm from '@/components/compdoc/CompDocPopup.vue'
 import UploadPopup from '@/components/compdoc/UploadPopup.vue'
 import ImportAuditHistory from '@/components/compdoc/ImportAuditHistory.vue'
+import CompDocBulkDelete from '@/components/compdoc/CompDocBulkDelete.vue'
+import CompDocDccBridge from '@/components/compdoc/CompDocDccBridge.vue'
 import Details from '@/components/compdoc/DetailedInfo.vue'
 import GraphComponent from '@/components/compdoc/Graph.vue'
 import DownloadComponent from '@/components/Downloader.vue'
@@ -63,6 +65,27 @@ const userStore = useUserStore()
 const canViewImportAudits = computed(() =>
   userStore.hasEffectiveRole('common', 'view_compdocimportaudit')
 )
+const projectAppLabel = computed(() => String(route.params.project || ''))
+const canView = computed(() => userStore.hasEffectiveRole(projectAppLabel.value, 'view_compdoc'))
+const canAdd = computed(() => userStore.hasEffectiveRole(projectAppLabel.value, 'add_compdoc'))
+const canChange = computed(() =>
+  userStore.hasEffectiveRole(projectAppLabel.value, 'change_compdoc')
+)
+const canDelete = computed(() =>
+  userStore.hasEffectiveRole(projectAppLabel.value, 'delete_compdoc')
+)
+const canImport = computed(() => canAdd.value && canChange.value)
+const canCreate = canImport
+const canBridgeToDcc = computed(
+  () => canView.value && userStore.hasEffectiveRole('dcc', 'add_jira_dcc')
+)
+const canReviewDccImpact = computed(
+  () => canView.value && userStore.hasEffectiveRole('dcc', 'view_jira_dcc')
+)
+const selectedCompdocIds = ref<string[]>([])
+const MAX_DCC_COMPDOC_SELECTION = 50
+const linkedCompdocId = computed(() => normalizeLinkedCompdocId(route.query.compdoc))
+let openedLinkedCompdocId = ''
 
 const columnSettings = ref({
   visible: false,
@@ -84,6 +107,17 @@ const filterValue = ref<Record<string, any>>({})
 const techIssueList = ref<Record<string, any>>({})
 const coverPageIssueList = ref<Record<string, any>>({})
 let currentColumns = ref<DataTableColumns<ICompDoc>>([])
+const bridgeSelectionColumn = {
+  type: 'selection',
+  width: 38,
+  fixed: 'left',
+  disabled: (row: ICompDoc) =>
+    selectedCompdocIds.value.length >= MAX_DCC_COMPDOC_SELECTION &&
+    !selectedCompdocIds.value.includes(String(row.id))
+} as DataTableColumns<ICompDoc>[number]
+const displayedColumns = computed<DataTableColumns<ICompDoc>>(() =>
+  canBridgeToDcc.value ? [bridgeSelectionColumn, ...currentColumns.value] : currentColumns.value
+)
 const checkIssuesButton = ref({
   disabled: false
 })
@@ -424,35 +458,30 @@ const columns = ref<DataTableColumns<ICompDoc>>([
               },
               { default: () => null }
             ),
-            h(
-              NButton,
-              {
-                ghost: true,
-                size: 'small',
-                type: 'error',
-                focusable: false,
-                renderIcon: () => h(Delete24Regular),
-                onClick: () => {
-                  window.$dialog.error({
-                    title: 'Delete',
-                    content: 'Are you sure to delete?',
-                    positiveText: 'Yes',
-                    negativeText: 'No',
-                    onPositiveClick: () => {
-                      store
-                        .deleteCompdoc(row.id as number)
-                        .then(() => {
-                          console.log('Request deleted: ', row.name)
-                        })
-                        .catch((err) => {
-                          console.error('Error while deleting ', row.name, ': ', err)
-                        })
+            canDelete.value
+              ? h(
+                  NButton,
+                  {
+                    ghost: true,
+                    size: 'small',
+                    type: 'error',
+                    focusable: false,
+                    renderIcon: () => h(Delete24Regular),
+                    onClick: () => {
+                      window.$dialog.error({
+                        title: 'Delete',
+                        content: 'Are you sure to delete?',
+                        positiveText: 'Yes',
+                        negativeText: 'No',
+                        onPositiveClick: () => {
+                          if (row.id) store.deleteCompdoc(row.id)
+                        }
+                      })
                     }
-                  })
-                }
-              },
-              { default: () => null }
-            )
+                  },
+                  { default: () => null }
+                )
+              : null
           ]
         }
       )
@@ -471,13 +500,16 @@ const columnSettingsManager = useCompdocColumnSettings({
 columnSettings.value = columnSettingsManager.state
 
 watch(
-  () => route.params.project,
-  (new_value, old_value) => {
+  () => [route.params.project, canView.value, linkedCompdocId.value] as const,
+  ([new_value, hasViewPermission]) => {
     store.setProjectName(new_value as string)
     page.value = 1
-    fetchCompdocs().then(() => {
-      //applyColumnSettings()
-    })
+    selectedCompdocIds.value = []
+    if (!hasViewPermission) {
+      store.clearList()
+      return
+    }
+    fetchCompdocs().then(openLinkedCompdoc)
 
     orgs.setProject(new_value as string)
     orgs.fetchPanels().then(() => {
@@ -491,19 +523,41 @@ watch(
         columns.value[ataIndex].filterOptions = orgs.getAtaOptions as any
       }
     })
+    refreshColumnSelections().then(() => {
+      loadColumnSettings()
+      applyColumnSettings()
+    })
   },
   { immediate: true }
 )
 
 function buildCompdocQuery() {
-  return buildCompdocTableQuery(filterValue.value, {
+  const query = buildCompdocTableQuery(filterValue.value, {
     page: page.value,
     pageSize: pageSize.value
   })
+  return linkedCompdocId.value ? { ...query, id: linkedCompdocId.value } : query
 }
 
 function fetchCompdocs() {
+  if (!canView.value) return Promise.resolve()
   return store.fetchCompdocs(buildCompdocQuery())
+}
+
+async function openLinkedCompdoc(): Promise<void> {
+  const documentId = linkedCompdocId.value
+  if (!documentId || openedLinkedCompdocId === documentId) return
+  await nextTick()
+  const document = store.getCompdocs.find((candidate) => candidate.id === documentId)
+  if (!document || !popupComponent.value) return
+  popupComponent.value.openModal(document, 'view')
+  openedLinkedCompdocId = documentId
+}
+
+function normalizeLinkedCompdocId(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidPattern.test(value) ? value : ''
 }
 
 function handlePageUpdate(newPage: number) {
@@ -523,7 +577,15 @@ function showpUploadForm() {
 }
 
 function rowKey(row: ICompDoc) {
-  return row.id || 0
+  return row.id || ''
+}
+
+function handleSelectionUpdate(keys: Array<string | number>): void {
+  if (keys.length > MAX_DCC_COMPDOC_SELECTION) {
+    window.$message.warning(`Select at most ${MAX_DCC_COMPDOC_SELECTION} compliance documents.`)
+    return
+  }
+  selectedCompdocIds.value = keys.map(String)
 }
 
 function showAddCompDocForm(mode: string) {
@@ -612,19 +674,6 @@ async function checkAllIssues() {
   }
 }
 
-function deleteAllCompDocs() {
-  window.$dialog.error({
-    title: 'Delete',
-    content: 'Are you sure to delete all compliance documents?',
-    positiveText: 'Yes',
-    negativeText: 'No',
-    onPositiveClick: async () => {
-      const res = await store.deleteCompdocs()
-      console.log(res)
-    }
-  })
-}
-
 function handlePageSizeInput(number: number) {
   if (number) {
     handleTablePageSizeUpdate(number)
@@ -665,21 +714,18 @@ function loadColumnSettings() {
   columnSettingsManager.load()
 }
 
-onMounted(async () => {
-  await refreshColumnSelections()
-  loadColumnSettings()
-  applyColumnSettings()
-})
-
 onUnmounted(() => {
   store.clearList()
 })
 </script>
 
 <template>
-  <n-space justify="space-between">
+  <n-alert v-if="!canView" type="warning" :bordered="false">
+    You do not have permission to view this project's compliance documents.
+  </n-alert>
+  <n-space v-if="canView" justify="space-between">
     <n-space>
-      <n-button @click="showpUploadForm" :focusable="false">
+      <n-button v-if="canImport" @click="showpUploadForm" :focusable="false">
         <template #icon>
           <n-icon size="24">
             <ChannelAdd24Regular />
@@ -691,7 +737,7 @@ onUnmounted(() => {
         :allowed="canViewImportAudits"
         :project="String(route.params.project || '')"
       />
-      <n-button @click="showAddCompDocForm('new')" :focusable="false">
+      <n-button v-if="canCreate" @click="showAddCompDocForm('new')" :focusable="false">
         <template #icon>
           <n-icon size="24">
             <Add24Regular />
@@ -720,6 +766,11 @@ onUnmounted(() => {
         </template>
         Check Issues
       </n-button>
+      <CompDocDccBridge
+        v-if="canBridgeToDcc"
+        :project="projectAppLabel"
+        :selected-ids="selectedCompdocIds"
+      />
       <n-text v-if="checkIssuesButton.disabled || issueCheckProgress.total > 0" depth="3">
         Checked {{ issueCheckProgress.completed }}/{{ issueCheckProgress.total }}
       </n-text>
@@ -733,18 +784,15 @@ onUnmounted(() => {
         </template>
         Export Excel
       </n-button>
-      <n-button ghost type="error" @click="deleteAllCompDocs" :focusable="false">
-        <template #icon>
-          <n-icon size="24">
-            <Delete24Regular />
-          </n-icon>
-        </template>
-        Delete All
-      </n-button>
+      <CompDocBulkDelete
+        v-if="canDelete"
+        :project="projectAppLabel"
+        :count="store.pagination.count"
+      />
     </n-space>
   </n-space>
 
-  <n-flex justify="end" style="margin: 16px 0 4px 0">
+  <n-flex v-if="canView" justify="end" style="margin: 16px 0 4px 0">
     <n-space>
       <strong>Page Size: </strong>
       <n-input-number
@@ -765,27 +813,37 @@ onUnmounted(() => {
   </n-flex>
 
   <n-data-table
+    v-if="canView"
     ref="table"
     :loading="store.isLoading"
     striped
-    :columns="currentColumns"
+    :columns="displayedColumns"
     :data="store.getCompdocs"
+    :checked-row-keys="selectedCompdocIds"
     remote
     :pagination="pagination"
     :row-key="rowKey"
     @update:filters="handleFilterChange"
     @update:page="handlePageUpdate"
     @update:page-size="handleTablePageSizeUpdate"
+    @update:checked-row-keys="handleSelectionUpdate"
     :filterIconPopoverProps="filterIconPopover"
     size="medium"
   />
 
-  <UpdateForm ref="popupComponent" />
-  <UploadPopup ref="uploadPopup" :uploadUrl="store.getUploadUrl" />
-  <GraphComponent ref="graphComponent" />
-  <DownloadComponent ref="downloadComponent" />
+  <UpdateForm
+    v-if="canView"
+    ref="popupComponent"
+    :can-edit="canChange"
+    :can-review-dcc-impact="canReviewDccImpact"
+    :project="projectAppLabel"
+  />
+  <UploadPopup v-if="canImport" ref="uploadPopup" :uploadUrl="store.getUploadUrl" />
+  <GraphComponent v-if="canView" ref="graphComponent" />
+  <DownloadComponent v-if="canView" ref="downloadComponent" />
 
   <n-modal
+    v-if="canView"
     v-model:show="columnSettings.visible"
     preset="card"
     title="Column Settings"

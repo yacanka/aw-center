@@ -12,13 +12,12 @@ from jobs.recovery import recovery_hint
 from users.models import UserInvitation
 
 from .action_center_decisions import filter_user_decisions
-
+from .action_center_compdocs import stale_compdoc_trace_items
 MAX_SOURCE_ITEMS = 6
 MAX_ITEMS = 12
 RECENT_WINDOW = timedelta(days=14)
 INVITATION_WARNING_WINDOW = timedelta(hours=6)
 SEVERITY_ORDER = {"critical": 0, "warning": 1}
-
 
 def build_action_center(user):
     """Return one user's bounded and decision-filtered attention payload."""
@@ -37,6 +36,7 @@ def available_items(user):
 
     items = job_items(user)
     items.extend(jira_draft_items(user))
+    items.extend(stale_compdoc_trace_items(user, recent_boundary()))
     if user.has_perm("common.view_compdocimportaudit"):
         items.extend(import_items())
     if can_manage_invitations(user):

@@ -71,8 +71,10 @@ class DccDocumentExecutorTests(JobTestCase):
                 {"JSESSIONID": "transient", "url": "DCC-1"}, format="json",
                 HTTP_IDEMPOTENCY_KEY="dcc-complete-flow",
             )
+            warning_codes = preview.data["result_summary"]["readiness_warning_codes"]
             confirmation = self.client.post(
-                f"/dcc/jobs/create-document/{preview.data['id']}/confirm/", format="json"
+                f"/dcc/jobs/create-document/{preview.data['id']}/confirm/",
+                {"acknowledged_warning_codes": warning_codes}, format="json",
             )
             execute_claimed_job(claim_next_job("dcc-complete-worker"))
         return preview, confirmation
@@ -113,6 +115,8 @@ class DccDocumentExecutorTests(JobTestCase):
         self.assertTrue(summary["template_ready"])
         self.assertEqual(summary["output_name"], "DCC-1.docx")
         self.assertIn("DCC form number", summary["missing_recommended_fields"])
+        self.assertEqual(summary["readiness_level"], "review")
+        self.assertTrue(summary["requires_readiness_acknowledgement"])
         self.assertNotIn("Change title", str(summary))
 
     def test_missing_template_has_a_retryable_stable_failure(self):

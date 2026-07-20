@@ -23,6 +23,13 @@ export type PeopleImportResult = {
   error_list?: PeopleImportError[]
 }
 
+export type PeopleSearchPage = {
+  results: IPerson[]
+  count: number
+  page: number
+  hasMore: boolean
+}
+
 /** Load a cached or server-paginated people page. */
 export async function fetchPeople(
   state: OrganizationState,
@@ -33,23 +40,25 @@ export async function fetchPeople(
   if (canReuseRequest(state, forceRefresh, query)) return state.peopleRequest
   if (canReusePeople(state, forceRefresh, query)) return state.people
   state.loading = true
-  state.peopleRequest = requestPeople(state, query)
+  const requestId = ++state.peopleRequestId
+  state.peopleRequest = requestPeople(state, query, requestId)
   const response = await state.peopleRequest
-  state.peoplePagination = getPaginationMeta<IPerson>(response) || state.peoplePagination
+  if (requestId == state.peopleRequestId) updatePeoplePagination(state, response)
   return response
 }
 
 /** Search the people directory without replacing the active page. */
 export async function searchPeople(
   searchText: string,
+  page = 1,
   pageSize = 10,
   signal?: AbortSignal
-): Promise<IPerson[]> {
+): Promise<PeopleSearchPage> {
   const search = searchText.trim()
-  if (!isAuthenticated() || !search) return []
+  if (!isAuthenticated() || !search) return emptySearchPage(page)
   const response = await handleRequest<IPerson[]>(
     axios.get(`${API_PATHS.orgs}/people/`, {
-      params: compactPaginationQuery({ search, page_size: pageSize }),
+      params: compactPaginationQuery({ search, page, page_size: pageSize }),
       signal
     }),
     () => undefined,
@@ -57,7 +66,7 @@ export async function searchPeople(
     undefined,
     { suppressAuthenticationWarning: true }
   )
-  return getPaginatedResults<IPerson>(response)
+  return toSearchPage(response, page)
 }
 
 /** Create a directory person. */
@@ -117,20 +126,53 @@ function canReusePeople(
   return state.peopleFetched && !forceRefresh && !Object.keys(query).length
 }
 
-function requestPeople(state: OrganizationState, query: PaginationQuery): Promise<unknown> {
+function requestPeople(
+  state: OrganizationState,
+  query: PaginationQuery,
+  requestId: number
+): Promise<unknown> {
   return handleRequest<IPerson[]>(
     axios.get(peoplePath(), { params: compactPaginationQuery(query) }),
     (data) => {
+      if (requestId != state.peopleRequestId) return
       state.people = data
       state.peopleFetched = true
     },
-    notifyError,
+    (message) => notifyPeopleRequestError(state, requestId, message),
     () => {
+      if (requestId != state.peopleRequestId) return
       state.loading = false
       state.peopleRequest = null
     },
     { suppressAuthenticationWarning: true }
   )
+}
+
+function notifyPeopleRequestError(
+  state: OrganizationState,
+  requestId: number,
+  message: string
+): void {
+  if (requestId == state.peopleRequestId) notifyError(message)
+}
+
+function updatePeoplePagination(state: OrganizationState, response: unknown): void {
+  state.peoplePagination = getPaginationMeta<IPerson>(response) || state.peoplePagination
+}
+
+function toSearchPage(response: unknown, page: number): PeopleSearchPage {
+  const results = getPaginatedResults<IPerson>(response)
+  const metadata = getPaginationMeta<IPerson>(response)
+  return {
+    results,
+    count: metadata?.count ?? results.length,
+    page,
+    hasMore: Boolean(metadata?.next)
+  }
+}
+
+function emptySearchPage(page: number): PeopleSearchPage {
+  return { results: [], count: 0, page, hasMore: false }
 }
 
 function peoplePath(): string {

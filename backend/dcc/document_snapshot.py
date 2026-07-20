@@ -16,9 +16,10 @@ MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
 class DccSnapshotError(ValueError):
     """Represent a safe, actionable DCC source validation failure."""
 
-    def __init__(self, message, code):
+    def __init__(self, message, code, response_status=400):
         super().__init__(message)
         self.code = code
+        self.response_status = response_status
 
 
 def extract_issue_key(issue_reference):
@@ -69,7 +70,9 @@ def build_snapshot(connector, issue, issue_key, project):
     """Build the versioned, JSON-serializable DCC rendering contract."""
 
     placeholders = main_issue_fields(issue.fields)
-    classifications, responsible_values = append_panels(connector, issue, project, placeholders)
+    classifications, responsible_values, panel_titles = append_panels(
+        connector, issue, project, placeholders
+    )
     apply_classification(placeholders, classifications)
     apply_responsible(placeholders, classifications, responsible_values)
     form_number = placeholders.get("DCC_Form_Number", issue_key)
@@ -80,6 +83,7 @@ def build_snapshot(connector, issue, issue_key, project):
         "project_label": project.display_name or project.jira_component,
         "output_name": safe_output_name(form_number),
         "panel_count": len(field(issue.fields, "subtasks") or []),
+        "panel_titles": panel_titles,
         "placeholders": placeholders,
     }
 
@@ -87,7 +91,7 @@ def build_snapshot(connector, issue, issue_key, project):
 def append_panels(connector, issue, project, placeholders):
     """Fetch subtask snapshots and merge their template fields."""
 
-    classifications, responsible_values = [], set()
+    classifications, responsible_values, panel_titles = [], set(), []
     for index, subtask in enumerate(field(issue.fields, "subtasks") or []):
         panel = connector.get_client().issue(subtask.key)
         values, classification, responsible = panel_fields(
@@ -95,9 +99,12 @@ def append_panels(connector, issue, project, placeholders):
         )
         placeholders.update(values)
         classifications.append(classification)
+        title = str(field(panel.fields, "summary") or "").strip()
+        if title:
+            panel_titles.append(title[:500])
         if responsible:
             responsible_values.add(responsible)
-    return classifications, responsible_values
+    return classifications, responsible_values, panel_titles
 
 
 def apply_classification(placeholders, classifications):

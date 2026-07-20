@@ -3,6 +3,8 @@
 from io import BytesIO
 
 import pandas as pd
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 
@@ -39,3 +41,14 @@ def workbook_upload_bytes(content):
         content,
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+def grant_model_permissions(user, model, *actions):
+    """Grant selected Django model actions to a test user."""
+
+    content_type = ContentType.objects.get_for_model(model)
+    codenames = [f"{action}_{model._meta.model_name}" for action in actions]
+    permissions = Permission.objects.filter(content_type=content_type, codename__in=codenames)
+    user.user_permissions.add(*permissions)
+    for cache_name in ("_perm_cache", "_user_perm_cache", "_group_perm_cache"):
+        user.__dict__.pop(cache_name, None)

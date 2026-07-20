@@ -7,6 +7,13 @@ from rest_framework import status
 from awcenter.pagination import StandardResultsSetPagination
 
 from common.compdoc_fields import get_compdoc_field_metadata
+from common.compdoc_bulk_delete import delete_compdoc_collection
+from common.compdoc_permissions import CompDocCollectionPermissions, StrictDjangoModelPermissions
+from common.compdoc_versions import (
+    object_with_current_history,
+    update_versioned_compdoc,
+    with_current_history_id,
+)
 
 PAGINATION_QUERY_PARAMETERS = {"page", "page_size"}
 TEXT_FIELD_TYPES = {"CharField", "TextField", "EmailField"}
@@ -61,12 +68,14 @@ def paginated_response(request, queryset, serializer_class):
 
 def history_view_set_factory(model, serializer_class, view_permission_classes):
     class DynamicHistoryViewSet(APIView):
+        queryset = model.objects.none()
+
         def get(self, request, pk):
             obj = get_object_or_404(model, pk=pk)
             obj_history = obj.history.all().order_by("-history_date", "-history_id")
             return paginated_response(request, obj_history, serializer_class)
 
-        permission_classes = view_permission_classes
+        permission_classes = [*view_permission_classes, StrictDjangoModelPermissions]
 
     return DynamicHistoryViewSet
 
@@ -98,56 +107,56 @@ def responsible_view_set_factory(model, view_serializer_class, view_permission_c
 
 def compdoc_fields_view_factory(model, view_permission_classes):
     class CompDocFieldsView(APIView):
+        queryset = model.objects.none()
+
         def get(self, request):
             return Response({"fields": get_compdoc_field_metadata(model)}, status=status.HTTP_200_OK)
 
-        permission_classes = view_permission_classes
+        permission_classes = [*view_permission_classes, StrictDjangoModelPermissions]
 
     return CompDocFieldsView
 
 def view_set_factory(model, serializer_class, view_permission_classes):
     class DynamicViewSet(APIView):
+        queryset = model.objects.none()
+
         def get(self, request):
-            objs = model.objects.all().order_by("-id")
+            objs = with_current_history_id(model.objects.all()).order_by("-id")
             return paginated_response(request, objs, serializer_class)
 
         def post(self, request):
             serializer = serializer_class(data=request.data, context={'request': request})
             if serializer.is_valid():
                 serializer.save()
+                serializer.instance.source_history_id = serializer.instance.history.first().history_id
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         def delete(self, request):
-            count, _ = model.objects.all().delete()
-            return Response({"message": f"{count} records deleted successfully."}, status=status.HTTP_200_OK)
+            return delete_compdoc_collection(request, model)
 
-        permission_classes = view_permission_classes
+        permission_classes = [*view_permission_classes, CompDocCollectionPermissions]
 
     return DynamicViewSet
 
 def view_set_obj_factory(model, serializer_class, view_permission_classes):
     class DynamicViewSet(APIView):
+        queryset = model.objects.none()
+
         def get(self, request, pk):
-            obj = get_object_or_404(model, pk=pk)
+            obj = object_with_current_history(model, pk)
             serializer = serializer_class(obj)
             return Response(serializer.data)
 
         def put(self, request, pk):
-            obj = get_object_or_404(model, pk=pk)
-            serializer = serializer_class(obj, data=request.data)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return update_versioned_compdoc(
+                request, model, serializer_class, pk, partial=False
+            )
 
         def patch(self, request, pk):
-            obj = get_object_or_404(model, pk=pk)
-            serializer = serializer_class(obj, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return update_versioned_compdoc(
+                request, model, serializer_class, pk, partial=True
+            )
 
         def delete(self, request, pk):
             obj = get_object_or_404(model, pk=pk)
@@ -155,6 +164,6 @@ def view_set_obj_factory(model, serializer_class, view_permission_classes):
             obj.delete()
             return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
 
-        permission_classes = view_permission_classes
+        permission_classes = [*view_permission_classes, StrictDjangoModelPermissions]
 
     return DynamicViewSet

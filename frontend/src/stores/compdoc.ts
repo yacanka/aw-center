@@ -27,6 +27,11 @@ const successNotification = notifySuccess
 const COMP_DOCS_PATH = 'compdocs'
 const bonusFieldProjects = ['aesa']
 
+export interface CompDocBulkDeleteRequest {
+  confirmation: string
+  expected_count: number
+}
+
 function createLocalFieldMetadata(key: string) {
   return {
     key,
@@ -151,7 +156,7 @@ export const useCompdocStore = defineStore('compdoc', {
         () => (this.loading = false)
       )
     },
-    async updateCompdoc(compDocId: Number, updatedData: ICompDoc) {
+    async updateCompdoc(compDocId: string, updatedData: ICompDoc) {
       this.loading = true
       await handleRequest<ICompDoc>(
         axios.put(`${this.projectName}/${COMP_DOCS_PATH}/${compDocId}/`, updatedData), // PUT with ID
@@ -170,7 +175,7 @@ export const useCompdocStore = defineStore('compdoc', {
         () => (this.loading = false)
       )
     },
-    async deleteCompdoc(compDocId: Number) {
+    async deleteCompdoc(compDocId: string) {
       this.loading = true
       await handleRequest<void> // Void response expected
       (
@@ -186,13 +191,14 @@ export const useCompdocStore = defineStore('compdoc', {
         () => (this.loading = false)
       )
     },
-    async deleteCompdocs() {
+    async deleteCompdocs(payload: CompDocBulkDeleteRequest) {
       this.loading = true
       return await handleRequest<any> // Void response expected
       (
-        axios.delete(`${this.projectName}/${COMP_DOCS_PATH}/`),
+        axios.delete(`${this.projectName}/${COMP_DOCS_PATH}/`, { data: payload }),
         (data) => {
           this.compdocs = []
+          this.pagination = { count: 0, next: null, previous: null }
           successNotification(data)
         },
         (errorMsg) => {
@@ -202,7 +208,7 @@ export const useCompdocStore = defineStore('compdoc', {
         () => (this.loading = false)
       )
     },
-    async fetchHistory(compDocId: number) {
+    async fetchHistory(compDocId: string) {
       this.loading = true
       let history: IHistory[] = []
       await handleRequest<IHistory[]>(
