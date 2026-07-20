@@ -9,7 +9,8 @@
         <n-descriptions-item label="Status">{{ titleCase(audit.status) }}</n-descriptions-item>
         <n-descriptions-item label="Rows">{{ audit.total_rows }}</n-descriptions-item>
         <n-descriptions-item label="Result">
-          +{{ audit.created_count }} / ~{{ audit.updated_count }} / !{{ audit.rejected_count }}
+          +{{ audit.created_count }} / ~{{ audit.updated_count }} / ={{ audit.unchanged_count }} /
+          !{{ audit.rejected_count }}
         </n-descriptions-item>
         <n-descriptions-item label="Duration">{{
           formatDuration(audit.duration_ms)
@@ -44,6 +45,13 @@
         :pagination="false"
       />
     </n-spin>
+    <template #footer>
+      <n-flex justify="end">
+        <n-button type="primary" :disabled="!audit" :loading="downloading" @click="downloadReport">
+          Download Excel remediation report
+        </n-button>
+      </n-flex>
+    </template>
   </n-modal>
 </template>
 
@@ -52,6 +60,7 @@ import { ref } from 'vue'
 import type { DataTableColumns } from 'naive-ui'
 import { formatApiError } from '@/services/apiError'
 import {
+  downloadImportAuditReport,
   getImportAudit,
   type ImportAuditDetail,
   type ImportAuditError
@@ -60,6 +69,7 @@ import {
 const modalStyle = { width: 'min(1000px, 94vw)' }
 const show = ref(false)
 const loading = ref(false)
+const downloading = ref(false)
 const audit = ref<ImportAuditDetail | null>(null)
 const mappingColumns = [
   { title: 'Excel column', key: 'source' },
@@ -82,6 +92,19 @@ async function open(auditId: string): Promise<void> {
     window.$message.error(formatApiError(error))
   } finally {
     loading.value = false
+  }
+}
+
+async function downloadReport(): Promise<void> {
+  if (!audit.value) return
+  downloading.value = true
+  try {
+    await downloadImportAuditReport(audit.value.id)
+    window.$message.success('Excel remediation report downloaded.')
+  } catch (error) {
+    window.$message.error(formatApiError(error))
+  } finally {
+    downloading.value = false
   }
 }
 

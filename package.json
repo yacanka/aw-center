@@ -1,56 +1,14 @@
 {
   "name": "aw-center",
   "version": "1.1.0",
+  "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && node scripts/postbuild.js",
-    "typecheck": "vue-tsc --noEmit",
-    "format": "prettier --write \"src/**/*.{ts,js,vue}\" \"*.{json,ts}\" \"scripts/**/*.js\"",
-    "format:check": "prettier --check \"src/**/*.{ts,js,vue}\" \"*.{json,ts}\" \"scripts/**/*.js\"",
-    "serve": "vite preview",
-    "deploy": "bash scripts/deploy.sh",
-    "start": "node server.js",
-    "typecheck:ci": "vue-tsc --noEmit --noCheck"
-  },
-  "dependencies": {
-    "@energiency/chartjs-plugin-piechart-outlabels": "^1.3.5",
-    "@vicons/fluent": "^0.13.0",
-    "chart.js": "^4.5.0",
-    "chartjs-adapter-date-fns": "^3.0.0",
-    "chartjs-plugin-annotation": "^3.1.0",
-    "axios": "^1.18.0",
-    "markdown-it": "^14.2.0",
-    "naive-ui": "^2.41.0",
-    "pinia": "^3.0.2",
-    "vue": "^3.5.13",
-    "vue-audio-visual": "^3.0.11",
-    "vue-chartjs": "^5.3.2",
-    "vue-router": "^4.3.0"
-  },
-  "devDependencies": {
-    "@types/markdown-it": "^14.1.2",
-    "@vitejs/plugin-vue": "^6.0.7",
-    "@vue/compiler-sfc": "^3.5.13",
-    "prettier": "^3.6.2",
-    "typescript": "^5.8.3",
-    "vfonts": "^0.1.0",
-    "vite": "^8.0.16",
-    "vue-tsc": "^2.2.10"
-  },
-  "overrides": {
-    "axios": "^1.18.0",
-    "brace-expansion": "^2.0.3",
-    "esbuild": "^0.28.1",
-    "follow-redirects": "^1.16.0",
-    "form-data": "^4.0.6",
-    "lodash": "^4.18.1",
-    "lodash-es": "^4.18.1",
-    "markdown-it": "^14.2.0",
-    "picomatch": "^4.0.4",
-    "postcss": "^8.5.15",
-    "vite": "^8.0.16"
-  },
-  "allowScripts": {
-    "vue-demi@0.14.10": true
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "format": "npm --prefix frontend run format",
+    "format:check": "npm --prefix frontend run format:check",
+    "test:ci": "npm --prefix frontend run test:ci",
+    "serve": "npm --prefix frontend run serve"
   }
 }

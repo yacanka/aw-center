@@ -27,11 +27,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, PropType } from 'vue'
+import { ref } from 'vue'
 import { UploadCustomRequestOptions } from 'naive-ui'
 import axios from 'axios'
-import { IEcd } from '@/models/ecd'
-import { binaryToBase64 } from '@/utils/general'
 
 const showUploadModal = ref(false)
 
@@ -88,6 +86,4 @@ function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions
   }
   closeModal()
 }
-
-onMounted(() => {})
 </script>

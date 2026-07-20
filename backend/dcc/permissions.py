@@ -18,6 +18,15 @@ class DCCPermission(BasePermission):
         return request.user.has_perm(required_permission)
 
 
+class DCCAutomationPermission(BasePermission):
+    """Allow Outlook/DCC creation side effects only to authorized DCC creators."""
+
+    def has_permission(self, request, view):
+        """Use the add-model permission consistently across POST and SSE GET steps."""
+
+        return request.user.has_perm("dcc.add_jira_dcc")
+
+
 class IsDCCOwner(BasePermission):
     """Allow access only to DCC records created by the requesting user."""
 

@@ -41,7 +41,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { NButton, NTag, type DataTableColumns, type PaginationInfo } from 'naive-ui'
 import { formatApiError } from '@/services/apiError'
 import {
@@ -51,7 +52,8 @@ import {
   type ManagedInvitation
 } from '@/services/userInvitations'
 
-defineProps<{ allowed: boolean }>()
+const props = defineProps<{ allowed: boolean }>()
+const route = useRoute()
 const modalStyle = { width: 'min(1180px, 94vw)' }
 const statusOptions = [
   { label: 'Active', value: 'active' },
@@ -114,6 +116,14 @@ const columns: DataTableColumns<ManagedInvitation> = [
       )
   }
 ]
+
+onMounted(openLinkedInvitations)
+
+function openLinkedInvitations(): void {
+  if (!props.allowed || route.query.invitations !== 'active') return
+  selectedStatus.value = 'active'
+  openModal()
+}
 
 function openModal(): void {
   show.value = true

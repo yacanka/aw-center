@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 def claim_next_job(worker_id):
     """Atomically lease the oldest queued job to one worker."""
 
+    from .workflow_controls import reconcile_active_workflows
+
+    reconcile_active_workflows()
     recover_expired_jobs()
     with transaction.atomic():
         job = Job.objects.select_for_update().filter(status=JobStatus.QUEUED).order_by("created_at").first()
@@ -29,6 +32,9 @@ def claim_next_job(worker_id):
         job.message = "Worker started the job."
         job.save()
         record_event(job, job.message)
+        from .workflow_services import synchronize_workflow_job
+
+        synchronize_workflow_job(job)
         return job
 
 
@@ -59,11 +65,15 @@ def get_executor(kind):
 
     from excel.cover_pages import execute_cover_page_creation
     from media_tools.job_executor import execute_media_conversion
+    from outlook.job_executor import execute_word_attachment_extraction
     from word.job_executor import execute_word_translation
     from word.analysis import execute_document_analysis
+    from dcc.document_job import execute_dcc_document_creation
     executors = {
+        "dcc.create_document": execute_dcc_document_creation,
         "excel.cover_pages": execute_cover_page_creation,
         "media.convert": execute_media_conversion,
+        "outlook.extract_word_attachment": execute_word_attachment_extraction,
         "word.translate": execute_word_translation,
         "word.analyze": execute_document_analysis,
     }

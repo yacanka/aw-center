@@ -12,14 +12,14 @@ MAX_AUDIT_ERRORS = 100
 MAX_ERROR_TEXT = 500
 
 
-def start_import_audit(request, model, uploaded_file):
+def start_import_audit(request, model, uploaded_file, source_sha256=None):
     """Create a processing audit before parsing a confirmed import."""
 
     return CompDocImportAudit.objects.create(
         project_slug=model._meta.app_label,
         source_filename=safe_filename(uploaded_file.name),
         source_size=max(int(uploaded_file.size or 0), 0),
-        source_sha256=hash_uploaded_file(uploaded_file),
+        source_sha256=source_sha256 or hash_uploaded_file(uploaded_file),
         imported_by=request.user,
         imported_by_username=request.user.get_username(),
         request_id=str(getattr(request, "request_id", ""))[:64],
@@ -42,6 +42,7 @@ def complete_import_audit(audit, result):
 
     audit.created_count = result["created_count"]
     audit.updated_count = result["updated_count"]
+    audit.unchanged_count = result["unchanged_count"]
     audit.rejected_count = result["rejected_count"]
     audit.error_summary = result["errors"][:MAX_AUDIT_ERRORS]
     audit.status = result_status(result)
@@ -127,6 +128,7 @@ def completion_update_fields():
     return [
         "created_count",
         "updated_count",
+        "unchanged_count",
         "rejected_count",
         "error_summary",
         "status",

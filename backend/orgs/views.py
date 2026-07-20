@@ -6,10 +6,12 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import permission_classes
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
 from .serializers import ProjectSerializer, PanelSerializer, ResponsibleSerializer, PeopleSerializer
 from .models import  Project, Panel, Responsible, People
+from .people_search import MAX_QUERY_LENGTH, rank_people
 
 from utils.arrays import find_missing_elements
 
@@ -53,12 +55,21 @@ class PeopleViewSet(ModelViewSet):
     serializer_class = PeopleSerializer
     queryset = People.objects.all()
 
+    def list(self, request, *args, **kwargs):
+        """Return a normal page or a relevance-ranked search page."""
+        search_text = request.query_params.get("search", "").strip()
+        if not search_text:
+            return super().list(request, *args, **kwargs)
+        if len(search_text) > MAX_QUERY_LENGTH:
+            raise ValidationError({"search": "Search text must not exceed 100 characters."})
+
+        people = rank_people(self.get_queryset(), search_text)
+        page = self.paginate_queryset(people)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
     def get_queryset(self):
         qs = People.objects.order_by("name", "person_id")
-
-        search_text = self.request.query_params.get("search")
-        if search_text:
-            qs = qs.filter(name__icontains=search_text)
 
         person_id = self.request.query_params.get("person_id")
         if person_id:

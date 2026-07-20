@@ -9,6 +9,7 @@ from .storage import private_job_storage
 
 
 class JobStatus(models.TextChoices):
+    AWAITING_CONFIRMATION = "awaiting_confirmation", "Awaiting confirmation"
     QUEUED = "queued", "Queued"
     RUNNING = "running", "Running"
     CANCEL_REQUESTED = "cancel_requested", "Cancel requested"
@@ -56,10 +57,20 @@ class Job(models.Model):
     idempotency_key = models.CharField(max_length=128, blank=True)
     attempt = models.PositiveSmallIntegerField(default=1)
     max_attempts = models.PositiveSmallIntegerField(default=3)
-    retry_of = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL)
+    retry_of = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="retry_attempts"
+    )
+    source_job = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="handoff_jobs"
+    )
+    workflow_run = models.ForeignKey(
+        "jobs.WorkflowRun", null=True, blank=True, on_delete=models.SET_NULL, related_name="jobs"
+    )
+    workflow_step = models.PositiveSmallIntegerField(null=True, blank=True)
     request_id = models.CharField(max_length=64, blank=True)
     worker_id = models.CharField(max_length=128, blank=True)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
+    confirmation_expires_at = models.DateTimeField(null=True, blank=True)
     cancel_requested_at = models.DateTimeField(null=True, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -77,7 +88,12 @@ class Job(models.Model):
                 fields=["owner", "kind", "idempotency_key"],
                 condition=~Q(idempotency_key=""),
                 name="jobs_unique_owner_kind_idempotency",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["retry_of"],
+                condition=Q(retry_of__isnull=False),
+                name="jobs_unique_direct_retry",
+            ),
         ]
 
 
@@ -106,3 +122,6 @@ class WorkerHeartbeat(models.Model):
 
     class Meta:
         ordering = ["-heartbeat_at"]
+
+
+from .workflow_models import WorkflowRun, WorkflowRunEvent, WorkflowStatus  # noqa: E402, F401

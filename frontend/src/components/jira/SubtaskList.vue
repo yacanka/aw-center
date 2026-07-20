@@ -51,7 +51,6 @@
               v-for="field in activeFields"
               :key="`bulk-${field.id}`"
               :field="field"
-              :people="store.getPeople"
               :model-value="getBulkFieldValue(field.id)"
               @update:model-value="setBulkFieldValue(field.id, $event)"
             />
@@ -75,7 +74,6 @@
               <n-grid-item v-for="field in activeFields" :key="field.id">
                 <jira-field-input
                   :field="field"
-                  :people="store.getPeople"
                   :model-value="getFieldValue(value, field.id)"
                   @update:model-value="setFieldValue(value, field.id, $event)"
                   @change="activateSave"
@@ -103,12 +101,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { Save24Regular } from '@vicons/fluent'
-import { useOrgsStore } from '@/stores/organizations'
 import NInputWidth from '@/components/NInputWidth.vue'
 import JiraFieldInput from './JiraFieldInput.vue'
 import { IJiraField, ISubtaskItem, ISubtaskListItem, JiraFieldValue } from '@/models/jira'
 
-const store = useOrgsStore()
 const activeListTab = ref(0)
 const saveButton = ref({ type: 'default' })
 const subtaskLists = ref<ISubtaskListItem[]>([])

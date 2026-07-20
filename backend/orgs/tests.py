@@ -77,6 +77,7 @@ class PeopleApiTests(TestCase):
                 People(person_id="100001", name="Ada Lovelace", email="ada@example.com"),
                 People(person_id="100002", name="Grace Hopper", email="grace@example.com"),
                 People(person_id="100003", name="Alan Turing", email="alan@example.com"),
+                People(person_id="100004", name="Grace Murray", email="murray@example.com"),
             ]
         )
 
@@ -85,16 +86,63 @@ class PeopleApiTests(TestCase):
         response = self.client.get("/orgs/people/", {"page_size": 2})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["count"], 3)
+        self.assertEqual(response.data["count"], 4)
         self.assertEqual(len(response.data["results"]), 2)
 
     def test_people_search_filters_by_name(self):
         """The search query limits results to matching person names."""
-        response = self.client.get("/orgs/people/", {"search": "Grace"})
+        response = self.client.get("/orgs/people/", {"search": "Hopper"})
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["person_id"], "100002")
+
+    def test_people_search_ranks_exact_name_before_other_matches(self):
+        """Exact and prefix matches lead less similar directory results."""
+        response = self.client.get("/orgs/people/", {"search": "Grace", "page_size": 1})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(response.data["results"][0]["person_id"], "100002")
+
+    def test_people_search_supports_typo_and_server_pagination(self):
+        """A bounded fuzzy search remains inside the shared pagination contract."""
+        response = self.client.get("/orgs/people/", {"search": "Grce", "page_size": 1})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(response.data["count"], 1)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["person_id"], "100002")
+
+    def test_direct_search_count_is_not_fuzzy_candidate_limited(self):
+        """Ordinary server-filtered results retain an exact pagination count."""
+        People.objects.bulk_create(
+            [
+                People(person_id=str(200000 + index), name=f"Engineer {index}", email=f"e{index}@x.io")
+                for index in range(501)
+            ]
+        )
+
+        response = self.client.get("/orgs/people/", {"search": "Engineer", "page_size": 2})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 501)
+        self.assertEqual(len(response.data["results"]), 2)
+
+    def test_people_search_matches_email_and_person_id(self):
+        """Lookup fields are searchable without downloading the directory."""
+        email_response = self.client.get("/orgs/people/", {"search": "alan@example.com"})
+        id_response = self.client.get("/orgs/people/", {"search": "100001"})
+
+        self.assertEqual(email_response.data["results"][0]["person_id"], "100003")
+        self.assertEqual(id_response.data["results"][0]["name"], "Ada Lovelace")
+
+    def test_people_search_rejects_unbounded_input(self):
+        """Oversized search terms cannot trigger expensive fuzzy work."""
+        response = self.client.get("/orgs/people/", {"search": "x" * 101})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("search", response.data["errors"])
 
     def test_people_list_requires_authentication(self):
         """Anonymous clients cannot pull people data from the login screen."""

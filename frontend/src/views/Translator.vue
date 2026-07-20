@@ -52,7 +52,7 @@ const uploadForm = ref<UploadInst | null>(null)
 const files = ref<UploadFileInfo[]>([])
 const translationType = ref<string | null>(null)
 const queueing = ref(false)
-const selectedFile = computed(() => selectedUploadFile(files.value))
+const selectedFile = computed(() => selectedUploadFile(files.value, false))
 const translationOptions = [
   { value: 'tr2en', label: 'Turkish → English' },
   { value: 'en2tr', label: 'English → Turkish' }

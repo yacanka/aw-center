@@ -24,6 +24,7 @@
       {{ systemStatus.active_workers }} worker{{ systemStatus.active_workers === 1 ? '' : 's' }}
       available.
     </n-alert>
+    <WorkflowAutomation ref="workflowAutomation" @open-job="showJobDetails" />
     <n-empty v-if="!loading && jobs.length === 0" description="No jobs have been queued yet." />
 
     <n-list v-else bordered>
@@ -45,27 +46,39 @@
       :item-count="totalJobs"
       @update:page="loadJobs"
     />
-    <JobDetailDrawer v-model:show="detailsVisible" :job="selectedJob" :loading="detailsLoading" />
+    <JobDetailDrawer
+      v-model:show="detailsVisible"
+      :job="selectedJob"
+      :loading="detailsLoading"
+      :handoff-loading="activeJobId === selectedJob?.id"
+      @handoff="handoff"
+      @open-job="showJobDetails"
+    />
   </n-space>
 </template>
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import JobListItem from '@/components/jobs/JobListItem.vue'
 import JobDetailDrawer from '@/components/jobs/JobDetailDrawer.vue'
+import WorkflowAutomation from '@/components/jobs/WorkflowAutomation.vue'
 import { formatApiError } from '@/services/apiError'
 import {
   cancelJob,
+  createJobHandoff,
   downloadJob,
   fetchJob,
   fetchJobSystemStatus,
   fetchJobs,
   retryJob,
   type Job,
+  type JobHandoff,
   type JobSystemStatus
 } from '@/services/jobs'
 
 const jobs = ref<Job[]>([])
+const route = useRoute()
 const loading = ref(false)
 const autoRefresh = ref(true)
 const errorMessage = ref('')
@@ -77,11 +90,18 @@ const totalJobs = ref(0)
 const selectedJob = ref<Job | null>(null)
 const detailsVisible = ref(false)
 const detailsLoading = ref(false)
+const workflowAutomation = ref<InstanceType<typeof WorkflowAutomation> | null>(null)
 let refreshTimer: number | undefined
 
-onMounted(loadJobs)
+onMounted(initializeJobs)
 onBeforeUnmount(stopRefreshTimer)
 watch(autoRefresh, scheduleRefresh)
+
+async function initializeJobs(): Promise<void> {
+  await loadJobs()
+  const linkedJobId = route.query.job
+  if (typeof linkedJobId === 'string') await showJobDetails(linkedJobId)
+}
 
 async function loadJobs(): Promise<void> {
   loading.value = true
@@ -94,6 +114,7 @@ async function loadJobs(): Promise<void> {
     jobs.value = jobPage.results
     totalJobs.value = jobPage.count
     systemStatus.value = currentSystemStatus
+    await workflowAutomation.value?.refresh(true)
     errorMessage.value = ''
   } catch (error) {
     errorMessage.value = formatApiError(error)
@@ -111,6 +132,20 @@ async function retry(job: Job): Promise<void> {
   await runAction(job, () => retryJob(job.id), 'Retry queued.')
 }
 
+async function handoff(job: Job, option: JobHandoff): Promise<void> {
+  activeJobId.value = job.id
+  try {
+    const targetJob = await createJobHandoff(job.id, option.id)
+    window.$message.success(`${option.label} is ready in Job Center.`)
+    await loadJobs()
+    await showJobDetails(targetJob.id)
+  } catch (error) {
+    window.$message.error(formatApiError(error))
+  } finally {
+    activeJobId.value = ''
+  }
+}
+
 async function download(job: Job): Promise<void> {
   try {
     await downloadJob(job)
@@ -120,10 +155,14 @@ async function download(job: Job): Promise<void> {
 }
 
 async function showDetails(job: Job): Promise<void> {
+  await showJobDetails(job.id)
+}
+
+async function showJobDetails(jobId: string): Promise<void> {
   detailsVisible.value = true
   detailsLoading.value = true
   try {
-    selectedJob.value = await fetchJob(job.id)
+    selectedJob.value = await fetchJob(jobId)
   } catch (error) {
     window.$message.error(formatApiError(error))
   } finally {

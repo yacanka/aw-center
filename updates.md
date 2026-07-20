@@ -671,3 +671,168 @@
 7. Added regression coverage for preview mapping, create/update behavior, partial failures, structural failures, audit permissions, and secret-safe list/detail contracts.
 8. Browser-smoke-tested the Ozgur ledger and detail modal with no runtime errors, then removed the temporary user and audit record.
 9. Extracted the legacy CompDoc Excel exporter from `common/views.py`, removed debug output, split styling into bounded functions, and corrected alternating-row formatting to use the last column instead of the last row.
+
+## 90. CompDoc Excel remediation reports
+
+1. Added a permission-protected XLSX report endpoint for each CompDoc import audit.
+2. Reports contain a source-integrity summary, rejected-row diagnostics, affected fields, actionable recovery guidance, and detected/missing/unmapped column decisions.
+3. Kept original workbook rows out of the report and bounded every generated cell to the already-sanitized audit evidence.
+4. Neutralized formula-like `=`, `+`, `-`, and `@` cell prefixes and illegal OOXML characters before workbook serialization.
+5. Added a one-click report action to the audit detail modal and extracted reusable browser Blob download handling for job and audit artifacts.
+6. Added regression coverage for authorization, workbook content, suggested actions, source-content exclusion, and Excel formula-injection resistance.
+
+## 91. Permission-aware cross-workflow Action Center
+
+1. Added an authenticated `/action-center/` endpoint that combines unresolved owned job failures, permission-visible failed/partial CompDoc imports, and administrator-visible invitations expiring within six hours.
+2. Bounded the queue to recent fourteen-day evidence and twelve prioritized items, excluded job failures that already have retry attempts, and kept cross-domain aggregation plus user-decision filtering to four database queries.
+3. Added a compact “Needs attention” home card with critical/warning counts, actionable recovery guidance, timestamps, and refresh behavior.
+4. Added deep links that open the exact Job detail drawer, CompDoc import audit detail with its remediation report, or the active-invitation management view.
+5. Added regression tests for job ownership, retry resolution, model permissions, delegated invitation authority, secret exclusion, severity ordering, and query count.
+6. Browser-smoke-tested all three deep-link paths with no console warnings or errors, then removed the temporary user and workflow records.
+
+## 92. Personal Action Center decisions
+
+1. Added a user-scoped Action Center decision model with one unique record per user and attention item.
+2. Added authorized `snooze` and `dismiss` operations; snooze hides an unresolved item for exactly 24 hours, while dismissal hides it only for that user without mutating the source workflow.
+3. Decision requests re-evaluate job ownership and import/invitation permissions before persistence, preventing arbitrary item-key suppression records.
+4. Repeated decisions update the existing row atomically and keep dismiss/snooze timestamps mutually exclusive.
+5. Added inline Snooze and confirmation-backed Dismiss controls with optimistic queue/count updates followed by server refresh.
+6. Added tests for snooze expiry, permanent user-specific dismissal, update idempotency, invalid actions, and cross-user item rejection; browser-tested snooze return and confirmed dismissal with no console errors.
+
+## 93. Measurable Naive UI bundle optimization
+
+1. Replaced the full global Naive UI plugin with an explicit catalog of the 70 components used by Vue templates.
+2. Reduced the shared Naive UI production chunk from 1,196.94 kB to 910.75 kB and its gzip size from 310.39 kB to 233.85 kB, an approximately 24% reduction.
+3. Added a source-level regression test that keeps every `n-*` template tag synchronized with the catalog and prevents the full plugin import from returning.
+4. Added production build budgets of 950 KiB raw and 250 KiB gzip so future dependency or registration growth fails before deployment.
+5. Browser-smoke-tested Login, Home, Users, and Ozgur CompDocs with all expected controls rendered and no console warnings or errors, then removed the temporary account.
+
+## 94. Verified Job Center artifact handoffs
+
+1. Added an allowlisted Job Center handoff that reuses a successful Word translation output as the input of an explainable document-analysis job without a browser download and upload cycle.
+2. Revalidated source ownership, terminal state, output extension, SHA-256 fingerprint, and the target Word upload policy before copying private bytes.
+3. Made each source/action transition idempotent and persisted a nullable source-job relation that survives downstream retries.
+4. Added sanitized audit events on both source and target jobs, plus a navigable provenance link in the Job Center detail drawer.
+5. Added API regression tests for availability, ownership, tampering, idempotency, provenance, retry lineage, and incomplete jobs.
+6. Browser-smoke-tested the suggested action, downstream queue creation, and source navigation with no console warnings or errors, then removed the temporary user, jobs, events, tokens, and artifacts.
+7. Kept ordinary Job serialization lightweight by moving analyzer check metadata out of the NumPy/Word retrieval implementation into a dependency-light contract module.
+
+## 95. Immutable same-origin production artifact
+
+1. Converted the backend Dockerfile into a multi-stage build that runs `npm ci`, builds Vite once, copies only `dist` into `/app/frontend-dist`, and keeps Node/npm out of the runtime stage.
+2. Collected WhiteNoise assets during image build and blocked image creation unless Django serves the exact nested SPA shell plus non-empty JavaScript and CSS entry assets.
+3. Added a deployment verifier with fail-closed checks for missing, empty, oversized, invalid UTF-8, unsafe, stale, or incompletely collected frontend artifacts.
+4. Added five isolated verifier tests covering valid nested routing, missing source assets, missing collectstatic output, traversal attempts, and incomplete entry types.
+5. Simplified Compose to a same-origin backend/SPA service on port 8080 plus worker, PostgreSQL, and Redis; removed the runtime static volume that could mask immutable image assets.
+6. Replaced `npm install` with reproducible `npm ci`, removed CI's source-mutating format step, replaced `vue-tsc --noCheck` with real strict typechecking, and added migration-drift enforcement.
+7. Added integrated workspace artifact verification and a gated combined runtime-image build plus image-internal Django artifact smoke test to CI.
+8. Added four source-level deployment contract tests that prevent reintroducing a split-origin Compose service, static-volume masking, mutable CI formatting, skipped typechecking, an unsafe launcher fallback, stale root npm dependencies, or an unverified runtime image.
+9. Replaced the stale duplicate root npm dependency tree and broken `deploy`/`start`/`--noCheck` scripts with a private dependency-free command proxy to the authoritative `frontend` workspace, reducing the root lock file from about 82 kB to 181 bytes.
+
+## 96. Traceable Workflow Accelerator
+
+1. Added owner-scoped workflow runs and immutable workflow events on top of the existing durable Job Center instead of introducing a second execution engine.
+2. Added an allowlisted “Translate and analyze a Word document” recipe that automatically hands a successful private translation artifact to explainable analysis.
+3. Revalidates output status, extension, SHA-256 fingerprint, and the target Word upload policy before every automatic step transition.
+4. Preserves job-level cancellation, attempt history, source provenance, request references, and private artifact storage; repeated retry requests replay one direct child instead of spawning parallel attempts.
+5. Added explicit queued, running, cancel-requested, cancelled, failed, and succeeded workflow states so cooperative cancellation is not reported terminal before worker confirmation.
+6. Added idempotent workflow creation, stale-initialization recovery, interrupted terminal-transition reconciliation, bounded worker polling queries, and sanitized actionable failure guidance.
+7. Added authenticated recipe/list/detail/cancel APIs plus a responsive Job Center launcher showing recipe steps, aggregate progress, per-step job state, direct job navigation, and recovery guidance.
+8. Added admin operational views and eleven focused workflow tests covering authentication, ownership, validation, idempotency conflicts, automatic handoff, tamper rejection, retry resume, cancellation semantics, recovery, and query bounds.
+9. Browser-smoke-tested Login, Job Center, recipe metadata, step visualization, empty state, and worker-offline guidance; temporary account, token, session data, and local test artifact were removed.
+
+## 97. Secure Outlook-to-Word workflow bridge
+
+1. Added an allowlisted “Analyze a Word attachment from Outlook” recipe that extracts exactly one DOCX attachment and automatically hands it to explainable Word analysis.
+2. Added a reusable durable `outlook.extract_word_attachment` job and authenticated enqueue API so Outlook extraction is available independently of the recipe UI.
+3. Revalidates MSG upload signatures, attachment filename safety, DOCX MIME/OOXML structure, private artifact fingerprints, and target handoff policy before analysis.
+4. Fails explicitly for missing, ambiguous, unsupported, unsafe, oversized, or unreadable attachments instead of guessing which document the user intended.
+5. Generalized recipe metadata and the Job Center launcher to render recipe-specific upload policies and allowlisted parameter fields without hard-coded translation controls.
+6. Removed raw Outlook HTML rendering and inline base64 attachment responses; the SPA now renders bounded plain text and downloads authenticated Blobs.
+7. Bound 30-minute attachment cache tokens to the parsing user, added attachment count/byte/rate limits, safe filenames, `nosniff`, and sanitized parser errors.
+8. Added twelve focused Outlook/job/workflow tests covering recipe policy separation, automatic verified handoff, executor success/failure, owner isolation, plain-text rendering, rate limiting, and error disclosure.
+
+## 98. Human-approved analysis-to-JIRA review bridge
+
+1. Added one owner-scoped JIRA Task draft per successful Word analysis job, generated only after the private JSON report passes state, size, schema, and SHA-256 integrity checks.
+2. Added complete-edit optimistic concurrency; every edit increments the version and invalidates prior approval so reviewed content cannot change silently.
+3. Separated human approval from the external publish action and protected publication with the dedicated `dcc.publish_jiraissuedraft` permission.
+4. Kept `JSESSIONID` transient to the publish request and removed detailed JIRA initialization/create failures from logs while enforcing TLS verification when the custom CA is absent.
+5. Added server-generated marker labels, pre-create lookup, stale reservation recovery, and published-response replay so uncertain JIRA responses do not create duplicate Tasks.
+6. Added immutable content-free lifecycle events, safe external failure codes, direct published-issue links, and Job Center draft reopening through content-free job references.
+7. Added a focused Job Center editor with approve/publish confirmation, permission-aware controls, safe retry guidance, and audit history.
+8. Added approved and failed JIRA drafts to the owner-scoped Action Center, deep-linked to the source analysis job.
+9. Added migration, permission, ownership, integrity, concurrency, failure-sanitization, replay, provenance-label, Action Center, and serializer regression coverage.
+10. Browser-smoke-tested Login → Action Center → source Job → existing draft, edit-invalidates-approval, and reapproval with no console errors; also removed false empty-upload notifications and fixed account deletion being blocked by the draft provenance relation.
+
+## 99. Live JIRA create-contract preflight
+
+1. Added a permission-protected, no-write preflight endpoint that uses a transient JIRA session to inspect the selected project's live Task create metadata.
+2. Sanitized field identifiers, names, schemas, and at most one hundred primitive allowed values before returning metadata to the browser; raw JIRA errors and credentials are never persisted or exposed.
+3. Added bounded primitive/list `extra_fields` to versioned drafts so supported required strings, numbers, dates, users, options, and multi-value fields can be completed inside AW Center.
+4. Draft edits reject nested payload objects and unbounded identifiers/values; publication encodes only fields present in the current live create screen and ignores stale saved fields.
+5. Publication repeats preflight after marker-based duplicate recovery and before create; missing, invalid, unsupported, or absent safety fields return a structured 422 without an external write and restore the approved state.
+6. Added an interactive JIRA readiness panel with connection check, dynamic required-field editors, remediation guidance, and a mandatory successful check before the publish confirmation becomes available.
+7. Prevented approval of a stale server version while the browser form contains unsaved changes.
+8. Added regression coverage for authorization, transient credential handling, metadata sanitization, required-value readiness, nested-value rejection, safe blocked-state recovery, external error sanitization, live value encoding, and marker replay precedence.
+9. Browser-smoke-tested the real Job Center draft drawer: the readiness panel rendered for a publish-permitted user, unsaved changes enabled Save while disabling approval and preflight, and no new runtime console errors appeared; temporary user, job, draft, and artifact were removed.
+
+## 100. Verified Outlook MSG-to-JIRA Task bridge
+
+1. Replaced the stale `content_base64` dependency in Outlook Task with owner-bound authenticated attachment downloads and browser-native Blob/File handling.
+2. Revalidated the downloaded attachment URL, exact byte length, and `%PDF-` signature before sending the PDF to the ECR parser.
+3. Kept downloads sequential to bound browser memory and allowed a failed or expired attachment to be replaced by a manually selected PDF with the same filename.
+4. Bound each parsed ECR object to its exact source PDF and each successful JIRA creation to that pair, preventing wrong-PDF attachments after partial parser failures.
+5. Made in-page retries skip already-created issues, already-added attachments, and already-completed subtask batches instead of repeating successful side effects.
+6. Removed persistent JIRA session storage; the credential now remains only in component memory and is rendered through a password input.
+7. Protected JIRA attachment, queue, field, and SSE endpoints with the DCC creation permission and bound transient queue UUIDs to their creating user for thirty minutes.
+8. Added a real pdfplumber table fixture plus an integrated MSG download → parser endpoint → mocked JIRA create → mocked JIRA attachment contract test that verifies unchanged PDF bytes.
+9. Added frontend regression tests for PDF selection, same-origin URL enforcement, signature/size integrity, isolated failures, and manual replacement; added matching frontend route/menu permission gates.
+10. Passed all 335 backend tests (one platform-specific skip), 29 frontend tests, strict TypeScript, Prettier, production build, bundle budget, and browser smoke testing; the temporary user, input file, tabs, and local servers were removed.
+
+## 101. Durable JIRA-to-DCC document creation
+
+1. Replaced DCC Creator's process-local cache/SSE transport and inline base64 DOCX payload with an owner-scoped `dcc.create_document` Job Center operation and authenticated Blob download.
+2. Uses the temporary JIRA session only while capturing a bounded, versioned, credential-free snapshot; the session is never written to browser storage, job parameters, artifacts, or audit events.
+3. Persists the snapshot as a private SHA-256-verified job input, enabling lease recovery and safe retry without repeating JIRA reads or retaining JIRA credentials.
+4. Added a worker executor that resolves only registry-allowlisted templates, renders to isolated storage, validates the output as real OOXML containing `word/document.xml`, and publishes a private artifact fingerprint.
+5. Fixed the zero-subtask undefined-variable failure, handles missing assignees safely, and rejects conflicting explicit Responsible AS values instead of silently choosing one.
+6. Added stable sanitized DCC errors, actionable Job Center recovery hints, idempotent capture replay, project template extension invariants, and explicit DCC creation permission enforcement.
+7. Added real DOCX rendering tests plus permission, credential non-persistence, idempotency, zero-subtask, responsibility-conflict, missing-template, and no-base64/SSE/local-storage regression coverage.
+8. Removed the parent DCC container's persistent JIRA session gate; DCC Creator opens without a global session, while Watcher/subtask tools request a password-masked in-memory session only when selected.
+9. Browser-smoke-tested login, direct DCC Creator access, password input semantics, disabled/enabled form states, empty fields after reload, the legacy-tool session gate, safe return to DCC Creator, and zero console warnings/errors; then removed the temporary user, tab, and servers.
+
+## 102. Signed CompDoc preview confirmation and impact plan
+
+1. Bound every CompDoc save to a short-lived Django-signed preview token containing the exact workbook SHA-256, authenticated user id, and allowlisted project model label.
+2. Rejects missing, expired, tampered, cross-user, cross-project, and changed-file confirmations before audit creation or database writes with stable actionable error codes.
+3. Added a persistence-free import planner that validates rows once, rejects duplicate `cover_page_no` keys deterministically, and reports create, update, unchanged, and rejected effects before confirmation.
+4. Skips serializer saves and historical rows for unchanged records while persisting the unchanged counter in import audits, APIs, UI history/detail, and remediation reports.
+5. Moved the frontend upload contract into a typed service; the confirmation dialog now sends the exact selected `File` plus its signed token and displays all four impact counters.
+6. Added backend coverage for token ownership/project/file/expiry boundaries, no-preview rejection, impact planning, duplicate keys, no-op history behavior, and audit counters; added frontend request-shape regressions.
+7. Passed 349 backend tests with one platform-specific skip, migration drift and Django checks, 33 frontend contract tests, strict TypeScript, Prettier, production build, the Naive UI bundle budget, and `git diff --check`.
+8. Browser-smoke-tested a real XLSX: preview created no database row, confirmation created exactly one row and successful audit, and a second preview reported `Unchanged: 1` without a new audit; console logs were clean and all synthetic data, files, tabs, and servers were removed.
+
+## 103. Dry-rendered, human-confirmed DCC document creation
+
+1. Split DCC creation into an owner-bound preview endpoint and an idempotent confirmation endpoint; the legacy direct-to-queue route was removed so a browser cannot bypass review.
+2. Captures JIRA exactly once with a transient session, then dry-renders the registered project DOCX template against that exact immutable snapshot before persisting any job.
+3. Added an `awaiting_confirmation` job state and expiry timestamp that workers never claim; explicit confirmation atomically queues the same SHA-256-protected input without another JIRA read.
+4. The preview exposes only content-free impact metadata: issue, project, output filename, panel count, source update date, template readiness, and safe labels for missing recommended fields.
+5. Added 15-minute bounded confirmation expiry, immediate deletion on expired confirmation, scheduled cleanup for abandoned previews and private bytes, idempotency conflict protection, owner isolation, permission checks, and sanitized render/template errors.
+6. Added DCC Creator review UI, Job Center pending-state visibility and deep-link return, automatic DCC-tab selection, explicit confirmation, worker progress, and verified DOCX download continuity.
+7. Fixed a cross-origin production contract gap by allowlisting `Idempotency-Key`; Vite and approved split-origin job submissions now pass browser preflight.
+8. Prevented password managers from filling AW Center login passwords into temporary JIRA token fields by forwarding `autocomplete="one-time-code"` and a dedicated native input name through Naive UI's `input-props`.
+9. Added real template dry-render tests plus preview/confirm, worker isolation, replay/conflict, expiry, cleanup, ownership, permission, artifact deletion, CORS, source-level UI, and credential-autofill regressions.
+10. Passed all 357 backend tests with one platform-specific skip, 36 frontend tests, migration drift, Django check, strict TypeScript, Prettier, production build, bundle budget, and `git diff --check`.
+11. Browser-tested synthetic HTTP JIRA → real DOCX dry-render → explicit confirmation → worker → verified DOCX, plus Job Center return and native credential attributes; no console errors appeared and all synthetic users, jobs, artifacts, templates, tabs, and servers were removed.
+
+## 104. Server-ranked people search
+
+1. Replaced NSearch's current-page/local fuzzy filtering with authenticated DRF queries that request only the first ten relevance-ranked people.
+2. Added a 300 ms debounce, two-character minimum, AbortController cancellation, stale-response protection, and unmount cleanup so rapid typing does not waste browser/server work or overwrite newer results.
+3. Added explicit searching, no-result, recoverable-error, and minimum-input dropdown states while preserving ID, name, and email output modes.
+4. Added bounded backend matching across name, person ID, and email with deterministic exact, prefix, contains, and typo similarity ordering without a new dependency.
+5. Limited search input to 100 characters, fuzzy candidates to 500 records, query fragments to 16, and response pages through the shared maximum page-size policy.
+6. Removed obsolete people-page props and eager full-directory fetches from DCC and JIRA person fields; lookup components now remain correct regardless of the active table page.
+7. Added backend pagination/ranking/typo/field/input-boundary tests and frontend cancellation/request-shape/state regression tests.

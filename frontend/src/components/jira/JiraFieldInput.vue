@@ -1,9 +1,23 @@
 <template>
+  <n-select
+    v-if="allowedOptions.length"
+    :value="modelValueAsSelect"
+    :options="allowedOptions"
+    :multiple="isMultiple"
+    filterable
+    clearable
+    :placeholder="field.name"
+    @update:value="updateValue"
+  />
+  <n-dynamic-tags
+    v-else-if="isMultiple"
+    :value="modelValueAsArray"
+    @update:value="updateArrayValue"
+  />
   <n-search
-    v-if="inputType == 'person'"
+    v-else-if="inputType == 'person'"
     :value="modelValueAsString"
     :placeholder="field.name"
-    :list="people"
     @update:value="updateValue"
     @change="emitChange"
   />
@@ -38,13 +52,11 @@
 import { computed } from 'vue'
 import NSearch from '@/components/NSearch.vue'
 import { IJiraField, JiraFieldValue } from '@/models/jira'
-import { IPerson } from '@/models/orgs'
 import { resolveJiraFieldInputType } from '@/utils/jiraFieldInput'
 
 const props = defineProps<{
   field: IJiraField
   modelValue?: JiraFieldValue
-  people: IPerson[]
 }>()
 
 const emits = defineEmits<{
@@ -53,13 +65,35 @@ const emits = defineEmits<{
 }>()
 
 const inputType = computed(() => resolveJiraFieldInputType(props.field))
+const isMultiple = computed(() => String(props.field.schema?.type || '') == 'array')
+const allowedOptions = computed(() =>
+  (props.field.allowedValues || []).flatMap((option) => {
+    const value = option.value
+    const label = option.label
+    return typeof value == 'string' || typeof value == 'number'
+      ? [{ value, label: String(label ?? value) }]
+      : []
+  })
+)
 const modelValueAsString = computed(() =>
-  props.modelValue == null ? '' : String(props.modelValue)
+  props.modelValue == null || Array.isArray(props.modelValue) ? '' : String(props.modelValue)
 )
 const modelValueAsNumber = computed(() =>
   typeof props.modelValue == 'number' ? props.modelValue : null
 )
 const modelValueAsDate = computed(() => normalizeDateValue(props.modelValue))
+const modelValueAsArray = computed(() =>
+  Array.isArray(props.modelValue) ? props.modelValue.map(String) : []
+)
+const modelValueAsSelect = computed(() =>
+  isMultiple.value
+    ? Array.isArray(props.modelValue)
+      ? props.modelValue
+      : []
+    : Array.isArray(props.modelValue)
+      ? null
+      : props.modelValue
+)
 
 function updateValue(value: JiraFieldValue | undefined) {
   emits('update:modelValue', value ?? null)
@@ -68,6 +102,11 @@ function updateValue(value: JiraFieldValue | undefined) {
 
 function updateDateValue(value: string | null) {
   emits('update:modelValue', normalizeDateValue(value))
+  emits('change')
+}
+
+function updateArrayValue(value: string[]) {
+  emits('update:modelValue', value)
   emits('change')
 }
 

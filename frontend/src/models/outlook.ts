@@ -4,7 +4,6 @@ export interface IAttachment {
   size: number
   mime: string
   download_url?: string
-  content_base64?: string
   [key: string]: unknown
 }
 
@@ -16,7 +15,7 @@ export interface IMsg {
     to: string
     cc: string
     date: string
-    body_html?: string
+    body_plain: string
   }
   attachments: IAttachment[]
 }

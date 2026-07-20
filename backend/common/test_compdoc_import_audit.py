@@ -1,15 +1,13 @@
-from io import BytesIO
 from unittest.mock import patch
 
-import pandas as pd
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from projects.ozgur.models import CompDoc
 
+from .compdoc_import_test_utils import valid_row, workbook_upload, workbook_upload_bytes
 from .models import CompDocImportAudit
 
 User = get_user_model()
@@ -42,6 +40,8 @@ class CompDocImportAuditTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("status", targets)
         self.assertEqual(response.data["missing_columns"], [])
+        self.assertEqual(response.data["created_count"], 1)
+        self.assertTrue(response.data["confirmation_token"])
         self.assertEqual(CompDocImportAudit.objects.count(), 0)
 
     def test_confirmed_import_creates_then_updates_by_cover_page_number(self):
@@ -57,6 +57,16 @@ class CompDocImportAuditTests(TestCase):
         self.assertEqual(CompDoc.objects.count(), 1)
         self.assertEqual(document.name, "Updated Compliance Document")
         self.assertEqual(CompDocImportAudit.objects.count(), 2)
+
+    def test_no_op_import_persists_unchanged_audit_count(self):
+        """Repeated identical content remains explicit without creating history writes."""
+
+        self.confirm([valid_row()])
+        response = self.confirm([valid_row()])
+        audit = CompDocImportAudit.objects.get(pk=response.data["audit_id"])
+
+        self.assertEqual(response.data["unchanged_count"], 1)
+        self.assertEqual(audit.unchanged_count, 1)
 
     def test_partial_import_records_sanitized_row_failure(self):
         """A malformed row is rejected without rolling back valid evidence."""
@@ -85,16 +95,14 @@ class CompDocImportAuditTests(TestCase):
         self.assertEqual(len(audit.source_sha256), 64)
 
     @override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=1)
-    def test_row_limit_stops_work_before_database_upserts(self):
-        """Oversized workbooks fail deterministically and remain audited."""
+    def test_row_limit_stops_work_during_persistence_free_preview(self):
+        """Oversized workbooks fail before confirmation or database writes."""
 
-        response = self.confirm([valid_row(), valid_row(cover_page_no="CP-002")])
-        audit = CompDocImportAudit.objects.get()
+        response = self.preview([valid_row(), valid_row(cover_page_no="CP-002")])
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["code"], "COMPDOC_IMPORT_ROW_LIMIT")
-        self.assertEqual(audit.total_rows, 2)
-        self.assertEqual(audit.status, CompDocImportAudit.Status.FAILED)
+        self.assertEqual(CompDocImportAudit.objects.count(), 0)
         self.assertEqual(CompDoc.objects.count(), 0)
 
     def test_audit_ledger_requires_permission_and_hides_digest_in_list(self):
@@ -113,13 +121,14 @@ class CompDocImportAuditTests(TestCase):
         self.assertEqual(detail.data["project_slug"], "ozgur")
         self.assertEqual(len(detail.data["source_sha256"]), 64)
 
-    @patch("common.compdoc_import_views.prepare_import")
-    def test_unexpected_failure_is_audited_without_leaking_exception(self, prepare):
+    def test_unexpected_failure_is_audited_without_leaking_exception(self):
         """Unexpected parser failures expose only a stable support contract."""
 
-        prepare.side_effect = RuntimeError("private-workbook-value")
-        with self.assertLogs("common.compdoc_import_views", level="ERROR"):
-            response = self.confirm([valid_row()])
+        content, token = self.preview_content([valid_row()])
+        with patch("common.compdoc_import_views.prepare_import") as prepare:
+            prepare.side_effect = RuntimeError("private-workbook-value")
+            with self.assertLogs("common.compdoc_import_views", level="ERROR"):
+                response = self.confirm_content(content, token)
         audit = CompDocImportAudit.objects.get()
 
         self.assertEqual(response.status_code, 500)
@@ -131,37 +140,35 @@ class CompDocImportAuditTests(TestCase):
     def confirm(self, rows):
         """Post one confirmed workbook import using a fresh upload stream."""
 
+        content, token = self.preview_content(rows)
+        return self.confirm_content(content, token)
+
+    def preview(self, rows):
+        """Post one persistence-free workbook preview."""
+
         return self.client.post(
-            "/ozgur/compdocs/upload/?confirm_import=true",
+            "/ozgur/compdocs/upload/?preview=true",
             {"file": workbook_upload(rows)},
             format="multipart",
         )
 
+    def preview_content(self, rows):
+        """Return exact workbook bytes and their signed preview confirmation."""
 
-def valid_row(name="Compliance Document", cover_page_no="CP-001"):
-    """Return one representative workbook row using human headers."""
+        upload = workbook_upload(rows)
+        content = upload.read()
+        response = self.client.post(
+            "/ozgur/compdocs/upload/?preview=true",
+            {"file": workbook_upload_bytes(content)},
+            format="multipart",
+        )
+        return content, response.data["confirmation_token"]
 
-    return {
-        "Name": name,
-        "Panel": "Flight",
-        "Responsible": "Reviewer",
-        "Status": "Authority Approved",
-        "Cat": "1",
-        "Moc": "A",
-        "Cover Page No": cover_page_no,
-        "Cover Page Issue": 1,
-        "Tech Doc No": "TD-001",
-        "Tech Doc Issue": 1,
-    }
+    def confirm_content(self, content, token):
+        """Confirm exact previewed bytes with their signed token."""
 
-
-def workbook_upload(rows):
-    """Return a valid in-memory OOXML workbook upload."""
-
-    buffer = BytesIO()
-    pd.DataFrame(rows).to_excel(buffer, index=False)
-    return SimpleUploadedFile(
-        "compdocs.xlsx",
-        buffer.getvalue(),
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+        return self.client.post(
+            "/ozgur/compdocs/upload/?confirm_import=true",
+            {"file": workbook_upload_bytes(content), "confirmation_token": token},
+            format="multipart",
+        )

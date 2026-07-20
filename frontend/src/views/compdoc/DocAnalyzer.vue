@@ -57,7 +57,7 @@ const uploadForm = ref<UploadInst | null>(null)
 const files = ref<UploadFileInfo[]>([])
 const selectedChecks = ref(checkOptions.map((option) => option.value))
 const queueing = ref(false)
-const selectedFile = computed(() => selectedUploadFile(files.value))
+const selectedFile = computed(() => selectedUploadFile(files.value, false))
 
 function handleFileChange(value: { fileList: UploadFileInfo[] }): void {
   files.value = value.fileList

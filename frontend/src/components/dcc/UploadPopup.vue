@@ -34,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { NModal, UploadCustomRequestOptions } from 'naive-ui'
 import axios from 'axios'
 import { IDcc } from '@/models/dcc'
@@ -46,10 +46,8 @@ const url = ref('')
 
 const uploaderFormRef = ref(null) // UploadForm'a erişim için
 
-onMounted(() => {})
-
 async function addViaUrl() {
-  const sessionId = localStorage.getItem('jira>session_id')
+  const sessionId = window.$dccStore.getSessionId
   try {
     const data: IDcc = await window.$dccStore.addDcc({ url: url.value, JSESSIONID: sessionId })
     props.onAddSuccess?.(data)

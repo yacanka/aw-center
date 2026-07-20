@@ -45,7 +45,6 @@ const syncStatus = ref({
 })
 const filterValue = ref<Record<string, any>>({ active: true } as IDcc)
 const expandedRowKeys = ref<Array<string | number>>([])
-let sessionID: string
 
 const onFilter = (attrib: string, filterData: any) => {
   filterValue.value[attrib] = filterData
@@ -295,8 +294,6 @@ function showpUploadForm() {
 
 onMounted(async () => {
   await fetchDcc()
-  const storedSessionID = localStorage.getItem('jira>session_id')
-  sessionID = storedSessionID ? storedSessionID : ''
 })
 
 async function syncAll() {
@@ -334,7 +331,7 @@ async function onSuccessAdd(row: IDcc) {
 async function onApproved(data: any) {
   window.$loadingBar.start()
   try {
-    data.sessionId = sessionID
+    data.sessionId = store.getSessionId
     let row = await store.createIssue(data)
     row = { issue: row.issue, dcc_path: row.dcc_path } as IDcc
     const res = await store.getIssue(row)

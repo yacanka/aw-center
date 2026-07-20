@@ -48,12 +48,31 @@ jobs:
         working-directory: backend
         run: python manage.py check
 
+      - name: Reject missing migrations
+        working-directory: backend
+        run: python manage.py makemigrations --check --dry-run
+
       - name: Run Django tests
         working-directory: backend
         run: python manage.py test
 
       - name: Scan Python dependencies
         run: python -m pip install pip-audit && pip-audit -r requirements.txt
+
+      - name: Setup Node.js for integrated artifact smoke test
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build immutable frontend artifact
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Verify Django serves the built frontend artifact
+        working-directory: backend
+        run: python manage.py collectstatic --noinput && python manage.py verify_frontend_artifact
 
   frontend:
     name: Frontend checks
@@ -74,18 +93,15 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install npm dependencies
-        run: npm install
-
-      - name: Format frontend sources
-        run: npm run format
+        run: npm ci
 
       - name: Check frontend formatting
         run: npm run format:check
 
-      - name: Run TypeScript syntax checks
-        run: npm run typecheck:ci
+      - name: Run strict TypeScript checks
+        run: npm run typecheck
 
-      - name: Test quick command search
+      - name: Run frontend regression tests
         run: npm run test:ci
 
       - name: Build Vite assets
@@ -93,3 +109,35 @@ jobs:
 
       - name: Scan npm dependencies
         run: npm audit --audit-level=high
+
+  container:
+    name: Immutable runtime image
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build combined backend and frontend image
+        run: >-
+          docker build
+          --file backend/Dockerfile
+          --tag awcenter:ci
+          --build-arg VITE_API_URL=/
+          --build-arg VITE_VERSION=ci
+          --build-arg VITE_APP_TITLE="AW Center"
+          .
+
+      - name: Verify Django and immutable frontend inside image
+        run: >-
+          docker run --rm
+          -e DEBUG=True
+          -e IPV4_ADDRESS=127.0.0.1
+          -e PORT=8000
+          -e DOCPROOF_URL=http://localhost/docproof
+          -e DOORS_EXECUTABLE=/usr/bin/false
+          -e JIRA_LEGACY_URL=http://localhost/jira-legacy
+          -e JIRA_BTB_URL=http://localhost/jira-btb
+          awcenter:ci
+          python manage.py verify_frontend_artifact

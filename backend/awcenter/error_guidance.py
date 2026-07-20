@@ -36,11 +36,50 @@ _EXACT_GUIDANCE = {
     "COMPDOC_IMPORT_COLUMNS_MISSING": ErrorGuidance(
         False, "Add the listed required columns and upload the workbook again."
     ),
+    "COMPDOC_IMPORT_PREVIEW_EXPIRED": ErrorGuidance(
+        False, "Preview the workbook again before confirming the import."
+    ),
+    "COMPDOC_IMPORT_PREVIEW_MISMATCH": ErrorGuidance(
+        False, "Preview the exact workbook you want to import, then confirm it."
+    ),
     "IDEMPOTENCY_CONFLICT": ErrorGuidance(False, "Refresh the job list before submitting new data."),
     "INVITATION_EXPIRED": ErrorGuidance(False, "Ask an administrator to create a new invitation."),
     "INVITATION_REVOKED": ErrorGuidance(False, "Ask an administrator for the newest invitation."),
     "INVITATION_USED": ErrorGuidance(False, "Sign in with the account created from this invitation."),
     "INVITATION_SESSION_ACTIVE": ErrorGuidance(False, "Sign out before accepting another invitation."),
+    "JIRA_DRAFT_VERSION_CONFLICT": ErrorGuidance(
+        False, "Refresh the draft and review the newest version before continuing."
+    ),
+    "JIRA_DRAFT_STATE_CONFLICT": ErrorGuidance(
+        False, "Refresh the draft and review its current approval state."
+    ),
+    "JIRA_DRAFT_PUBLISH_FAILED": ErrorGuidance(
+        True, "Verify the JIRA session and availability, then safely retry publication."
+    ),
+    "JIRA_DRAFT_PREFLIGHT_BLOCKED": ErrorGuidance(
+        False, "Complete the listed JIRA fields, save the draft, and approve the new version."
+    ),
+    "JIRA_DRAFT_PREFLIGHT_UNAVAILABLE": ErrorGuidance(
+        True, "Verify the temporary JIRA session and project access, then retry the check."
+    ),
+    "DCC_JIRA_UNAVAILABLE": ErrorGuidance(
+        True, "Verify the temporary JIRA session and JIRA availability, then retry."
+    ),
+    "DCC_CAPTURE_FAILED": ErrorGuidance(
+        True, "Retry once; use the request reference if JIRA capture still fails."
+    ),
+    "DCC_PREVIEW_EXPIRED": ErrorGuidance(
+        False, "Capture and review the current JIRA source again before queueing the document."
+    ),
+    "DCC_PREVIEW_NOT_CONFIRMABLE": ErrorGuidance(
+        False, "Create a new DCC preview and review its current state."
+    ),
+    "DCC_TEMPLATE_UNAVAILABLE": ErrorGuidance(
+        False, "Ask an administrator to deploy the registered project DOCX template."
+    ),
+    "DCC_RENDER_FAILED": ErrorGuidance(
+        False, "Ask an administrator to validate the registered template placeholders."
+    ),
     "TEAMCENTER_NOT_CONFIGURED": ErrorGuidance(False, "Ask an administrator to configure Teamcenter."),
     "TEAMCENTER_AUTH_FAILED": ErrorGuidance(False, "Ask an administrator to verify Teamcenter credentials."),
     "DOORS_UNAVAILABLE": ErrorGuidance(False, "Start or configure the DOORS client, then retry."),
@@ -63,6 +102,7 @@ _PREFIX_GUIDANCE = (
     ("TEAMCENTER_", ErrorGuidance(True, "Check Teamcenter availability, then retry once.")),
     ("DOORS_", ErrorGuidance(True, "Check the DOORS client connection, then retry once.")),
     ("JIRA_", ErrorGuidance(True, "Check the JIRA session and attachment, then retry once.")),
+    ("DCC_", ErrorGuidance(False, "Review the JIRA task, project mapping, and DCC fields.")),
     ("JOB_", ErrorGuidance(False, "Open Job Center and review the job details.")),
     ("WORD_", ErrorGuidance(False, "Review the document and local model configuration.")),
     ("COVER_PAGE_", ErrorGuidance(False, "Correct the spreadsheet rows and create a new job.")),

@@ -16,7 +16,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             tags=("active", "certification", "jira"),
             jira_component="OZGUR",
             dcc_label="Ozgur DCC",
-            dcc_template_name="ozgur_dcc_template",
+            dcc_template_name="ozgur_dcc_template.docx",
             mail_template_name="ozgur_mail_template",
         ),
         "piku": ProjectDefinition(
@@ -29,7 +29,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             tags=("active", "certification", "jira"),
             jira_component="PIKU",
             dcc_label="Piku DCC",
-            dcc_template_name="piku_dcc_template",
+            dcc_template_name="piku_dcc_template.docx",
             mail_template_name="piku_mail_template",
         ),
         "aesa": ProjectDefinition(
@@ -42,7 +42,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             tags=("active", "certification", "jira"),
             jira_component="AESA",
             dcc_label="AESA DCC",
-            dcc_template_name="aesa_dcc_template",
+            dcc_template_name="aesa_dcc_template.docx",
             mail_template_name="aesa_mail_template",
         ),
         "havasoj": ProjectDefinition(
@@ -55,7 +55,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             tags=("active", "certification", "jira"),
             jira_component="HAVASOJ",
             dcc_label="Havasoj DCC",
-            dcc_template_name="havasoj_dcc_template",
+            dcc_template_name="havasoj_dcc_template.docx",
             mail_template_name="havasoj_mail_template",
         ),
         "hys": ProjectDefinition(
@@ -68,7 +68,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             tags=("active", "certification", "jira"),
             jira_component="HYS",
             dcc_label="HYS DCC",
-            dcc_template_name="hys_dcc_template",
+            dcc_template_name="hys_dcc_template.docx",
             mail_template_name="hys_mail_template",
         ),
         "blok30": ProjectDefinition(
@@ -81,7 +81,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             tags=("active", "certification", "jira"),
             jira_component="BLOK30",
             dcc_label="Blok 30 DCC",
-            dcc_template_name="blok30_dcc_template",
+            dcc_template_name="blok30_dcc_template.docx",
             mail_template_name="blok30_mail_template",
         ),
         "blok4050": ProjectDefinition(
@@ -94,7 +94,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             tags=("inactive", "certification", "jira"),
             jira_component="BLOK4050",
             dcc_label="Blok 40/50 DCC",
-            dcc_template_name="blok4050_dcc_template",
+            dcc_template_name="blok4050_dcc_template.docx",
             mail_template_name="blok4050_mail_template",
         ),
         "gokbey": ProjectDefinition(
@@ -107,7 +107,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             tags=("inactive", "certification", "jira"),
             jira_component="GOKBEY",
             dcc_label="Gokbey DCC",
-            dcc_template_name="gokbey_dcc_template",
+            dcc_template_name="gokbey_dcc_template.docx",
             mail_template_name="gokbey_mail_template",
         ),
     }

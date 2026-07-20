@@ -1,166 +1,183 @@
 <template>
   <n-dropdown
     :show="showDropdown"
-    :options="options"
+    :options="dropdownOptions"
     placement="bottom-start"
-    @select="handleSelect"
-    @clickoutside="handleClickOutside"
-    key-field="person_id"
-    label-field="name"
     :style="{ width: '100%' }"
+    @select="handleSelect"
+    @clickoutside="isFocused = false"
   >
-    <template #default>
-      <n-input
-        ref="inputRef"
-        :value="value"
-        :status="currentStatus"
-        :placeholder="placeholder"
-        clearable
-        @input="updateValue"
-        @change="handleChange"
-        @focus="isFocused = true"
-        @blur="isFocused = false"
-        :style="style"
-      >
-        <template #suffix>
-          <n-select
-            v-model:value="currentMod"
-            :status="currentStatus"
-            :options="modOptions"
-            @update:value="handleModUpdate"
-            style="width: 82px; transform: translateX(12px); color: 'red'"
-          />
-        </template>
-      </n-input>
-    </template>
+    <n-input
+      ref="inputRef"
+      :value="value"
+      :status="currentStatus"
+      :placeholder="placeholder"
+      :style="style"
+      clearable
+      @input="updateValue"
+      @change="emit('change', $event)"
+      @focus="handleFocus"
+      @blur="handleBlur"
+    >
+      <template #suffix>
+        <n-select
+          v-model:value="currentMode"
+          :status="currentStatus"
+          :options="modeOptions"
+          style="width: 82px; transform: translateX(12px)"
+          @update:value="setSelectedPersonText"
+        />
+      </template>
+    </n-input>
   </n-dropdown>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, PropType } from 'vue'
-import { findMostSimilarWord } from '@/utils/general'
-import { IPerson } from '@/models/orgs'
+import { computed, nextTick, onBeforeUnmount, ref, type CSSProperties } from 'vue'
+import type { InputInst } from 'naive-ui'
+import type { IPerson } from '@/models/orgs'
 import { useOrgsStore } from '@/stores/organizations'
 
-type ModType = 'id' | 'name' | 'mail'
+type SearchMode = 'id' | 'name' | 'mail'
+type SearchState = 'idle' | 'short' | 'loading' | 'ready' | 'empty' | 'error'
+type PersonOption = {
+  key: string | number
+  label: string
+  disabled?: boolean
+  person?: IPerson
+}
 
-const props = defineProps({
-  value: { type: String, default: '' },
-  id: { type: String, default: '' },
-  placeholder: { type: String, default: '' },
-  defaultMod: {
-    type: String as PropType<ModType>,
-    default: 'id',
-    validator: (value: string) => {
-      const result = ['id', 'name', 'mail'].includes(value)
-      if (!result) console.warn("NSearch 'defaultMod' prop can be ['id' | 'name' | 'mail']")
-      return result
-    }
-  },
-  style: { type: Object, default: null },
-  list: { type: Array<IPerson>, default: () => [] }
-})
+const props = withDefaults(
+  defineProps<{
+    value?: string
+    placeholder?: string
+    defaultMod?: SearchMode
+    style?: CSSProperties
+  }>(),
+  { value: '', placeholder: '', defaultMod: 'id', style: undefined }
+)
 
-const emit = defineEmits(['update:value', 'change'])
-const currentPerson = ref<IPerson | undefined>()
-const currentMod = ref(props.defaultMod)
-const inputRef = ref()
-const showDropdown = ref(false)
-const isFocused = ref(false)
-const options = ref<IPerson[]>([])
+const emit = defineEmits<{
+  'update:value': [value: string]
+  change: [value: string]
+}>()
+
 const store = useOrgsStore()
+const inputRef = ref<InputInst | null>(null)
+const currentPerson = ref<IPerson>()
+const currentMode = ref<SearchMode>(props.defaultMod)
+const peopleOptions = ref<PersonOption[]>([])
+const searchState = ref<SearchState>('idle')
+const isFocused = ref(false)
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let activeController: AbortController | null = null
+let requestOrder = 0
 
-const currentStatus = computed(() => {
-  if (!isFocused.value) return 'default'
-  if (props.value.length != 0 && options.value.length == 0) return 'warning'
-  return 'success'
-})
-
-const modOptions = [
+const modeOptions = [
   { label: 'ID', value: 'id' },
   { label: 'Name', value: 'name' },
   { label: 'Mail', value: 'mail' }
 ]
 
-let timeout: ReturnType<typeof setTimeout> | null = null
-let requestOrder = 0
+const dropdownOptions = computed<PersonOption[]>(() => {
+  const message = stateMessage(searchState.value)
+  return message
+    ? [{ key: `state-${searchState.value}`, label: message, disabled: true }]
+    : peopleOptions.value
+})
+const showDropdown = computed(
+  () => isFocused.value && props.value.trim().length > 0 && dropdownOptions.value.length > 0
+)
+const currentStatus = computed(() => {
+  if (!isFocused.value) return 'default'
+  if (searchState.value == 'error') return 'error'
+  if (searchState.value == 'empty') return 'warning'
+  if (searchState.value == 'ready') return 'success'
+  return 'default'
+})
 
-function updateValue(value: string) {
-  if (timeout) clearTimeout(timeout)
+function updateValue(value: string): void {
   emit('update:value', value)
-
-  if (value.trim().length == 0) {
-    resetDropdown()
-    return
-  }
-
-  timeout = setTimeout(() => searchPeople(value), 350)
+  currentPerson.value = undefined
+  scheduleSearch(value)
 }
 
-function handleChange(value: string) {
-  emit('change', value)
+function scheduleSearch(value: string, delay = 300): void {
+  cancelPendingSearch()
+  peopleOptions.value = []
+  if (!value.trim()) return setState('idle')
+  if (value.trim().length < 2) return setState('short')
+  searchState.value = 'loading'
+  debounceTimer = setTimeout(() => searchPeople(value), delay)
 }
 
-function handleClickOutside() {
-  showDropdown.value = false
-}
-
-function handleModUpdate(val: ModType) {
-  currentMod.value = val
-  if (props.value) setText()
-}
-
-function setText() {
-  const person = currentPerson.value
-  if (currentMod.value == 'name') emit('update:value', person?.name)
-  if (currentMod.value == 'id') emit('update:value', person?.person_id)
-  if (currentMod.value == 'mail') emit('update:value', person?.email)
-}
-
-function handleSelect(key: string | number, option: IPerson) {
-  currentPerson.value = option
-  showDropdown.value = false
-  inputRef.value.focus()
-  setText()
-  nextTick(() => inputRef.value.blur())
-}
-
-async function searchPeople(searchText: string) {
+async function searchPeople(value: string): Promise<void> {
   const order = ++requestOrder
+  const controller = new AbortController()
+  activeController = controller
   try {
-    const remotePeople = await store.searchPeople(searchText, 40)
+    const people = await store.searchPeople(value, 10, controller.signal)
     if (order != requestOrder) return
-
-    options.value = chooseBestPeople(searchText, remotePeople, 10)
-    showDropdown.value = options.value.length > 0
+    peopleOptions.value = people.map(toPersonOption)
+    searchState.value = people.length ? 'ready' : 'empty'
   } catch {
-    if (order == requestOrder) resetDropdown()
+    if (order == requestOrder) searchState.value = 'error'
+  } finally {
+    if (activeController == controller) activeController = null
   }
 }
 
-function resetDropdown() {
-  options.value = []
-  showDropdown.value = false
+function handleSelect(_key: string | number, option: PersonOption): void {
+  if (!option.person) return
+  currentPerson.value = option.person
+  isFocused.value = false
+  setSelectedPersonText()
+  nextTick(() => inputRef.value?.blur())
 }
 
-function chooseBestPeople(searchText: string, people: IPerson[], maxCount: number) {
-  const result: IPerson[] = []
-  for (const person of people) {
-    if (!person.name || !isSimilarName(searchText, person.name)) continue
-    result.push(person)
-    if (result.length == maxCount) break
+function setSelectedPersonText(): void {
+  const person = currentPerson.value
+  if (!person) return
+  const values = { id: person.person_id, name: person.name, mail: person.email }
+  emit('update:value', values[currentMode.value])
+}
+
+function handleFocus(): void {
+  isFocused.value = true
+  if (props.value.trim().length >= 2 && searchState.value == 'idle') scheduleSearch(props.value, 0)
+}
+
+function handleBlur(): void {
+  window.setTimeout(() => (isFocused.value = false), 120)
+}
+
+function cancelPendingSearch(): void {
+  requestOrder += 1
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = null
+  activeController?.abort()
+  activeController = null
+}
+
+function setState(state: SearchState): void {
+  searchState.value = state
+}
+
+function toPersonOption(person: IPerson): PersonOption {
+  return {
+    key: person.id ?? person.person_id,
+    label: `${person.name} — ${person.person_id} · ${person.email}`,
+    person
   }
-  return result
 }
 
-function isSimilarName(searchText: string, personName: string) {
-  const sentence = personName.substring(0, searchText.length + 3)
-  const sentenceMatch = findMostSimilarWord(searchText, [sentence])
-  if (sentenceMatch && sentenceMatch.distance < 4) return true
-
-  const wordMatch = findMostSimilarWord(searchText, personName.split(' '))
-  return !!wordMatch && wordMatch.distance < 2
+function stateMessage(state: SearchState): string {
+  if (state == 'short') return 'Type at least 2 characters.'
+  if (state == 'loading') return 'Searching people…'
+  if (state == 'empty') return 'No matching person found.'
+  if (state == 'error') return 'People search failed. Please try again.'
+  return ''
 }
+
+onBeforeUnmount(cancelPendingSearch)
 </script>
-
-<style scoped></style>

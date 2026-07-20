@@ -12,6 +12,11 @@
             <n-descriptions-item label="Request ID">
               {{ job.request_id || 'Unavailable' }}
             </n-descriptions-item>
+            <n-descriptions-item v-if="job.source_job" label="Workflow source">
+              <n-button text type="primary" @click="$emit('open-job', job.source_job)">
+                {{ job.source_job }}
+              </n-button>
+            </n-descriptions-item>
           </n-descriptions>
           <n-card
             v-if="job.result_summary.type === 'document_analysis'"
@@ -28,6 +33,62 @@
                   indicator-placement="inside"
                 />
               </div>
+            </n-space>
+          </n-card>
+          <n-card
+            v-if="job.result_summary.type === 'dcc_preview'"
+            title="DCC snapshot review"
+            size="small"
+          >
+            <n-space vertical>
+              <n-descriptions :column="2" bordered size="small">
+                <n-descriptions-item label="JIRA task">
+                  {{ job.result_summary.issue_key }}
+                </n-descriptions-item>
+                <n-descriptions-item label="Project">
+                  {{ job.result_summary.project }}
+                </n-descriptions-item>
+                <n-descriptions-item label="Output">
+                  {{ job.result_summary.output_name }}
+                </n-descriptions-item>
+                <n-descriptions-item label="Panels">
+                  {{ job.result_summary.panel_count ?? 0 }}
+                </n-descriptions-item>
+              </n-descriptions>
+              <n-alert type="warning" :bordered="false">
+                This immutable source has not been exposed to a worker yet.
+              </n-alert>
+              <router-link :to="{ name: 'dcc', query: { dcc_job: job.id } }">
+                Review and confirm in DCC Creator
+              </router-link>
+            </n-space>
+          </n-card>
+          <JiraIssueDraftPanel :job="job" />
+          <n-card v-if="job.handoffs.length" title="Suggested next step" size="small">
+            <n-space vertical>
+              <n-alert type="info" :bordered="false">
+                Reuse this verified private output without downloading and uploading it again.
+              </n-alert>
+              <n-space
+                v-for="handoff in job.handoffs"
+                :key="handoff.id"
+                justify="space-between"
+                align="center"
+              >
+                <div>
+                  <n-text strong>{{ handoff.label }}</n-text>
+                  <br />
+                  <n-text depth="3">{{ handoff.description }}</n-text>
+                </div>
+                <n-button
+                  type="primary"
+                  secondary
+                  :loading="handoffLoading"
+                  @click="$emit('handoff', job, handoff)"
+                >
+                  Start
+                </n-button>
+              </n-space>
             </n-space>
           </n-card>
           <n-timeline>
@@ -47,10 +108,15 @@
 </template>
 
 <script setup lang="ts">
-import type { Job, JobStatus } from '@/services/jobs'
+import JiraIssueDraftPanel from '@/components/jobs/JiraIssueDraftPanel.vue'
+import type { Job, JobHandoff, JobStatus } from '@/services/jobs'
 
-defineProps<{ show: boolean; loading: boolean; job: Job | null }>()
-defineEmits<{ 'update:show': [show: boolean] }>()
+defineProps<{ show: boolean; loading: boolean; handoffLoading: boolean; job: Job | null }>()
+defineEmits<{
+  'update:show': [show: boolean]
+  handoff: [job: Job, handoff: JobHandoff]
+  'open-job': [jobId: string]
+}>()
 
 function eventType(status: JobStatus): 'default' | 'success' | 'error' | 'warning' | 'info' {
   if (status === 'succeeded') return 'success'

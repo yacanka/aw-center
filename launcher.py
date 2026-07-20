@@ -1724,7 +1724,7 @@ def check_frontend() -> None:
     )
 
     run_first_existing_npm_script(
-        ["typecheck:ci", "typecheck", "type-check"],
+        ["typecheck", "type-check"],
         "typecheck",
     )
 

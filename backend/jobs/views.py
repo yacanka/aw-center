@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from django.utils import timezone
 
+from .handoffs import create_handoff_job
 from .models import Job, JobStatus, WorkerHeartbeat
 from .serializers import JobDetailSerializer, JobSerializer
 from .services import request_cancellation, retry_job
@@ -22,7 +23,7 @@ def owned_jobs(request):
     queryset = Job.objects.filter(owner=request.user)
     if request.user.is_staff and request.query_params.get("scope") == "all":
         queryset = Job.objects.all()
-    return queryset.select_related("owner", "retry_of")
+    return queryset.select_related("owner", "retry_of", "jira_issue_draft")
 
 
 @api_view(["GET"])
@@ -62,8 +63,28 @@ def retry_failed_job(request, job_id):
     """Queue a new attempt for an owned failed or cancelled job."""
 
     job = get_object_or_404(owned_jobs(request), pk=job_id)
-    retried = retry_job(job)
-    return Response(JobSerializer(retried).data, status=status.HTTP_201_CREATED)
+    retried, created = retry_job(job)
+    response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    response = Response(JobSerializer(retried).data, status=response_status)
+    if not created:
+        response["Idempotency-Replayed"] = "true"
+    return response
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_job_handoff(request, job_id, handoff_id):
+    """Reuse one owned verified output as an allowlisted target job input."""
+
+    source_job = get_object_or_404(Job.objects.filter(owner=request.user), pk=job_id)
+    target_job, created = create_handoff_job(
+        source_job, handoff_id, getattr(request, "request_id", "")
+    )
+    response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    response = Response(JobSerializer(target_job).data, status=response_status)
+    if not created:
+        response["Idempotency-Replayed"] = "true"
+    return response
 
 
 @api_view(["GET"])

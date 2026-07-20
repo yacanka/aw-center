@@ -12,6 +12,19 @@ RECOVERY_HINTS = {
     "COVER_PAGE_ROWS_EMPTY": "Provide at least one row with both cover-page number and issue.",
     "COVER_PAGE_ROW_LIMIT": "Split the workbook into smaller batches and queue each batch separately.",
     "MEDIA_CONVERSION_FAILED": "Verify that the selected output format is compatible with the source media.",
+    "OUTLOOK_MESSAGE_INVALID": "Export the message again as an Outlook MSG file and start a new job.",
+    "OUTLOOK_WORD_ATTACHMENT_MISSING": "Attach one DOCX document to the message, then start a new workflow.",
+    "OUTLOOK_WORD_ATTACHMENT_AMBIGUOUS": "Keep only the DOCX document to analyze in the message, then try again.",
+    "OUTLOOK_ATTACHMENT_UNSUPPORTED": "Save the attachment as a standard DOCX document and try again.",
+    "OUTLOOK_ATTACHMENT_UNSAFE": "Open and re-save the attachment as a clean DOCX document before retrying.",
+    "OUTLOOK_ATTACHMENT_LIMIT": "Remove unnecessary attachments or split them across smaller messages.",
+    "DCC_TEMPLATE_UNAVAILABLE": "Ask an administrator to deploy the registered project DOCX template, then retry this immutable snapshot.",
+    "DCC_PROJECT_INVALID": "Create a new job after an administrator corrects the project registry mapping.",
+    "DCC_SNAPSHOT_INVALID": "Capture the JIRA task again to create a new immutable source snapshot.",
+    "DCC_OUTPUT_INVALID": "Ask an administrator to verify the project DOCX template before retrying.",
+    "DCC_RENDER_FAILED": "Ask an administrator to validate the project template placeholders before creating a new preview.",
+    "WORKFLOW_ADVANCE_FAILED": "Open the completed source step, verify its artifact, then start a new workflow or share the request ID with support.",
+    "WORKFLOW_INITIALIZATION_FAILED": "Start the workflow again; if initialization fails repeatedly, share the request ID with support.",
 }
 
 

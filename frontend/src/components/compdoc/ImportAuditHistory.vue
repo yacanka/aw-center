@@ -32,7 +32,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { NButton, NTag, type DataTableColumns, type PaginationInfo } from 'naive-ui'
 import ImportAuditDetail from '@/components/compdoc/ImportAuditDetail.vue'
 import { formatApiError } from '@/services/apiError'
@@ -43,6 +44,7 @@ import {
 } from '@/services/compdocImportAudits'
 
 const props = defineProps<{ allowed: boolean; project: string }>()
+const route = useRoute()
 const modalStyle = { width: 'min(1180px, 94vw)' }
 const statusOptions = ['processing', 'success', 'partial', 'failed'].map((value) => ({
   label: titleCase(value),
@@ -80,9 +82,10 @@ const columns: DataTableColumns<ImportAudit> = [
   },
   { title: 'Rows', key: 'total_rows', width: 70 },
   {
-    title: 'Created / Updated / Rejected',
+    title: 'Created / Updated / Unchanged / Rejected',
     key: 'result',
-    render: (row) => `${row.created_count} / ${row.updated_count} / ${row.rejected_count}`
+    render: (row) =>
+      `${row.created_count} / ${row.updated_count} / ${row.unchanged_count} / ${row.rejected_count}`
   },
   { title: 'Started', key: 'started_at', render: (row) => formatDate(row.started_at) },
   {
@@ -92,6 +95,13 @@ const columns: DataTableColumns<ImportAudit> = [
       h(NButton, { size: 'small', onClick: () => detail.value?.open(row.id) }, () => 'Details')
   }
 ]
+
+onMounted(openLinkedAudit)
+
+function openLinkedAudit(): void {
+  const auditId = route.query.audit
+  if (props.allowed && typeof auditId === 'string') void detail.value?.open(auditId)
+}
 
 function openModal(): void {
   show.value = true

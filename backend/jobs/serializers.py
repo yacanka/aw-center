@@ -19,16 +19,18 @@ class JobSerializer(serializers.ModelSerializer):
     can_retry = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
     recovery_hint = serializers.SerializerMethodField()
+    handoffs = serializers.SerializerMethodField()
+    jira_draft = serializers.SerializerMethodField()
 
     class Meta:
         model = Job
         fields = [
             "id", "kind", "title", "status", "progress", "message", "error_code",
             "input_name", "output_name", "result_summary", "attempt", "max_attempts",
-            "retry_of", "retryable",
+            "retry_of", "source_job", "workflow_run", "workflow_step", "retryable",
             "request_id",
-            "created_at", "started_at", "completed_at", "updated_at",
-            "can_cancel", "can_retry", "download_url", "recovery_hint",
+            "created_at", "started_at", "completed_at", "confirmation_expires_at", "updated_at",
+            "can_cancel", "can_retry", "download_url", "recovery_hint", "handoffs", "jira_draft",
         ]
 
     def get_can_cancel(self, job):
@@ -54,6 +56,24 @@ class JobSerializer(serializers.ModelSerializer):
         """Return an actionable sanitized hint for failed jobs."""
 
         return recovery_hint(job.error_code) if job.status == JobStatus.FAILED else ""
+
+    def get_handoffs(self, job):
+        """Return allowlisted next actions for a verified completed output."""
+
+        from .handoffs import available_handoffs
+
+        return available_handoffs(job)
+
+    def get_jira_draft(self, job):
+        """Return a content-free reference to an existing analysis review draft."""
+
+        draft = getattr(job, "jira_issue_draft", None)
+        if draft is None:
+            return None
+        return {
+            "id": str(draft.id), "status": draft.status,
+            "version": draft.version, "jira_issue_key": draft.jira_issue_key,
+        }
 
 
 class JobDetailSerializer(JobSerializer):

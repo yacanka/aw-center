@@ -68,7 +68,15 @@
     :close-on-esc="sessionPopup.closable"
     transform-origin="center"
   >
-    <n-input v-model:value="sessionPopup.input" />
+    <n-input
+      v-model:value="sessionPopup.input"
+      type="password"
+      show-password-on="click"
+      :input-props="{
+        autocomplete: 'one-time-code',
+        name: 'temporary-jira-session'
+      }"
+    />
     <n-flex justify="center" style="margin-top: 10px">
       <n-button type="info" @click="sessionPopup.onClick">Ok</n-button>
     </n-flex>
@@ -83,7 +91,7 @@
     ref="ecrUploadPopup"
     @onSuccess="
       (file: File, parsed: string | null) => {
-        pdfFileList.push(file)
+        manualPdfFiles.push(file)
         currentTask.events.ProgressEvent()
       }
     "
@@ -106,9 +114,9 @@
 </template>
 
 <script setup lang="ts">
-import { create, NAlert, NotificationType, NSpin } from 'naive-ui'
-import { h, onMounted, ref } from 'vue'
-import { base64ToBytes, nullCheck, sleep } from '@/utils/general'
+import { NAlert, NotificationType, NSpin } from 'naive-ui'
+import { onMounted, ref } from 'vue'
+import { nullCheck, sleep } from '@/utils/general'
 import { useDccStore } from '@/stores/dcc'
 import { useOutlookStore } from '@/stores/outlook'
 import axios from 'axios'
@@ -121,11 +129,22 @@ import EcrUploadPopup from './EcrUploadPopup.vue'
 import SubtaskList from '../jira/SubtaskList.vue'
 import { toTitleCase } from '@/utils/text'
 import { IMsg, IPopup, TaskItem } from '@/models/outlook'
-import type { IAttachment } from '@/models/outlook'
 import { formatApiError } from '@/services/apiError'
+import {
+  loadOutlookPdfAttachments,
+  selectOutlookPdfInputs
+} from '@/services/outlookAttachmentFiles'
 
 interface IEcdCheckItem extends IEcd {
   approved?: boolean
+}
+
+interface CreatedIssueContext {
+  issueKey: string
+  ecr: IEcdCheckItem
+  file: File
+  attachmentAdded: boolean
+  subtasksCreated: boolean
 }
 
 const router = useRouter()
@@ -160,8 +179,9 @@ const loadingBar = ref({
   content: ''
 })
 
-let pdfFileList: File[] = []
-let createdIssueList: string[] = []
+const ecrSourceFiles = new Map<IEcdCheckItem, File>()
+const createdIssues = new Map<IEcdCheckItem, CreatedIssueContext>()
+const manualPdfFiles: File[] = []
 
 const updateEcrApprovementList = () => {
   const leftNumber = ecrList.value.filter((ecr) => ecr.approved == undefined).length
@@ -235,52 +255,40 @@ async function detectEcrProgress() {
   const item = currentTask.value
   item.status = undefined
   item.description = 'Parsing ECR files in attachments...'
-
-  if (pdfFileList.length == 0) {
-    const pdfBase64List = msg.value.attachments.filter(
-      (attachment): attachment is IAttachment & { content_base64: string } =>
-        attachment.name.toLowerCase().endsWith('.pdf') && Boolean(attachment.content_base64)
-    )
-    pdfFileList = pdfBase64List.map(
-      (pdf) => new File([base64ToBytes(pdf.content_base64)], pdf.name, { type: pdf.mime })
-    )
-  }
-
-  let count = {
-    success: 0,
-    fail: 0
-  }
-
-  for (let index = 0; index < pdfFileList.length; index++) {
-    const element = pdfFileList[index]
-    const formData = new FormData()
-    formData.append('file', element)
-    formData.append('JSESSIONID', sessionPopup.value.input)
-    try {
-      const res = await dcc.uploadEcd(formData)
-      res.approved = undefined
-      ecrList.value.push(res)
-      count.success += 1
-    } catch {
-      onError()
-      count.fail += 1
-    } finally {
+  const loaded = await loadOutlookPdfAttachments(msg.value.attachments)
+  const selection = selectOutlookPdfInputs(loaded, manualPdfFiles)
+  ecrList.value = []
+  ecrSourceFiles.clear()
+  for (const file of selection.files) {
+    if (!(await parsePdfFile(file))) {
+      selection.failures.push({ name: file.name, reason: 'The ECR parser rejected this PDF.' })
     }
   }
+  const failureNames = selection.failures.map((failure) => failure.name)
+  if (failureNames.length) return requestEcrManual(failureNames)
+  if (!ecrList.value.length) return requestEcrManual()
+  currentTask.value.events.SuccessEvent(`${ecrList.value.length} success, 0 fail`)
+}
 
-  const statusText = `${count.success} success, ${count.fail} fail`
-  if (count.success == 0 && count.fail == 0) {
-    requestEcrManual()
-  } else if (ecrList.value.length > 0) {
-    currentTask.value.events.SuccessEvent(statusText)
-  } else {
-    currentTask.value.events.ErrorEvent(statusText)
+async function parsePdfFile(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('JSESSIONID', sessionPopup.value.input)
+  try {
+    const parsed = (await dcc.uploadEcd(formData)) as IEcdCheckItem
+    parsed.approved = undefined
+    ecrList.value.push(parsed)
+    ecrSourceFiles.set(parsed, file)
+    return true
+  } catch {
+    return false
   }
 }
 
-function requestEcrManual() {
+function requestEcrManual(failedNames: string[] = []) {
   const item = currentTask.value
-  item.description = 'ECR not detected in this message. Please upload manually.'
+  const detail = failedNames.length ? ` Failed: ${failedNames.join(', ')}.` : ''
+  item.description = `ECR could not be read from this message.${detail} Please upload it manually.`
   item.status = 'warning'
   ecrUploadPopup.value.openModal()
 }
@@ -300,10 +308,6 @@ function getJiraSession() {
   item.description = 'Waiting for Jira Session ID...'
   item.status = undefined
 
-  const savedId = localStorage.getItem('jira>session_id') || null
-  if (savedId) {
-    sessionPopup.value.input = savedId
-  }
   sessionPopup.value.visible = true
   sessionPopup.value.title = 'Enter Jira Session ID'
   sessionPopup.value.onClick = connectJiraProgress
@@ -314,7 +318,6 @@ async function connectJiraProgress() {
   item.description = 'Connecting JIRA account...'
   try {
     userInfo.value = await dcc.checkSession(sessionPopup.value.input)
-    localStorage.setItem('jira>session_id', sessionPopup.value.input)
     item.events.SuccessEvent()
   } catch (e) {
     item.events.ErrorEvent()
@@ -335,43 +338,38 @@ async function createJiraTaskProgress() {
   const item = currentTask.value
   item.description = 'Creating JIRA task...\n'
   item.status = undefined
-
-  try {
-    for (let index = 0; index < ecrList.value.length; index++) {
-      const element = ecrList.value[index]
-
-      if (element.approved !== true) {
-        createdIssueList.push('')
-        continue
-      }
-
-      const payload = { ...element, JSESSIONID: sessionPopup.value.input }
-      try {
-        const created = await dcc.createIssue(payload)
-        //const created = { issue: "CHN-7916" } // test
-        if (!created.issue) throw new Error('JIRA did not return an issue key.')
-
-        item.description += 'Task created: ' + created.issue + '\n'
-        createdIssueList.push(created.issue)
-      } catch (e) {
-        item.description += `Failed while creating task for ${element.ecd_no}: ${e}\n`
-        item.status = 'warning'
-        createdIssueList.push('')
-      }
-    }
-
-    if (createdIssueList.every((item) => item === '')) {
-      item.description += 'No task was created. Cannot continue.' + '\n'
-      item.status = 'error'
-      return
-    }
-
-    item.events.SuccessEvent()
-  } catch (e) {
-    item.events.ErrorEvent()
-  } finally {
-    sessionPopup.value.visible = false
+  for (const ecr of ecrList.value.filter((candidate) => candidate.approved === true)) {
+    if (!createdIssues.has(ecr)) await createIssueForEcr(ecr, item)
   }
+  if (createdIssues.size === 0) {
+    item.description += 'No task was created. Cannot continue.\n'
+    item.status = 'error'
+    return
+  }
+  item.events.SuccessEvent()
+}
+
+async function createIssueForEcr(ecr: IEcdCheckItem, item: TaskItem) {
+  const file = ecrSourceFiles.get(ecr)
+  if (!file) return appendCreateFailure(item, ecr, 'Source PDF is unavailable.')
+  try {
+    const payload = { ...ecr, JSESSIONID: sessionPopup.value.input }
+    const created = await dcc.createIssue(payload)
+    if (!created.issue) throw new Error('JIRA did not return an issue key.')
+    createdIssues.set(ecr, createIssueContext(created.issue, ecr, file))
+    item.description += `Task created: ${created.issue}\n`
+  } catch (error) {
+    appendCreateFailure(item, ecr, formatApiError(error))
+  }
+}
+
+function appendCreateFailure(item: TaskItem, ecr: IEcdCheckItem, reason: string) {
+  item.description += `Failed while creating task for ${ecr.ecd_no}: ${reason}\n`
+  item.status = 'warning'
+}
+
+function createIssueContext(issueKey: string, ecr: IEcdCheckItem, file: File) {
+  return { issueKey, ecr, file, attachmentAdded: false, subtasksCreated: false }
 }
 
 function createJiraTaskSuccess() {
@@ -386,31 +384,27 @@ async function addAttachmentProgress() {
   const item = currentTask.value
   item.description = 'Adding attachment...\n'
   item.status = undefined
+  let failed = 0
+  for (const context of createdIssues.values()) {
+    if (!context.attachmentAdded) failed += await addIssueAttachment(context, item)
+  }
+  if (failed) item.events.ErrorEvent(`${failed} attachment(s) could not be added.`)
+  else item.events.SuccessEvent()
+}
 
+async function addIssueAttachment(context: CreatedIssueContext, item: TaskItem) {
+  const formData = new FormData()
+  formData.append('file', context.file)
+  formData.append('JSESSIONID', sessionPopup.value.input)
+  formData.append('issue_key', context.issueKey)
   try {
-    for (let index = 0; index < createdIssueList.length; index++) {
-      const createdIssue = createdIssueList[index]
-
-      if (!createdIssue) {
-        continue
-      }
-
-      const formData = new FormData()
-      const file = pdfFileList[index]
-      if (!file) continue
-
-      formData.append('file', file)
-      formData.append('JSESSIONID', sessionPopup.value.input)
-      formData.append('issue_key', createdIssue)
-
-      await dcc.addAttachment(formData)
-      item.description += `Attachment named "${file?.name}" added to ${createdIssue}.\n`
-    }
-    item.events.SuccessEvent()
+    await dcc.addAttachment(formData)
+    context.attachmentAdded = true
+    item.description += `Attachment "${context.file.name}" added to ${context.issueKey}.\n`
+    return 0
   } catch (error) {
-    item.events.ErrorEvent(formatApiError(error))
-  } finally {
-    sessionPopup.value.visible = false
+    item.description += `${context.issueKey}: ${formatApiError(error)}\n`
+    return 1
   }
 }
 
@@ -438,11 +432,10 @@ async function createJiraSubTaskProgress() {
   const item = currentTask.value
   loadingBar.value.show = true
 
-  for (let index = 0; index < createdIssueList.length; index++) {
-    const createdIssue = createdIssueList[index]
-    if (!createdIssue) {
-      continue
-    }
+  let hasFailure = false
+  for (const issueContext of createdIssues.values()) {
+    if (issueContext.subtasksCreated) continue
+    const createdIssue = issueContext.issueKey
 
     const payload = {
       JSESSIONID: sessionPopup.value.input,
@@ -460,7 +453,6 @@ async function createJiraSubTaskProgress() {
         const eventSource = createAuthenticatedEventSource(`/dcc/create_subtask_stream/${res.data}`)
         eventSource.onmessage = function (event) {
           const data = JSON.parse(event.data)
-          console.log(data)
           if (data.status == 'progress') {
             loadingBar.value.percentage = data.percentage
             loadingBar.value.content = `Creating ${data.content}...`
@@ -477,24 +469,22 @@ async function createJiraSubTaskProgress() {
             resolve()
           }
         }
-        eventSource.onerror = function (err) {
-          console.log(err)
+        eventSource.onerror = function () {
           loadingBar.value.status = 'error'
           eventSource.close()
           reject()
         }
       })
+      issueContext.subtasksCreated = true
     } catch (e) {
-      console.log(e)
+      hasFailure = true
       item.events.ErrorEvent()
-    } finally {
-      console.log('END')
     }
     await sleep(1000)
   }
 
   loadingBar.value.show = false
-  item.events.SuccessEvent()
+  if (!hasFailure) item.events.SuccessEvent()
 }
 
 function createJiraSubTaskSuccess() {
@@ -580,23 +570,12 @@ const taskList: TaskItem[] = [
   }
 ]
 
-let interval: any
 function run(message: IMsg) {
+  clear()
   msg.value = message
   currentTask.value = taskList[0]
   taskQueue.value.push(currentTask.value)
   currentTask.value.events.ProgressEvent()
-  /* interval = setInterval(() => {
-        if (taskQueue.value.length != 0) {
-            taskQueue.value[taskQueue.value.length - 1].task.SuccessEvent()
-        }
-        if (taskList.length != taskQueue.value.length) {
-            taskQueue.value.push(taskList[taskQueue.value.length])
-            taskQueue.value[taskQueue.value.length - 1].task.ProgressEvent()
-        } else {
-            clearInterval(interval)
-        }
-    }, 3000) */
 }
 
 onMounted(() => {
@@ -609,6 +588,11 @@ onMounted(() => {
 
 function clear() {
   taskQueue.value = []
+  ecrList.value = []
+  ecrSourceFiles.clear()
+  createdIssues.clear()
+  manualPdfFiles.splice(0)
+  sessionPopup.value.input = ''
 }
 
 defineExpose({

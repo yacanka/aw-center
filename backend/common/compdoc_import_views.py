@@ -9,6 +9,11 @@ from rest_framework.views import APIView
 from awcenter.api_errors import error_response
 from awcenter.file_security import EXCEL_POLICY, validate_request_upload
 
+from .compdoc_import_confirmation import (
+    ImportConfirmationError,
+    create_import_confirmation,
+    verify_import_confirmation,
+)
 from .compdoc_import_audit import (
     complete_import_audit,
     fail_import_audit,
@@ -38,7 +43,7 @@ def upload_compdoc_factory(model, serializer_class, view_permission_classes):
 
             uploaded_file = validate_request_upload(request, "file", EXCEL_POLICY)
             if request.query_params.get("preview") == "true":
-                return preview_response(uploaded_file, model, serializer_class)
+                return preview_response(request, uploaded_file, model, serializer_class)
             if request.query_params.get("confirm_import") != "true":
                 return confirmation_required_response()
             return confirmed_import_response(request, uploaded_file, model, serializer_class)
@@ -46,13 +51,19 @@ def upload_compdoc_factory(model, serializer_class, view_permission_classes):
     return UploadCompDoc
 
 
-def preview_response(uploaded_file, model, serializer_class):
-    """Return header mappings and normalized row validation warnings."""
+def preview_response(request, uploaded_file, model, serializer_class):
+    """Return mappings, action impact, failures, and an exact-file confirmation."""
 
     prepared = prepare_import(uploaded_file, model)
-    invalid_documents = preview_import(prepared, model, serializer_class)
+    result = preview_import(prepared, model, serializer_class)
+    confirmation = create_import_confirmation(uploaded_file, request.user, model)
     return Response(
-        {**prepared.preview, "invalid_documents": public_errors(invalid_documents)},
+        {
+            **prepared.preview,
+            **{key: result[key] for key in count_keys()},
+            "invalid_documents": public_errors(result["errors"]),
+            "confirmation_token": confirmation,
+        },
         status=status.HTTP_200_OK,
     )
 
@@ -60,7 +71,13 @@ def preview_response(uploaded_file, model, serializer_class):
 def confirmed_import_response(request, uploaded_file, model, serializer_class):
     """Execute one confirmed import and always terminate its audit."""
 
-    audit = start_import_audit(request, model, uploaded_file)
+    try:
+        source_sha256 = verify_import_confirmation(
+            request.data.get("confirmation_token"), uploaded_file, request.user, model
+        )
+    except ImportConfirmationError as error:
+        return confirmation_error_response(error)
+    audit = start_import_audit(request, model, uploaded_file, source_sha256)
     try:
         prepared = prepare_import(uploaded_file, model)
         record_import_mapping(audit, prepared.preview, len(prepared.dataframe))
@@ -114,6 +131,16 @@ def confirmation_required_response():
     )
 
 
+def confirmation_error_response(error):
+    """Return a stable conflict when the reviewed workbook identity is invalid."""
+
+    return error_response(
+        error.detail,
+        code=error.code,
+        response_status=status.HTTP_409_CONFLICT,
+    )
+
+
 def missing_columns_response(audit, missing_columns):
     """Reject a confirmed workbook missing required mapped columns."""
 
@@ -132,7 +159,8 @@ def successful_import_response(audit, result):
 
     message = (
         f"Import completed: {result['created_count']} created, "
-        f"{result['updated_count']} updated, {result['rejected_count']} rejected."
+        f"{result['updated_count']} updated, {result['unchanged_count']} unchanged, "
+        f"{result['rejected_count']} rejected."
     )
     return Response(
         {
@@ -162,4 +190,4 @@ def public_errors(errors):
 def count_keys():
     """Return stable import result counter names."""
 
-    return ("created_count", "updated_count", "rejected_count")
+    return ("created_count", "updated_count", "unchanged_count", "rejected_count")

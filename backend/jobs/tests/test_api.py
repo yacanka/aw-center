@@ -74,6 +74,23 @@ class JobApiTests(JobTestCase):
         self.assertEqual(retry_job.input_sha256, job.input_sha256)
         self.assertTrue(retry_job.input_file.storage.exists(retry_job.input_file.name))
 
+    def test_repeated_retry_replays_one_direct_attempt(self):
+        """Repeated retry requests cannot create parallel attempts."""
+
+        job, _ = create_job(self.user, "media.convert", "Convert", {}, self.image_upload())
+        self.client.post(f"/jobs/{job.id}/cancel/")
+
+        first = self.client.post(f"/jobs/{job.id}/retry/")
+        replay = self.client.post(f"/jobs/{job.id}/retry/")
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(first.data["id"], replay.data["id"])
+        self.assertEqual(replay["Idempotency-Replayed"], "true")
+        self.assertEqual(Job.objects.count(), 2)
+        job.refresh_from_db()
+        self.assertFalse(job.retryable)
+
     def test_output_download_requires_ownership(self):
         """A completed artifact cannot be downloaded by another user."""
 

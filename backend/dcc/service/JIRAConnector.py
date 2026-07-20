@@ -5,10 +5,12 @@ import re
 from docxtpl import DocxTemplate
 from datetime import datetime, timedelta
 import os
+import logging
 from urllib.parse import urlparse
 from django.conf import settings
 
 CERTIFICATE_FILE = settings.CERTIFICATES_DIR / "JIRA_Chain.crt"
+logger = logging.getLogger(__name__)
 
 def ISO_time_to_string(date_str):
     try:
@@ -36,17 +38,21 @@ def parseJiraError(e):
 class JiraConnector:
     def __init__(self, server_url: str, username = None, password = None, jira_session_id=None) -> None:
         
-        cert_path = CERTIFICATE_FILE if CERTIFICATE_FILE.exists() else False
+        cert_path = str(CERTIFICATE_FILE) if CERTIFICATE_FILE.exists() else True
         options = {"server": server_url, "verify": cert_path}
         try:
             if jira_session_id:
                 self.jira = JIRA(options=options, get_server_info=False, timeout=10)
-                self.jira._session.cookies.set("JSESSIONID", jira_session_id, domain=urlparse(server_url).hostname, path=urlparse(server_url).path)
+                parsed_url = urlparse(server_url)
+                self.jira._session.cookies.set(
+                    "JSESSIONID", jira_session_id, domain=parsed_url.hostname,
+                    path=parsed_url.path or "/",
+                )
             else:
                 self.jira = JIRA(options=options, basic_auth=(username, password))
         except JIRAError as e:
             self.jira = None
-            print(f"Error while connecting JIRA server: {parseJiraError(e)}")
+            logger.warning("JIRA client initialization failed.")
             raise
         
     def check_issue_key(self):
@@ -86,8 +92,15 @@ class JiraConnector:
             created_issue = self.jira.create_issue(fields=issue_dict)
             return created_issue
         except JIRAError as e:
-            print(f"Error while creating issue: {parseJiraError(e)}")
+            logger.warning("JIRA issue creation failed.")
             raise
+
+    def find_issue_by_label(self, label):
+        """Return the oldest issue carrying one server-generated idempotency label."""
+
+        query = f'labels = "{label}" ORDER BY created ASC'
+        issues = self.jira.search_issues(query, maxResults=1, fields="key")
+        return issues[0] if issues else None
 
     def create_subtask(self, summary, description="", assignee=None, priority=None, duedate=None, extra_fields=None):
         """Create a JIRA sub-task with optional dynamic field values."""
@@ -122,9 +135,14 @@ class JiraConnector:
         """Return createmeta field descriptors for the current issue project sub-task type."""
         self.check_issue_key()
         project_key = self.issue_key.split('-')[0]
+        return self.get_create_fields(project_key, 'Sub-task')
+
+
+    def get_create_fields(self, project_key, issue_type_name):
+        """Return create-screen descriptors for one project and issue type."""
         metadata = self.jira.createmeta(
             projectKeys=project_key,
-            issuetypeNames='Sub-task',
+            issuetypeNames=issue_type_name,
             expand='projects.issuetypes.fields'
         )
         projects = metadata.get('projects', [])
@@ -135,6 +153,7 @@ class JiraConnector:
                 'id': key,
                 'name': value.get('name', key),
                 'required': value.get('required', False),
+                'hasDefaultValue': value.get('hasDefaultValue', False),
                 'schema': value.get('schema', {}),
                 'allowedValues': value.get('allowedValues', []),
             }
@@ -144,15 +163,9 @@ class JiraConnector:
 
     def get_create_field_allowed_values(self, project_key, issue_type_name, field_id):
         """Return allowed values for a create-screen field from JIRA createmeta."""
-        metadata = self.jira.createmeta(
-            projectKeys=project_key,
-            issuetypeNames=issue_type_name,
-            expand='projects.issuetypes.fields'
-        )
-        projects = metadata.get('projects', [])
-        issue_types = projects[0].get('issuetypes', []) if projects else []
-        fields = issue_types[0].get('fields', {}) if issue_types else {}
-        return fields.get(field_id, {}).get('allowedValues', [])
+        fields = self.get_create_fields(project_key, issue_type_name)
+        field = next((item for item in fields if item['id'] == field_id), None)
+        return field.get('allowedValues', []) if field else []
 
     def build_subtask_fields(self, summary, description='', assignee=None, duedate=None, extra_fields=None):
         """Build the fields payload used by JIRA create_issue for sub-tasks."""

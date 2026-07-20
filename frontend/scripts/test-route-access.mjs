@@ -31,11 +31,15 @@ test('recognizes direct and group-derived Django permissions', () => {
   assert.equal(hasEffectivePermission(groupUser, 'auth.delete_user'), false)
 })
 
-test('enforces granular user, DDF, and developer policies', () => {
+test('enforces granular user, DDF, Outlook Task, and developer policies', () => {
   const viewer = { ...standardUser, permissions: [permission('auth', 'view_user')] }
   const ddfViewer = { ...standardUser, permissions: [permission('ddf', 'view_ddf')] }
+  const dccCreator = { ...standardUser, permissions: [permission('dcc', 'add_jira_dcc')] }
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/users'), viewer), 'allow')
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/ddfAssistant'), ddfViewer), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), standardUser), 'forbidden')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), dccCreator), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/task/ecr'), dccCreator), 'allow')
   assert.equal(
     resolveRouteAccess(navigationAccessPolicy('/developer/doors'), standardUser),
     'forbidden'

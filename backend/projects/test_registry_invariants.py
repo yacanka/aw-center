@@ -52,6 +52,7 @@ class ProjectRegistryInvariantTests(TestCase):
                 self.assertTrue(definition.jira_component)
                 self.assertTrue(definition.dcc_label)
                 self.assertTrue(definition.dcc_template_name)
+                self.assertTrue(definition.dcc_template_name.endswith(".docx"))
 
     def test_disabled_projects_are_excluded_from_url_generation(self):
         """Disabled projects remain registered but are excluded from URLs."""

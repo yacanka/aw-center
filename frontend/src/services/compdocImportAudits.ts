@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { saveBlobAsFile } from '@/services/download'
 
 export type ImportAuditStatus = 'processing' | 'success' | 'partial' | 'failed'
 
@@ -11,6 +12,7 @@ export interface ImportAudit {
   total_rows: number
   created_count: number
   updated_count: number
+  unchanged_count: number
   rejected_count: number
   started_at: string
   completed_at: string | null
@@ -63,4 +65,12 @@ export async function listImportAudits(filters: ImportAuditFilters): Promise<Imp
 export async function getImportAudit(auditId: string): Promise<ImportAuditDetail> {
   const response = await axios.get<ImportAuditDetail>(`/projects/import-audits/${auditId}/`)
   return response.data
+}
+
+/** Download a sanitized Excel remediation report for one import audit. */
+export async function downloadImportAuditReport(auditId: string): Promise<void> {
+  const response = await axios.get<Blob>(`/projects/import-audits/${auditId}/report/`, {
+    responseType: 'blob'
+  })
+  saveBlobAsFile(response.data, `compdoc-import-audit-${auditId}.xlsx`)
 }
