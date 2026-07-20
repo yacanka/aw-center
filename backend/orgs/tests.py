@@ -114,6 +114,21 @@ class PeopleApiTests(TestCase):
         self.assertEqual(len(response.data["results"]), 1)
         self.assertEqual(response.data["results"][0]["person_id"], "100002")
 
+    def test_people_search_preserves_rank_across_dropdown_pages(self):
+        """Following pages continue the same deterministic similarity ordering."""
+        first = self.client.get("/orgs/people/", {"search": "Grce", "page_size": 1})
+        second = self.client.get(
+            "/orgs/people/",
+            {"search": "Grce", "page_size": 1, "page": 2},
+        )
+
+        self.assertEqual(first.data["count"], 2)
+        self.assertIsNotNone(first.data["next"])
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.data["count"], 2)
+        self.assertEqual(second.data["results"][0]["person_id"], "100004")
+        self.assertIsNone(second.data["next"])
+
     def test_direct_search_count_is_not_fuzzy_candidate_limited(self):
         """Ordinary server-filtered results retain an exact pagination count."""
         People.objects.bulk_create(

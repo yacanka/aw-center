@@ -19,7 +19,10 @@
   <n-modal v-model:show="showPreviewModal" preset="card" title="Confirm Excel Import" width="900px">
     <n-alert type="info" :bordered="false">
       Header row {{ preview?.header_row }} was detected. Review mappings and validation warnings
-      before saving.
+      before saving. This preview is protected against concurrent database changes.
+    </n-alert>
+    <n-alert v-if="previewNotice" type="warning" style="margin-top: 12px">
+      {{ previewNotice }}
     </n-alert>
     <n-space style="margin: 12px 0">
       <n-tag type="success">Create: {{ preview?.created_count || 0 }}</n-tag>
@@ -59,38 +62,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import {
-  NModal,
-  NUpload,
-  UploadCustomRequestOptions,
-  NButton,
-  NDataTable,
-  NSpace,
-  NAlert,
-  NTag
-} from 'naive-ui'
+import { NModal, NUpload, NButton, NDataTable, NSpace, NAlert, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { useCompdocStore } from '@/stores/compdoc'
-import { popupStore } from '@/stores/popupStore'
-import { isPlainObject } from '@/utils/general'
-import { formatApiError } from '@/services/apiError'
-import {
-  confirmCompdocImport,
-  previewCompdocImport,
-  type ImportInvalidDocument,
-  type ImportMappingRow,
-  type ImportPreview
-} from '@/services/compdocImports'
-
-const showModal = ref(false)
-const showPreviewModal = ref(false)
-const confirmingImport = ref(false)
-const pendingFile = ref<File | null>(null)
-const preview = ref<ImportPreview | null>(null)
-const uploadCallbacks = ref<Pick<UploadCustomRequestOptions, 'onFinish' | 'onError'> | null>(null)
-const store = useCompdocStore()
-const popup = popupStore()
+import type { ImportInvalidDocument, ImportMappingRow } from '@/services/compdocImports'
+import { useCompdocImport } from '@/composables/useCompdocImport'
 const mappingColumns: DataTableColumns<ImportMappingRow> = [
   { title: 'Excel Column', key: 'source' },
   { title: 'Mapped Model Field', key: 'target' }
@@ -101,100 +76,25 @@ const validationColumns: DataTableColumns<ImportInvalidDocument> = [
   { title: 'Validation Error', key: 'error_text' }
 ]
 
-function setActive(show: boolean) {
-  showModal.value = show
-}
-
 const props = defineProps<{
   uploadUrl: string
 }>()
 
+const {
+  showModal,
+  showPreviewModal,
+  confirmingImport,
+  previewNotice,
+  preview,
+  setActive,
+  handleUploadReq,
+  confirmImport,
+  cancelPreview
+} = useCompdocImport(() => props.uploadUrl)
+
 defineExpose({
   setActive
 })
-
-async function handleUploadReq(options: UploadCustomRequestOptions) {
-  if (!options.file.file) return
-  pendingFile.value = options.file.file
-  uploadCallbacks.value = { onFinish: options.onFinish, onError: options.onError }
-  await previewImport(options.file.file)
-}
-
-async function previewImport(file: File) {
-  window.$loadingBar.start()
-  try {
-    preview.value = await previewCompdocImport(props.uploadUrl, file)
-    showPreviewModal.value = true
-    window.$loadingBar.finish()
-  } catch (err: unknown) {
-    uploadCallbacks.value?.onError()
-    showUploadError(err)
-  }
-}
-
-async function confirmImport() {
-  if (!pendingFile.value || !preview.value?.confirmation_token) return
-  confirmingImport.value = true
-  window.$loadingBar.start()
-  try {
-    const result = await confirmCompdocImport(
-      props.uploadUrl,
-      pendingFile.value,
-      preview.value.confirmation_token
-    )
-    window.$loadingBar.finish()
-    uploadCallbacks.value?.onFinish()
-    showUploadSuccess(result.message, result.invalid_documents)
-  } catch (err: unknown) {
-    uploadCallbacks.value?.onError()
-    showUploadError(err)
-  } finally {
-    confirmingImport.value = false
-    store.fetchCompdocs()
-    resetUploadState()
-  }
-}
-
-function cancelPreview() {
-  uploadCallbacks.value?.onError()
-  resetUploadState()
-}
-
-function showUploadSuccess(message: string, invalidDocuments?: ImportInvalidDocument[]) {
-  window.$notification.success({ title: 'Success', description: message, duration: 3000 })
-  if (invalidDocuments?.length) showInvalidDocuments(invalidDocuments)
-}
-
-function showUploadError(err: unknown) {
-  window.$loadingBar.error()
-  window.$notification.error({
-    title: 'Error',
-    description: `Error while uploading file: ${formatApiError(err)}`
-  })
-}
-
-function showInvalidDocuments(invalidDocuments: ImportInvalidDocument[]) {
-  const result = invalidDocuments.map(formatInvalidDocument).join('\n')
-  popup.open('Some documents cannot be imported', result)
-}
-
-function formatInvalidDocument(document: ImportInvalidDocument) {
-  const errorText = isPlainObject(document.error)
-    ? Object.entries(document.error as Record<string, unknown>)
-        .map(([key, value]) => `${key}: ${value}`)
-        .join('\n')
-    : String(document.error)
-  const rowLabel = document.row ? `[Row] ${document.row}\n` : ''
-  return `${rowLabel}[Name] ${document.name}\n[Error] ${document.error_text || errorText}\n`
-}
-
-function resetUploadState() {
-  pendingFile.value = null
-  preview.value = null
-  uploadCallbacks.value = null
-  showPreviewModal.value = false
-  setActive(false)
-}
 </script>
 
 <style scoped></style>

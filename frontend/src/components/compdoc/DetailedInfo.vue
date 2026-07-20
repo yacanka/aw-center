@@ -10,19 +10,29 @@
       <n-card v-if="props.compdoc.signature_panel"
         >Signature Panel: {{ props.compdoc.signature_panel }}</n-card
       >
-      <n-card v-if="props.compdoc.responsible">Responsbile: {{ props.compdoc.responsible }}</n-card>
+      <n-card v-if="props.compdoc.responsible">Responsible: {{ props.compdoc.responsible }}</n-card>
       <n-card v-if="props.compdoc.moc">MoC: {{ props.compdoc.moc }}</n-card>
     </n-space>
-    <n-space justify="space-around"> </n-space>
     <n-card v-if="props.compdoc.notes">Notes: {{ props.compdoc.notes }}</n-card>
+    <CompDocDccHistory
+      v-if="props.compdoc.id"
+      :project="project"
+      :compdoc-id="props.compdoc.id"
+      :allowed="canViewDccHistory"
+    />
   </n-space>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { NSpace, NCard } from 'naive-ui'
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import CompDocDccHistory from '@/components/compdoc/CompDocDccHistory.vue'
+import type { ICompDoc } from '@/models/compdocs'
+import { useUserStore } from '@/stores/user'
 
-const props = defineProps(['compdoc'])
-
-onMounted(() => {})
+const props = defineProps<{ compdoc: ICompDoc }>()
+const route = useRoute()
+const userStore = useUserStore()
+const project = computed(() => String(route.params.project || ''))
+const canViewDccHistory = computed(() => userStore.hasEffectiveRole('dcc', 'view_jira_dcc'))
 </script>

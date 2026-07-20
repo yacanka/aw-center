@@ -24,6 +24,7 @@ export interface ImportPreview {
   unchanged_count: number
   rejected_count: number
   confirmation_token: string
+  database_state_protected: boolean
 }
 
 export interface ImportResult {

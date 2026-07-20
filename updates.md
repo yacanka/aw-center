@@ -854,3 +854,127 @@
 4. Added a real DCC regression path covering immutable snapshot dry-render, API confirmation, worker claim, OOXML generation, artifact verification, and terminal `succeeded` state.
 5. Re-ran the job suite across DCC, media, Word translation, document analysis, Excel cover pages, Outlook extraction, handoffs, retries, cancellation, lease recovery, and multi-step workflows.
 6. Added launcher regressions for development and production worker discovery, shared environment propagation, and joint process supervision; documented automatic worker startup in the launcher contract.
+
+## 107. Project-scoped CompDoc authorization and destructive safety
+
+1. Replaced authentication-only project CompDoc APIs with strict Django model permissions that require `view_compdoc` even for list, UUID detail, history, field metadata, and Excel export reads.
+2. Required both project `add_compdoc` and `change_compdoc` for collection POST and workbook import because project serializers and imports can perform upserts against existing cover-page numbers.
+3. Bound updates and single deletion to `change_compdoc` and `delete_compdoc`; the same checks are enforced by backend API views rather than relying on hidden frontend controls.
+4. Replaced one-click collection deletion with a typed confirmation requiring `view + delete`, the current server row count, and an exact project-scoped phrase; stale counts fail with `COMPDOC_DELETE_COUNT_CONFLICT` before any write.
+5. Preserved simple-history deletion evidence and verified that the authenticated deleting user is recorded for bulk operations.
+6. Corrected every project CompDoc detail and history route from incompatible integer converters to the UUID identifiers used by `CompDocBase`; aligned frontend model/store identifiers to strings.
+7. Added reactive permission-aware UI controls for view, create/upsert, import, update, single delete, and bulk delete, including recovery when fresh session permissions arrive after initial component mount.
+8. Added cross-project route invariants, backend permission-matrix/destructive-confirmation tests, and frontend authorization/request-shape regressions without introducing a dependency or migration.
+
+## 108. Immutable CompDoc-to-DCC traceability bridge
+
+1. Added bounded multi-row selection to the server-paginated Compliance Documents table and exposed the bridge only to users with both project read access and DCC creation permission.
+2. Carries at most 50 UUID references into DCC Creator without storing JIRA credentials or compliance content in browser storage; direct URL input remains backend-authoritative.
+3. Resolves the concrete project model from the registry, requires the JIRA task and CompDocs to share one enabled project, rejects duplicate/stale IDs, and rechecks `view_compdoc` during capture, idempotent replay, and confirmation.
+4. Captures only bounded traceability fields together with each record's latest simple-history version, then calculates a canonical SHA-256 fingerprint over deterministic project ordering.
+5. Extends DCC dry-render metadata with selected count, status distribution, missing technical-reference count, and a fingerprint preview without exposing document names in the confirmation summary.
+6. Appends a project-neutral Compliance Document Traceability Register to the generated DOCX after template rendering, including capture provenance, full fingerprint, cover-page and technical-document references, panel/ATA, status, and responsible owner.
+7. Revalidates bundle schema, project alignment, maximum size, record shape, and SHA-256 digest in the durable worker before render; tampered or cross-project inputs fail with a stable recovery code.
+8. Added real DOCX, history-version, fingerprint-change, credential non-persistence, selection limit, permission revocation, tamper, project-boundary, frontend routing, and preview-impact regressions without a migration or dependency.
+
+## 109. Persistent reverse CompDoc-to-DCC audit
+
+1. Added an immutable reverse trace row for every CompDoc included in an explicitly confirmed DCC preview; preview creation and expired unconfirmed jobs never produce false usage records.
+2. Kept provenance independent from retained Job rows by storing the original job UUID, input SHA-256, confirming user, JIRA issue key, project/document UUID, captured history version/date, and snapshot fingerprint.
+3. Made confirmation replay idempotent with a unique job/project/document constraint and created trace rows inside the existing locked confirmation transaction.
+4. Resolves the newest retained retry attempt through owner and input SHA-256 while reporting durable provenance as archived after Job retention removes every attempt.
+5. Added a paginated reverse API that requires both `dcc.view_jira_dcc` and the concrete project's `view_compdoc`; cross-owner readers receive content-free status but never another user's Job Center identifier.
+6. Added a permission-aware DCC Traceability timeline to CompDoc details with current-versus-older source state, history capture time, full fingerprint, output readiness, attempt, archived status, cancellation, retry, and error recovery states.
+7. Added migration and focused coverage for confirmation-only creation, replay, stale source detection, retry resolution, retention survival, dual-permission enforcement, and owner-only job access.
+
+## 110. Explainable DCC readiness and audited risk acknowledgement
+
+1. Replaced the flat missing-field warning with a deterministic 0-100 readiness assessment covering proven template rendering, recommended JIRA field coverage, panel coverage, optional CompDoc linkage, technical references, and authority-approval maturity.
+2. Every readiness check returns a stable code, safe title, success/warning/info state, content-free explanation, and actionable next step without exposing captured JIRA or document content.
+3. Treats CompDoc linkage as optional, so an unrelated DCC is not penalized; once records are selected, their technical-reference completeness and workflow maturity become weighted review evidence.
+4. Requires the confirmation request to acknowledge the exact current warning-code set; missing, extra, malformed, or oversized acknowledgement payloads fail before trace creation or worker queue exposure.
+5. Persists accepted warning codes in an immutable, content-free `DCC_READINESS_ACKNOWLEDGED` Job event inside the same locked transaction as trace creation and queue transition.
+6. Preserves idempotent confirmation replay without duplicating acknowledgement events and keeps expired previews unable to create either a trace or an acceptance audit.
+7. Added an interactive readiness progress indicator, detailed checklist, next-step guidance, and explicit review switch; the queue action remains disabled until every warning is accepted.
+8. Split DCC job transport and result-summary DTOs from the generic job service so all touched frontend modules remain within the repository's 200-line production limit.
+9. Added weighted-scoring, optional-linkage, CompDoc risk, malformed/exact acknowledgement, API gate, immutable audit, replay, TypeScript, UI contract, and component registration coverage.
+
+## 111. Production-grade paginated people search
+
+1. Preserved DRF `count`, `next`, and requested-page metadata instead of reducing every NSearch response to a first-page array.
+2. Added an explicit “show more” dropdown action that appends the next server-ranked page, de-duplicates people by stable identity, and reports remaining results.
+3. Kept two-character debounce, real AbortController cancellation, monotonic request identity, stale-response rejection, unmount cleanup, and bounded ten-row lookup pages.
+4. Added recoverable retry, initial/loading-more/empty/error states, and retained already loaded options while a following page is requested.
+5. Connected the People directory table to the same server-side search term; a new query resets the remote table to page one while later page changes retain the filter.
+6. Added store-level request identity so slow table responses and their errors cannot replace or misreport a newer directory query.
+7. Removed obsolete client-side column filters from the remote table and made name the directory screen's selection output mode.
+8. Added backend cross-page fuzzy-rank coverage and frontend contracts for page metadata, load-more, cancellation, stale-response protection, retry, and remote-table filtering.
+
+## 112. Explainable CompDoc recommendations for DCC
+
+1. Added a deterministic recommendation engine that scores explicit cover-page and technical-document references, ATA identifiers, panel names, and meaningful document-name overlap found in the immutable JIRA snapshot.
+2. Returns at most eight permission-protected suggestions from a newest-first bounded 500-record candidate scan, with stable scores, safe metadata, and human-readable evidence for every match.
+3. Added captured panel titles to the private DCC snapshot so panel-driven recommendations work without exposing source JIRA text in the public result summary.
+4. Keeps recommendations non-binding: no CompDoc identifier enters job parameters or the immutable register until the user explicitly selects it.
+5. Added an idempotent revision endpoint that reuses the SHA-256-verified private JIRA snapshot, captures current authorized CompDoc history versions, dry-renders a new preview, and never requests or persists another JIRA credential.
+6. Atomically supersedes the source preview after the enriched child is safely persisted, disables unsafe retry, prevents double confirmation, and records content-free source/target lineage events.
+7. Rechecks owner, DCC permission, concrete project `view_compdoc`, project alignment, UUID shape, 50-record selection bound, source status, expiry, input integrity, and idempotency on every revision request.
+8. Added an interactive review card with opt-in switches, match score, status, panel/ATA, evidence, bounded-scan warning, recoverable errors, and a credential-free “Create enriched preview” action.
+9. Added ranking, exclusion, permission, initial-preview, no-auto-link, lineage, supersession, expiry, cross-owner, revocation, idempotency, oversized-input, frontend contract, and strict TypeScript coverage without a migration or dependency.
+
+## 113. Actionable stale CompDoc-to-DCC source risks
+
+1. Added bounded Action Center discovery for CompDocs changed in the last 14 days whose newest confirmed DCC trace still references an older Simple History version.
+2. Requires both `dcc.view_jira_dcc` and the concrete project's `view_compdoc`; unauthorized project names, document names, issue keys, fingerprints, and trace identifiers are never exposed.
+3. Resolves current history rows in one bounded query per authorized project and the newest trace for every candidate in one window query, avoiding record-by-record lookups.
+4. Uses a warning identity composed from the immutable trace and current history version, so dismissal applies only to that source state and a later edit safely resurfaces.
+5. Automatically removes the risk when a newer confirmed DCC captures the current source version; no extra JIRA request or mutable status flag is required.
+6. Deep-links to the exact server-filtered CompDoc and opens its existing reverse DCC timeline, while rejecting malformed UUID query input before it reaches the backend filter.
+7. Extended the Action Center decision contract for stale-source and existing JIRA-draft identifiers, preserving authorized snooze and dismissal behavior.
+8. Added permission, stale/current, resolution, version-resurfacing, deep-link, query-bound, frontend contract, and TypeScript regression coverage without a migration or dependency.
+
+## 114. Conflict-safe CompDoc editing with DCC impact review
+
+1. Added a read-only `source_history_id` to every CompDoc list, create, detail, and update response; list pagination derives it with one correlated subquery instead of per-row history lookups.
+2. Manual `PUT/PATCH` now requires the version the editor actually reviewed, locks the document row in one transaction, and compares the authoritative latest Simple History identifier before validation or persistence.
+3. Missing versions fail with `COMPDOC_VERSION_REQUIRED`; superseded versions fail with `COMPDOC_VERSION_CONFLICT` and actionable reload guidance while preserving the newer database state.
+4. Successful updates attach the authenticated user to the Simple History row and return the advanced source version so subsequent edits continue from an authoritative state.
+5. Added a permission-preserving DCC impact card to edit mode: only users already allowed to read both the project CompDoc and DCC traceability can see trace counts and issue keys.
+6. The update action remains blocked while impact discovery is loading or failed, and linked DCC traces require explicit human acknowledgement that existing generated outputs remain immutable and will need review.
+7. The CompDoc modal now also renders the existing paginated reverse DCC timeline in view mode, so Action Center deep links land on the exact source and its provenance without a second navigation.
+8. Added current/missing/stale/success/actor/query-count backend tests plus impact, acknowledgement, cancellation, deep-link, source-contract, and strict TypeScript frontend coverage without a migration or dependency.
+
+## 115. Database-bound and atomic CompDoc Excel imports
+
+1. Bound every signed Excel preview to a deterministic SHA-256 proof of the reviewed business keys, concrete record identities, newest Simple History versions, and create/update/unchanged actions.
+2. Rebuilds the plan under a database transaction and row locks at confirmation; changed, created, deleted, or recreated target records now fail with `COMPDOC_IMPORT_DATABASE_CONFLICT` before any workbook value is written.
+3. Includes deletion history watermarks so an absent target cannot silently return to the same apparent state after a create/delete transition.
+4. Made valid-row persistence batch-atomic: an unexpected serializer or database failure rolls back every write and safely closes the import audit as failed.
+5. Kept invalid workbook rows deterministic and non-blocking while preserving create/update/unchanged/rejected counters from the reviewed plan.
+6. Added a shared frontend error-code extractor and moved upload orchestration into a focused composable, keeping touched component/file sizes within repository limits.
+7. On database conflict or preview expiry, the UI retains the selected workbook, automatically requests a fresh server preview, and requires the user to review the changed impact before confirming again.
+8. Added regression coverage for concurrent manual edits, target creation/deletion history, unrelated updates, whole-batch rollback, preview protection metadata, API error codes, and conflict-refresh UI behavior.
+
+## 116. Field-level CompDoc impact intelligence for DCC
+
+1. Extracted the exact CompDoc fields embedded in DCC traceability registers into one canonical capture contract shared by snapshot creation, recommendations, and historical comparison.
+2. Added a value-free source-change contract to every reverse trace: comparison status, changed-field count, and stable field code, label, and category descriptors.
+3. Compares all traces on a paginated response with one bounded historical query instead of loading source history per DCC.
+4. Distinguishes reference, workflow, identity, classification, and ownership changes while never returning either the old or current field value in the change summary.
+5. Treats missing retained history conservatively as `unavailable`, preserving a manual-review warning instead of guessing that an output is current.
+6. Suppresses Action Center regeneration noise when source history advanced only through fields not rendered into the DCC, such as internal notes or paths.
+7. Action Center now names the affected DCC-visible fields for genuine stale-source risks and gives comparison-specific recovery guidance.
+8. The CompDoc DCC timeline visually separates current sources, newer non-DCC metadata, older DCC-visible sources, and unavailable comparisons, with changed fields shown as review tags.
+9. Added unit, API, permission, false-positive suppression, value-non-disclosure, frontend contract, and strict TypeScript regression coverage without a migration or dependency.
+
+## 117. Credential-free current-source DCC revisions
+
+1. Added an owner-only refresh capability to stale reverse DCC traces when DCC-visible CompDoc fields changed and the original private JIRA snapshot is still retained.
+2. Reuses the SHA-256-verified snapshot without requesting or storing another JIRA session, replaces the complete linked CompDoc bundle with current authorized records, and dry-renders a new confirmation preview.
+3. Verifies the exact job input digest, issue key, project, trace fingerprint, clicked document membership, concrete project permission, DCC create/view permissions, and private artifact availability before derivation.
+4. Keeps the original DCC job and output immutable while recording content-free source/target lineage events and exposing the revision source explicitly in the confirmation UI.
+5. Makes refresh semantic-idempotent per trace; repeated requests replay the same preview, while expired, corrupt, or subsequently stale unconfirmed children are safely discarded and rebuilt.
+6. Added a transaction-time freshness gate that locks current CompDocs and rejects confirmation when a field rendered into the reviewed DCC changed after preview creation.
+7. Separates full snapshot integrity from rendered-value freshness, so internal notes or history timestamps do not create false confirmation conflicts.
+8. Added permission-aware trace capability states and a one-click UI that opens the new DCC preview directly, with actionable active/archive/owner/permission explanations.
+9. Added success, confirmation, semantic replay, active/archive, cross-owner, revoked access, missing artifact, lineage tamper, DCC permission, notes-only, stale confirmation, stale-child replacement, frontend contract, and TypeScript coverage without a migration or dependency.

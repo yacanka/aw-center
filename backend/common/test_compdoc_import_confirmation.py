@@ -5,8 +5,14 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from projects.ozgur.models import CompDoc
+from projects.piku.models import CompDoc as PikuCompDoc
 
-from .compdoc_import_test_utils import valid_row, workbook_upload, workbook_upload_bytes
+from .compdoc_import_test_utils import (
+    grant_model_permissions,
+    valid_row,
+    workbook_upload,
+    workbook_upload_bytes,
+)
 from .models import CompDocImportAudit
 
 User = get_user_model()
@@ -21,6 +27,9 @@ class CompDocImportConfirmationTests(TestCase):
 
         self.user = User.objects.create_user("previewer", password="StrongPass!123")
         self.other_user = User.objects.create_user("other-preview", password="StrongPass!123")
+        grant_model_permissions(self.user, CompDoc, "add", "change")
+        grant_model_permissions(self.user, PikuCompDoc, "add", "change")
+        grant_model_permissions(self.other_user, CompDoc, "add", "change")
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 

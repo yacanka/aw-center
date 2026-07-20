@@ -51,7 +51,6 @@ export const catOptions: CompdocOption[] = [
 ]
 
 const EMPTY_COMPDOC: ICompDoc = {
-  id: 0,
   name: '',
   panel: null,
   signature_panel: [],

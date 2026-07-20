@@ -16,6 +16,7 @@ class PlannedImportRow:
     payload: dict
     instance: object
     action: str
+    source_history_id: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,15 +27,18 @@ class CompDocImportPlan:
     errors: tuple[dict, ...]
 
 
-def build_import_plan(prepared, model, serializer_class):
+def build_import_plan(prepared, model, serializer_class, lock_existing=False):
     """Build a persistence-free create/update/unchanged plan."""
 
     normalized_rows, errors = normalize_rows(prepared, model)
     duplicates = duplicate_keys(normalized_rows)
-    existing = load_existing_instances(model, normalized_rows)
+    existing = load_existing_instances(model, normalized_rows, lock_existing)
+    history_watermarks = load_history_watermarks(model, normalized_rows)
     planned_rows = []
     for row_number, payload in normalized_rows:
-        planned, error = plan_row(row_number, payload, duplicates, existing, serializer_class)
+        planned, error = plan_row(
+            row_number, payload, duplicates, existing, history_watermarks, serializer_class
+        )
         if error:
             errors.append(error)
         elif planned:
@@ -75,14 +79,36 @@ def duplicate_keys(normalized_rows):
     return {key for key, count in counts.items() if key and count > 1}
 
 
-def load_existing_instances(model, normalized_rows):
+def load_existing_instances(model, normalized_rows, lock_existing=False):
     """Load all existing upsert targets in one bounded query."""
 
+    keys = sorted(
+        {
+            payload.get("cover_page_no")
+            for _, payload in normalized_rows
+            if payload.get("cover_page_no")
+        }
+    )
+    queryset = model.objects.filter(cover_page_no__in=keys).order_by("cover_page_no")
+    if lock_existing:
+        queryset = queryset.select_for_update()
+    return {instance.cover_page_no: instance for instance in queryset}
+
+
+def load_history_watermarks(model, normalized_rows):
+    """Load the latest live or deleted history version for each workbook business key."""
+
     keys = {payload.get("cover_page_no") for _, payload in normalized_rows}
-    return model.objects.in_bulk([key for key in keys if key], field_name="cover_page_no")
+    history = model.history.model.objects.filter(cover_page_no__in=keys).values(
+        "cover_page_no", "history_id"
+    ).order_by("cover_page_no", "-history_date", "-history_id")
+    watermarks = {}
+    for row in history:
+        watermarks.setdefault(row["cover_page_no"], row["history_id"])
+    return watermarks
 
 
-def plan_row(row_number, payload, duplicates, existing, serializer_class):
+def plan_row(row_number, payload, duplicates, existing, history_watermarks, serializer_class):
     """Validate one row and resolve its intended persistence action."""
 
     if payload.get("cover_page_no") in duplicates:
@@ -92,7 +118,8 @@ def plan_row(row_number, payload, duplicates, existing, serializer_class):
     if not serializer.is_valid():
         return None, validation_error(row_number, payload, serializer.errors)
     action = resolve_action(instance, serializer.validated_data)
-    return PlannedImportRow(row_number, payload, instance, action), None
+    source_history_id = history_watermarks.get(payload.get("cover_page_no"))
+    return PlannedImportRow(row_number, payload, instance, action, source_history_id), None
 
 
 def resolve_action(instance, validated_data):

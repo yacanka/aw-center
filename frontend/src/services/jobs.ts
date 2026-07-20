@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { saveBlobAsFile } from '@/services/download'
 import type { MediaConversionParameters } from '@/services/mediaTools'
+import type { JobResultSummary } from '@/services/jobSummaries'
 
 export type JobStatus =
   | 'awaiting_confirmation'
@@ -19,29 +20,6 @@ export interface JobEvent {
   code: string
   details: Record<string, unknown>
   created_at: string
-}
-
-export interface AnalysisCheckSummary {
-  id: string
-  title: string
-  score: number
-  status: 'success' | 'warning' | 'error'
-}
-
-export interface JobResultSummary {
-  type?: string
-  issue_key?: string
-  project?: string
-  overall_score?: number
-  passed?: number
-  total?: number
-  checks?: AnalysisCheckSummary[]
-  output_name?: string
-  panel_count?: number
-  template_ready?: boolean
-  source_updated_at?: string
-  missing_recommended_fields?: string[]
-  warning_count?: number
 }
 
 export interface JobHandoff {
@@ -171,22 +149,6 @@ export async function createDocumentAnalysisJob(file: File, checkIds: string[]):
 /** Enqueue durable cover-page generation from a validated workbook. */
 export async function createCoverPageJob(file: File): Promise<Job> {
   return enqueueFileJob('/excel/jobs/cover-pages/', file)
-}
-
-/** Capture and dry-render one private DCC snapshot before worker exposure. */
-export async function previewDccDocumentJob(sessionId: string, issueUrl: string): Promise<Job> {
-  const response = await axios.post<Job>(
-    '/dcc/jobs/create-document/preview/',
-    { JSESSIONID: sessionId, url: issueUrl },
-    { headers: { 'Idempotency-Key': crypto.randomUUID() } }
-  )
-  return response.data
-}
-
-/** Queue the exact owned DCC snapshot selected in its time-bounded preview. */
-export async function confirmDccDocumentJob(jobId: string): Promise<Job> {
-  const response = await axios.post<Job>(`/dcc/jobs/create-document/${jobId}/confirm/`)
-  return response.data
 }
 
 async function enqueueFileJob(

@@ -15,7 +15,7 @@ from .services import (
 
 def create_confirmation_job(
     owner, kind, title, parameters, uploaded_file, expires_at, summary,
-    idempotency_key="", request_id="",
+    idempotency_key="", request_id="", source_job=None,
 ):
     """Persist an immutable job input without exposing it to workers yet."""
 
@@ -27,7 +27,7 @@ def create_confirmation_job(
         return existing, False
     job, created = persist_confirmation(
         owner, kind, title, parameters, uploaded_file, digest, key,
-        request_id, expires_at, summary,
+        request_id, expires_at, summary, source_job,
     )
     if not created:
         verify_idempotent_request(job, digest, parameters)
@@ -38,7 +38,7 @@ def create_confirmation_job(
 
 def persist_confirmation(
     owner, kind, title, parameters, upload, digest, key,
-    request_id, expires_at, summary,
+    request_id, expires_at, summary, source_job,
 ):
     """Store one pending-confirmation job and clean up partial artifacts."""
 
@@ -47,7 +47,7 @@ def persist_confirmation(
         with transaction.atomic():
             job = create_confirmation_record(
                 owner, kind, title, parameters, upload, digest, key,
-                request_id, expires_at, summary,
+                request_id, expires_at, summary, source_job,
             )
         return job, True
     except IntegrityError:
@@ -62,12 +62,13 @@ def persist_confirmation(
 
 def create_confirmation_record(
     owner, kind, title, parameters, upload, digest, key,
-    request_id, expires_at, summary,
+    request_id, expires_at, summary, source_job,
 ):
     """Create the hidden-from-worker record and its private input atomically."""
 
     job = create_job_record(
         owner, kind, title, parameters, upload.name, digest, key, request_id,
+        source_job,
     )
     job.status = JobStatus.AWAITING_CONFIRMATION
     job.message = "Immutable snapshot ready for confirmation."

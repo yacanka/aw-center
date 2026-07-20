@@ -27,6 +27,15 @@ class DCCAutomationPermission(BasePermission):
         return request.user.has_perm("dcc.add_jira_dcc")
 
 
+class DCCTraceRefreshPermission(BasePermission):
+    """Require both DCC read visibility and document creation authority."""
+
+    def has_permission(self, request, view):
+        """Keep trace discovery and regenerated output creation equally protected."""
+
+        return request.user.has_perms(("dcc.view_jira_dcc", "dcc.add_jira_dcc"))
+
+
 class IsDCCOwner(BasePermission):
     """Allow access only to DCC records created by the requesting user."""
 

@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 export type AttentionSeverity = 'critical' | 'warning'
-export type AttentionKind = 'job' | 'import' | 'invitation' | 'jira_draft'
+export type AttentionKind = 'job' | 'import' | 'invitation' | 'jira_draft' | 'compdoc_trace'
 export type AttentionDecisionAction = 'snooze' | 'dismiss'
 
 export interface AttentionItem {

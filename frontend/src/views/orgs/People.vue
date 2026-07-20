@@ -1,8 +1,10 @@
 <template>
   <n-search
     v-model:value="searchText"
+    default-mod="name"
     placeholder="Search"
     style="width: 500px; margin-bottom: 12px"
+    @search="handleDirectorySearch"
   />
   <n-card title="People List" style="max-width: 93%">
     <n-button @click="peopleUpload.openModal()" :focusable="false" style="margin: 0 8px 8px 0">
@@ -47,28 +49,20 @@
 
 <script setup>
 import { computed, ref, onMounted, h } from 'vue'
-import { NSpace, NButton, NTag } from 'naive-ui'
+import { NSpace, NButton } from 'naive-ui'
 
-import { setUser, getUser, isAuthenticated, logout, setProjectName } from '@/stores/user'
-import {
-  Edit24Regular,
-  Delete24Regular,
-  Add24Regular,
-  ArrowReset24Regular,
-  Checkmark24Regular
-} from '@vicons/fluent'
+import { Edit24Regular, Delete24Regular, Add24Regular } from '@vicons/fluent'
 import { useOrgsStore } from '@/stores/organizations'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
 import PeoplePopup from '@/components/orgs/PeoplePopup.vue'
 import PeopleUpload from '@/components/orgs/PeopleUpload.vue'
 import NSearch from '@/components/NSearch.vue'
 
-const router = useRouter()
 const store = useOrgsStore()
 const peoplePopup = ref(null)
 const peopleUpload = ref(null)
 
 const searchText = ref('')
+const directorySearch = ref('')
 const currentPage = ref(1)
 const currentPageSize = ref(24)
 const pagination = computed(() => ({
@@ -86,20 +80,11 @@ const columns = [
   {
     title: 'ID',
     key: 'person_id',
-    render: (row) => {
-      return row.person_id
-    },
-    filter(value, row) {
-      return ~row.person_id.indexOf(value)
-    },
     width: 180
   },
   {
     title: 'Name',
     key: 'name',
-    filter(value, row) {
-      return ~row.name.indexOf(value)
-    },
     ellipsis: {
       tooltip: true
     },
@@ -108,9 +93,6 @@ const columns = [
   {
     title: 'Email',
     key: 'email',
-    filter(value, row) {
-      return ~row.email.indexOf(value)
-    },
     ellipsis: {
       tooltip: true
     },
@@ -174,10 +156,23 @@ function rowKey(row) {
 }
 
 const activeProject = ref(null)
-const activePanel = ref(null)
 
 function fetchPeoplePage() {
-  store.fetchPeople(true, { page: currentPage.value, page_size: currentPageSize.value })
+  void store
+    .fetchPeople(true, {
+      page: currentPage.value,
+      page_size: currentPageSize.value,
+      search: directorySearch.value
+    })
+    .catch(() => undefined)
+}
+
+function handleDirectorySearch(query) {
+  const normalizedQuery = query.trim()
+  if (normalizedQuery == directorySearch.value) return
+  directorySearch.value = normalizedQuery
+  currentPage.value = 1
+  fetchPeoplePage()
 }
 
 function handlePageUpdate(page) {
@@ -197,5 +192,3 @@ onMounted(() => {
   fetchPeoplePage()
 })
 </script>
-
-<style scoped></style>

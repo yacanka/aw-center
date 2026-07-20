@@ -9,22 +9,31 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 from jira import JIRAError
+from jobs.contracts import JobExecutionFailure
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 
 from awcenter.api_errors import error_response
 from jobs.api import job_creation_response
 from jobs.confirmation import create_confirmation_job
-from jobs.models import Job, JobStatus
-from jobs.serializers import JobSerializer
+from jobs.models import Job
 from jobs.services import (
-    IdempotencyConflict, find_idempotent_job, set_job_state, validate_idempotency_key,
+    IdempotencyConflict, find_idempotent_job, validate_idempotency_key,
 )
 
+from .compdoc_bridge import attach_compliance_documents, parse_compdoc_selection
+from .compdoc_confirmation import validate_compdoc_preview_current
+from .compdoc_recommendations import recommend_compdocs
 from .document_preview import prepare_dcc_preview
-from .document_snapshot import DccSnapshotError, capture_dcc_snapshot, extract_issue_key
+from .document_snapshot import (
+    DccSnapshotError, capture_dcc_snapshot, extract_issue_key, validate_snapshot_size,
+)
+from .job_error_responses import (
+    jira_unavailable_response, snapshot_error_response, unexpected_capture_response,
+)
+from .job_parameters import build_preview_parameters
 from .permissions import DCCAutomationPermission
+from .preview_confirmation import confirm_dcc_preview
 from .services.project_resolver import DccProjectResolutionError
 
 logger = logging.getLogger(__name__)
@@ -41,46 +50,63 @@ def preview_dcc_document_job(request):
     validation_response = validate_request_values(session_id, issue_reference)
     if validation_response:
         return validation_response
-    return capture_preview_response(request, session_id, issue_reference)
+    try:
+        compdoc_project, compdoc_ids = parse_compdoc_selection(request.data)
+    except DccSnapshotError as error:
+        return snapshot_error_response(error)
+    return capture_preview_response(request, session_id, issue_reference, compdoc_project, compdoc_ids)
 
 
-def capture_preview_response(request, session_id, issue_reference):
+def capture_preview_response(request, session_id, issue_reference, compdoc_project, compdoc_ids):
     """Map JIRA and preview failures to sanitized API errors."""
 
     try:
-        return create_snapshot_preview(request, session_id, issue_reference)
+        return create_snapshot_preview(
+            request, session_id, issue_reference, compdoc_project, compdoc_ids
+        )
     except DccSnapshotError as error:
-        return error_response(str(error), code=error.code)
+        return snapshot_error_response(error)
     except DccProjectResolutionError:
         return error_response("The JIRA task project is not supported.", code="DCC_PROJECT_INVALID")
     except JIRAError:
-        return error_response(
-            "JIRA could not authenticate or read the task.", code="DCC_JIRA_UNAVAILABLE",
-            response_status=502,
-        )
+        return jira_unavailable_response()
     except IdempotencyConflict:
         raise
     except Exception:
-        logger.exception("DCC preview capture failed")
-        return error_response(
-            "The DCC source could not be previewed.", code="DCC_CAPTURE_FAILED",
-            response_status=502,
-        )
+        return unexpected_capture_response(logger)
 
 
-def create_snapshot_preview(request, session_id, issue_reference):
+def create_snapshot_preview(request, session_id, issue_reference, compdoc_project, compdoc_ids):
     """Create or replay one immutable, owner-bound confirmation preview."""
 
     issue_key = extract_issue_key(issue_reference)
-    parameters = {"issue_key": issue_key, "snapshot_schema": 1, "confirmation_required": True}
+    parameters = build_preview_parameters(issue_key, compdoc_project, compdoc_ids)
     key = validate_idempotency_key(request.headers.get("Idempotency-Key", ""))
     existing = find_idempotent_job(request.user, JOB_KIND, key)
     if existing:
-        if existing.parameters != parameters:
-            raise IdempotencyConflict()
-        return job_creation_response(existing, False)
+        return replay_snapshot_preview(request.user, existing, parameters)
     snapshot = capture_dcc_snapshot(session_id, issue_key, settings.JIRA_BTB_URL)
-    summary = prepare_dcc_preview(snapshot)
+    attach_compliance_documents(snapshot, request.user, compdoc_project, compdoc_ids)
+    recommendations = recommend_compdocs(snapshot, request.user, compdoc_ids)
+    validate_snapshot_size(snapshot)
+    return persist_snapshot_preview(
+        request, issue_key, parameters, snapshot, recommendations, key
+    )
+
+
+def replay_snapshot_preview(user, existing, parameters):
+    """Replay only an identical preview that remains authorized."""
+
+    if existing.parameters != parameters:
+        raise IdempotencyConflict()
+    validate_compdoc_preview_current(user, existing)
+    return job_creation_response(existing, False)
+
+
+def persist_snapshot_preview(request, issue_key, parameters, snapshot, recommendations, key):
+    """Persist a dry-rendered private snapshot awaiting explicit confirmation."""
+
+    summary = prepare_dcc_preview(snapshot, recommendations)
     expires_at = timezone.now() + timedelta(seconds=preview_ttl_seconds())
     job, created = create_confirmation_job(
         request.user, JOB_KIND, f"Create DCC for {issue_key}", parameters,
@@ -101,29 +127,13 @@ def confirm_dcc_document_job(request, job_id):
         ).first()
         if job is None:
             return error_response("DCC preview was not found.", code="DCC_PREVIEW_NOT_FOUND", response_status=404)
-        return confirm_locked_preview(job)
-
-
-def confirm_locked_preview(job):
-    """Perform one idempotent state transition while the preview row is locked."""
-
-    active = {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.SUCCEEDED}
-    if job.status in active:
-        return Response(JobSerializer(job).data)
-    if job.status != JobStatus.AWAITING_CONFIRMATION:
-        return error_response(
-            "This DCC preview can no longer be confirmed.",
-            code="DCC_PREVIEW_NOT_CONFIRMABLE", response_status=409,
-        )
-    if not job.confirmation_expires_at or job.confirmation_expires_at <= timezone.now():
-        job.delete()
-        return error_response(
-            "The DCC preview expired. Capture the JIRA source again.",
-            code="DCC_PREVIEW_EXPIRED", response_status=410,
-        )
-    set_job_state(job, JobStatus.QUEUED, 0, "Preview confirmed; job queued.")
-    return Response(JobSerializer(job).data)
-
+        try:
+            validate_compdoc_preview_current(request.user, job)
+            return confirm_dcc_preview(job, request.data)
+        except DccSnapshotError as error:
+            return snapshot_error_response(error)
+        except JobExecutionFailure as error:
+            return error_response(str(error), code=error.code, response_status=409)
 
 def snapshot_upload(snapshot, issue_key):
     """Create the private generated JSON input consumed by the worker."""

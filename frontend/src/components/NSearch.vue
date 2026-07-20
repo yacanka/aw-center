@@ -36,10 +36,9 @@
 import { computed, nextTick, onBeforeUnmount, ref, type CSSProperties } from 'vue'
 import type { InputInst } from 'naive-ui'
 import type { IPerson } from '@/models/orgs'
-import { useOrgsStore } from '@/stores/organizations'
+import { usePeopleSearch, type PeopleSearchState } from '@/composables/usePeopleSearch'
 
 type SearchMode = 'id' | 'name' | 'mail'
-type SearchState = 'idle' | 'short' | 'loading' | 'ready' | 'empty' | 'error'
 type PersonOption = {
   key: string | number
   label: string
@@ -60,18 +59,15 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:value': [value: string]
   change: [value: string]
+  search: [query: string]
 }>()
 
-const store = useOrgsStore()
 const inputRef = ref<InputInst | null>(null)
 const currentPerson = ref<IPerson>()
 const currentMode = ref<SearchMode>(props.defaultMod)
-const peopleOptions = ref<PersonOption[]>([])
-const searchState = ref<SearchState>('idle')
 const isFocused = ref(false)
-let debounceTimer: ReturnType<typeof setTimeout> | null = null
-let activeController: AbortController | null = null
-let requestOrder = 0
+const search = usePeopleSearch((query) => emit('search', query))
+let blurTimer: ReturnType<typeof setTimeout> | null = null
 
 const modeOptions = [
   { label: 'ID', value: 'id' },
@@ -80,55 +76,36 @@ const modeOptions = [
 ]
 
 const dropdownOptions = computed<PersonOption[]>(() => {
-  const message = stateMessage(searchState.value)
-  return message
-    ? [{ key: `state-${searchState.value}`, label: message, disabled: true }]
-    : peopleOptions.value
+  const options = search.people.value.map(toPersonOption)
+  const stateOption = toStateOption(search.state.value, options.length > 0)
+  if (stateOption) options.push(stateOption)
+  if (search.hasMore.value && !['loading-more', 'error'].includes(search.state.value)) {
+    options.push(loadMoreOption())
+  }
+  return options
 })
 const showDropdown = computed(
   () => isFocused.value && props.value.trim().length > 0 && dropdownOptions.value.length > 0
 )
 const currentStatus = computed(() => {
   if (!isFocused.value) return 'default'
-  if (searchState.value == 'error') return 'error'
-  if (searchState.value == 'empty') return 'warning'
-  if (searchState.value == 'ready') return 'success'
+  if (search.state.value == 'error') return 'error'
+  if (search.state.value == 'empty') return 'warning'
+  if (search.people.value.length) return 'success'
   return 'default'
 })
 
 function updateValue(value: string): void {
   emit('update:value', value)
   currentPerson.value = undefined
-  scheduleSearch(value)
+  search.schedule(value)
 }
 
-function scheduleSearch(value: string, delay = 300): void {
-  cancelPendingSearch()
-  peopleOptions.value = []
-  if (!value.trim()) return setState('idle')
-  if (value.trim().length < 2) return setState('short')
-  searchState.value = 'loading'
-  debounceTimer = setTimeout(() => searchPeople(value), delay)
-}
-
-async function searchPeople(value: string): Promise<void> {
-  const order = ++requestOrder
-  const controller = new AbortController()
-  activeController = controller
-  try {
-    const people = await store.searchPeople(value, 10, controller.signal)
-    if (order != requestOrder) return
-    peopleOptions.value = people.map(toPersonOption)
-    searchState.value = people.length ? 'ready' : 'empty'
-  } catch {
-    if (order == requestOrder) searchState.value = 'error'
-  } finally {
-    if (activeController == controller) activeController = null
-  }
-}
-
-function handleSelect(_key: string | number, option: PersonOption): void {
+function handleSelect(key: string | number, option: PersonOption): void {
+  if (key == 'load-more') return keepDropdownOpen(search.loadMore)
+  if (key == 'retry-search') return keepDropdownOpen(search.retry)
   if (!option.person) return
+  clearBlurTimer()
   currentPerson.value = option.person
   isFocused.value = false
   setSelectedPersonText()
@@ -139,28 +116,33 @@ function setSelectedPersonText(): void {
   const person = currentPerson.value
   if (!person) return
   const values = { id: person.person_id, name: person.name, mail: person.email }
-  emit('update:value', values[currentMode.value])
+  const selectedValue = values[currentMode.value]
+  emit('update:value', selectedValue)
+  emit('search', selectedValue)
 }
 
 function handleFocus(): void {
   isFocused.value = true
-  if (props.value.trim().length >= 2 && searchState.value == 'idle') scheduleSearch(props.value, 0)
+  if (props.value.trim().length >= 2 && search.state.value == 'idle') {
+    search.schedule(props.value, 0)
+  }
 }
 
 function handleBlur(): void {
-  window.setTimeout(() => (isFocused.value = false), 120)
+  clearBlurTimer()
+  blurTimer = window.setTimeout(() => (isFocused.value = false), 120)
 }
 
-function cancelPendingSearch(): void {
-  requestOrder += 1
-  if (debounceTimer) clearTimeout(debounceTimer)
-  debounceTimer = null
-  activeController?.abort()
-  activeController = null
+function keepDropdownOpen(action: () => void): void {
+  clearBlurTimer()
+  isFocused.value = true
+  action()
+  nextTick(() => inputRef.value?.focus())
 }
 
-function setState(state: SearchState): void {
-  searchState.value = state
+function clearBlurTimer(): void {
+  if (blurTimer) clearTimeout(blurTimer)
+  blurTimer = null
 }
 
 function toPersonOption(person: IPerson): PersonOption {
@@ -171,13 +153,26 @@ function toPersonOption(person: IPerson): PersonOption {
   }
 }
 
-function stateMessage(state: SearchState): string {
+function stateMessage(state: PeopleSearchState): string {
   if (state == 'short') return 'Type at least 2 characters.'
   if (state == 'loading') return 'Searching people…'
+  if (state == 'loading-more') return 'Loading more people…'
   if (state == 'empty') return 'No matching person found.'
   if (state == 'error') return 'People search failed. Please try again.'
   return ''
 }
 
-onBeforeUnmount(cancelPendingSearch)
+function toStateOption(state: PeopleSearchState, hasPeople: boolean): PersonOption | undefined {
+  if (state == 'error') return { key: 'retry-search', label: stateMessage(state) }
+  const message = stateMessage(state)
+  if (!message || (hasPeople && state != 'loading-more')) return undefined
+  return { key: `state-${state}`, label: message, disabled: true }
+}
+
+function loadMoreOption(): PersonOption {
+  const remaining = Math.max(search.total.value - search.people.value.length, 0)
+  return { key: 'load-more', label: `Show more results (${remaining} remaining)` }
+}
+
+onBeforeUnmount(clearBlurTimer)
 </script>

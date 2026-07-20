@@ -3,15 +3,18 @@
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework.exceptions import APIException
 
 from .compdoc_import import build_mapping_preview, choose_header_row, read_mapped_excel
 from .compdoc_import_plan import (
     build_import_plan,
-    safe_row_error,
     summarize_import_plan,
-    validation_error,
+)
+from .compdoc_import_state import (
+    CompDocImportDatabaseConflict,
+    import_plan_fingerprint,
+    require_matching_import_state,
 )
 from .compdoc_import_values import get_mappable_import_fields
 
@@ -67,19 +70,29 @@ def ensure_row_limit(dataframe):
 def preview_import(prepared, model, serializer_class):
     """Return a persistence-free action plan and safe row failures."""
 
-    return summarize_import_plan(build_import_plan(prepared, model, serializer_class))
-
-
-def execute_import(prepared, model, serializer_class):
-    """Upsert valid rows and return deterministic result counters."""
-
     plan = build_import_plan(prepared, model, serializer_class)
+    return summarize_import_plan(plan), import_plan_fingerprint(plan)
+
+
+def execute_import(prepared, model, serializer_class, expected_fingerprint):
+    """Atomically persist a plan only while its signed database state remains current."""
+
+    try:
+        with transaction.atomic():
+            plan = build_import_plan(prepared, model, serializer_class, lock_existing=True)
+            require_matching_import_state(plan, expected_fingerprint)
+            return execute_import_plan(plan, serializer_class)
+    except IntegrityError as error:
+        raise CompDocImportDatabaseConflict() from error
+
+
+def execute_import_plan(plan, serializer_class):
+    """Persist prevalidated plan rows inside the caller's atomic transaction."""
+
     result = summarize_import_plan(plan)
-    created_count, updated_count, save_errors = save_rows(plan.rows, serializer_class)
+    created_count, updated_count = save_rows(plan.rows, serializer_class)
     result["created_count"] = created_count
     result["updated_count"] = updated_count
-    result["rejected_count"] += len(save_errors)
-    result["errors"].extend(save_errors)
     return result
 
 
@@ -88,28 +101,20 @@ def save_rows(planned_rows, serializer_class):
 
     created_count = 0
     updated_count = 0
-    errors = []
     for row in planned_rows:
         if row.action == "unchanged":
             continue
-        _, row_error = save_row(row.instance, row.payload, serializer_class, row.row_number)
-        if row_error:
-            errors.append(row_error)
-        elif row.action == "update":
+        save_row(row.instance, row.payload, serializer_class)
+        if row.action == "update":
             updated_count += 1
         else:
             created_count += 1
-    return created_count, updated_count, errors
+    return created_count, updated_count
 
 
-@transaction.atomic
-def save_row(instance, payload, serializer_class, row_number):
-    """Validate and persist one row inside an isolated transaction."""
+def save_row(instance, payload, serializer_class):
+    """Persist one already planned row and propagate failures for batch rollback."""
 
     serializer = serializer_class(instance, data=payload)
-    if not serializer.is_valid():
-        return None, validation_error(row_number, payload, serializer.errors)
-    try:
-        return serializer.save(), None
-    except Exception:
-        return None, safe_row_error(row_number, payload, "ROW_SAVE_FAILED", "Row could not be saved.")
+    serializer.is_valid(raise_exception=True)
+    return serializer.save()

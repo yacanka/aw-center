@@ -7,5 +7,5 @@ urlpatterns = [
     path('<uuid:pk>/', CompDocObjView.as_view(), name='compdoc_obj'),
     path('upload/', CompDocUpload.as_view(), name="upload"),
     path('excel/', ExcelCreator.as_view(), name="excel_creator"),
-    path('<int:pk>/history/', HistoryView.as_view(), name="history")
+    path('<uuid:pk>/history/', HistoryView.as_view(), name="history")
 ]

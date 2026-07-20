@@ -11,6 +11,7 @@ export interface OrganizationState {
   peoplePagination: PaginationMeta
   peopleFetched: boolean
   peopleRequest: Promise<unknown> | null
+  peopleRequestId: number
 }
 
 /** Create isolated organization state for one Pinia instance. */
@@ -24,6 +25,7 @@ export function createOrganizationState(): OrganizationState {
     people: [],
     peoplePagination: { count: 0, next: null, previous: null },
     peopleFetched: false,
-    peopleRequest: null
+    peopleRequest: null,
+    peopleRequestId: 0
   }
 }

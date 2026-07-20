@@ -64,6 +64,17 @@ class ProjectRegistryInvariantTests(TestCase):
             with self.subTest(slug=definition.slug):
                 self.assertNotIn(definition.url_prefix, generated_prefixes)
 
+    def test_compdoc_routes_use_uuid_identifiers(self):
+        """Every project CompDoc detail and history route accepts the model UUID."""
+
+        for slug in PROJECT_DEFINITIONS:
+            with self.subTest(slug=slug):
+                module = import_module(f"projects.{slug}.compdocs.urls")
+                patterns = [str(pattern.pattern) for pattern in module.urlpatterns]
+
+                self.assertFalse(any("<int:pk>" in pattern for pattern in patterns))
+                self.assertEqual(sum("<uuid:pk>" in pattern for pattern in patterns), 2)
+
     def get_disabled_project_definitions(self):
         """Return project definitions that are registered as disabled."""
         return [

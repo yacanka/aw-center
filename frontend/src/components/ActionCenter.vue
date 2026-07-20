@@ -131,7 +131,13 @@ function removeItem(item: AttentionItem): void {
 }
 
 function kindLabel(kind: AttentionKind): string {
-  return { job: 'Job', import: 'Import', invitation: 'Invitation', jira_draft: 'JIRA draft' }[kind]
+  return {
+    job: 'Job',
+    import: 'Import',
+    invitation: 'Invitation',
+    jira_draft: 'JIRA draft',
+    compdoc_trace: 'DCC source'
+  }[kind]
 }
 
 function formatDate(value: string): string {

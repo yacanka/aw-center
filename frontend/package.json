@@ -16,9 +16,10 @@
     "test:uploads": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-uploads.mjs",
     "test:outlook": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-outlook-attachments.mjs",
     "test:dcc": "node --test scripts/test-dcc-jobs.mjs",
+    "test:compdoc-refresh": "node --test scripts/test-compdoc-refresh.mjs",
     "test:compdoc": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-compdoc-imports.mjs",
     "test:people-search": "node --test scripts/test-people-search.mjs",
-    "test:ci": "npm run test:commands && npm run test:access && npm run test:errors && npm run test:stores && npm run test:tables && npm run test:ui-registration && npm run test:uploads && npm run test:outlook && npm run test:dcc && npm run test:compdoc && npm run test:people-search",
+    "test:ci": "npm run test:commands && npm run test:access && npm run test:errors && npm run test:stores && npm run test:tables && npm run test:ui-registration && npm run test:uploads && npm run test:outlook && npm run test:dcc && npm run test:compdoc-refresh && npm run test:compdoc && npm run test:people-search",
     "serve": "vite preview"
   },
   "dependencies": {
