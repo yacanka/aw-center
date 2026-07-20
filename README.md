@@ -564,6 +564,10 @@ verilebilir. Migration varsayılan olarak yalnız kontrol edilir; uygulamak içi
 `--migrate` açıkça verilmelidir. TLS, secret ve deployment environment ayarları
 launcher tarafından üretilmez.
 
+Backend kapsamında `jobs/management/commands/run_job_worker.py` bulunduğunda
+launcher, `dev` ve `prod` modlarında kalıcı job worker'ını web süreciyle birlikte
+başlatır ve denetler. `--skip-backend` kullanıldığında worker da başlatılmaz.
+
 Sadece backend:
 
 ```bash

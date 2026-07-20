@@ -53,15 +53,18 @@ test('DCC confirmation UI exposes readiness, impact, warnings, and expiry', asyn
 })
 
 test('Job Center performs one action and links pending DCC previews back to review', async () => {
-  const [jobCenter, drawer] = await Promise.all([
+  const [jobCenter, drawer, listItem] = await Promise.all([
     readFile(jobCenterUrl, 'utf8'),
-    readFile(new URL('../src/components/jobs/JobDetailDrawer.vue', import.meta.url), 'utf8')
+    readFile(new URL('../src/components/jobs/JobDetailDrawer.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/jobs/JobListItem.vue', import.meta.url), 'utf8')
   ])
   const actionBlock = jobCenter.match(/async function runAction[\s\S]*?\n}/)?.[0] || ''
 
   assert.equal(actionBlock.match(/await action\(\)/g)?.length, 1)
   assert.match(drawer, /dcc_preview/)
   assert.match(drawer, /dcc_job: job.id/)
+  assert.match(drawer, /v-if="job.status === 'awaiting_confirmation'"/)
+  assert.match(listItem, /job.status === 'awaiting_confirmation'/)
 })
 
 test('DCC tools keep JIRA sessions in memory instead of browser storage', async () => {

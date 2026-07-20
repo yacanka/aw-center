@@ -10,8 +10,9 @@ from pathlib import Path
 
 from .dependencies import ensure_virtual_environment
 from .discovery import infer_wsgi_application
+from .job_worker import start_job_workers
 from .model import LauncherError, Project, Scope
-from .process import required_tool, run, start, supervise
+from .process import required_tool, start, supervise
 from .quality import django, run_first_script, run_script, select_script
 
 
@@ -56,6 +57,7 @@ def dev(
     processes = []
     if scope.backend:
         processes.append(start_backend(project, host, backend_port, frontend_port, no_backend_reload, migrate))
+        processes.extend(start_job_workers(project, runtime_env(host, backend_port, frontend_port)))
     if scope.frontend:
         processes.append(start_frontend(project, host, backend_port, frontend_port))
     print_urls(scope, host, backend_port, frontend_port)
@@ -105,7 +107,7 @@ def prod(
     prepare_production(project, extra_env, migrate, build, collect_static, checks)
     command = production_argv(project, host, port, production_command)
     print(f"Production endpoint: {public_url(host, port)}")
-    run(command, project.backend, extra_env=extra_env)
+    supervise([start(command, project.backend, extra_env=extra_env), *start_job_workers(project, extra_env)])
 
 
 def prepare_production(
