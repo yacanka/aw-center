@@ -21,6 +21,14 @@
       Header row {{ preview?.header_row }} was detected. Review mappings and validation warnings
       before saving.
     </n-alert>
+    <n-space style="margin: 12px 0">
+      <n-tag type="success">Create: {{ preview?.created_count || 0 }}</n-tag>
+      <n-tag type="warning">Update: {{ preview?.updated_count || 0 }}</n-tag>
+      <n-tag>Unchanged: {{ preview?.unchanged_count || 0 }}</n-tag>
+      <n-tag :type="preview?.rejected_count ? 'error' : 'default'">
+        Reject: {{ preview?.rejected_count || 0 }}
+      </n-tag>
+    </n-space>
     <n-data-table :columns="mappingColumns" :data="preview?.mapped_columns || []" size="small" />
     <n-alert v-if="preview?.missing_columns.length" type="error" style="margin-top: 12px">
       Missing required columns: {{ preview.missing_columns.join(', ') }}
@@ -51,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import {
   NModal,
   NUpload,
@@ -59,35 +67,21 @@ import {
   NButton,
   NDataTable,
   NSpace,
-  NAlert
+  NAlert,
+  NTag
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import axios from 'axios'
 import { useCompdocStore } from '@/stores/compdoc'
 import { popupStore } from '@/stores/popupStore'
 import { isPlainObject } from '@/utils/general'
-import { InvalidDocument } from '@/models/compdocs'
 import { formatApiError } from '@/services/apiError'
-
-interface ImportMappingRow {
-  source: string
-  target: string
-}
-
-interface ImportInvalidDocument extends InvalidDocument {
-  name: string
-  error: unknown
-  error_text?: string
-  row?: number
-}
-
-interface ImportPreview {
-  header_row: number
-  mapped_columns: ImportMappingRow[]
-  unmapped_columns: string[]
-  missing_columns: string[]
-  invalid_documents: ImportInvalidDocument[]
-}
+import {
+  confirmCompdocImport,
+  previewCompdocImport,
+  type ImportInvalidDocument,
+  type ImportMappingRow,
+  type ImportPreview
+} from '@/services/compdocImports'
 
 const showModal = ref(false)
 const showPreviewModal = ref(false)
@@ -106,8 +100,6 @@ const validationColumns: DataTableColumns<ImportInvalidDocument> = [
   { title: 'Name', key: 'name' },
   { title: 'Validation Error', key: 'error_text' }
 ]
-
-onMounted(() => {})
 
 function setActive(show: boolean) {
   showModal.value = show
@@ -131,11 +123,7 @@ async function handleUploadReq(options: UploadCustomRequestOptions) {
 async function previewImport(file: File) {
   window.$loadingBar.start()
   try {
-    const res = await axios.post<ImportPreview>(
-      `${props.uploadUrl}?preview=true`,
-      buildFormData(file)
-    )
-    preview.value = res.data
+    preview.value = await previewCompdocImport(props.uploadUrl, file)
     showPreviewModal.value = true
     window.$loadingBar.finish()
   } catch (err: unknown) {
@@ -145,17 +133,18 @@ async function previewImport(file: File) {
 }
 
 async function confirmImport() {
-  if (!pendingFile.value) return
+  if (!pendingFile.value || !preview.value?.confirmation_token) return
   confirmingImport.value = true
   window.$loadingBar.start()
   try {
-    const res = await axios.post(
-      `${props.uploadUrl}?confirm_import=true`,
-      buildFormData(pendingFile.value)
+    const result = await confirmCompdocImport(
+      props.uploadUrl,
+      pendingFile.value,
+      preview.value.confirmation_token
     )
     window.$loadingBar.finish()
     uploadCallbacks.value?.onFinish()
-    showUploadSuccess(res.data.message, res.data.invalid_documents)
+    showUploadSuccess(result.message, result.invalid_documents)
   } catch (err: unknown) {
     uploadCallbacks.value?.onError()
     showUploadError(err)
@@ -169,12 +158,6 @@ async function confirmImport() {
 function cancelPreview() {
   uploadCallbacks.value?.onError()
   resetUploadState()
-}
-
-function buildFormData(file: File) {
-  const formData = new FormData()
-  formData.append('file', file)
-  return formData
 }
 
 function showUploadSuccess(message: string, invalidDocuments?: ImportInvalidDocument[]) {

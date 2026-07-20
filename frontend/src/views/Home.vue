@@ -5,6 +5,8 @@
     </n-h1>
   </n-flex>
 
+  <ActionCenter />
+
   <n-tabs v-model:value="activeTab" @update:value="handleTabChange">
     <n-tab-pane
       v-for="(project, index) in projectOptions"
@@ -284,6 +286,7 @@ import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
 import type { ProjectRegistryItem } from '@/models/projectRegistry'
 import { PROJECT_REGISTRY_FALLBACK, fetchCompdocProjectRegistry } from '@/services/projectRegistry'
 import { formatApiError } from '@/services/apiError'
+import ActionCenter from '@/components/ActionCenter.vue'
 import {
   calculateBarChart,
   calculateLineChart,

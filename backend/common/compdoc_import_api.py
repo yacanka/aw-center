@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from awcenter.pagination import StandardResultsSetPagination
 from projects.registry import PROJECT_DEFINITIONS
 
+from .compdoc_import_report import build_import_audit_report
 from .models import CompDocImportAudit
 
 
@@ -47,6 +48,7 @@ class CompDocImportAuditListSerializer(serializers.ModelSerializer):
             "total_rows",
             "created_count",
             "updated_count",
+            "unchanged_count",
             "rejected_count",
             "started_at",
             "completed_at",
@@ -97,6 +99,18 @@ class CompDocImportAuditDetailView(APIView):
 
         audit = get_object_or_404(CompDocImportAudit, pk=audit_id)
         return Response(CompDocImportAuditDetailSerializer(audit).data)
+
+
+class CompDocImportAuditReportView(APIView):
+    """Download sanitized remediation evidence for one import audit."""
+
+    permission_classes = [IsAuthenticated, CanViewCompDocImportAudit]
+
+    def get(self, request, audit_id):
+        """Return a formula-safe workbook for one authorized audit record."""
+
+        audit = get_object_or_404(CompDocImportAudit, pk=audit_id)
+        return build_import_audit_report(audit)
 
 
 def filtered_audit_queryset(filters):

@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { h, ref } from 'vue'
-import { NUpload, NUploadDragger, NButton, NCard, NDataTable, useMessage, NSwitch } from 'naive-ui'
+import { NUpload, NUploadDragger, NButton, NCard, NDataTable } from 'naive-ui'
 import type { NotificationType } from 'naive-ui'
 import { useOutlookStore } from '@/stores/outlook'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
 import { IAttachment, IMsg } from '@/models/outlook'
+import { saveBlobAsFile } from '@/services/download'
 
 const router = useRouter()
 const store = useOutlookStore()
 const fileList = ref<any[]>([])
 const msg = ref<null | IMsg>(null)
-const useInline = ref(true)
 const taskStatus = ref<{
   visible: boolean
   title: string
@@ -40,14 +40,10 @@ const columns = [
     render: (row: IAttachment) => {
       if (row.download_url) {
         return h(
-          'a',
-          { href: axios.defaults.baseURL + row.download_url, target: '_blank' },
-          'Download'
+          NButton,
+          { text: true, type: 'primary', onClick: () => download(row) },
+          () => 'Download'
         )
-      }
-      if (row.content_base64) {
-        const href = `data:${row.mime};base64,${row.content_base64}`
-        return h('a', { href, download: row.name }, 'Download (inline)')
       }
       return '—'
     }
@@ -83,7 +79,6 @@ function classifyWithMsgSubject(str: string) {
 }
 
 function runMailTask(message: IMsg) {
-  console.log(message)
   const classified = classifyWithMsgSubject(message.mail.subject)
   if (classified) {
     taskStatus.value.status = 'success'
@@ -92,6 +87,16 @@ function runMailTask(message: IMsg) {
     taskStatus.value.module = classified.module
   } else {
     window.$message.warning('Unknown mail task')
+  }
+}
+
+async function download(attachment: IAttachment): Promise<void> {
+  if (!attachment.download_url) return
+  try {
+    const response = await axios.get<Blob>(attachment.download_url, { responseType: 'blob' })
+    saveBlobAsFile(response.data, attachment.name)
+  } catch {
+    window.$message.error('The private attachment link is unavailable or expired.')
   }
 }
 
@@ -104,7 +109,6 @@ async function sendFile() {
   const file = fileList.value[0].file as File
   const fd = new FormData()
   fd.append('file', file)
-  fd.append('inline', useInline.value ? 'true' : 'false')
 
   try {
     window.$loadingBar.start()
@@ -112,7 +116,7 @@ async function sendFile() {
     msg.value = res
     runMailTask(res)
   } catch (e: any) {
-    console.error(e)
+    window.$message.error('The Outlook message could not be read safely.')
     window.$loadingBar.error()
   } finally {
     window.$loadingBar.finish()
@@ -142,12 +146,6 @@ function handleItemHeaderClick() {}
       </n-flex>
     </n-alert>
     <n-card title="Upload MSG file and Parse">
-      <div>
-        <div style="margin: 0px 0px 8px 8px">
-          <strong style="margin-right: 8px">Embedded attachments (base64):</strong>
-          <NSwitch v-model:value="useInline" />
-        </div>
-      </div>
       <NUpload
         v-model:file-list="fileList"
         accept=".msg"
@@ -174,11 +172,11 @@ function handleItemHeaderClick() {}
         </n-space>
         <div><b>Date:</b> {{ msg.mail.date }}</div>
       </div>
-      <div v-if="msg.mail.body_html">
+      <div v-if="msg.mail.body_plain">
         <n-collapse @item-header-click="handleItemHeaderClick" arrow-placement="right">
           <n-collapse-item title="Body" name="body" display-directive="if">
             <n-card>
-              <div v-html="msg.mail.body_html"></div>
+              <pre>{{ msg.mail.body_plain }}</pre>
             </n-card>
           </n-collapse-item>
         </n-collapse>

@@ -77,8 +77,8 @@ export const useOrgsStore = defineStore('orgs', {
       return people.fetchPeople(this, force, query)
     },
     /** Search the people directory. */
-    searchPeople(search: string, pageSize = 20): Promise<IPerson[]> {
-      return people.searchPeople(search, pageSize)
+    searchPeople(search: string, pageSize = 10, signal?: AbortSignal): Promise<IPerson[]> {
+      return people.searchPeople(search, pageSize, signal)
     },
     /** Create a directory person. */
     createPerson(data: IPerson): Promise<void> {

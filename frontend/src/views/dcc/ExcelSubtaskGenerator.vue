@@ -87,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import axios from 'axios'
 import { createAuthenticatedEventSource } from '@/services/eventSource'
 import { useRoute } from 'vue-router'
@@ -96,6 +96,7 @@ import { useExcelStore } from '@/stores/excel'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
 import { formatApiError } from '@/services/apiError'
 import { selectedUploadFile } from '@/utils/uploads'
+import { useDccStore } from '@/stores/dcc'
 
 type ListItem = {
   excel: string
@@ -127,6 +128,7 @@ const fileList = ref<UploadFileInfo[]>([])
 
 const doors = useDoorsStore()
 const excel = useExcelStore()
+const dccStore = useDccStore()
 const modal = ref({
   show: false,
   content: ''
@@ -179,14 +181,10 @@ function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions
     })
 }
 
-onMounted(() => {
-  const storedSessionID = localStorage.getItem('jira>session_id')
-  generator.value.JSESSIONID = storedSessionID ? storedSessionID : ''
-})
-
 function createSubtasks() {
   const selectedFile = selectedUploadFile(fileList.value)
   if (!selectedFile) return
+  generator.value.JSESSIONID = dccStore.getSessionId
   const parameters = { ...generator.value }
   parameters.list = parameters.list.filter((item) => item.jira != null)
   const formData = new FormData()

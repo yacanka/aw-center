@@ -4,8 +4,8 @@ This repository now includes container and CI foundations for AW Center. The fil
 
 ## Container images
 
-- `backend/Dockerfile` builds a Django runtime from the repository-level `requirements.txt` and runs `awcenter.wsgi` with Gunicorn from `/app`.
-- `frontend/Dockerfile` uses a multi-stage Node build for Vite assets and serves the compiled `dist/` directory with Nginx.
+- `backend/Dockerfile` builds Vite assets in an isolated Node stage, copies the immutable result to `/app/frontend-dist`, collects WhiteNoise assets, verifies Django SPA/static responses, and runs `awcenter.wsgi` with Gunicorn.
+- `frontend/Dockerfile` remains an optional standalone Vite/Nginx image for a future CDN or split-static topology; the default Compose topology does not require it.
 - `.dockerignore` excludes local runtime artifacts and secrets from Docker build contexts.
 
 ## Local orchestration
@@ -20,8 +20,7 @@ Services:
 
 | Service | Purpose | Local port |
 |---|---|---|
-| `backend` | Django runtime | `8000` |
-| `frontend` | Nginx-served Vite static assets | `8080` |
+| `backend` | Same-origin Django API, SPA shell, and WhiteNoise assets | `8080` |
 | `worker` | Durable job executor and lease heartbeat | internal |
 | `database` | PostgreSQL production-grade database candidate | `5432` |
 | `redis` | Cache backend candidate | internal |
@@ -58,6 +57,8 @@ These variables are read by `backend/awcenter/settings.py`.
 | `DB_OLD_URL` | No | SQLite under `backend/` | Legacy database URL. |
 | `DATABASE_CONN_MAX_AGE` | No | `60` | Persistent connection age in seconds. |
 | `CACHE_URL` | No | LocMem cache | Redis URL for production cache. |
+| `COMPDOC_IMPORT_PREVIEW_TTL_SECONDS` | No | `900` | Signed CompDoc preview confirmation lifetime in seconds. |
+| `DCC_PREVIEW_TTL_SECONDS` | No | `900` | Owner-bound DCC snapshot confirmation lifetime; runtime bounds it to 60-86400 seconds. |
 | `LOG_LEVEL` | No | `INFO` | Console logging level. |
 | `FRONTEND_RESET_URL` | No | Computed from debug, host, and port | Password reset frontend URL. |
 | `FRONTEND_INVITATION_URL` | No | Computed `/app/invite` URL | Public registration screen used by one-time invitation links. |
@@ -86,19 +87,21 @@ These variables are read by `backend/awcenter/settings.py`.
 
 ## Production bootstrap
 
-Run migrations and static collection before accepting traffic:
+Run the immutable image and migrations before accepting traffic. Frontend build, static collection,
+and artifact verification already happen while the image is built:
 
 ```bash
 docker compose build
-docker compose run --rm backend python manage.py migrate
-docker compose run --rm backend python manage.py collectstatic --noinput
+docker compose run --rm backend python manage.py migrate --noinput
 docker compose up -d
-curl -fsS http://localhost:8000/health/ready/
+curl -fsS http://localhost:8080/health/ready/
+curl -fsS http://localhost:8080/app/
 ```
 
 The `worker` service runs `python manage.py run_job_worker`. Schedule
-`python manage.py cleanup_jobs` daily so terminal job artifacts follow the configured retention
-window. Backend and worker containers must mount the same `PRIVATE_MEDIA_ROOT` volume. This
+`python manage.py cleanup_jobs` at least every five minutes so expired, unconfirmed DCC snapshots
+are promptly removed; the same command applies the configured terminal artifact retention window.
+Backend and worker containers must mount the same `PRIVATE_MEDIA_ROOT` volume. This
 directory must never be exposed by Nginx; downloads pass through owner-authorized Django views.
 Local Word translation and analysis models are not baked into the image. Provision all four
 configured model directories through the shared `/app/models` volume so both Integration Hub and
@@ -107,6 +110,11 @@ worker; document content is not sent to a cloud model. Analysis evidence is stor
 owner-authorized private job artifact.
 
 Use `deploy/nginx/awcenter.conf` as a starting point for reverse proxy headers and route forwarding. Production TLS termination must set `X-Forwarded-Proto: https` so Django's `SECURE_PROXY_SSL_HEADER` can identify secure requests.
+
+`python manage.py verify_frontend_artifact` is the deployment smoke command. It fails when the
+Vite index is absent or oversized, references a missing/empty/unsafe JS or CSS file, collectstatic
+output is stale, Django cannot serve a nested `/app/...` route, or WhiteNoise cannot serve entry
+assets. CI runs the same command against both the workspace build and the combined runtime image.
 
 ## Security notes
 

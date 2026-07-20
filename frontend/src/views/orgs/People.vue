@@ -2,7 +2,6 @@
   <n-search
     v-model:value="searchText"
     placeholder="Search"
-    :list="store.getPeople"
     style="width: 500px; margin-bottom: 12px"
   />
   <n-card title="People List" style="max-width: 93%">

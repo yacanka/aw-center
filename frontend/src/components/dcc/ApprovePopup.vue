@@ -36,7 +36,7 @@
         </n-form-item-gi>
 
         <n-form-item-gi span="5" path="requestor" label="Requestor">
-          <n-search v-model:value="ecd.requestor" placeholder="None" :list="orgstore.getPeople" />
+          <n-search v-model:value="ecd.requestor" placeholder="None" />
         </n-form-item-gi>
         <n-form-item-gi span="3" path="ata" label="ATA / IDA">
           <n-input v-model:value="ecd.ata" placeholder="None" @keydown.enter.prevent />
@@ -97,18 +97,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { FormRules, NModal } from 'naive-ui'
 import { IEcd } from '@/models/ecd'
 import { validateForm } from '@/composables/forms'
 import NSearch from '@/components/NSearch.vue'
-import { useOrgsStore } from '@/stores/organizations'
 
 const showModal = ref(false)
 const ecd = ref<IEcd>({} as IEcd)
 const formRef = ref()
 
-const orgstore = useOrgsStore()
 const rules: FormRules = {
   ecd_title: [{ required: true, trigger: 'blur' }],
   ecd_no: [
@@ -156,6 +154,4 @@ const props = defineProps<{
 }>()
 
 defineExpose({ openModal })
-
-onMounted(() => {})
 </script>

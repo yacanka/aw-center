@@ -18,7 +18,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { IDcc } from '@/models/dcc'
 import { NModal } from 'naive-ui'
 
@@ -30,12 +30,8 @@ const mailReq = ref({
   JSESSIONID: ''
 })
 
-onMounted(() => {
-  const storedSessionID = localStorage.getItem('jira>session_id')
-  mailReq.value.JSESSIONID = storedSessionID ? storedSessionID : ''
-})
-
 async function sendMail() {
+  mailReq.value.JSESSIONID = window.$dccStore.getSessionId
   window.$loadingBar.start()
   try {
     await window.$dccStore.sendMail(mailReq.value)

@@ -50,16 +50,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref } from 'vue'
 import axios from 'axios'
 import { createAuthenticatedEventSource } from '@/services/eventSource'
-import { useOrgsStore } from '@/stores/organizations'
 import SubtaskList from '@/components/jira/SubtaskList.vue'
 import { toTitleCase } from '@/utils/text'
 import { NotificationType } from 'naive-ui'
 import { nullCheck } from '@/utils/general'
 import { IJiraField } from '@/models/jira'
 import { formatApiError } from '@/services/apiError'
+import { useDccStore } from '@/stores/dcc'
 
 type Generator = {
   JSESSIONID: string
@@ -67,7 +67,7 @@ type Generator = {
   list: Array<any>
 }
 
-const orgstore = useOrgsStore()
+const dccStore = useDccStore()
 const generator = ref({} as Generator)
 const subtaskFields = ref<IJiraField[]>([])
 const fieldLoading = ref(false)
@@ -95,6 +95,7 @@ const checkGenerateStatus = () => {
 
 function loadSubtaskFields() {
   if (isFieldLoadDisabled.value) return
+  generator.value.JSESSIONID = dccStore.getSessionId
   fieldLoading.value = true
   axios
     .post(`${axios.defaults.baseURL}/dcc/subtask_fields/`, {
@@ -123,6 +124,7 @@ function loadSubtaskFields() {
 }
 
 function createSubtasks() {
+  generator.value.JSESSIONID = dccStore.getSessionId
   loadingBar.value.show = true
   loadingBar.value.status = 'default'
   loadingBar.value.percentage = 0
@@ -167,15 +169,6 @@ function createSubtasks() {
       console.log('END')
     })
 }
-
-onMounted(() => {
-  const storedSessionID = localStorage.getItem('jira>session_id')
-  generator.value.JSESSIONID = storedSessionID ? storedSessionID : ''
-
-  if (orgstore.getPeople.length == 0) {
-    orgstore.fetchPeople()
-  }
-})
 </script>
 
 <style scoped>

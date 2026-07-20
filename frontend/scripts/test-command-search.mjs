@@ -33,7 +33,9 @@ test('flattens only navigable enabled leaves', () => {
 
 test('matches Turkish aliases and accent-independent text', () => {
   const commands = buildNavigationCommands(sources)
+  const workflowCommands = buildNavigationCommands([{ label: 'Job Center', key: '/jobs' }])
   assert.equal(searchNavigationCommands(commands, 'çeviri')[0].path, '/translator')
+  assert.equal(searchNavigationCommands(workflowCommands, 'otomasyon')[0].path, '/jobs')
   assert.equal(normalizeSearchText('İşlem Çözümü'), 'islem cozumu')
 })
 

@@ -19,7 +19,8 @@ const MAX_RESULTS = 25
 
 const COMMAND_ALIASES: Record<string, string> = {
   '/integrations': 'baglanti kopru servis durum health jira doors teamcenter docproof',
-  '/jobs': 'islem kuyruk gorev gecmis retry tekrar iptal artifact',
+  '/jobs':
+    'islem kuyruk gorev gecmis retry tekrar iptal artifact workflow otomasyon akis recipe pipeline',
   '/outlook': 'mail eposta msg ecr task gorev',
   '/dcc': 'ecr change degisiklik jira master watcher',
   '/doors/poclinker': 'gereksinim requirement link baglanti poc',

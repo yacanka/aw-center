@@ -16,3 +16,6 @@ class JIRA_DCC(models.Model):
 
     def __str__(self):
         return self.issue
+
+
+from .issue_draft_models import JiraIssueDraft, JiraIssueDraftEvent, JiraIssueDraftStatus  # noqa: E402, F401

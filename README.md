@@ -26,20 +26,22 @@ Platform; JIRA, DOORS, Excel, Word, PDF, Outlook, DocProof, PowerPoint ve medya 
 
 AW Center aşağıdaki iş akışlarını destekler:
 
-- **DCC / ECD yönetimi:** JIRA tabanlı Design Change Control kayıtlarını izleme, oluşturma, güncelleme, değerlendirme, e-posta gönderimi ve belge üretimi.
-- **DDF ve CompDoc takibi:** Proje bazlı compliance document listeleri, upsert destekli Excel içe aktarma, önizleme/onay akışı, SHA-256 kaynak kanıtlı import audit'i, alan keşfi, dinamik kolon ayarları, grafikler ve durum takibi.
+- **DCC / ECD yönetimi:** JIRA tabanlı Design Change Control kayıtlarını izleme, oluşturma, güncelleme, değerlendirme, e-posta gönderimi ve gerçek template dry-render kanıtlı, insan onaylı belge üretimi.
+- **DDF ve CompDoc takibi:** Proje bazlı compliance document listeleri, upsert destekli Excel içe aktarma, dosya/kullanıcı/projeye bağlı imzalı önizleme onayı, create/update/unchanged/reject etki özeti, SHA-256 kaynak kanıtlı import audit'i, alan keşfi, dinamik kolon ayarları, grafikler ve durum takibi.
 - **JIRA otomasyonları:** JIRA issue arama, issue detay okuma, subtask üretimi, Excel tabanlı toplu subtask üretimi ve akış durumlarının SSE ile canlı izlenmesi.
+- **Analiz → JIRA inceleme köprüsü:** Bütünlüğü doğrulanmış özel Word analiz raporunu owner-scoped Task taslağına dönüştürür; optimistic concurrency, açık insan onayı, ayrı yayın yetkisi, içeriksiz audit izi ve marker tabanlı mükerrer kayıt kurtarması sağlar.
 - **DOORS otomasyonları:** Excel verisinden DXL script üretimi, DOORS çalıştırma entegrasyonu ve PoC linkleme ekranları.
 - **Doküman karşılaştırma:** Excel, Word ve PDF karşılaştırma araçları.
 - **Word işleme:** Word compare, analyze ve translate kuyrukları.
 - **PDF işleme:** PDF bölme ve PDF karşılaştırma.
-- **Outlook `.msg` işlemleri:** E-posta parse etme, ekleri indirme ve ECR/task ekranları.
+- **Outlook `.msg` işlemleri:** Plain-text e-posta inceleme, kullanıcıya bağlı süreli ek indirme, kalıcı Word eki çıkarma ve Outlook → Word analiz köprüsü.
 - **PowerPoint gallery:** Sunum ve slayt yükleme, listeleme, görsel önizleme ve dış dönüşüm araçlarıyla galeri oluşturma.
 - **Medya dönüştürme:** FFmpeg tabanlı görüntü/ses/video dönüştürme, önizleme ve çıktı boyutu tahmini.
 - **Organizasyon yönetimi:** Proje, panel, sorumlu ve kişi kayıtlarının CRUD yönetimi ve kişi Excel yükleme.
 - **Kullanıcı ve yetki yönetimi:** Yönetici kontrollü hesap açma, 24 saatlik tek kullanımlık davetler, davet yaşam döngüsü denetimi, login/logout, HttpOnly token cookie, CSRF koruması, parola değiştirme, parola sıfırlama, kullanıcı tercihleri ve izin listesi. Anonim self-signup yoktur.
 - **Integration Hub:** JIRA, Teamcenter, DOORS, DocProof, Office ve medya köprülerinin secretsız yapılandırma/capability görünümü, isteğe bağlı canlı sağlık kontrolleri, circuit breaker koruması ve ilgili araçlara hızlı geçiş.
-- **Job Center:** Uzun süren işlemler için kalıcı sahiplik, ilerleme, kooperatif iptal, retry, worker lease recovery, audit olayları ve güvenli artifact indirme merkezi.
+- **Job Center ve Workflow Accelerator:** Uzun süren işlemler için kalıcı sahiplik, ilerleme, kooperatif iptal, atomik/idempotent retry, worker lease recovery, audit olayları ve güvenli artifact indirme merkezi. Allowlist tabanlı recipe'ler bir aracın doğrulanmış çıktısını tarayıcıya indirmeden sonraki adıma aktarır; Word çeviri → analiz ve Outlook Word eki → analiz süreçleri tek izlenebilir akışta çalışır.
+- **Dikkat Merkezi:** Kullanıcının başarısız işlerini, bekleyen/başarısız JIRA taslaklarını, yetkili olduğu sorunlu CompDoc importlarını ve süresi yaklaşan davetleri tek önceliklendirilmiş ana sayfa kuyruğunda birleştirir; her kayıt doğrudan düzeltme ekranına gider ve kullanıcıya özel 24 saat erteleme/kapatma kararları desteklenir. API: `GET /action-center/`, `POST /action-center/decisions/`.
 - **Hızlı Komut:** `Ctrl/⌘ + K` ile tüm etkin araçları, proje akışlarını ve entegrasyon köprülerini Türkçe/İngilizce eşanlamlı veya küçük yazım hatalı aramayla açan, yetki filtreli ve kullanıcıya özel son-komut geçmişi.
 - **Merkezi erişim politikası:** Public allowlist dışındaki ekranlar varsayılan korumalıdır; route, sol menü ve Hızlı Komut aynı staff/permission kararını kullanır. Yetkisiz erişim açıklayıcı 403 ekranına, anonim erişim ise güvenli post-login dönüşüyle Login'e gider.
 - **Release notes:** Kullanıcı bazlı görülmemiş sürüm notları, toplu görüldü işaretleme ve onaylama.
@@ -69,7 +71,7 @@ AW Center aşağıdaki iş akışlarını destekler:
 ### Frontend
 
 - **Framework:** Vue 3 + Vite + TypeScript.
-- **UI:** Naive UI.
+- **UI:** Naive UI; only template-used components are registered globally, with source synchronization tests and raw/gzip bundle budgets enforced by the production build.
 - **State:** Pinia.
 - **Domain state sınırları:** DCC, DDF, DOORS, DocProof, organizasyon, Excel, PowerPoint ve Outlook işlemleri ayrı typed Pinia store'larında tutulur; bileşenler merkezi bir API-store facade'ı yerine ilgili domain store'unu doğrudan kullanır.
 - **Router:** Vue Router, browser history kökü `/app/`.
@@ -119,14 +121,19 @@ Frontend ekranları: `/app/dcc`, `/app/compare/...`, `/app/compdocs/...`
 - JIRA üzerinde issue/subtask oluşturma.
 - Liste tabanlı subtask üretimi.
 - Excel tabanlı toplu subtask üretimi.
-- DCC dokümanı oluşturma ve indirme bağlantısı üretme.
+- Geçici JIRA oturumuyla tek seferlik, kimlik bilgisi içermeyen ve kullanıcıya bağlı kaynak anlık görüntüsü yakalama.
+- Aynı immutable snapshot üzerinde gerçek proje template'iyle dry-render; proje, çıktı adı, panel sayısı, kaynak zamanı, eksik önerilen alanlar ve 15 dakikalık onay süresini worker başlamadan gösterme.
+- Açık kullanıcı onayı verilene kadar worker'ın göremediği `awaiting_confirmation` durumu; onaydan sonra JIRA'yı yeniden okumadan aynı özel snapshot ile doğrulanmış DOCX üretme.
 - ECD dosyası yükleme ve assessment işlemleri.
 - DCC reminder/e-posta gönderimi.
-- Uzun süren DCC, subtask ve Excel subtask operasyonları için SSE progress stream.
+- Subtask ve Excel subtask operasyonları için kullanıcıya bağlı geçici SSE progress stream; DCC doküman üretimi için kalıcı job/event ilerlemesi.
 - JIRA dynamic field metadata okuma.
 - JIRA session kontrolü ve attachment ekleme.
 - Proje registry üzerinden JIRA component -> proje eşleştirme.
 - DCC template dosyalarının güvenli path resolver ile çözülmesi.
+- Açıklanabilir analiz raporundan düzenlenebilir JIRA Task taslağı, sürüm kontrollü onay ve ayrı `dcc.publish_jiraissuedraft` yetkisiyle yayınlama.
+- Canlı JIRA create metadata ön kontrolü; desteklenen zorunlu alanları taslak içinde doldurma, geçersiz/desteklenmeyen gereksinimler için eyleme dönük bloklar ve yayın anında tekrar doğrulama.
+- Belirsiz JIRA create yanıtlarında sunucu üretimli tekil label ile önce mevcut issue'yu arayan mükerrer kayıt kurtarması; `JSESSIONID` hiçbir draft/event kaydında tutulmaz.
 
 Önemli endpoint örnekleri:
 
@@ -134,12 +141,20 @@ Frontend ekranları: `/app/dcc`, `/app/compare/...`, `/app/compdocs/...`
 - `GET/PUT/DELETE /dcc/api/<id>/`
 - `GET /dcc/issues/`
 - `POST /dcc/create_issue/`
+- `POST /dcc/jobs/create-document/preview/`
+- `POST /dcc/jobs/create-document/<job-id>/confirm/`
+- `POST /dcc/issue-drafts/<id>/preflight/`
+- `POST /dcc/issue-drafts/<id>/publish/`
 - `POST /dcc/send_mail/`
 - `POST /dcc/upload/`
 - `GET /dcc/create_dcc_stream/<uuid>/`
 - `GET /dcc/create_subtask_stream/<uuid>/`
 - `GET /dcc/create_subtask_excel_stream/<uuid>/`
 - `GET /dcc/subtask_fields/`
+- `POST /dcc/issue-drafts/`
+- `GET/PATCH /dcc/issue-drafts/<uuid>/`
+- `POST /dcc/issue-drafts/<uuid>/approve/`
+- `POST /dcc/issue-drafts/<uuid>/publish/`
 
 ### 2. DDF Assistant
 
@@ -170,11 +185,13 @@ Frontend ekranları: `/app/compdocs/:project`, `/app/compdocs/coverpagecreator`,
 - Proje bazlı compliance document listeleri.
 - Server-driven alan metadata endpointleri.
 - Dinamik kolon seçimi ve kullanıcı bazlı kolon tercihleri.
-- Excel import önizleme ve kullanıcı onayı sonrası kayıt.
+- Excel import önizleme ve yalnız aynı dosya, kullanıcı ve proje için geçerli imzalı onay sonrası kayıt.
 - Eksik kolon, unmapped kolon ve satır validation uyarılarını gösterme.
-- `cover_page_no` üzerinden create/update upsert ve satır bazlı kısmi başarı sayaçları.
-- Dosya adı/boyutu/SHA-256, importing user, request reference, detected mappings ve sonuç sayılarını saklayan import audit izi.
+- `cover_page_no` üzerinden create/update upsert; create/update/unchanged/reject etki özeti ve deterministik duplicate-key reddi.
+- Değişmeyen satırlarda gereksiz model/history yazımını atlama.
+- Dosya adı/boyutu/SHA-256, importing user, request reference, detected mappings ve create/update/unchanged/reject sayılarını saklayan import audit izi.
 - `common.view_compdocimportaudit` yetkisine bağlı proje bazlı geçmiş ve detay görünümü.
+- Audit kanıtını, reddedilen satırları, düzeltme önerilerini ve kolon kararlarını formül enjeksiyonuna dayanıklı Excel raporu olarak indirme.
 - Server-side pagination ve filtreleme.
 - DocProof arama entegrasyonu.
 - Durum akışı ve gecikme göstergeleri.
@@ -187,6 +204,7 @@ Audit endpointleri:
 
 - `GET /projects/import-audits/`
 - `GET /projects/import-audits/<uuid>/`
+- `GET /projects/import-audits/<uuid>/report/`
 
 ### 4. DOORS Araçları
 
@@ -251,6 +269,8 @@ Frontend ekranları: `/app/compare/word`, `/app/translator`
 - Açıklanabilir, kontrol listesi seçilebilir özel Word uyumluluk analizi.
 - Yerel modelle buluta içerik göndermeyen Word çevirisi.
 - Kalıcı Job Center üzerinden ilerleme, iptal, güvenli retry ve sahip-yetkili çıktı indirme.
+- Başarılı Word çevirisi çıktısını SHA-256 ve hedef dosya politikası doğrulamasıyla, indirme/yükleme yapmadan açıklanabilir belge analizine devretme.
+- Çeviri ve analizi tek komutla başlatan, adım durumlarını/audit izini koruyan, hata ve retry sonrasında aynı adımdan devam eden Workflow Accelerator recipe'si.
 - Model/runtime hazırlığını dosya yolu veya belge içeriği göstermeden raporlayan Integration Hub kontrolü.
 
 Endpointler:
@@ -260,6 +280,11 @@ Endpointler:
 - `POST /word/jobs/analyze/`
 - `GET /jobs/<uuid>/`
 - `GET /jobs/<uuid>/download/`
+- `POST /jobs/<uuid>/handoffs/analyze-translated-document/`
+- `GET /jobs/workflows/recipes/`
+- `GET/POST /jobs/workflows/`
+- `GET /jobs/workflows/<uuid>/`
+- `POST /jobs/workflows/<uuid>/cancel/`
 
 ### 8. PDF Araçları
 
@@ -283,15 +308,21 @@ Frontend ekranları: `/app/outlook`, `/app/task/ecr`
 
 Özellikler:
 
-- Outlook `.msg` dosyasını parse etme.
-- E-posta eklerini indirme.
+- Outlook `.msg` dosyasını ham HTML çalıştırmadan, boyutu sınırlı plain-text içerikle inceleme.
+- Yüksek entropili, 30 dakikalık ve mesajı ayrıştıran kullanıcıya bağlı ek indirme linkleri.
+- Inline/base64 ek gövdesi yerine authenticated Blob indirme.
+- `.msg` içindeki tek `.docx` ekini OOXML güvenlik kontrolünden geçirip kalıcı Job Center çıktısı olarak çıkarma.
+- Outlook mesajı → Word eki çıkarma → açıklanabilir analiz Workflow Accelerator recipe'si.
+- Sıfır veya birden fazla Word eki için sessiz seçim yerine kararlı hata kodu ve düzeltme yönlendirmesi.
 - ECR task ekranı.
 - ECR upload popup bileşenleri.
 
 Endpointler:
 
 - `POST /outlook/msg/parse/`
-- `POST /outlook/msg/download/`
+- `GET /outlook/msg/download/`
+- `POST /outlook/jobs/extract-word-attachment/`
+- `POST /jobs/<uuid>/handoffs/analyze-outlook-word-attachment/`
 
 ### 10. PowerPoint Gallery
 
@@ -675,6 +706,7 @@ DOCPROOF_URL=http://localhost/docproof
 DOORS_EXECUTABLE=doors
 JIRA_LEGACY_URL=http://localhost/jira-legacy
 JIRA_BTB_URL=http://localhost/jira
+JIRA_DEFAULT_PROJECT_KEY=CHN
 AW_USERNAME=
 AW_PASSWORD=
 ALLOWED_HOSTS=127.0.0.1,localhost
@@ -713,17 +745,22 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `TEAMCENTER_MAX_RESPONSE_BYTES` | Varsayılan `10485760` | Stream edilen Teamcenter response boyut sınırı. |
 | `JIRA_LEGACY_URL` | Zorunlu | Legacy JIRA URL'i. |
 | `JIRA_BTB_URL` | Zorunlu | Ana JIRA URL'i. |
+| `JIRA_DEFAULT_PROJECT_KEY` | `CHN` | Analizden üretilen yeni issue taslaklarının düzenlenebilir başlangıç projesi. |
+| `JIRA_DRAFT_PUBLISH_STALE_SECONDS` | `300` (minimum etkin değer `60`) | Kesilmiş bir yayın rezervasyonunun marker ile güvenli kurtarmaya açılacağı süre. |
 | `AW_USERNAME` | Varsayılan boş | DocProof/DOORS gibi entegrasyonlarda kullanılır; hassas kabul edilmelidir. |
 | `AW_PASSWORD` | Varsayılan boş | DocProof/DOORS gibi entegrasyonlarda kullanılır; hassas kabul edilmelidir. |
 | `FFMPEG_EXECUTABLE` | Varsayılan `ffmpeg` | Media Converter için FFmpeg binary adı/path'i. |
 | `AWCENTER_MAX_DOCUMENT_UPLOAD_BYTES` | 50 MiB | PDF ve Office dokümanları için endpoint boyut sınırı. |
 | `AWCENTER_MAX_IMAGE_UPLOAD_BYTES` | 10 MiB | Slide görseli yükleme sınırı. |
 | `AWCENTER_MAX_ATTACHMENT_UPLOAD_BYTES` | 100 MiB | JIRA gibi köprülere gönderilen ek dosya sınırı. |
+| `OUTLOOK_MAX_ATTACHMENTS` | `100` | Tek Outlook mesajında ayrıştırılabilecek maksimum ek sayısı. |
+| `OUTLOOK_PARSE_RATE` | `60/hour` | Kullanıcı başına senkron `.msg` önizleme/cache oluşturma hız sınırı. |
 | `AWCENTER_MAX_MEDIA_UPLOAD_BYTES` | 500 MiB | FFmpeg media input sınırı. |
 | `AWCENTER_ABSOLUTE_MAX_UPLOAD_BYTES` | 600 MiB | Multipart stream işlenirken uygulanan deployment-wide acil durdurma sınırı. |
 | `AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES` | 250 MiB | OOXML/ZIP içeriğinin toplam açılmış boyut sınırı. |
 | `AWCENTER_MAX_ARCHIVE_ENTRIES` | 5000 | OOXML/ZIP içindeki maksimum entry sayısı. |
 | `AWCENTER_MAX_COMPDOC_IMPORT_ROWS` | 10000 | Tek CompDoc Excel importunda işlenecek maksimum veri satırı. |
+| `COMPDOC_IMPORT_PREVIEW_TTL_SECONDS` | `900` | İmzalı CompDoc Excel önizleme onayının geçerlilik süresi. |
 | `DATABASE_URL` | Varsayılan `backend/db.sqlite3` | Primary database URL'i. Production için PostgreSQL önerilir. |
 | `DB_OLD_URL` | Varsayılan `backend/db_old.sqlite3` | Legacy database bağlantısı. |
 | `DATABASE_CONN_MAX_AGE` | Varsayılan `60` | Persistent database connection süresi. |
@@ -771,6 +808,7 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `JOB_EXECUTION_TIMEOUT_SECONDS` | `900` | Bir job executor için mutlak çalışma sınırı. |
 | `JOB_MAX_OUTPUT_BYTES` | `1 GiB` | Worker tarafından kalıcı storage'a alınabilecek maksimum tekil çıktı boyutu. |
 | `JOB_ARTIFACT_RETENTION_DAYS` | `30` | Terminal job kayıtları ve özel artifact'ların saklama süresi. |
+| `DCC_PREVIEW_TTL_SECONDS` | `900` | Dry-render edilmiş özel DCC snapshot'ının onaylanabileceği süre; 60 saniye ile 24 saat arasında sınırlandırılır. |
 
 ### Frontend Değişkenleri
 
@@ -830,11 +868,14 @@ cd frontend
 npm ci
 npm run dev
 npm run format:check
-npm run test:commands
+npm run test:ci
 npm run typecheck
-npm run typecheck:ci
 npm run build
 ```
+
+Repository kökündeki bağımlılıksız private npm manifesti aynı komutları
+`frontend/` manifestine yönlendirir; böylece yanlış dizinde çalıştırılan `npm run build`,
+`typecheck`, `format:check` ve `test:ci` farklı veya gevşetilmiş bir kalite yolu kullanmaz.
 
 ### Alternatif Starter
 
@@ -877,7 +918,7 @@ cd ../frontend
 npm run build
 ```
 
-CI workflow'u `.github/workflows/ci.yml` altında backend ve frontend kalite kapıları için temel bir GitHub Actions akışı içerir.
+CI workflow'u `.github/workflows/ci.yml` altında gerçek strict TypeScript, salt-okunur format kontrolü, migration drift, backend/frontend testleri, dependency audit, Django SPA/static artefakt smoke testi ve birleşik runtime image build kapılarını uygular.
 
 ---
 
@@ -935,18 +976,18 @@ API hata cevapları aşağıdaki ortak alanları taşır:
 
 Repository aşağıdaki deployment yapı taşlarını içerir:
 
-- `backend/Dockerfile`: Django backend image temeli.
-- `frontend/Dockerfile`: Vite build + statik servis image temeli.
-- `docker-compose.yml`: Backend, frontend static serving, PostgreSQL ve Redis içeren local production-like orchestration.
+- `backend/Dockerfile`: Vite artefaktını ayrı Node aşamasında üreten, Django/WhiteNoise statiklerini image içinde toplayan ve Gunicorn çalıştıran birleşik immutable runtime.
+- `frontend/Dockerfile`: Gerektiğinde CDN veya bağımsız statik servis için kullanılabilecek opsiyonel Vite + Nginx image temeli.
+- `docker-compose.yml`: Aynı-origin backend/SPA, worker, PostgreSQL ve Redis içeren local production-like orchestration.
 - `.env.example`: Production environment sözleşmesi için secrets içermeyen örnek.
 - `deploy/nginx/awcenter.conf`: TLS terminasyonu önündeki reverse proxy için başlangıç Nginx örneği.
-- `.github/workflows/ci.yml`: Backend/frontend check, build ve audit adımları.
+- `.github/workflows/ci.yml`: Backend/frontend check, build, audit, integrated artifact smoke ve runtime image adımları.
 - `docs/deployment.md`: Deployment detayları.
 
 Önemli deployment kararları:
 
 - Mevcut Django settings local varsayılan olarak SQLite kullanır; production `DATABASE_URL` ile PostgreSQL'e geçirilmelidir.
-- Frontend build çıktısı immutable artifact olarak `frontend/dist` altında tutulmalı veya `FRONTEND_DIST_DIR` ile mount edilmelidir.
+- Frontend build çıktısı backend image içindeki `/app/frontend-dist` konumuna immutable olarak kopyalanır; image build, SPA shell ve toplanmış `/core/assets/...` dosyalarını Django üzerinden doğrulamadan tamamlanmaz.
 - Production secret yönetimi environment/secret manager üzerinden yapılmalıdır.
 - HTTPS, HSTS, secure cookie ve CORS/CSRF listeleri deployment topolojisine göre doğrulanmalıdır.
 
@@ -954,10 +995,10 @@ Repository aşağıdaki deployment yapı taşlarını içerir:
 
 ```bash
 docker compose build
-docker compose run --rm backend python manage.py migrate
-docker compose run --rm backend python manage.py collectstatic --noinput
+docker compose run --rm backend python manage.py migrate --noinput
 docker compose up -d
-curl -fsS http://localhost:8000/health/ready/
+curl -fsS http://localhost:8080/health/ready/
+curl -fsS http://localhost:8080/app/
 ```
 
 `docker-compose.yml` içindeki örnek secret ve parolalar sadece local doğrulama içindir. Production'da bunlar secret manager veya platform environment ayarlarıyla değiştirilmelidir.

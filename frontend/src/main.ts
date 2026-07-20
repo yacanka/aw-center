@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import App from './App.vue'
-import naive from 'naive-ui'
 import { createPinia } from 'pinia'
 import router from './router'
 
@@ -8,13 +7,14 @@ import './assets/main.css'
 import { useUserStore } from './stores/user'
 import { bootstrapHttpAuth } from './services/http'
 import { applyPreferredTheme } from './services/theme'
+import { naiveUi } from './plugins/naiveUi'
 
 const pinia = createPinia()
 const app = createApp(App)
 const isDevelopmentMode = import.meta.env.DEV
 app.use(pinia)
 app.use(router)
-app.use(naive)
+app.use(naiveUi)
 
 bootstrapHttpAuth()
 startStartupPerformanceMeasurements()

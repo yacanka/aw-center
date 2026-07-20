@@ -138,6 +138,7 @@ class CompDocImportAudit(models.Model):
     total_rows = models.PositiveIntegerField(default=0)
     created_count = models.PositiveIntegerField(default=0)
     updated_count = models.PositiveIntegerField(default=0)
+    unchanged_count = models.PositiveIntegerField(default=0)
     rejected_count = models.PositiveIntegerField(default=0)
     error_summary = models.JSONField(default=list)
     status = models.CharField(
@@ -153,3 +154,6 @@ class CompDocImportAudit(models.Model):
     class Meta:
         ordering = ["-started_at"]
         indexes = [models.Index(fields=["project_slug", "started_at"])]
+
+
+from .action_center_models import ActionCenterDecision  # noqa: E402,F401

@@ -3,6 +3,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        VITE_API_URL: /
+        VITE_VERSION: local-compose
+        VITE_APP_TITLE: AW Center
     environment:
       SECRET_KEY: local-compose-development-secret-key-change-before-production-2026
       DEBUG: "False"
@@ -11,6 +15,8 @@ services:
       ALLOWED_HOSTS: 127.0.0.1,localhost,backend
       CORS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
       CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      FRONTEND_RESET_URL: http://localhost:8080/app/login
+      FRONTEND_INVITATION_URL: http://localhost:8080/app/invite
       DATABASE_URL: postgres://awcenter:change-me-local-only@database:5432/awcenter
       CACHE_URL: redis://redis:6379/1
       AUTH_COOKIE_SECURE: "False"
@@ -32,9 +38,8 @@ services:
       - backend-media:/app/media
       - backend-models:/app/models
       - backend-private:/app/private_media
-      - backend-static:/app/static
     ports:
-      - "8000:8000"
+      - "8080:8000"
     depends_on:
       database:
         condition: service_healthy
@@ -46,23 +51,14 @@ services:
       timeout: 5s
       retries: 5
 
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-      args:
-        VITE_API_URL: http://localhost:8000
-        VITE_VERSION: local-compose
-        VITE_APP_TITLE: AW Center
-    ports:
-      - "8080:80"
-    depends_on:
-      - backend
-
   worker:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        VITE_API_URL: /
+        VITE_VERSION: local-compose
+        VITE_APP_TITLE: AW Center
     command: ["python", "manage.py", "run_job_worker", "--poll-interval", "1"]
     environment:
       SECRET_KEY: local-compose-development-secret-key-change-before-production-2026
@@ -118,6 +114,5 @@ volumes:
   backend-media:
   backend-models:
   backend-private:
-  backend-static:
   postgres-data:
   redis-data:

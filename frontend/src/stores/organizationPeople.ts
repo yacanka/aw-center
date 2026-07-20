@@ -40,12 +40,17 @@ export async function fetchPeople(
 }
 
 /** Search the people directory without replacing the active page. */
-export async function searchPeople(searchText: string, pageSize = 20): Promise<IPerson[]> {
+export async function searchPeople(
+  searchText: string,
+  pageSize = 10,
+  signal?: AbortSignal
+): Promise<IPerson[]> {
   const search = searchText.trim()
   if (!isAuthenticated() || !search) return []
   const response = await handleRequest<IPerson[]>(
     axios.get(`${API_PATHS.orgs}/people/`, {
-      params: compactPaginationQuery({ search, page_size: pageSize })
+      params: compactPaginationQuery({ search, page_size: pageSize }),
+      signal
     }),
     () => undefined,
     () => undefined,

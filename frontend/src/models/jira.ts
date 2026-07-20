@@ -14,7 +14,8 @@ export interface IJiraField {
   allowedValues?: Array<Record<string, unknown>>
 }
 
-export type JiraFieldValue = string | number | null
+export type JiraFieldPrimitive = string | number
+export type JiraFieldValue = JiraFieldPrimitive | JiraFieldPrimitive[] | null
 
 export interface ISubtaskItem {
   summary?: string

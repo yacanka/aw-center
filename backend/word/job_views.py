@@ -8,7 +8,7 @@ from awcenter.file_security import WORD_DOCUMENT_POLICY, validate_request_upload
 from jobs.api import job_creation_response
 from jobs.contracts import JobExecutionFailure
 from jobs.services import create_job
-from word.analysis import ANALYSIS_CHECKS, validate_check_ids
+from word.analysis_contracts import ANALYSIS_CHECKS, validate_check_ids
 from word.job_executor import SUPPORTED_TRANSLATIONS
 
 

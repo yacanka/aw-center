@@ -24,6 +24,9 @@
           {{ job.result_summary.passed }}/{{ job.result_summary.total }} strong checks · overall
           {{ scorePercentage(job.result_summary.overall_score) }}%
         </n-alert>
+        <n-alert v-if="job.result_summary.type === 'dcc_preview'" type="warning" :bordered="false">
+          Immutable DCC snapshot is waiting for your confirmation before worker execution.
+        </n-alert>
         <n-space size="large">
           <n-text depth="3">Attempt {{ job.attempt }}/{{ job.max_attempts }}</n-text>
           <n-text depth="3">Queued {{ formatDate(job.created_at) }}</n-text>

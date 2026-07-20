@@ -5,6 +5,7 @@ from django.conf.urls.static import static
 
 from projects.routing import get_project_urlpatterns
 
+from .action_center_api import action_center, action_center_decision
 from .views import download_file, health_live, health_ready, integrations, redirect_to_app
 
 urlpatterns = [
@@ -12,6 +13,8 @@ urlpatterns = [
     path('health/live/', health_live, name='health_live'),
     path('health/ready/', health_ready, name='health_ready'),
     path('integrations/', integrations, name='integrations'),
+    path('action-center/', action_center, name='action_center'),
+    path('action-center/decisions/', action_center_decision, name='action_center_decision'),
     path('', redirect_to_app),
     path('app/', include('core.urls')),
     path('dcc/', include('dcc.urls')),

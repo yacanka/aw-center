@@ -1,164 +1,151 @@
-from __future__ import annotations
-from django.utils.crypto import get_random_string
+"""Authenticated Outlook message inspection and attachment downloads."""
+
+import io
+import mimetypes
+
+from django.conf import settings
 from django.core.cache import cache
-from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
-
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.parsers import MultiPartParser, FormParser
+from django.http import HttpResponse
+from django.utils.crypto import get_random_string
 from rest_framework import status
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.views import APIView
 
-from pathlib import Path
-import extract_msg, io, base64, mimetypes, re, json
-from typing import Any, Dict, List, Tuple
 from awcenter.file_security import MSG_POLICY, validate_request_upload
+from jobs.contracts import JobExecutionFailure
 
-SAFE_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1F]')
+from .message_helpers import (
+    attachment_bytes,
+    attachment_name,
+    close_message,
+    message_summary,
+    open_message,
+    safe_download_name,
+)
+from .throttles import OutlookParseThrottle
 
-def _safe_filename(name: str) -> str:
-    name = (name or "attachment").strip().replace("\0", "")
-    name = SAFE_NAME_RE.sub("_", name)
-    return name[:255] or "unnamed"
+CACHE_PREFIX = "OUTLOOK_MESSAGE"
+CACHE_SECONDS = 30 * 60
 
-def _pick_name(att) -> str:
-    return getattr(att, "longFilename", None) or getattr(att, "shortFilename", None) or "attachment"
-
-def _msg_to_dict(msg: extract_msg.Message) -> Dict[str, Any]:
-    # basit alanlar
-    d = {
-        "subject": msg.subject,
-        "sender": msg.sender,         # "Ad <mail@...>" gibi
-        "to": msg.to,                 # virgüllü
-        "cc": msg.cc,
-        "bcc": msg.bcc,
-        "date": msg.date,             # string döner
-        "body_plain": msg.body,       # varsa düz metin
-        "body_html": None,
-    }
-    # html body elde etmeyi deneyelim (bazı maillerde yok)
-    try:
-        d["body_html"] = getattr(msg, "htmlBody", None)
-    except Exception:
-        d["body_html"] = None
-    return d
 
 class MsgParseView(APIView):
-    """
-    POST multipart/form-data:
-      - file: .msg
-      - inline: "true"/"false"  (ekleri base64 ile JSON içinde dönsün mü?)
-    Dönüş:
-      {
-        "mail": {...},
-        "attachments": [
-          {
-            "name": "foo.pdf",
-            "size": 12345,
-            "mime": "application/pdf",
-            # inline=true ise:
-            "content_base64": "JVBERi0xLjcK..."
-            # inline=false ise:
-            "download_url": "/api/msg/download?token=...&index=0"
-          }, ...
-        ],
-        "token": "...."  # inline=false ise verilir (indirme için)
-      }
-    """
+    """Inspect one private MSG file and issue owner-bound attachment links."""
+
     parser_classes = (MultiPartParser, FormParser)
+    permission_classes = (IsAuthenticated,)
+    throttle_classes = (OutlookParseThrottle,)
 
     def post(self, request, *args, **kwargs):
-        f = validate_request_upload(request, "file", MSG_POLICY)
+        """Return bounded plain-text metadata without embedding attachment bytes."""
 
-        inline = str(request.POST.get("inline", "false")).lower() == "true"
+        upload = validate_request_upload(request, "file", MSG_POLICY)
+        message = None
         try:
-            # extract_msg Message(), dosya yolunu ister; BytesIO ile de çalışır:
-            bio = io.BytesIO(f.read())
-            msg = extract_msg.Message(bio)
-        except Exception as e:
-            return Response({"detail": f".msg okunamadı: {e}"}, status=400)
+            message = open_message(io.BytesIO(upload.read()))
+            attachments, cached = collect_attachments(message.attachments)
+            token = cache_attachments(request.user.pk, cached)
+            add_download_links(attachments, token)
+            return Response(
+                {"mail": message_summary(message), "attachments": attachments},
+                status=status.HTTP_200_OK,
+            )
+        except JobExecutionFailure as error:
+            raise ValidationError(str(error), code=error.code) from error
+        finally:
+            close_message(message)
 
-        mail_info = _msg_to_dict(msg)
 
-        # ekler
-        atts_meta: List[Dict[str, Any]] = []
-        attachments_bytes: List[bytes] = []
-
-        for att in msg.attachments:
-            name = _safe_filename(_pick_name(att))
-            data: bytes = getattr(att, "data", b"")
-            if not isinstance(data, (bytes, bytearray)):
-                try:
-                    data = bytes(data)
-                except Exception:
-                    data = b""
-            size = len(data)
-            mime, _ = mimetypes.guess_type(name)
-            mime = mime or "application/octet-stream"
-
-            attachments_bytes.append(bytes(data))
-            atts_meta.append({
-                "name": name,
-                "size": size,
-                "mime": mime,
-            })
-
-        if inline:
-            # küçük ekler/rapid prototipleme için: base64 dön
-            for i, meta in enumerate(atts_meta):
-                meta["content_base64"] = base64.b64encode(attachments_bytes[i]).decode("ascii")
-            payload = {"mail": mail_info, "attachments": atts_meta}
-            return Response(payload, status=status.HTTP_200_OK)
-        else:
-            # üretim: cache’e koy, token üret, indirecek endpoint ver
-            token = get_random_string(32)
-            # cache’e meta + bytes koyuyoruz (prod’da Redis/Memcached önerilir)
-            cache.set(f"MSG:{token}", {
-                "attachments": [
-                    {"name": m["name"], "mime": m["mime"], "bytes": attachments_bytes[i]}
-                    for i, m in enumerate(atts_meta)
-                ]
-            }, timeout=60*30)  # 30 dk
-
-            # istemciye download_url’leri hazır verelim
-            for i, meta in enumerate(atts_meta):
-                meta["download_url"] = f"/outlook/msg/download?token={token}&index={i}"
-
-            payload = {"mail": mail_info, "attachments": atts_meta, "token": token}
-            return Response(payload, status=status.HTTP_200_OK)
-
-@permission_classes([IsAuthenticated])
 class MsgDownloadAttachmentView(APIView):
-    """
-    GET /api/msg/download?token=...&index=0
-    Bellekten stream ederek ek indirir (diske yazmaz).
-    """
+    """Download one cached attachment only for the user who parsed the message."""
+
+    permission_classes = (IsAuthenticated,)
+
     def get(self, request, *args, **kwargs):
-        token = request.GET.get("token")
-        index_str = request.GET.get("index")
-        if not token or index_str is None:
-            return HttpResponseBadRequest("token ve index gerekli.")
+        """Return a bounded owner-authorized attachment response."""
 
-        try:
-            idx = int(index_str)
-        except ValueError:
-            return HttpResponseBadRequest("index sayısal olmalı.")
+        token = str(request.query_params.get("token") or "")
+        index = parse_index(request.query_params.get("index"))
+        package = cache.get(cache_key(token)) if token else None
+        if not package or package.get("owner_id") != request.user.pk:
+            raise NotFound("The attachment link is unavailable.")
+        attachments = package.get("attachments", ())
+        if index >= len(attachments):
+            raise NotFound("The attachment link is unavailable.")
+        return attachment_response(attachments[index])
 
-        pack = cache.get(f"MSG:{token}")
-        if not pack:
-            return HttpResponse(status=404)
 
-        atts = pack.get("attachments", [])
-        if idx < 0 or idx >= len(atts):
-            return HttpResponse(status=404)
+def collect_attachments(attachments):
+    """Build bounded metadata and cache payloads for extracted attachments."""
 
-        item = atts[idx]
-        data: bytes = item["bytes"]
-        name: str = _safe_filename(item["name"])
-        mime: str = item.get("mime") or "application/octet-stream"
+    source = list(attachments)
+    validate_attachment_count(source)
+    metadata, cached, total = [], [], 0
+    for attachment in source:
+        content = attachment_bytes(attachment)
+        total += len(content)
+        if total > settings.AWCENTER_MAX_ATTACHMENT_UPLOAD_BYTES:
+            raise JobExecutionFailure(
+                "The message attachments exceed the safety limit.", "OUTLOOK_ATTACHMENT_LIMIT"
+            )
+        name = safe_download_name(attachment_name(attachment))
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        metadata.append({"name": name, "size": len(content), "mime": mime})
+        cached.append({"name": name, "mime": mime, "bytes": content})
+    return metadata, cached
 
-        resp = HttpResponse(data, content_type=mime)
-        resp["Content-Length"] = str(len(data))
-        resp["Content-Disposition"] = f'attachment; filename="{name}"'
-        return resp
+
+def validate_attachment_count(attachments):
+    """Reject messages that exceed the configured attachment count."""
+
+    if len(attachments) > settings.OUTLOOK_MAX_ATTACHMENTS:
+        raise JobExecutionFailure(
+            "The message contains too many attachments.", "OUTLOOK_ATTACHMENT_LIMIT"
+        )
+
+
+def cache_attachments(owner_id, attachments):
+    """Cache attachment bytes behind an unguessable owner-bound token."""
+
+    token = get_random_string(48)
+    cache.set(
+        cache_key(token), {"owner_id": owner_id, "attachments": attachments}, CACHE_SECONDS
+    )
+    return token
+
+
+def add_download_links(attachments, token):
+    """Attach same-origin download links to response metadata."""
+
+    for index, item in enumerate(attachments):
+        item["download_url"] = f"/outlook/msg/download/?token={token}&index={index}"
+
+
+def parse_index(value):
+    """Validate a non-negative attachment index."""
+
+    try:
+        index = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValidationError({"index": "Select a valid attachment index."}) from error
+    if index < 0:
+        raise ValidationError({"index": "Select a valid attachment index."})
+    return index
+
+
+def attachment_response(item):
+    """Build a safe attachment download response."""
+
+    response = HttpResponse(item["bytes"], content_type=item["mime"])
+    response["Content-Length"] = str(len(item["bytes"]))
+    response["Content-Disposition"] = f'attachment; filename="{item["name"]}"'
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def cache_key(token):
+    """Return a namespace-isolated cache key."""
+
+    return f"{CACHE_PREFIX}:{token}"

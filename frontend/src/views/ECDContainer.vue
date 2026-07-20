@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { h, ref, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { NButton, NDataTable, NSpace, NTag, NSpin, NUpload } from 'naive-ui'
 
 import Watcher from '@/views/dcc/Watcher.vue'
@@ -12,18 +13,17 @@ import { IUser } from '@/models/jira'
 import { nullCheck } from '@/utils/general'
 
 const activeTab = ref('')
+const route = useRoute()
 const access = ref(true)
 const sessionId = ref()
 const store = useDccStore()
 const jiraClientInfo = ref<IUser>()
+const sessionRequiredTabs = new Set(['watcher', 'subtask', 'excelSubtask'])
 
 async function connectJiraAccount() {
   try {
     jiraClientInfo.value = await store.checkSession(sessionId.value)
-    localStorage.setItem('jira>session_id', sessionId.value)
     store.setSessionId(sessionId.value)
-    const savedTab = localStorage.getItem('jira>active_tab')
-    activeTab.value = savedTab ? savedTab : ''
     sessionField.value.visible = false
   } catch (e) {
     window.$message.error('Session ID is not valid. Enter new one.')
@@ -38,21 +38,19 @@ const sessionField = ref({
 })
 
 function onStart() {
-  if (access.value) {
-    sessionId.value = localStorage.getItem('jira>session_id')
-    if (sessionId.value) {
-      connectJiraAccount()
-    } else {
-      window.$message.info('Before start, Session ID is required.')
-      showSessionPopup()
-    }
-  }
+  const savedTab =
+    typeof route.query.dcc_job === 'string'
+      ? 'dcc'
+      : localStorage.getItem('jira>active_tab') || 'dcc'
+  activeTab.value = savedTab
+  if (sessionRequiredTabs.has(savedTab)) showSessionPopup()
 }
 
 function disconnectJiraAccount() {
-  localStorage.removeItem('jira>session_id')
   store.setSessionId('')
-  onStart()
+  jiraClientInfo.value = undefined
+  sessionId.value = ''
+  if (sessionRequiredTabs.has(activeTab.value)) showSessionPopup()
 }
 
 onMounted(async () => {
@@ -61,13 +59,19 @@ onMounted(async () => {
 })
 
 const handleTabChange = (tab: string) => {
-  connectJiraAccount() // Just checking if session is still available
   localStorage.setItem('jira>active_tab', tab)
   activeTab.value = tab
+  if (sessionRequiredTabs.has(tab) && !store.getSessionId) showSessionPopup()
 }
 
 function showSessionPopup() {
   sessionField.value.visible = true
+}
+
+function continueWithoutSession() {
+  activeTab.value = 'dcc'
+  localStorage.setItem('jira>active_tab', 'dcc')
+  sessionField.value.visible = false
 }
 </script>
 
@@ -75,8 +79,19 @@ function showSessionPopup() {
   <div v-if="access">
     <n-flex v-if="sessionField.visible" justify="center">
       <n-card :title="sessionField.title" style="width: 50vw; min-width: 300px">
-        <n-input v-model:value="sessionId" @keydown.enter="sessionField.onClick" />
+        <n-input
+          v-model:value="sessionId"
+          type="password"
+          show-password-on="click"
+          :input-props="{
+            autocomplete: 'one-time-code',
+            name: 'temporary-jira-session'
+          }"
+          placeholder="Temporary; never stored"
+          @keydown.enter="sessionField.onClick"
+        />
         <n-flex justify="center" style="margin-top: 10px">
+          <n-button @click="continueWithoutSession">DCC Creator without session</n-button>
           <n-button type="info" @click="sessionField.onClick" :disabled="nullCheck(sessionId)"
             >Ok</n-button
           >
@@ -93,7 +108,7 @@ function showSessionPopup() {
         style="width: 80vw"
       >
         <template #suffix>
-          <n-tag type="success" closable @close="disconnectJiraAccount">
+          <n-tag v-if="jiraClientInfo" type="success" closable @close="disconnectJiraAccount">
             Connected JIRA as {{ jiraClientInfo?.displayName }}
           </n-tag>
         </template>

@@ -7,6 +7,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from rest_framework.exceptions import NotFound
 from awcenter.api_errors import error_response
 from awcenter.file_security import (
     ATTACHMENT_POLICY,
@@ -23,9 +24,8 @@ from .models import JIRA_DCC
 from .service.JIRAConnector import JiraConnector, split_text_by_chracter, ISO_time_to_string, parseJiraError
 from .service.MailSender import *
 from .service.reminder_rate_limit import get_reminder_wait_seconds, reserve_reminder_email_slot
-from .permissions import DCCPermission, IsDCCOwner
+from .permissions import DCCAutomationPermission, DCCPermission, IsDCCOwner
 from .services.project_resolver import DccProjectResolutionError, resolve_project_from_jira_components
-from .services.template_resolver import resolve_dcc_template_path
 
 from .forms import UploadForm
 from .parsers import safe_ecd_parse
@@ -45,8 +45,6 @@ from .service.effectivity import match_effectivity_options, normalize_effectivit
 from utils.converters import date_parser
 
 from io import BytesIO
-from pathlib import Path
-from base64 import b64decode, b64encode
 import json
 import requests
 import uuid
@@ -432,7 +430,7 @@ def add_new_dcc(request):
         return Response(f"Something went wrong: {e}", status=400)
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, DCCAutomationPermission])
 def add_attachment(request):
     from jira import JIRAError
 
@@ -506,8 +504,9 @@ def create_subtask_action(uuid):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, DCCAutomationPermission])
 def create_subtask_stream(request, uuid):
+    require_queue_owner(str(uuid), request.user.pk)
     response = StreamingHttpResponse(create_subtask_action(str(uuid)), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"
@@ -609,8 +608,9 @@ def create_subtask_excel_action(uuid):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, DCCAutomationPermission])
 def create_subtask_excel_stream(request, uuid):
+    require_queue_owner(str(uuid), request.user.pk)
     response = StreamingHttpResponse(create_subtask_excel_action(str(uuid)), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"
@@ -641,7 +641,7 @@ def check_session(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, DCCAutomationPermission])
 def get_subtask_fields(request):
     from jira import JIRAError
 
@@ -663,7 +663,7 @@ def get_subtask_fields(request):
         return error_response("Something went wrong.", code="SUBTASK_FIELDS_ERROR")
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, DCCAutomationPermission])
 def create_queue(request):
     file = request.FILES.get("file", None)
     data = {}
@@ -672,157 +672,18 @@ def create_queue(request):
         data["file"] = file.read()
         data["parameters"] = request.data.get("parameters", None)
     else:
-        data = request.data
+        data = request.data.copy()
         
     new_uuid = str(uuid.uuid4())
-    cache.set(new_uuid, data)
+    data["_owner_id"] = request.user.pk
+    cache.set(new_uuid, data, timeout=30 * 60)
     return Response(new_uuid)
 
-def create_dcc_action(uuid):
-    from bs4 import BeautifulSoup
-    from docxtpl import DocxTemplate
 
-    obj = cache.get(uuid, None)
-    if obj:
-        try:
-            if obj["JSESSIONID"]:
-                _jira = JiraConnector(server_url=JIRA_URL, jira_session_id=obj["JSESSIONID"])
-                
-                current_user = _jira.myself()
-                if current_user:
-                    yield f'data: {json.dumps({"status": "info", "content": current_user})}\n\n'
-                else:
-                    yield f'data: {json.dumps({"status": "error", "content": "Error while connecting account."})}\n\n'
-                    return
-            else:
-                yield f'data: {json.dumps({"status": "error", "content": "JSESSIONID not found in request."})}\n\n'
-                return
-            
-            _jira.set_issue(obj["url"])
+def require_queue_owner(queue_id, owner_id):
+    """Reject missing or cross-user DCC stream queues without revealing existence."""
 
-            loader_percentage = 0
-            yield f'data: {json.dumps({"status": "progress", "type": "loader", "percentage": loader_percentage, "content": "Analyzing..."})}\n\n'
-
-            issue = _jira.get_issue()
-            if issue == None:
-                yield f'data: {json.dumps({"status": "error", "type": "text", "content": "Task not found."})}\n\n'
-                return
-            issue_f = issue.fields
-
-            if issue_f.issuetype.subtask == True:
-                yield f'data: {json.dumps({"status": "error", "type": "text", "content": "A Subtask URL address was detected. Please enter a Task URL address!"})}\n\n'
-                return
-
-            try:
-                project_definition = resolve_project_from_jira_components(issue_f.components)
-            except DccProjectResolutionError:
-                yield f'data: {json.dumps({"status": "error", "type": "text", "content": "Unsupported project."})}\n\n'
-                return
-
-            dcc_placeholder = {}
-
-            loader_percentage += 20
-            project_label = project_definition.display_name or project_definition.jira_component
-            yield f'data: {json.dumps({"status": "progress", "type": "loader", "percentage": loader_percentage, "content": f"[{project_label}] {issue_f.summary}"})}\n\n'
-
-            if issue_f.summary != None:
-                dcc_placeholder["Design_Change_Title"] = issue_f.summary
-            if issue_f.customfield_45002 != None:
-                dcc_placeholder["DCC_Form_Number"] = issue_f.customfield_45002
-            if issue_f.customfield_45000 != None:
-                dcc_placeholder["Design_Change_Number"] = issue_f.customfield_45000
-            if issue_f.customfield_45001 != None:
-                dcc_placeholder["Design_Change_Revision"] = issue_f.customfield_45001
-            if issue_f.customfield_13716 != None:
-                dcc_placeholder["Design_Change_Classification"] = issue_f.customfield_13716.value
-            if issue_f.updated != None:
-                dcc_placeholder["Update_Time"] = datetime.today().strftime("%d.%m.%Y") # ISO_time_to_string(issue_f.updated)
-            if issue_f.customfield_34115 != None:
-                dcc_placeholder["Applicability"] = multiselect_to_text(issue_f.customfield_34115)
-
-            if 'Design_Change_Number' in dcc_placeholder and 'Design_Change_Revision' in dcc_placeholder:
-                dcc_placeholder["Design_Change_Name"] = f"{dcc_placeholder['Design_Change_Number']} / {dcc_placeholder['Design_Change_Revision']}"
-
-            classification_list = []
-            inc_size = int(60 / (1 if len(issue.fields.subtasks) == 0 else len(issue.fields.subtasks)))
-            for index, subtask in enumerate(issue.fields.subtasks):
-                s = _jira.get_client().issue(subtask.key)
-                sf = s.fields
-                dcc_placeholder[f"Panel_Status_{index+1}"] = sf.status.name
-                clean_as_name = split_text_by_chracter(sf.assignee.displayName, "(")
-                dcc_placeholder[f"Panel_AS_Name_{index+1}"] = make_surname_upper(clean_as_name)
-                dcc_placeholder[f"Panel_Updated_Time_{index+1}"] = ISO_time_to_string(sf.updated)
-
-                if sf.customfield_45006: #customfield_27271
-                    dcc_placeholder[f"Affected_Requirements_{index+1}"] = sf.customfield_45006
-
-                if sf.customfield_45007: #customfield_27174
-                    dcc_placeholder[f"Further_Compliance_{index+1}"] = sf.customfield_45007
-
-                if sf.customfield_45008:
-                    dcc_placeholder[f"Design_Change_Assessment_{index+1}"] = sf.customfield_45008
-                    
-                candidate_assignee = sf.customfield_45421
-                if candidate_assignee:
-                    candidate_as_name = make_surname_upper(split_text_by_chracter(candidate_assignee.displayName, "("))
-                    dcc_placeholder[f"Panel_AS_Name_{index+1}"] = f"{dcc_placeholder[f'Panel_AS_Name_{index+1}']}, {candidate_as_name}"
-
-                if sf.customfield_45004:
-                    classification_list.append((sf.customfield_45004.value, sf.assignee))
-                else:
-                    classification_list.append(("Minor-No Effect", sf.assignee))
-
-                comments = sf.comment.comments
-                if project_definition.jira_component == "Gökbey Jandarma" and comments:
-                    soup = BeautifulSoup(comments[0].body, 'html.parser')
-
-                    extracted_text = soup.get_text(separator='\n', strip=True).replace('\n', ' ')                
-                    certification_change_classification = extract_text_from_text(extracted_text, "(According to GM 21.A.91): ", " Affected Requirements")
-                    affected_requirements = extract_text_from_text(extracted_text, "Compliance Documents: ", " Further Compliance Study for Design Change:")
-                    further_compliance_study = extract_text_from_text(extracted_text, " Further Compliance Study for Design Change: ", " Design Change Assessment:")
-                    design_change_assessment = extract_text_from_text(extracted_text, " Design Change Assessment: ")
-
-                    dcc_placeholder[f"Certification_Change_Classification_{index+1}"] = certification_change_classification
-                    dcc_placeholder[f"Affected_Requirements_{index+1}"] = affected_requirements
-                    dcc_placeholder[f"Further_Compliance_{index+1}"] = further_compliance_study
-                    dcc_placeholder[f"Design_Change_Assessment_{index+1}"] = design_change_assessment
-
-                    classification_list.append((certification_change_classification, sf.assignee))
-
-                loader_percentage += inc_size
-                yield f'data: {json.dumps({"status": "progress", "type": "loader", "percentage": loader_percentage, "content": f"{sf.summary} - {sf.status.name}"})}\n\n'
-
-            classified_type, responsible_as = classify_dcc(classification_list)
-            if classified_type and not "Design_Change_Classification" in dcc_placeholder :
-                dcc_placeholder["Design_Change_Classification"] = classified_type
-            
-            if sf.customfield_45005 is not None:
-                dcc_placeholder["Responsible_AS"] = sf.customfield_45005
-            elif responsible_as:
-                dcc_placeholder["Responsible_AS"] = make_surname_upper(split_text_by_chracter(responsible_as.displayName, "("))
-
-            
-            d = DocxTemplate(resolve_dcc_template_path(project_definition))
-
-            loader_percentage = 80
-            save_name = f"{dcc_placeholder.get('DCC_Form_Number', 'DCC')}.docx"
-            yield f'data: {json.dumps({"status": "progress", "type": "loader", "percentage": loader_percentage, "content": f"Creating {save_name}"})}\n\n'
-            d.render(dcc_placeholder)
-            buffer = BytesIO()
-            d.save(buffer)
-            buffer.seek(0)
-            yield f'data: {json.dumps({"status": "progress", "type": "loader", "percentage": 100, "content": f"DCC created: {save_name}"})}\n\n'
-            encoded = b64encode(buffer.read()).decode()
-            yield f'data: {json.dumps({"status": "success", "content": encoded, "filename": save_name})}\n\n'
-        except Exception as e:
-            yield f'data: {json.dumps({"status": "error", "type": "text", "content": str(e)})}\n\n'
-    else:
-        yield f'data: {json.dumps({"status": "error", "content": f"UUID not in the queue: {uuid}"})}\n\n'
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def create_dcc_stream(request, uuid):
-    response = StreamingHttpResponse(create_dcc_action(str(uuid)), content_type="text/event-stream")
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"
-    return response
+    payload = cache.get(queue_id)
+    if not payload or payload.get("_owner_id") != owner_id:
+        raise NotFound("The workflow queue is unavailable.")
+    return payload

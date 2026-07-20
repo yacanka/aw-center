@@ -32,6 +32,12 @@ const NAVIGATION_POLICIES: Record<string, RouteAccessPolicy> = {
   '/ddfAssistant': {
     allow: [{ anyPermissions: ['ddf.view_ddf', 'ddf.add_ddf'] }]
   },
+  '/outlook': {
+    allow: [{ anyPermissions: ['dcc.add_jira_dcc'] }]
+  },
+  '/task/ecr': {
+    allow: [{ anyPermissions: ['dcc.add_jira_dcc'] }]
+  },
   '/developer/doors': {
     allow: [{ staffOnly: true }]
   }

@@ -25,11 +25,13 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/outlook',
     name: 'outlook',
+    meta: { access: navigationAccessPolicy('/outlook') },
     component: lazyRoute(() => import('@/views/OutlookContainer.vue'))
   },
   {
     path: '/task/ecr',
     name: 'ecrTask',
+    meta: { access: navigationAccessPolicy('/task/ecr') },
     component: lazyRoute(() => import('@/components/outlook/EcrTask.vue'))
   },
   {

@@ -8,12 +8,17 @@ def _require_pdfplumber():
     if pdfplumber is None:
         raise ImportError("pdfplumber is required to parse ECD files.")
 
-def ecd_parser_0(ecd_file):
+
+def _extract_table(ecd_file, page_index):
+    """Extract one table while deterministically releasing pdfplumber resources."""
+
     _require_pdfplumber()
-    pdf = pdfplumber.open(ecd_file)
-    page = pdf.pages[0]
-    raw_tables = page.extract_tables()
-    table = [[x for x in row if x is not None] for row in raw_tables[0]]
+    with pdfplumber.open(ecd_file) as pdf:
+        raw_tables = pdf.pages[page_index].extract_tables()
+        return [[value for value in row if value is not None] for row in raw_tables[0]]
+
+def ecd_parser_0(ecd_file):
+    table = _extract_table(ecd_file, 0)
 
     ecd = {}
     anchor = find_keyword_list2d(table, "ECD")
@@ -83,13 +88,9 @@ def ecd_parser_0(ecd_file):
     return ecd
 
 def ecd_parser_1(ecd_file):
-    _require_pdfplumber()
     for i in range(2):
         try:
-            pdf = pdfplumber.open(ecd_file)
-            page = pdf.pages[i]
-            raw_tables = page.extract_tables()
-            table = [[x for x in row if x is not None] for row in raw_tables[0]]
+            table = _extract_table(ecd_file, i)
 
             ecd = {}
             ecd["project"] = table[4][1]
@@ -121,13 +122,9 @@ def ecd_parser_1(ecd_file):
     raise ValueError("Can not parse ECD")
 
 def ecd_parser_2(ecd_file):
-    _require_pdfplumber()
     for i in range(2):
         try:
-            pdf = pdfplumber.open(ecd_file)
-            page = pdf.pages[i]
-            raw_tables = page.extract_tables()
-            table = [[x for x in row if x is not None] for row in raw_tables[0]]
+            table = _extract_table(ecd_file, i)
 
             ecd = {}
             ecd["project"] = table[4][1]

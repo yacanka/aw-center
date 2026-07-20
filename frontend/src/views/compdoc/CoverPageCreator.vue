@@ -62,7 +62,7 @@ const detectedColumns = ref<string[]>([])
 const missingColumns = ref<string[]>([])
 const inspecting = ref(false)
 const queueing = ref(false)
-const selectedFile = computed(() => selectedUploadFile(files.value))
+const selectedFile = computed(() => selectedUploadFile(files.value, false))
 
 async function handleFileChange(value: { fileList: UploadFileInfo[] }): Promise<void> {
   files.value = value.fileList
