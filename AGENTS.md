@@ -162,18 +162,18 @@ If plan.md file exist, read the plan file and remove items from it based on the 
    python manage.py migrate
    ```
 
-### Project Starter
+### Project Launcher
 
-From the repository root, use the cross-platform starter for package checks, installation, and concurrent Django/Vite development servers:
+From the repository root, use the cross-platform launcher for installation, checks, tests, and supervised Django/Vite/job-worker processes:
 
 ```bash
-python scripts/starter.py check
-python scripts/starter.py install
-python scripts/starter.py check-backend
-python scripts/starter.py start
+python launcher.py setup
+python launcher.py check
+python launcher.py test
+python launcher.py dev
 ```
 
-The starter creates `.venv`, installs `requirements.txt`, installs frontend packages with `npm ci` when `package-lock.json` is present, writes a local ignored `backend/.env` with safe development placeholders when absent, and sets `VITE_API_URL` for the Vite process.
+The launcher creates `.venv` during setup, installs `requirements.txt`, uses the committed frontend lock file, sets runtime-only development overrides, and starts the durable job worker when its management command is present. It intentionally does not create or modify `.env`; create the ignored `backend/.env` before checks or runtime commands.
 
 ### Frontend Setup
 
@@ -199,7 +199,7 @@ Run from `backend/`:
 | Create migrations | `python manage.py makemigrations` | Use only after intentional model changes. Review generated migration files carefully. |
 | Run backend tests | `python manage.py test` | App-level `tests.py` files are present. Requires backend dependencies and env vars. |
 | Django system check | `python manage.py check` | Useful before committing backend changes. |
-| Cross-platform starter check | `python ../scripts/starter.py check-backend` | Uses root `.venv`, ensures local dev env, then runs Django checks. |
+| Cross-platform launcher check | `python ../launcher.py check --skip-frontend` | Uses root `.venv` and the existing environment, then runs Django and migration checks. |
 | Cheroot HTTPS server | `python run_cheroot.py` | Uses `IPV4_ADDRESS`, `PORT`, `AWCenter.crt`, and `AWCenter.key`. |
 | Copy users management command | `python manage.py copy_users` | Command exists at `backend/common/management/commands/copy_users.py`. Confirm behavior before running against real data. |
 
@@ -350,7 +350,7 @@ Used via `import.meta.env` in frontend code:
 
 ## Common Pitfalls
 
-- Backend commands can fail immediately if required `.env` variables are missing, even for checks/tests. `python scripts/starter.py install` creates a local ignored development `.env` when absent.
+- Backend commands can fail immediately if required `.env` variables are missing, even for checks/tests. Create the ignored `backend/.env` from the documented safe development example before running launcher checks.
 - Backend dependencies are listed in root `requirements.txt`; update it when backend imports/settings require new packages, keeping the Python 3.14-compatible dependency bounds current.
 - `frontend/package.json` defines `deploy` and `start`, but the referenced `scripts/deploy.sh` and `server.js` are not present in the current repository tree.
 - Frontend build requires a Vite entry file such as `frontend/index.html`; that file is not present in the current repository tree, so `npm run build` fails until the entry file is restored or Vite is reconfigured.
