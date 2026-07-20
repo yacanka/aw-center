@@ -151,10 +151,9 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 
 ## 50. Frontend artifact deployment follow-up
 
-1. **Tamamlandı - Launcher static collection:** `launcher.py run --profile production` artık Cheroot başlamadan önce `collectstatic --noinput` çalıştırır; `/core/assets/...` dosyaları WhiteNoise tarafından `STATIC_ROOT` üzerinden servis edilir.
-2. **Tamamlandı - Deployment pipeline alignment:** Backend multi-stage image frontend'i `npm ci` ile build edip immutable `/app/frontend-dist` konumuna kopyalıyor; Compose aynı-origin SPA/API topolojisini kullanıyor ve runtime static volume image içeriğini maskelemiyor.
-3. **P2 - CDN/static offload:** For higher traffic deployments, serve `/core/assets/` from Nginx/CDN object storage while keeping Django responsible only for the SPA fallback and API routes.
-4. **Tamamlandı - Build artifact smoke test:** Management command ve CI; nested `/app/jobs`, kaynak ve collectstatic asset bütünlüğü ile WhiteNoise JS/CSS cevaplarını workspace build ve birleşik container image içinde doğruluyor.
+1. **Tamamlandı - Deployment pipeline alignment:** Backend multi-stage image frontend'i `npm ci` ile build edip immutable `/app/frontend-dist` konumuna kopyalıyor; Compose aynı-origin SPA/API topolojisini kullanıyor ve runtime static volume image içeriğini maskelemiyor.
+2. **P2 - CDN/static offload:** For higher traffic deployments, serve `/core/assets/` from Nginx/CDN object storage while keeping Django responsible only for the SPA fallback and API routes.
+3. **Tamamlandı - Build artifact smoke test:** Management command ve CI; nested `/app/jobs`, kaynak ve collectstatic asset bütünlüğü ile WhiteNoise JS/CSS cevaplarını workspace build ve birleşik container image içinde doğruluyor.
 
 ## 60. DocProof follow-up recommendations
 

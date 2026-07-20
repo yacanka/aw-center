@@ -491,17 +491,19 @@ python manage.py sync_projects
 
 ## Launcher: Kurulum, Çalıştırma ve Doğrulama
 
-Kök dizindeki `launcher.py`, projenin önerilen ana komut yüzeyidir. Amaç; farklı işletim sistemlerinde tek komutla bağımlılık kurmak, offline paket hazırlamak, backend/frontend kontrollerini çalıştırmak, geliştirme sunucularını başlatmak ve değişiklik/offline paketleri ZIP olarak taşınabilir hale getirmektir.
+Kök dizindeki `launcher.py`, Django backend ve Vue frontend'i repository
+yapısından keşfeden sade komut yüzeyidir. AW Center adına, sabit settings
+paketine veya kalıcı launcher state'ine bağlı değildir.
 
 ### Neden Launcher Var?
 
 - Backend ve frontend komutlarını tek yerde standartlaştırır.
-- `.venv` Python sürümünü kontrol eder.
-- Shell string kullanmadan subprocess çalıştırır; komut enjeksiyonu riskini azaltır.
-- `.venv` içinden yanlış working directory ile komut çalıştırmayı engeller.
-- Online/offline kurulum akışını aynı arayüzden yönetir.
-- Geliştirme sunucuları için port çakışmalarını algılar ve boş port seçer.
-- Frontend `.env.local` dosyasına seçilen backend URL'lerini yazar.
+- `manage.py`, Vue içeren `package.json`, lockfile ve npm scriptlerini keşfeder.
+- Shell açmadan argument vector ile süreç çalıştırır.
+- `.env` veya `.env.local` dosyası yazmaz; `.runtime`/PID state'i tutmaz.
+- Development için host/port ve `VITE_API_URL` yalnız child process environment'ına verilir.
+- Port çakışmasında sessizce başka porta geçmez.
+- Online/offline kurulum ve güvenli ZIP paketleme akışlarını aynı arayüzde tutar.
 
 ### Gereksinimler
 
@@ -510,48 +512,26 @@ Kök dizindeki `launcher.py`, projenin önerilen ana komut yüzeyidir. Amaç; fa
 - Backend için `requirements.txt`.
 - Frontend için `frontend/package-lock.json` bulunduğundan launcher `npm ci` kullanır.
 
-Windows örneği:
-
-```powershell
-py -3.11 launcher.py all
-```
-
-Linux/macOS örneği:
-
-```bash
-python3.11 launcher.py all
-```
-
 ### Komut Özeti
 
 | Komut | Amaç |
 |---|---|
+| `setup` | Backend ve frontend bağımlılıklarını online veya offline kaynaktan kurar. |
+| `check` | Django migration/system kontrolleri ile mevcut frontend format/typecheck scriptlerini çalıştırır. |
+| `test` | Repository'nin backend ve frontend test komutlarını çalıştırır. |
+| `dev` | Django ve Vue development serverlarını foreground child process olarak çalıştırır. |
+| `prod` | Frontend build, deployment check ve collectstatic sonrası WSGI serverını çalıştırır. |
 | `prepare-offline` | Python wheel'larını indirir ve npm cache'i ısıtır. |
 | `package-offline` | Offline kurulum için gerekli proje dosyalarını ve paketleri ZIP'e koyar. |
 | `package-changes` | Git değişikliklerini ZIP olarak paketler. |
-| `install` | Backend ve frontend bağımlılıklarını kurar. |
-| `check` | Backend ve frontend doğrulamalarını çalıştırır. |
-| `all` | Önce install, sonra check çalıştırır. |
-| `run` | Varsayılan olarak backend ve frontend geliştirme sunucularını; `--profile production` ile Cheroot tabanlı production HTTPS serverını başlatır. |
 
 ### En Sık Kullanılan Akışlar
 
 İlk kurulum ve doğrulama:
 
 ```bash
-python launcher.py all --mode online
-```
-
-Otomatik online/offline tespiti:
-
-```bash
-python launcher.py all --mode auto
-```
-
-Sadece bağımlılık kurulumu:
-
-```bash
-python launcher.py install
+python launcher.py setup
+python launcher.py check
 ```
 
 Sadece kontroller:
@@ -563,37 +543,41 @@ python launcher.py check
 Backend ve frontend geliştirme sunucularını başlatma:
 
 ```bash
-python launcher.py run
+python launcher.py dev
 ```
 
 Port seçerek çalıştırma:
 
 ```bash
-python launcher.py run --host 127.0.0.1 --backend-port 8000 --frontend-port 5173
+python launcher.py dev --host 127.0.0.1 --backend-port 8000 --frontend-port 5173
 ```
 
 Production profiliyle çalıştırma:
 
 ```bash
-python launcher.py run --profile production --host 0.0.0.0 --backend-port 8443
+python launcher.py prod --host 0.0.0.0 --backend-port 8000
 ```
 
-Production profili geliştirme serverı kullanmaz. Launcher `backend/.env` dosyasında `DEBUG=False`, `IPV4_ADDRESS` ve `PORT` değerlerini günceller; `manage.py check --deploy`, `manage.py migrate --check` ve `collectstatic --noinput` kontrollerini çalıştırır; ardından `backend/run_cheroot.py` üzerinden HTTPS Cheroot WSGI serverını başlatır. Bu profil başlamadan önce `backend/AWCenter.crt`, `backend/AWCenter.key` ve `frontend/dist` build çıktılarının varlığını doğrular.
+`prod`, Unix sistemlerde `manage.py` içinden WSGI import'unu keşfedip Gunicorn
+çalıştırır. Windows veya özel server kullanımı için `--production-command`
+verilebilir. Migration varsayılan olarak yalnız kontrol edilir; uygulamak için
+`--migrate` açıkça verilmelidir. TLS, secret ve deployment environment ayarları
+launcher tarafından üretilmez.
 
 Sadece backend:
 
 ```bash
-python launcher.py install --skip-frontend
+python launcher.py setup --skip-frontend
 python launcher.py check --skip-frontend
-python launcher.py run --skip-frontend
+python launcher.py dev --skip-frontend
 ```
 
 Sadece frontend:
 
 ```bash
-python launcher.py install --skip-backend
+python launcher.py setup --skip-backend
 python launcher.py check --skip-backend
-python launcher.py run --skip-backend
+python launcher.py dev --skip-backend
 ```
 
 ### Offline Hazırlık ve Kurulum
@@ -613,7 +597,7 @@ python launcher.py package-offline --offline-dir offline --offline-zip aw-center
 Offline makinede kur:
 
 ```bash
-python launcher.py install --mode offline --offline-dir offline
+python launcher.py setup --mode offline --offline-dir offline
 ```
 
 Offline modda backend kurulumu şu şekilde yapılır:
@@ -628,66 +612,38 @@ Frontend kurulumu şu mantığı kullanır:
 npm ci --offline --cache offline/npm-cache
 ```
 
-### Migration Fix Seçeneği
+### Migration ve Environment Sözleşmesi
 
-Varsayılan `check`, migration üretmez veya uygulamaz. Model değişikliği varsa fail eder.
-
-Eksik migration dosyalarını oluşturup unapplied migration'ları uygulamak için:
-
-```bash
-python launcher.py check --fix-migrations
-python launcher.py all --fix-migrations
-```
-
-> Production veritabanlarında otomatik migration uygulama kararını dikkatli verin. CI/local geliştirme için yararlı olsa da canlı sistemlerde migration planı ayrıca gözden geçirilmelidir.
-
-### Interactive Mod
-
-Komut ve seçenekleri menüden seçmek için:
-
-```bash
-python launcher.py --interactive
-python launcher.py -i
-```
-
-### Launcher'ın Yazdığı Dosyalar
-
-`run` sırasında backend runtime adresi için `backend/.env` güncellenir veya yoksa development placeholder değerlerle oluşturulur.
-
-Frontend için `frontend/.env.local` dosyasına aşağıdaki değerler yazılır:
-
-```env
-VITE_API_BASE_URL=http://127.0.0.1:<backend-port>
-VITE_BACKEND_URL=http://127.0.0.1:<backend-port>
-VITE_API_URL=http://127.0.0.1:<backend-port>
-VITE_SERVER_URL=http://127.0.0.1:<backend-port>
-```
-
-Uygulamada aktif kullanılan ana değişken `VITE_API_URL` değeridir. Diğer adlar backward compatibility için yazılır.
+`check`, migration üretmez veya uygulamaz. `dev` ve `prod` da varsayılan olarak
+veritabanını değiştirmez; yalnız açık `--migrate` parametresi migration uygular.
+Launcher `.env` okumaz/yazmaz. Django projesinin mevcut dotenv/settings davranışı
+ve shell environment'ı aynen korunur.
 
 ### Launcher Seçenekleri
 
 | Seçenek | Açıklama |
 |---|---|
-| `--mode auto|online|offline` | Paket kurulum modunu seçer. |
+| `--root <path>` | Otomatik keşif yerine proje kökünü açıkça seçer. |
+| `--mode online|offline` | `setup` paket kaynağını seçer. |
 | `--offline-dir <path>` | Offline wheel/cache dizini. Varsayılan `offline`. |
 | `--offline-zip <path>` | `package-offline` çıktısı. |
 | `--changes-zip <path>` | `package-changes` çıktısı. |
 | `--skip-frontend` | Frontend adımlarını atlar. |
 | `--skip-backend` | Backend adımlarını atlar. |
-| `--fix-migrations` | Eksik migration üretme ve migration uygulama davranışını açar. |
-| `--host <host>` | Development server host. Varsayılan `127.0.0.1`. |
+| `--migrate` | `dev`/`prod` başlamadan önce migration uygular. |
+| `--host <host>` | Server bind host'u. Varsayılan `127.0.0.1`. |
 | `--backend-port <port>` | Tercih edilen Django portu. Varsayılan `8000`. |
 | `--frontend-port <port>` | Tercih edilen Vite portu. Varsayılan `5173`. |
 | `--no-backend-reload` | Django autoreload kapatılır. |
 | `--ignore-packages` | Paket ilişkili operasyonları paketleme senaryolarında atlamak için kullanılır. |
+| `--production-command <argv>` | Özel WSGI server komutu seçer. |
 
 ### Launcher Trade-off'ları
 
-- `auto` mod sadece PyPI/npm registry bağlantısını kısa probe ile ölçer; kurumsal proxy veya internal registry varsa sonuç yanıltıcı olabilir.
 - Offline npm kurulumu cache'in eksiksiz olmasına bağlıdır. Eksik tarball/metadata varsa online makinede `prepare-offline` tekrar çalıştırılmalıdır.
-- `--fix-migrations` local hız kazandırır; fakat production migration yönetimi kontrollü release planıyla yapılmalıdır.
-- Launcher development `.env` placeholder'ları üretir; bu dosya production secrets dosyası değildir.
+- `package-offline` yalnız Git tarafından izlenen kaynakları alır; taşınması gereken
+  untracked kaynaklar önce bilinçli olarak Git kapsamına eklenmelidir.
+- Launcher production secret/TLS üretmez; bunlar deployment platformu tarafından yönetilmelidir.
 
 ---
 
@@ -1013,11 +969,11 @@ curl -fsS http://localhost:8080/app/
 
 ### Backend check `.env` değişkenleri yüzünden başlamıyor
 
-`IPV4_ADDRESS`, `PORT`, `DOCPROOF_URL`, `DOORS_EXECUTABLE`, `JIRA_LEGACY_URL`, `JIRA_BTB_URL` zorunlu okunur. Local placeholder üretmek için:
+`IPV4_ADDRESS`, `PORT`, `DOCPROOF_URL`, `DOORS_EXECUTABLE`, `JIRA_LEGACY_URL`, `JIRA_BTB_URL` zorunlu okunur. Launcher env dosyası üretmez. Local yapılandırmayı açıkça oluşturup gözden geçirin:
 
 ```bash
-python launcher.py install
-python launcher.py run --skip-frontend
+cp .env.example backend/.env
+python launcher.py check --skip-frontend
 ```
 
 ### Login sonrası auth cookie gönderilmiyor
@@ -1027,10 +983,12 @@ python launcher.py run --skip-frontend
 
 ### Frontend API çağrıları yanlış backend'e gidiyor
 
-`frontend/.env.local` içindeki `VITE_API_URL` değerini kontrol edin veya launcher ile frontend env'i tekrar yazdırın:
+`dev`, seçilen backend adresini Vite child process'ine `VITE_API_URL` olarak
+geçici verir. Ayrı bir frontend süreci çalıştırıyorsanız aynı değeri shell
+environment'ında açıkça tanımlayın:
 
 ```bash
-python launcher.py run
+VITE_API_URL=http://127.0.0.1:8000 npm --prefix frontend run dev
 ```
 
 ### DOORS işlemleri çalışmıyor
