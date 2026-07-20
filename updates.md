@@ -845,3 +845,12 @@
 4. Made `prod` environment-owned and server-neutral: it retains build, deploy checks, migration checks, collectstatic, explicit migration, and custom production-command parameters while defaulting to inferred WSGI plus Gunicorn on Unix.
 5. Retained online/offline setup, offline preparation, offline ZIP, and Git-change ZIP workflows with Git-tracked source selection and explicit exclusions for active env files, keys, runtime state, generated artifacts, dependency trees, and local databases; safe `.env.example`/`.env.sample` templates remain transferable.
 6. Added focused discovery, offline install, runtime non-persistence, explicit migration, custom production command, safe packaging, path resolution, and CLI contract tests.
+
+## 106. DCC queue continuity and local worker startup
+
+1. Traced the stuck DCC lifecycle to the documented local starter launching Django and Vite without the durable job worker; confirmed jobs correctly transitioned from human approval to `queued` but had no consumer.
+2. Updated both `python launcher.py dev|prod` and `python scripts/starter.py start` to discover and supervise the job worker alongside web processes; generic launcher behavior remains unchanged for repositories without the management command.
+3. Corrected Job Center's DCC preview messaging so review/confirmation guidance appears only while the job is actually `awaiting_confirmation`; queued, running, and completed previews now report that confirmation was recorded.
+4. Added a real DCC regression path covering immutable snapshot dry-render, API confirmation, worker claim, OOXML generation, artifact verification, and terminal `succeeded` state.
+5. Re-ran the job suite across DCC, media, Word translation, document analysis, Excel cover pages, Outlook extraction, handoffs, retries, cancellation, lease recovery, and multi-step workflows.
+6. Added launcher regressions for development and production worker discovery, shared environment propagation, and joint process supervision; documented automatic worker startup in the launcher contract.

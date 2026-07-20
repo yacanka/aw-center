@@ -24,7 +24,11 @@
           {{ job.result_summary.passed }}/{{ job.result_summary.total }} strong checks · overall
           {{ scorePercentage(job.result_summary.overall_score) }}%
         </n-alert>
-        <n-alert v-if="job.result_summary.type === 'dcc_preview'" type="warning" :bordered="false">
+        <n-alert
+          v-if="job.result_summary.type === 'dcc_preview' && job.status === 'awaiting_confirmation'"
+          type="warning"
+          :bordered="false"
+        >
           Immutable DCC snapshot is waiting for your confirmation before worker execution.
         </n-alert>
         <n-space size="large">

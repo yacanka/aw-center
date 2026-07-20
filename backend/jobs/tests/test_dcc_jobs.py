@@ -3,13 +3,14 @@ import zipfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.contrib.auth.models import Permission
 from django.core.files.base import ContentFile
 from docx import Document
 
 from dcc.document_snapshot import DccSnapshotError, build_snapshot
 from dcc.document_preview import prepare_dcc_preview
 from dcc.services.template_resolver import DccTemplateNotFoundError
-from jobs.models import JobStatus
+from jobs.models import Job, JobStatus
 from jobs.services import create_job
 from jobs.worker import claim_next_job, execute_claimed_job
 
@@ -43,6 +44,38 @@ class DccSnapshotTests(JobTestCase):
 
 class DccDocumentExecutorTests(JobTestCase):
     """Exercise real DOCX rendering, validation, and private artifact persistence."""
+
+    def test_confirmed_preview_reaches_verified_completion(self):
+        """The reviewed API flow must continue from confirmation through the worker."""
+
+        self.user.user_permissions.add(Permission.objects.get(codename="add_jira_dcc"))
+        template_path = self.media_directory / "dcc-template.docx"
+        create_template(template_path)
+        preview, confirmation = self.complete_confirmed_preview(template_path)
+
+        self.assertEqual(preview.status_code, 201)
+        self.assertEqual(confirmation.data["status"], JobStatus.QUEUED)
+        persisted_status = Job.objects.values_list("status", flat=True).get(pk=preview.data["id"])
+        self.assertEqual(persisted_status, JobStatus.SUCCEEDED)
+
+    def complete_confirmed_preview(self, template_path):
+        """Run a real preview, confirmation, and worker execution."""
+
+        with (
+            patch("dcc.job_views.capture_dcc_snapshot", return_value=snapshot_contract()),
+            patch("dcc.document_job.get_project_definition", return_value=project_definition()),
+            patch("dcc.document_job.resolve_dcc_template_path", return_value=template_path),
+        ):
+            preview = self.client.post(
+                "/dcc/jobs/create-document/preview/",
+                {"JSESSIONID": "transient", "url": "DCC-1"}, format="json",
+                HTTP_IDEMPOTENCY_KEY="dcc-complete-flow",
+            )
+            confirmation = self.client.post(
+                f"/dcc/jobs/create-document/{preview.data['id']}/confirm/", format="json"
+            )
+            execute_claimed_job(claim_next_job("dcc-complete-worker"))
+        return preview, confirmation
 
     def test_worker_renders_a_real_verified_docx(self):
         """The allowlisted worker produces a readable OOXML document without base64."""

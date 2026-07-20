@@ -55,10 +55,20 @@
                   {{ job.result_summary.panel_count ?? 0 }}
                 </n-descriptions-item>
               </n-descriptions>
-              <n-alert type="warning" :bordered="false">
+              <n-alert
+                v-if="job.status === 'awaiting_confirmation'"
+                type="warning"
+                :bordered="false"
+              >
                 This immutable source has not been exposed to a worker yet.
               </n-alert>
-              <router-link :to="{ name: 'dcc', query: { dcc_job: job.id } }">
+              <n-alert v-else type="info" :bordered="false">
+                Snapshot confirmation is recorded. Current job status: {{ job.status }}.
+              </n-alert>
+              <router-link
+                v-if="job.status === 'awaiting_confirmation'"
+                :to="{ name: 'dcc', query: { dcc_job: job.id } }"
+              >
                 Review and confirm in DCC Creator
               </router-link>
             </n-space>

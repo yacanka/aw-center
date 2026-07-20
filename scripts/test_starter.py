@@ -40,6 +40,22 @@ class StarterHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "npm"):
             starter.fail_when_missing(results)
 
+    @mock.patch.object(starter, "wait_for_servers")
+    @mock.patch.object(starter, "start_process")
+    @mock.patch.object(starter, "ensure_backend_env")
+    def test_start_launches_job_worker(
+        self, _ensure_env: mock.Mock, start_process: mock.Mock, wait: mock.Mock
+    ) -> None:
+        """The documented starter must consume durable queued jobs."""
+        processes = [mock.sentinel.backend, mock.sentinel.worker, mock.sentinel.frontend]
+        start_process.side_effect = processes
+
+        starter.start_servers("127.0.0.1", 8000, 5173)
+
+        commands = [call.args[0] for call in start_process.call_args_list]
+        self.assertIn(starter.worker_command(), commands)
+        wait.assert_called_once_with(processes)
+
 
 if __name__ == "__main__":
     unittest.main()
