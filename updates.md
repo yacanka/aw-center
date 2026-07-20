@@ -849,7 +849,7 @@
 ## 106. DCC queue continuity and local worker startup
 
 1. Traced the stuck DCC lifecycle to the documented local starter launching Django and Vite without the durable job worker; confirmed jobs correctly transitioned from human approval to `queued` but had no consumer.
-2. Updated both `python launcher.py dev|prod` and `python scripts/starter.py start` to discover and supervise the job worker alongside web processes; generic launcher behavior remains unchanged for repositories without the management command.
+2. Updated `python launcher.py dev|prod` to discover and supervise the job worker alongside web processes; generic launcher behavior remains unchanged for repositories without the management command.
 3. Corrected Job Center's DCC preview messaging so review/confirmation guidance appears only while the job is actually `awaiting_confirmation`; queued, running, and completed previews now report that confirmation was recorded.
 4. Added a real DCC regression path covering immutable snapshot dry-render, API confirmation, worker claim, OOXML generation, artifact verification, and terminal `succeeded` state.
 5. Re-ran the job suite across DCC, media, Word translation, document analysis, Excel cover pages, Outlook extraction, handoffs, retries, cancellation, lease recovery, and multi-step workflows.
@@ -978,3 +978,9 @@
 7. Separates full snapshot integrity from rendered-value freshness, so internal notes or history timestamps do not create false confirmation conflicts.
 8. Added permission-aware trace capability states and a one-click UI that opens the new DCC preview directly, with actionable active/archive/owner/permission explanations.
 9. Added success, confirmation, semantic replay, active/archive, cross-owner, revoked access, missing artifact, lineage tamper, DCC permission, notes-only, stale confirmation, stale-child replacement, frontend contract, and TypeScript coverage without a migration or dependency.
+
+## 118. Single launcher surface
+
+1. Removed the redundant `scripts/starter.py`, `scripts/starter_core.py`, and starter-only tests after confirming the root launcher covers setup, checks, tests, development, production, offline packaging, and worker supervision.
+2. Kept `scripts/launcher/` because root `launcher.py` is intentionally a thin entry point importing that package; launcher regression tests remain the supported process contract.
+3. Updated README and repository agent guidance to use only `launcher.py`, eliminating the duplicate startup path that had drifted away from durable worker requirements.

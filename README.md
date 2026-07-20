@@ -100,7 +100,7 @@ backend/orgs/             Organizasyon verileri
 backend/users/            Kullanıcı, auth ve preferences
 backend/releases/         Release notes
 launcher.py               Kurulum/çalıştırma/doğrulama launcher'ı
-scripts/starter.py        Daha küçük geliştirme starter'ı
+scripts/launcher/         Launcher'ın modüler uygulama paketi
 docs/                     Mimari, deployment ve kalite dokümantasyonu
 ```
 
@@ -886,21 +886,6 @@ npm run build
 Repository kökündeki bağımlılıksız private npm manifesti aynı komutları
 `frontend/` manifestine yönlendirir; böylece yanlış dizinde çalıştırılan `npm run build`,
 `typecheck`, `format:check` ve `test:ci` farklı veya gevşetilmiş bir kalite yolu kullanmaz.
-
-### Alternatif Starter
-
-`launcher.py` ana önerilen yüzeydir. Daha küçük starter hâlen mevcuttur:
-
-```bash
-python scripts/starter.py check
-python scripts/starter.py install
-python scripts/starter.py check-backend
-python scripts/starter.py start
-```
-
-Starter; `.venv` oluşturma, bağımlılık kurma, local `backend/.env` üretme ve Django/Vite süreçlerini birlikte başlatma gibi temel geliştirme işlerini yapar.
-
----
 
 ## Test ve Kalite Kapıları
 
