@@ -315,6 +315,7 @@ import { isoToTurkishDateTime, getTodayEUFormat } from '@/utils/time'
 import { useOrgsStore } from '@/stores/organizations'
 import { checkArrayEquals } from '@/utils/array'
 import { catOptions, mocOptions, statusColors, statusOptions } from '@/services/compdocCatalog'
+import { shouldLoadCompdocHistory } from '@/services/compdocHistory'
 import { validateForm } from '@/composables/forms'
 
 const formRef = ref<FormInst | null>(null)
@@ -383,8 +384,7 @@ function setPopupMode(mode: string) {
 }
 
 async function handleItemHeaderClick(value: { expanded?: boolean }) {
-  if (!value.expanded || compdoc.value.history !== null) return
-  if (compdoc.value.id === undefined) return
+  if (!shouldLoadCompdocHistory(compdoc.value, value.expanded)) return
 
   const history = await window.$compdocStore.fetchHistory(compdoc.value.id)
   compdoc.value.history = history.map(formatHistoryDate)

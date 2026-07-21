@@ -5,6 +5,15 @@ import axios from 'axios'
 
 const { confirmCompdocImport, previewCompdocImport } =
   await import('../src/services/compdocImports.ts')
+const { shouldLoadCompdocHistory } = await import('../src/services/compdocHistory.ts')
+
+test('loads CompDoc history when list responses omit the lazy-loaded field', () => {
+  assert.equal(shouldLoadCompdocHistory({ id: 'document-id' }, true), true)
+  assert.equal(shouldLoadCompdocHistory({ id: 'document-id', history: null }, true), true)
+  assert.equal(shouldLoadCompdocHistory({ id: 'document-id', history: [] }, true), false)
+  assert.equal(shouldLoadCompdocHistory({ id: 'document-id' }, false), false)
+  assert.equal(shouldLoadCompdocHistory({}, true), false)
+})
 
 test('preview requests persistence-free impact metadata', async () => {
   const captured = await captureRequest(
