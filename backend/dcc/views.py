@@ -61,7 +61,7 @@ class ValuesListSerializer:
         self.data = list(rows)
 
 TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
-JIRA_URL = settings.JIRA_BTB_URL    
+JIRA_URL = settings.JIRA_URL
 PUBLIC_ENDPOINTS = {}
 
 

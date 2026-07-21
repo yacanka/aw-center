@@ -40,7 +40,7 @@ class JiraIssueDraftSerializer(serializers.ModelSerializer):
 
         if not draft.jira_issue_key:
             return None
-        return f"{settings.JIRA_BTB_URL.rstrip('/')}/browse/{draft.jira_issue_key}"
+        return f"{settings.JIRA_URL.rstrip('/')}/browse/{draft.jira_issue_key}"
 
 
 class JiraIssueDraftCreateSerializer(serializers.Serializer):

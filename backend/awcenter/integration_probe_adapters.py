@@ -33,7 +33,7 @@ def probe_integration(identifier: str) -> ProbeOutcome:
 def probe_jira() -> ProbeOutcome:
     """Check whether the configured JIRA origin accepts a connection."""
 
-    return _http_probe(settings.JIRA_BTB_URL, True)
+    return _http_probe(settings.JIRA_URL, True)
 
 
 def probe_teamcenter() -> ProbeOutcome:

@@ -15,7 +15,7 @@ class IntegrationProbeAdapterTests(SimpleTestCase):
 
     @override_settings(
         DEBUG=False,
-        JIRA_BTB_URL="https://jira.internal.example",
+        JIRA_URL="https://jira.internal.example",
         INTEGRATION_PROBE_CONNECT_TIMEOUT_SECONDS=1.5,
         INTEGRATION_PROBE_READ_TIMEOUT_SECONDS=2.5,
     )
@@ -35,7 +35,7 @@ class IntegrationProbeAdapterTests(SimpleTestCase):
         self.assertTrue(keyword_arguments["verify"])
         self.assertFalse(keyword_arguments["allow_redirects"])
 
-    @override_settings(DEBUG=False, JIRA_BTB_URL="http://jira.internal.example")
+    @override_settings(DEBUG=False, JIRA_URL="http://jira.internal.example")
     @patch("awcenter.integration_probe_adapters.requests.head")
     def test_insecure_production_transport_is_not_called(self, get_mock):
         """Production probes fail closed before contacting an insecure origin."""
@@ -45,7 +45,7 @@ class IntegrationProbeAdapterTests(SimpleTestCase):
         self.assertEqual(outcome.status, "degraded")
         get_mock.assert_not_called()
 
-    @override_settings(DEBUG=True, JIRA_BTB_URL="http://localhost:8080")
+    @override_settings(DEBUG=True, JIRA_URL="http://localhost:8080")
     @patch("awcenter.integration_probe_adapters.requests.head")
     def test_network_exception_returns_sanitized_result(self, get_mock):
         """Connection exceptions never expose hostnames or library diagnostics."""
@@ -58,7 +58,7 @@ class IntegrationProbeAdapterTests(SimpleTestCase):
         self.assertNotIn("secret", outcome.detail)
         self.assertNotIn("localhost", outcome.detail)
 
-    @override_settings(DEBUG=False, JIRA_BTB_URL="https://user:password@jira.example")
+    @override_settings(DEBUG=False, JIRA_URL="https://user:password@jira.example")
     @patch("awcenter.integration_probe_adapters.requests.head")
     def test_url_embedded_credentials_are_rejected(self, head_mock):
         """Probe URLs cannot smuggle Basic credentials into the HTTP client."""

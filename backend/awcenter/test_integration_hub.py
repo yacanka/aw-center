@@ -23,7 +23,7 @@ class IntegrationHubTests(TestCase):
         self.assertEqual(response.status_code, 401)
 
     @override_settings(
-        JIRA_BTB_URL="https://jira.internal.example",
+        JIRA_URL="https://jira.internal.example",
         TEAMCENTER_BASE_URL="https://teamcenter.internal.example",
         TEAMCENTER_USERNAME="service-user",
         TEAMCENTER_PASSWORD="service-password",

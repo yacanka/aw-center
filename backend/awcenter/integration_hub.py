@@ -29,7 +29,7 @@ def _jira_integration():
     return _item(
         "jira",
         "JIRA",
-        bool(settings.JIRA_BTB_URL),
+        bool(settings.JIRA_URL),
         "Change control, issue creation, subtasks, attachments and traceability.",
         ["change-control", "issues", "attachments", "workflow"],
         "/dcc",

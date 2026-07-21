@@ -236,8 +236,7 @@ Run from `frontend/`:
 | `PORT` | Required integer | Used for reset URL default and Cheroot bind port. |
 | `DOCPROOF_URL` | Required | DocProof integration base URL. |
 | `DOORS_EXECUTABLE` | Required | DOORS executable path. |
-| `JIRA_LEGACY_URL` | Required | Legacy JIRA URL. |
-| `JIRA_BTB_URL` | Required | Main JIRA URL used by DCC views. |
+| `JIRA_URL` | Required | Main JIRA URL used by DCC views. |
 | `AW_USERNAME` | Optional default `""` | Used by DocProof/DOORS integrations. DOORS code base64-decodes it. |
 | `AW_PASSWORD` | Optional default `""` | Used by DocProof/DOORS integrations. DOORS code base64-decodes it. |
 | `FRONTEND_RESET_URL` | Optional computed default | Password reset frontend link. |
