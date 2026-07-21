@@ -1038,3 +1038,15 @@
 7. Removed the obsolete `window.$compdocStore` dependency from the legacy line algorithm so a table summary can no longer fail before chart creation.
 8. Added aggregation and rendering-contract regression tests. `npm run test:ci`, `npm run typecheck`, `npm run format:check`, and `npm run build` pass.
 9. Performed browser QA against an isolated temporary SQLite database with 12 representative documents: all three dashboard canvases, all three Summary tabs, high-DPI sizing, and the 1024 px responsive layout rendered without console warnings or errors; the temporary database was removed afterward.
+
+## 125. Explainable Compliance Documents risk priorities
+
+1. Added a bounded, policy-versioned risk engine to the complete project dashboard aggregation without introducing another database query.
+2. Scores SLA target overruns, long active-stage waits, re-submission cycles, missing technical references, and authority-review aging with deterministic caps and thresholds.
+3. Returns every contributing signal with its label, points, severity, observed value, threshold, unit, and plain-language explanation while never exposing technical-reference values.
+4. Retains only the highest 25 document priorities in memory while preserving complete project-level risk counts, average score, and maximum score.
+5. Supports project models with one or multiple technical-reference fields and treats any populated reference as sufficient.
+6. Added a dashboard risk card with level filtering, expandable signal explanations, transparent policy thresholds, and an actionable document-review control.
+7. The review action opens the Compliance Documents table with a bounded, sanitized route filter that is applied server-side on the first request.
+8. Added exact scoring, boundary, privacy, bounded-memory, secondary-reference, API-contract, frontend-contract, and strict TypeScript regression coverage without a migration or dependency.
+9. Verified the complete risk flow in the browser against an isolated temporary database: level counts, priority order, score explanations, filtered navigation, and console health all passed; the temporary database was removed afterward.

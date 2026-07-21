@@ -68,9 +68,11 @@ test('CompDoc UI gates every mutation with project model permissions', async () 
   assert.match(table, /hasEffectiveRole\(project\.value, `\$\{action\}_compdoc`\)/)
   assert.match(table, /v-if="canImport"/)
   assert.match(table, /:can-delete="canDelete"/)
+  assert.match(table, /initialFilters/)
   assert.match(toolbar, /v-if="canCreate"/)
   assert.match(toolbar, /v-if="canDelete"/)
   assert.match(remoteTable, /dependencies\.project\.value, dependencies\.canView\.value/)
+  assert.match(remoteTable, /dependencies\.initialFilters/)
   assert.match(popup, /popupMode == 'view' && canEdit/)
 })
 
@@ -110,10 +112,11 @@ test('dashboard requests complete project analytics with cancellation support', 
 })
 
 test('dashboard isolates paginated table state and stale project responses', async () => {
-  const [home, composable, dashboard] = await Promise.all([
+  const [home, composable, dashboard, riskDashboard] = await Promise.all([
     readFile(new URL('../src/views/Home.vue', import.meta.url), 'utf8'),
     readFile(new URL('../src/composables/compdoc/dashboard.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/compdoc/ComplianceDashboard.vue', import.meta.url), 'utf8')
+    readFile(new URL('../src/components/compdoc/ComplianceDashboard.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/compdoc/CompDocRiskDashboard.vue', import.meta.url), 'utf8')
   ])
 
   assert.doesNotMatch(home, /fetchCompdocs|useCompdocStore/)
@@ -121,6 +124,10 @@ test('dashboard isolates paginated table state and stale project responses', asy
   assert.match(composable, /sequence === requestSequence/)
   assert.match(dashboard, /dataQualityIssues/)
   assert.match(dashboard, /invalid_status_flow/)
+  assert.match(dashboard, /CompDocRiskDashboard/)
+  assert.match(riskDashboard, /priority\.signals/)
+  assert.match(riskDashboard, /risk\.policy/)
+  assert.match(riskDashboard, /query: \{ name \}/)
 })
 
 test('CompDoc charts use responsive modern Chart.js rendering paths', async () => {
@@ -189,6 +196,22 @@ function dashboardResponse() {
     pending_days: { authority: 0, ubm: 0, aw: 0 },
     timeline: { scheduled: [], actual: [], today: [], last_scheduled: null, last_actual: null },
     performance: {},
+    risk: {
+      counts: { high: 0, medium: 0, low: 0, none: 0 },
+      at_risk_count: 0,
+      average_score: 0,
+      max_score: 0,
+      priorities: [],
+      policy: {
+        version: 1,
+        high_score: 60,
+        medium_score: 30,
+        long_wait_days: 30,
+        authority_aging_days: 14,
+        max_score: 100,
+        priority_limit: 25
+      }
+    },
     data_quality: { issue_count: 0 },
     generated_at: new Date(0).toISOString()
   }
