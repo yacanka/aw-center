@@ -984,3 +984,8 @@
 1. Removed the redundant `scripts/starter.py`, `scripts/starter_core.py`, and starter-only tests after confirming the root launcher covers setup, checks, tests, development, production, offline packaging, and worker supervision.
 2. Kept `scripts/launcher/` because root `launcher.py` is intentionally a thin entry point importing that package; launcher regression tests remain the supported process contract.
 3. Updated README and repository agent guidance to use only `launcher.py`, eliminating the duplicate startup path that had drifted away from durable worker requirements.
+
+## 119. Backend environment profiles
+
+1. Added committed backend development and production env profiles selected by a local `backend/.env` file through `AWCENTER_ENV_FILE`.
+2. Made settings resolve selected env profile paths relative to `backend/` so Django commands behave consistently from repository root or backend directory.
