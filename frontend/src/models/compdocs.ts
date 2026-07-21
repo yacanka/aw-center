@@ -8,6 +8,7 @@ export interface ICompDoc {
   name: string
   signature_panel: string[]
   ata: string | null
+  cover_page?: string
   cover_page_no: string
   cover_page_issue: string
   tech_doc_no: string

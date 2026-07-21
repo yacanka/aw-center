@@ -1,12 +1,11 @@
 from django.db import models
 from django.conf import settings
-
 from django.utils import timezone
 from django.core.validators import RegexValidator
-
 from simple_history.models import HistoricalRecords
-
 import uuid
+
+from .cover_page_models import CoverPage
 
 STATUS_CHOICES = [
     ('to_be_issued', 'To be Issued'),
@@ -16,6 +15,7 @@ STATUS_CHOICES = [
     ('authority_review', 'Authority Review'),
     ('authority_approved', 'Authority Approved'),
 ]
+
 
 LOI_CHOICES = [
     ("1", "1"),
@@ -29,6 +29,12 @@ class CompDocBase(models.Model):
     class Meta:
         abstract = True
         ordering = ["-created_time", "name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cover_page", "name"],
+                name="%(app_label)s_unique_cover_page_compdoc",
+            ),
+        ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -43,7 +49,13 @@ class CompDocBase(models.Model):
     )
     name = models.CharField(max_length=256)
 
-    cover_page_no = models.CharField(unique=True, default=uuid.uuid4, max_length=32)
+    cover_page = models.ForeignKey(
+        CoverPage,
+        on_delete=models.PROTECT,
+        related_name="%(app_label)s_compliance_documents",
+        editable=False,
+    )
+    cover_page_no = models.CharField(default=uuid.uuid4, max_length=32)
     cover_page_issue = models.CharField(null=True, blank=True)
     tech_doc_no = models.CharField(max_length=64, null=True, blank=True)
     tech_doc_issue = models.CharField(null=True, blank=True)
@@ -64,6 +76,35 @@ class CompDocBase(models.Model):
     history = HistoricalRecords(inherit=True)
 
     created_time = models.DateTimeField(default=timezone.now, editable=False)
+
+    def save(self, *args, **kwargs):
+        """Resolve the canonical project cover page before saving the document."""
+
+        cover_page, cover_page_changed = self._resolve_cover_page()
+        self.cover_page = cover_page
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = {*kwargs["update_fields"], "cover_page"}
+        super().save(*args, **kwargs)
+        if cover_page_changed:
+            self._sync_legacy_cover_page_fields()
+
+    def _resolve_cover_page(self):
+        cover_page, created = CoverPage.objects.get_or_create(
+            project_slug=self._meta.app_label,
+            number=str(self.cover_page_no).strip(),
+            defaults={"issue": self.cover_page_issue},
+        )
+        issue_changed = not created and cover_page.issue != self.cover_page_issue
+        if issue_changed:
+            cover_page.issue = self.cover_page_issue
+            cover_page.save(update_fields=["issue"])
+        return cover_page, created or issue_changed
+
+    def _sync_legacy_cover_page_fields(self):
+        type(self).objects.filter(cover_page=self.cover_page).exclude(pk=self.pk).update(
+            cover_page_no=self.cover_page.number,
+            cover_page_issue=self.cover_page.issue,
+        )
 
     def __str__(self):
         return self.name

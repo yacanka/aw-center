@@ -135,8 +135,7 @@ function kindLabel(kind: AttentionKind): string {
     job: 'Job',
     import: 'Import',
     invitation: 'Invitation',
-    jira_draft: 'JIRA draft',
-    compdoc_trace: 'DCC source'
+    jira_draft: 'JIRA draft'
   }[kind]
 }
 

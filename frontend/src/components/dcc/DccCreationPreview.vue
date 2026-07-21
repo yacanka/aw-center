@@ -4,11 +4,6 @@
       <n-alert type="success" :bordered="false">
         The registered template successfully rendered this exact captured JIRA snapshot.
       </n-alert>
-      <n-alert v-if="refreshSummary" type="info" :bordered="false">
-        <template #header>Credential-free current-source revision</template>
-        The verified JIRA snapshot was reused with {{ refreshSummary.document_count }} current
-        Compliance Documents. The original DCC output remains unchanged.
-      </n-alert>
       <n-card title="DCC readiness" size="small">
         <n-space vertical>
           <n-progress
@@ -51,25 +46,7 @@
         <n-descriptions-item label="Confirmation expires">
           {{ expirationLabel }}
         </n-descriptions-item>
-        <n-descriptions-item v-if="complianceCount" label="Compliance Documents">
-          {{ complianceCount }} immutable records
-        </n-descriptions-item>
-        <n-descriptions-item v-if="complianceCount" label="Source fingerprint">
-          {{ fingerprintLabel }}
-        </n-descriptions-item>
       </n-descriptions>
-      <n-alert v-if="complianceCount" type="success" :bordered="false">
-        <template #header>Traceability register ready</template>
-        Status distribution: {{ complianceStatusLabel }}. The exact selected source versions will be
-        appended to the generated DCC.
-      </n-alert>
-      <DccCompdocRecommendations
-        :job-id="job.id"
-        :available="recommendationsAvailable"
-        :recommendations="recommendations"
-        :candidates-truncated="recommendationCandidatesTruncated"
-        @created="emit('recommendation-preview', $event)"
-      />
       <n-alert v-if="requiresAcknowledgement" type="warning" :bordered="false">
         <n-space align="center">
           <n-switch v-model:value="warningsAcknowledged" />
@@ -92,32 +69,21 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import DccCompdocRecommendations from '@/components/dcc/DccCompdocRecommendations.vue'
 import type { Job } from '@/services/jobs'
 import type { DccReadinessCheck } from '@/services/jobSummaries'
 
 const props = defineProps<{ job: Job; confirming: boolean }>()
 const emit = defineEmits<{
   confirm: [warningCodes: string[]]
-  'recommendation-preview': [job: Job]
 }>()
 
 const summary = computed(() => props.job.result_summary)
-const refreshSummary = computed(() => summary.value.compdoc_refresh)
 const warningsAcknowledged = ref(false)
-const complianceCount = computed(() => summary.value.compliance_document_count || 0)
 const readinessScore = computed(() => summary.value.readiness_score ?? 0)
 const readinessChecks = computed(() => summary.value.readiness_checks || [])
 const warningCodes = computed(() => summary.value.readiness_warning_codes || [])
 const requiresAcknowledgement = computed(
   () => summary.value.requires_readiness_acknowledgement === true
-)
-const recommendationsAvailable = computed(
-  () => summary.value.compdoc_recommendations_available === true
-)
-const recommendations = computed(() => summary.value.compdoc_recommendations || [])
-const recommendationCandidatesTruncated = computed(
-  () => summary.value.compdoc_recommendation_candidates_truncated === true
 )
 const readinessTitle = computed(() =>
   requiresAcknowledgement.value ? 'Human review required' : 'Ready for confirmation'
@@ -126,15 +92,6 @@ const readinessAlertType = computed(() => (requiresAcknowledgement.value ? 'warn
 const readinessProgressStatus = computed(() =>
   requiresAcknowledgement.value ? 'warning' : 'success'
 )
-const fingerprintLabel = computed(() =>
-  (summary.value.compliance_document_fingerprint || '').slice(0, 16)
-)
-const complianceStatusLabel = computed(() => {
-  const statuses = summary.value.compliance_document_statuses || {}
-  return Object.entries(statuses)
-    .map(([status, count]) => `${status.replaceAll('_', ' ')}: ${count}`)
-    .join(', ')
-})
 const expirationLabel = computed(() => {
   if (!props.job.confirmation_expires_at) return 'Unavailable'
   return new Intl.DateTimeFormat(undefined, {

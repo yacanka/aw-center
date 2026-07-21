@@ -30,8 +30,32 @@ def versioned_serializer_factory(model_class):
     class DynamicVersionedSerializer(ModelSerializer):
         source_history_id = serializers.IntegerField(read_only=True)
 
+        def validate(self, attributes):
+            """Reject duplicate document names within the resolved project cover page."""
+
+            number = attributes.get("cover_page_no", getattr(self.instance, "cover_page_no", None))
+            name = attributes.get("name", getattr(self.instance, "name", None))
+            queryset = model_class.objects.filter(cover_page_no=number, name=name)
+            if self.instance is not None:
+                queryset = queryset.exclude(pk=self.instance.pk)
+            if queryset.exists():
+                raise serializers.ValidationError(
+                    {"name": "This compliance document already exists on the cover page."}
+                )
+            return attributes
+
+        def to_representation(self, instance):
+            """Expose cover-page compatibility fields from the canonical relation."""
+
+            data = super().to_representation(instance)
+            if instance.cover_page_id:
+                data["cover_page_no"] = instance.cover_page.number
+                data["cover_page_issue"] = instance.cover_page.issue
+            return data
+
         class Meta:
             model = model_class
             fields = '__all__'
+            read_only_fields = ('cover_page',)
 
     return DynamicVersionedSerializer

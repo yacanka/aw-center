@@ -121,7 +121,7 @@ def view_set_factory(model, serializer_class, view_permission_classes):
         queryset = model.objects.none()
 
         def get(self, request):
-            objs = with_current_history_id(model.objects.all()).order_by("-id")
+            objs = with_current_history_id(model.objects.select_related("cover_page")).order_by("-id")
             return paginated_response(request, objs, serializer_class)
 
         def post(self, request):

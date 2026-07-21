@@ -6,11 +6,6 @@
           JIRA is read once with the temporary session below. The credential is never stored; the
           captured source and generated DOCX remain private in Job Center.
         </n-alert>
-        <DccCompdocSource
-          v-if="hasCompdocSelection"
-          :selection="compdocSelection"
-          @remove="clearCompdocSelection"
-        />
         <n-form label-placement="top" @submit.prevent="previewDcc">
           <n-grid cols="1 700:6" x-gap="12">
             <n-form-item-gi span="1 700:4" label="JIRA task URL or issue key">
@@ -50,7 +45,6 @@
           :job="currentJob"
           :confirming="confirming"
           @confirm="confirmPreview"
-          @recommendation-preview="setCurrentJob"
         />
         <DccJobStatus
           v-if="currentJob"
@@ -70,20 +64,13 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DccCreationPreview from '@/components/dcc/DccCreationPreview.vue'
-import DccCompdocSource from '@/components/dcc/DccCompdocSource.vue'
 import DccJobStatus from '@/components/dcc/DccJobStatus.vue'
-import { useDccCompdocSelection } from '@/composables/useDccCompdocSelection'
 import { formatApiError } from '@/services/apiError'
 import { confirmDccDocumentJob, previewDccDocumentJob } from '@/services/dccJobs'
 import { downloadJob, fetchJob, retryJob, type Job } from '@/services/jobs'
 const route = useRoute()
 const router = useRouter()
 const generator = reactive({ JSESSIONID: '', url: '' })
-const compdocSource = useDccCompdocSelection()
-const compdocSelection = compdocSource.selection
-const hasCompdocSelection = compdocSource.hasSelection
-const initializeCompdocSelection = compdocSource.initialize
-const clearCompdocSelection = compdocSource.clear
 const currentJob = ref<Job | null>(null)
 const errorMessage = ref('')
 const submitting = ref(false)
@@ -100,7 +87,6 @@ onMounted(initialize)
 onBeforeUnmount(stopRefresh)
 async function initialize(): Promise<void> {
   if (typeof route.query.url === 'string') generator.url = route.query.url
-  initializeCompdocSelection()
   if (typeof route.query.dcc_job !== 'string') return
   await refreshJob(route.query.dcc_job)
 }
@@ -109,8 +95,7 @@ async function previewDcc(): Promise<void> {
   submitting.value = true
   errorMessage.value = ''
   try {
-    const selection = hasCompdocSelection.value ? { ...compdocSelection } : undefined
-    setCurrentJob(await previewDccDocumentJob(generator.JSESSIONID, generator.url, selection))
+    setCurrentJob(await previewDccDocumentJob(generator.JSESSIONID, generator.url))
     generator.JSESSIONID = ''
     window.$notification.success({
       title: 'DCC preview ready',

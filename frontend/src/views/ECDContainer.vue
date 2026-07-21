@@ -39,7 +39,7 @@ const sessionField = ref({
 
 function onStart() {
   const savedTab =
-    typeof route.query.dcc_job === 'string' || typeof route.query.compdocs === 'string'
+    typeof route.query.dcc_job === 'string'
       ? 'dcc'
       : localStorage.getItem('jira>active_tab') || 'dcc'
   activeTab.value = savedTab

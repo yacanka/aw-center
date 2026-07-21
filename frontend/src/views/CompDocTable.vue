@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, ref, onUnmounted, watch, computed, nextTick } from 'vue'
+import { h, ref, onUnmounted, watch, computed } from 'vue'
 import {
   NButton,
   NDataTable,
@@ -21,7 +21,6 @@ import UpdateForm from '@/components/compdoc/CompDocPopup.vue'
 import UploadPopup from '@/components/compdoc/UploadPopup.vue'
 import ImportAuditHistory from '@/components/compdoc/ImportAuditHistory.vue'
 import CompDocBulkDelete from '@/components/compdoc/CompDocBulkDelete.vue'
-import CompDocDccBridge from '@/components/compdoc/CompDocDccBridge.vue'
 import Details from '@/components/compdoc/DetailedInfo.vue'
 import GraphComponent from '@/components/compdoc/Graph.vue'
 import DownloadComponent from '@/components/Downloader.vue'
@@ -76,16 +75,6 @@ const canDelete = computed(() =>
 )
 const canImport = computed(() => canAdd.value && canChange.value)
 const canCreate = canImport
-const canBridgeToDcc = computed(
-  () => canView.value && userStore.hasEffectiveRole('dcc', 'add_jira_dcc')
-)
-const canReviewDccImpact = computed(
-  () => canView.value && userStore.hasEffectiveRole('dcc', 'view_jira_dcc')
-)
-const selectedCompdocIds = ref<string[]>([])
-const MAX_DCC_COMPDOC_SELECTION = 50
-const linkedCompdocId = computed(() => normalizeLinkedCompdocId(route.query.compdoc))
-let openedLinkedCompdocId = ''
 
 const columnSettings = ref({
   visible: false,
@@ -107,17 +96,6 @@ const filterValue = ref<Record<string, any>>({})
 const techIssueList = ref<Record<string, any>>({})
 const coverPageIssueList = ref<Record<string, any>>({})
 let currentColumns = ref<DataTableColumns<ICompDoc>>([])
-const bridgeSelectionColumn = {
-  type: 'selection',
-  width: 38,
-  fixed: 'left',
-  disabled: (row: ICompDoc) =>
-    selectedCompdocIds.value.length >= MAX_DCC_COMPDOC_SELECTION &&
-    !selectedCompdocIds.value.includes(String(row.id))
-} as DataTableColumns<ICompDoc>[number]
-const displayedColumns = computed<DataTableColumns<ICompDoc>>(() =>
-  canBridgeToDcc.value ? [bridgeSelectionColumn, ...currentColumns.value] : currentColumns.value
-)
 const checkIssuesButton = ref({
   disabled: false
 })
@@ -500,16 +478,15 @@ const columnSettingsManager = useCompdocColumnSettings({
 columnSettings.value = columnSettingsManager.state
 
 watch(
-  () => [route.params.project, canView.value, linkedCompdocId.value] as const,
+  () => [route.params.project, canView.value] as const,
   ([new_value, hasViewPermission]) => {
     store.setProjectName(new_value as string)
     page.value = 1
-    selectedCompdocIds.value = []
     if (!hasViewPermission) {
       store.clearList()
       return
     }
-    fetchCompdocs().then(openLinkedCompdoc)
+    fetchCompdocs()
 
     orgs.setProject(new_value as string)
     orgs.fetchPanels().then(() => {
@@ -532,32 +509,15 @@ watch(
 )
 
 function buildCompdocQuery() {
-  const query = buildCompdocTableQuery(filterValue.value, {
+  return buildCompdocTableQuery(filterValue.value, {
     page: page.value,
     pageSize: pageSize.value
   })
-  return linkedCompdocId.value ? { ...query, id: linkedCompdocId.value } : query
 }
 
 function fetchCompdocs() {
   if (!canView.value) return Promise.resolve()
   return store.fetchCompdocs(buildCompdocQuery())
-}
-
-async function openLinkedCompdoc(): Promise<void> {
-  const documentId = linkedCompdocId.value
-  if (!documentId || openedLinkedCompdocId === documentId) return
-  await nextTick()
-  const document = store.getCompdocs.find((candidate) => candidate.id === documentId)
-  if (!document || !popupComponent.value) return
-  popupComponent.value.openModal(document, 'view')
-  openedLinkedCompdocId = documentId
-}
-
-function normalizeLinkedCompdocId(value: unknown): string {
-  if (typeof value !== 'string') return ''
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-  return uuidPattern.test(value) ? value : ''
 }
 
 function handlePageUpdate(newPage: number) {
@@ -578,14 +538,6 @@ function showpUploadForm() {
 
 function rowKey(row: ICompDoc) {
   return row.id || ''
-}
-
-function handleSelectionUpdate(keys: Array<string | number>): void {
-  if (keys.length > MAX_DCC_COMPDOC_SELECTION) {
-    window.$message.warning(`Select at most ${MAX_DCC_COMPDOC_SELECTION} compliance documents.`)
-    return
-  }
-  selectedCompdocIds.value = keys.map(String)
 }
 
 function showAddCompDocForm(mode: string) {
@@ -766,11 +718,6 @@ onUnmounted(() => {
         </template>
         Check Issues
       </n-button>
-      <CompDocDccBridge
-        v-if="canBridgeToDcc"
-        :project="projectAppLabel"
-        :selected-ids="selectedCompdocIds"
-      />
       <n-text v-if="checkIssuesButton.disabled || issueCheckProgress.total > 0" depth="3">
         Checked {{ issueCheckProgress.completed }}/{{ issueCheckProgress.total }}
       </n-text>
@@ -817,27 +764,19 @@ onUnmounted(() => {
     ref="table"
     :loading="store.isLoading"
     striped
-    :columns="displayedColumns"
+    :columns="currentColumns"
     :data="store.getCompdocs"
-    :checked-row-keys="selectedCompdocIds"
     remote
     :pagination="pagination"
     :row-key="rowKey"
     @update:filters="handleFilterChange"
     @update:page="handlePageUpdate"
     @update:page-size="handleTablePageSizeUpdate"
-    @update:checked-row-keys="handleSelectionUpdate"
     :filterIconPopoverProps="filterIconPopover"
     size="medium"
   />
 
-  <UpdateForm
-    v-if="canView"
-    ref="popupComponent"
-    :can-edit="canChange"
-    :can-review-dcc-impact="canReviewDccImpact"
-    :project="projectAppLabel"
-  />
+  <UpdateForm v-if="canView" ref="popupComponent" :can-edit="canChange" />
   <UploadPopup v-if="canImport" ref="uploadPopup" :uploadUrl="store.getUploadUrl" />
   <GraphComponent v-if="canView" ref="graphComponent" />
   <DownloadComponent v-if="canView" ref="downloadComponent" />

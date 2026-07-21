@@ -75,8 +75,8 @@ def normalize_rows(prepared, model):
 def duplicate_keys(normalized_rows):
     """Return business keys that occur more than once in the workbook."""
 
-    counts = Counter(payload.get("cover_page_no") for _, payload in normalized_rows)
-    return {key for key, count in counts.items() if key and count > 1}
+    counts = Counter(import_business_key(payload) for _, payload in normalized_rows)
+    return {key for key, count in counts.items() if all(key) and count > 1}
 
 
 def load_existing_instances(model, normalized_rows, lock_existing=False):
@@ -92,7 +92,7 @@ def load_existing_instances(model, normalized_rows, lock_existing=False):
     queryset = model.objects.filter(cover_page_no__in=keys).order_by("cover_page_no")
     if lock_existing:
         queryset = queryset.select_for_update()
-    return {instance.cover_page_no: instance for instance in queryset}
+    return {import_business_key(vars(instance)): instance for instance in queryset}
 
 
 def load_history_watermarks(model, normalized_rows):
@@ -100,25 +100,26 @@ def load_history_watermarks(model, normalized_rows):
 
     keys = {payload.get("cover_page_no") for _, payload in normalized_rows}
     history = model.history.model.objects.filter(cover_page_no__in=keys).values(
-        "cover_page_no", "history_id"
+        "cover_page_no", "name", "tech_doc_no", "history_id"
     ).order_by("cover_page_no", "-history_date", "-history_id")
     watermarks = {}
     for row in history:
-        watermarks.setdefault(row["cover_page_no"], row["history_id"])
+        watermarks.setdefault(import_business_key(row), row["history_id"])
     return watermarks
 
 
 def plan_row(row_number, payload, duplicates, existing, history_watermarks, serializer_class):
     """Validate one row and resolve its intended persistence action."""
 
-    if payload.get("cover_page_no") in duplicates:
+    key = import_business_key(payload)
+    if key in duplicates:
         return None, duplicate_error(row_number, payload)
-    instance = existing.get(payload.get("cover_page_no"))
+    instance = existing.get(key)
     serializer = serializer_class(instance, data=payload)
     if not serializer.is_valid():
         return None, validation_error(row_number, payload, serializer.errors)
     action = resolve_action(instance, serializer.validated_data)
-    source_history_id = history_watermarks.get(payload.get("cover_page_no"))
+    source_history_id = history_watermarks.get(key)
     return PlannedImportRow(row_number, payload, instance, action, source_history_id), None
 
 
@@ -138,8 +139,14 @@ def duplicate_error(row_number, payload):
         row_number,
         payload,
         "ROW_DUPLICATE_KEY",
-        "Cover page number appears more than once in the workbook.",
+        "Cover page and technical document identity appear more than once in the workbook.",
     )
+
+
+def import_business_key(values):
+    """Return the cover-page-scoped compliance-document import identity."""
+
+    return values.get("cover_page_no"), values.get("tech_doc_no") or values.get("name")
 
 
 def validation_error(row_number, payload, errors):
