@@ -11,7 +11,7 @@ from .service.JIRAConnector import JiraConnector
 def publish_to_jira(draft, session_id):
     """Find or create the marker-labelled JIRA task and return its key."""
 
-    client = JiraConnector(server_url=settings.JIRA_BTB_URL, jira_session_id=session_id)
+    client = JiraConnector(server_url=settings.JIRA_URL, jira_session_id=session_id)
     existing = client.find_issue_by_label(draft.marker_label)
     if existing:
         return validate_issue_key(existing.key)

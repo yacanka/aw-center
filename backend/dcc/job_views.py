@@ -85,7 +85,7 @@ def create_snapshot_preview(request, session_id, issue_reference, compdoc_projec
     existing = find_idempotent_job(request.user, JOB_KIND, key)
     if existing:
         return replay_snapshot_preview(request.user, existing, parameters)
-    snapshot = capture_dcc_snapshot(session_id, issue_key, settings.JIRA_BTB_URL)
+    snapshot = capture_dcc_snapshot(session_id, issue_key, settings.JIRA_URL)
     attach_compliance_documents(snapshot, request.user, compdoc_project, compdoc_ids)
     recommendations = recommend_compdocs(snapshot, request.user, compdoc_ids)
     validate_snapshot_size(snapshot)

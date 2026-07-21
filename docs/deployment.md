@@ -49,8 +49,7 @@ These variables are read by `backend/awcenter/settings.py`.
 | `TEAMCENTER_JSESSIONID` / `TEAMCENTER_XSRF_TOKEN` | Cookie mode | Empty | Sensitive session-bound Teamcenter cookies. |
 | `TEAMCENTER_VERIFY_SSL` | No | `true` | Boolean or internal CA bundle; cannot be false in production. |
 | `TEAMCENTER_MAX_RESPONSE_BYTES` | No | `10485760` | Maximum streamed Teamcenter response bytes. |
-| `JIRA_LEGACY_URL` | Yes | None | Legacy JIRA base URL. |
-| `JIRA_BTB_URL` | Yes | None | Main JIRA base URL. |
+| `JIRA_URL` | Yes | None | Main JIRA base URL. |
 | `AW_USERNAME` | No | Empty string | Sensitive integration username; keep external. |
 | `AW_PASSWORD` | No | Empty string | Sensitive integration password; keep external. |
 | `DATABASE_URL` | No | SQLite under `backend/` | Primary database URL. Use PostgreSQL in production. |

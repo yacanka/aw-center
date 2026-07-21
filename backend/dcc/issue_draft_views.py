@@ -105,7 +105,7 @@ def issue_draft_preflight(request, draft_id):
     serializer.is_valid(raise_exception=True)
     session_id = validate_session_id(serializer.validated_data["JSESSIONID"])
     try:
-        client = JiraConnector(settings.JIRA_BTB_URL, jira_session_id=session_id)
+        client = JiraConnector(settings.JIRA_URL, jira_session_id=session_id)
         result, _metadata = inspect_create_contract(draft, client)
     except Exception as error:
         raise JiraDraftPreflightUnavailable() from error

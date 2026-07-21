@@ -32,8 +32,7 @@ services:
       TEAMCENTER_VERIFY_SSL: ${TEAMCENTER_VERIFY_SSL:-true}
       TEAMCENTER_JSESSIONID: ${TEAMCENTER_JSESSIONID:-}
       TEAMCENTER_XSRF_TOKEN: ${TEAMCENTER_XSRF_TOKEN:-}
-      JIRA_LEGACY_URL: http://jira-legacy.local
-      JIRA_BTB_URL: http://jira-btb.local
+      JIRA_URL: http://jira-btb.local
     volumes:
       - backend-media:/app/media
       - backend-models:/app/models
@@ -71,8 +70,7 @@ services:
       CACHE_URL: redis://redis:6379/1
       DOCPROOF_URL: http://docproof.local
       DOORS_EXECUTABLE: /usr/bin/false
-      JIRA_LEGACY_URL: http://jira-legacy.local
-      JIRA_BTB_URL: http://jira-btb.local
+      JIRA_URL: http://jira-btb.local
     volumes:
       - backend-media:/app/media
       - backend-models:/app/models

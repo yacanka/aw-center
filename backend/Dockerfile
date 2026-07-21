@@ -51,8 +51,7 @@ RUN mkdir -p /app/media /app/models /app/private_media /app/static \
         PORT=8000 \
         DOCPROOF_URL=http://localhost/docproof \
         DOORS_EXECUTABLE=/usr/bin/false \
-        JIRA_LEGACY_URL=http://localhost/jira-legacy \
-        JIRA_BTB_URL=http://localhost/jira-btb \
+        JIRA_URL=http://localhost/jira-btb \
     && python manage.py collectstatic --noinput \
     && python manage.py verify_frontend_artifact \
     && adduser --disabled-password --gecos "" awcenter \
