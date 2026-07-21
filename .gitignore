@@ -69,6 +69,9 @@ backend/core/assets/
 !.env.example
 backend/.env
 backend/.env.*
+!backend/.env.example
+!backend/.env.development
+!backend/.env.production
 *.pem
 *.crt
 *.cer
