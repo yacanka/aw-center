@@ -5,7 +5,12 @@ from datetime import date, datetime
 
 from django.utils import timezone
 
-from common.compdoc_dashboard_timeline import build_timeline
+from common.compdoc_dashboard_summary import serialize_dashboard_state
+from common.compdoc_risk import (
+    DEFAULT_RISK_POLICY,
+    accumulate_document_risk,
+    create_risk_state,
+)
 
 
 STATUS_KEYS = (
@@ -27,30 +32,35 @@ PENDING_BUCKETS = {
 DATE_FORMATS = ("%d.%m.%Y", "%Y-%m-%d", "%Y/%m/%d")
 
 
-def build_compdoc_dashboard(queryset, today=None):
+def build_compdoc_dashboard(queryset, today=None, risk_policy=DEFAULT_RISK_POLICY):
     """Aggregate the complete queryset into a safe dashboard contract."""
 
     current_day = today or timezone.localdate()
     state = _empty_state(current_day)
     for document in queryset.iterator(chunk_size=500):
-        _accumulate_document(state, document)
-    return _serialize_state(state)
+        _accumulate_document(state, document, risk_policy)
+    return serialize_dashboard_state(state, risk_policy)
 
 
 def _empty_state(current_day):
     return {
         "today": current_day,
         "total": 0,
-        "statuses": Counter({key: 0 for key in STATUS_KEYS}),
-        "panels": defaultdict(Counter),
+        "statuses": _empty_status_counts(),
+        "panels": defaultdict(_empty_status_counts),
         "pending_days": Counter({"authority": 0, "ubm": 0, "aw": 0}),
         "scheduled": Counter(),
         "actual": Counter(),
         "quality": Counter(),
+        "risk": create_risk_state(),
     }
 
 
-def _accumulate_document(state, document):
+def _empty_status_counts():
+    return Counter({key: 0 for key in STATUS_KEYS})
+
+
+def _accumulate_document(state, document, risk_policy):
     state["total"] += 1
     entries = _normalize_flow(document["status_flow"], state["quality"])
     dated_entries = _parse_entries(entries, state["quality"])
@@ -61,6 +71,9 @@ def _accumulate_document(state, document):
     _accumulate_panel(state, document.get("panel"), current_status)
     _accumulate_timeline(state, dated_entries)
     _accumulate_pending_days(state, dated_entries)
+    accumulate_document_risk(
+        state["risk"], document, dated_entries, current_status, state["today"], risk_policy
+    )
 
 
 def _normalize_flow(raw_flow, quality):
@@ -140,55 +153,3 @@ def _accumulate_pending_days(state, entries):
             state["pending_days"][bucket] += elapsed
         elif status == "to_be_issued" and index == len(entries) - 1 and elapsed > 0:
             state["pending_days"]["ubm"] += elapsed
-
-
-def _serialize_state(state):
-    timeline = build_timeline(
-        state["scheduled"], state["actual"], state["total"], state["today"]
-    )
-    statuses = dict(state["statuses"])
-    return {
-        "document_count": state["total"],
-        "status_counts": statuses,
-        "panels": _serialize_panels(state["panels"]),
-        "pending_days": dict(state["pending_days"]),
-        "timeline": timeline,
-        "performance": _performance(state["total"], statuses, timeline),
-        "data_quality": _quality_summary(state["quality"]),
-        "generated_at": timezone.now().isoformat(),
-    }
-
-
-def _serialize_panels(panels):
-    result = []
-    for panel, counts in sorted(panels.items(), key=lambda item: item[0].casefold()):
-        values = {key: counts[key] for key in STATUS_KEYS}
-        result.append({"panel": panel, "total": sum(values.values()), **values})
-    return result
-
-
-def _performance(total, statuses, timeline):
-    scheduled_remaining = (timeline["last_scheduled"] or {}).get("y", total)
-    actual_remaining = statuses["to_be_issued"] + statuses["delayed"]
-    return {
-        "scheduled": _metric(total - scheduled_remaining, total),
-        "actual": _metric(total - actual_remaining, total),
-        "approved": _metric(statuses["authority_approved"], total),
-    }
-
-
-def _metric(filled, total):
-    percentage = round((filled / total) * 100) if total else 0
-    return {"filled": filled, "empty": total - filled, "percentage": percentage}
-
-
-def _quality_summary(quality):
-    keys = (
-        "invalid_status_flow",
-        "invalid_dates",
-        "out_of_order_dates",
-        "missing_panel",
-        "unknown_status",
-    )
-    values = {key: quality[key] for key in keys}
-    return {"issue_count": sum(values.values()), **values}

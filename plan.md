@@ -187,10 +187,11 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 1. **Tamamlandı - Tam-proje analytics sözleşmesi:** Dashboard artık sayfalı listenin ilk 50 kaydını bütün proje gibi kullanmıyor; her proje için tek doküman sorgusu ve bounded iterator ile tam veri kümesini özetliyor.
 2. **Tamamlandı - Dayanıklı veri kalitesi sinyalleri:** Bozuk workflow JSON'u, geçersiz/ters tarihler, eksik panel ve bilinmeyen durumlar dashboardu düşürmeden izole edilip kullanıcıya görünür uyarıya dönüşüyor.
 3. **Tamamlandı - Sezgisel ve yarış-güvenli UI:** Ana ekran panel odaklama, durum dağılımı, takvim/teslim trendi, performans ve bekleme günü kartlarına ayrıldı; hızlı proje geçişlerinde eski response yeni seçimi ezemiyor.
-4. **P1 - Risk ve öncelik motoru:** SLA/target aşımı, eksik teknik referans, uzun bekleme, geri gönderim döngüsü ve authority aging sinyallerinden açıklanabilir belge risk skoru üret.
+4. **Tamamlandı - Açıklanabilir risk ve öncelik motoru:** SLA/target aşımı, eksik teknik referans, uzun bekleme, geri gönderim döngüsü ve authority aging sinyalleri; puan katkısı, gözlem, eşik ve gerekçesiyle tek sorguluk dashboard özetine eklendi. En yüksek 25 risk deterministik sıralanıyor ve ilgili belgeyi server-side filtrelenmiş listeye açıyor.
 5. **P1 - Düzeltilebilir veri kalitesi:** Dashboard kalite uyarılarını server-side filtreli CompDoc listesine ve alan-bazlı önerilen düzeltmeye deep-link et.
 6. **P1 - Kayıtlı dashboard görünümleri:** Kullanıcıya özel panel/status/tarih filtreleri, görünüm kaydetme ve paylaşılabilir güvenli URL parametreleri ekle.
 7. **P2 - Tarihsel trend snapshotları:** Günlük proje KPI snapshotlarıyla gerçek dönemsel throughput, approval lead time ve gecikme trendi üret; mevcut kaydın anlık durumundan geçmiş trend türetme.
+8. **P2 - Risk politikası kalibrasyonu:** Üretim gözlemlerinden false-positive/false-negative geri bildirimi topla; proje ve belge sınıfı bazlı SLA eşiklerini yetkili, sürümlü ve audit edilebilir politika konfigürasyonuna taşı.
 
 ## 73. Compliance Documents dynamic table roadmap
 

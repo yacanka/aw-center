@@ -30,6 +30,7 @@
         >
         <n-text depth="3">Updated {{ formattedGeneratedAt }}</n-text>
       </n-flex>
+      <CompDocRiskDashboard :project="activeProject" :risk="summary.risk" />
       <div class="dashboard-grid">
         <div class="dashboard-column">
           <CompDocPanelDashboard
@@ -61,6 +62,7 @@ import type { DashboardPanel } from '@/models/compdocDashboard'
 import { isoToTurkishDateTime } from '@/utils/time'
 import { useCompdocDashboard } from '@/composables/compdoc/dashboard'
 import CompDocPanelDashboard from './CompDocPanelDashboard.vue'
+import CompDocRiskDashboard from './CompDocRiskDashboard.vue'
 import CompDocStatusDashboard from './CompDocStatusDashboard.vue'
 import CompDocTimelineDashboard from './CompDocTimelineDashboard.vue'
 

@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 
 from common.compdoc_dashboard import build_compdoc_dashboard
 from common.cover_page_models import CoverPage
+from common.compdoc_risk import get_dashboard_value_fields
 from projects.ozgur.models import CompDoc
 
 from .compdoc_import_test_utils import grant_model_permissions
@@ -67,7 +68,9 @@ class CompDocDashboardAggregationTests(TestCase):
         )
 
         summary = self._summary(today=date(2026, 1, 11))
-        empty = build_compdoc_dashboard(CompDoc.objects.none().values("panel", "status_flow"))
+        empty = build_compdoc_dashboard(
+            CompDoc.objects.none().values(*get_dashboard_value_fields(CompDoc))
+        )
 
         self.assertEqual(summary["status_counts"]["delayed"], 1)
         self.assertEqual(summary["pending_days"]["ubm"], 10)
@@ -75,7 +78,7 @@ class CompDocDashboardAggregationTests(TestCase):
 
     def _summary(self, today=None):
         return build_compdoc_dashboard(
-            CompDoc.objects.values("panel", "status_flow"), today=today
+            CompDoc.objects.values(*get_dashboard_value_fields(CompDoc)), today=today
         )
 
     @staticmethod
@@ -111,6 +114,8 @@ class CompDocDashboardApiTests(TestCase):
         self.assertEqual(denied.status_code, 403)
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(allowed.data["document_count"], 0)
+        self.assertEqual(allowed.data["risk"]["at_risk_count"], 0)
+        self.assertEqual(allowed.data["risk"]["policy"]["version"], 1)
 
     def test_dashboard_uses_one_document_query(self):
         """Aggregation remains constant-query as document volume grows."""

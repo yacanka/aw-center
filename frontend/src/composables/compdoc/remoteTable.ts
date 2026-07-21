@@ -10,6 +10,7 @@ interface RemoteTableDependencies {
   project: Ref<string>
   canView: Ref<boolean>
   columnOverrides: Ref<DataTableColumns<ICompDoc>>
+  initialFilters?: Ref<Record<string, unknown>>
 }
 
 const filterIconPopover: PopoverProps = {
@@ -81,7 +82,7 @@ export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
   function resetQueryState() {
     page.value = 1
     ordering.value = null
-    filters.value = {}
+    filters.value = { ...(dependencies.initialFilters?.value || {}) }
   }
 
   function clearTable() {

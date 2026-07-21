@@ -26,6 +26,10 @@ const canImport = computed(() => canAdd.value && canChange.value)
 const canViewAudits = computed(() =>
   userStore.hasEffectiveRole('common', 'view_compdocimportaudit')
 )
+const initialFilters = computed(() => {
+  const name = typeof route.query.name === 'string' ? route.query.name.trim().slice(0, 256) : ''
+  return name ? { name } : {}
+})
 const popup = ref()
 const upload = ref()
 const graph = ref()
@@ -34,7 +38,8 @@ const overrides = useCompdocColumnOverrides({ canDelete, popup, download })
 const table = useCompdocRemoteTable({
   project,
   canView,
-  columnOverrides: overrides.columns
+  columnOverrides: overrides.columns,
+  initialFilters
 })
 const issueChecks = useCompdocIssueChecks(
   computed(() => store.getCompdocs),
