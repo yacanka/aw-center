@@ -19,8 +19,27 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env()
-ENV_FILE = Path(os.environ.get("AWCENTER_ENV_FILE", BASE_DIR / ".env"))
-env.read_env(ENV_FILE)
+
+
+def resolve_environment_file_path(selected_file):
+    """Resolve a backend env file path in a cwd-independent way."""
+    environment_file = Path(selected_file).expanduser()
+    if not environment_file.is_absolute():
+        environment_file = BASE_DIR / environment_file
+    return environment_file
+
+
+def get_environment_file_path():
+    """Return the backend env profile selected by OS env or backend/.env."""
+    selected_file = os.environ.get("AWCENTER_ENV_FILE") or env.str("AWCENTER_ENV_FILE", ".env")
+    return resolve_environment_file_path(selected_file)
+
+
+DEFAULT_ENV_FILE = BASE_DIR / ".env"
+env.read_env(DEFAULT_ENV_FILE)
+ENV_FILE = get_environment_file_path()
+if ENV_FILE != DEFAULT_ENV_FILE:
+    env.read_env(ENV_FILE)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
