@@ -24,8 +24,8 @@ export interface ICompDoc {
   requirements: string[]
   status_flow: IStatusFlow[]
   status: string
-  ubm_target_date: string
-  ubm_delivery_date: string
+  ubm_target_date: string | null
+  ubm_delivery_date: string | null
   path: string
   notes: string
   authority_sharing_number: string
@@ -43,25 +43,40 @@ export interface IStatusFlow {
 export interface ICompDocFieldMetadata {
   key: string
   label: string
-  type?: string
-  width?: number | string
-  sorter?: boolean
-  filter?: boolean
-  ellipsis?: boolean
+  type: string
+  width: number
+  filter_kind: CompDocFilterKind
+  sortable: boolean
+  default_visible: boolean
+  ellipsis: boolean
+  choices: ICompDocFieldChoice[]
+  option_source: string | null
 }
 
 export interface ICompDocFieldsResponse {
+  schema_version: number
+  project: string
   fields: ICompDocFieldMetadata[]
 }
 
 export interface IColumnSetting {
   key: string
-  title?: string
-  visible?: boolean
-  width?: number | string
-  sorter?: boolean
-  filter?: boolean
-  ellipsis?: boolean
+  width: number
+  sorter: boolean
+  filter: boolean
+  ellipsis: boolean
+}
+
+export interface CompDocBulkDeleteRequest {
+  confirmation: string
+  expected_count: number
+}
+
+export type CompDocFilterKind = 'none' | 'text' | 'select' | 'date' | 'number' | 'boolean'
+
+export interface ICompDocFieldChoice {
+  value: string | number | boolean
+  label: string
 }
 
 export interface IHistory {

@@ -48,10 +48,13 @@ export async function deleteProject(state: OrganizationState, id: number): Promi
 
 /** Load panels for the selected project. */
 export async function fetchPanels(state: OrganizationState): Promise<void> {
+  const requestedProject = state.project
   await runOrganizationRequest<IPanel[]>(
     state,
     axios.get(`${projectPath(state)}/panels/`),
-    (data) => (state.panels = data)
+    (data) => {
+      if (state.project === requestedProject) state.panels = data
+    }
   )
 }
 

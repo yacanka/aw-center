@@ -5,12 +5,9 @@ import {
   ICompDocFieldMetadata,
   ICompDocFieldsResponse,
   IHistory,
-  IStatusFlow
+  CompDocBulkDeleteRequest
 } from '@/models/compdocs'
-import { toTitleCase } from '@/utils/text'
-import { getDaysDifference, getTodayEUFormat } from '@/utils/time'
-import { createEmptyCompdoc } from '@/services/compdocCatalog'
-import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
+import { withCompdocDisplayStatus } from '@/services/compdocStatus'
 import { handleRequest } from '@/composables/promise'
 import { API_BASE_URL } from '@/services/http'
 import { notifyError, notifySuccess } from '@/services/notify'
@@ -21,77 +18,26 @@ import {
   PaginationQuery
 } from '@/services/pagination'
 
-const BASE_URL = API_BASE_URL
 const errorNotification = notifyError
 const successNotification = notifySuccess
 const COMP_DOCS_PATH = 'compdocs'
 const bonusFieldProjects = ['aesa']
-
-export interface CompDocBulkDeleteRequest {
-  confirmation: string
-  expected_count: number
-}
-
-function createLocalFieldMetadata(key: string) {
-  return {
-    key,
-    label: toTitleCase(key.replaceAll('_', ' ')),
-    width: 15,
-    sorter: true,
-    filter: true,
-    ellipsis: true
-  }
-}
-
-function fieldToSelectOption(field: ICompDocFieldMetadata) {
-  return { label: field.label, value: field.key }
-}
-
-function applyDerivedStatusFields(row: ICompDoc) {
-  const statusFlow = Array.isArray(row.status_flow) ? row.status_flow : []
-  if (statusFlow.length === 0) {
-    row.status = 'Unknown'
-    return
-  }
-
-  row.ubm_target_date = statusFlow[0]?.date
-  row.ubm_delivery_date = statusFlow[1]?.date
-  applyDelayedStatus(statusFlow, row)
-  row.status = statusFlow[statusFlow.length - 1]?.status || 'Unknown'
-}
-
-function applyDelayedStatus(statusFlow: IStatusFlow[], row: ICompDoc) {
-  if (!SHOW_DELAYED_COMPDOCS || statusFlow.length !== 1) return
-  if (statusFlow[0]?.status !== 'to_be_issued') return
-  if ((getDaysDifference(getTodayEUFormat(), String(row.ubm_target_date || '')) || 0) <= 0) return
-  statusFlow[0].status = 'delayed'
-}
-
-function mergeFieldMetadata(serverFields: ICompDocFieldMetadata[]) {
-  const fieldsByKey = new Map(serverFields.map((field) => [field.key, field]))
-  Object.keys(createEmptyCompdoc()).forEach((key) =>
-    fieldsByKey.set(key, fieldsByKey.get(key) || createLocalFieldMetadata(key))
-  )
-  return Array.from(fieldsByKey.values())
-}
 
 export const useCompdocStore = defineStore('compdoc', {
   state: () => ({
     projectName: '',
     compdocs: [] as ICompDoc[],
     loading: true,
+    listRequestId: 0,
     fields: [] as ICompDocFieldMetadata[],
+    fieldsSchemaVersion: 0,
+    fieldsError: null as string | null,
     pagination: { count: 0, next: null, previous: null } as PaginationMeta
   }),
   getters: {
-    getCompdocs: (state) => {
-      state.compdocs.forEach(applyDerivedStatusFields)
-      return state.compdocs
-    },
+    getCompdocs: (state) => state.compdocs.map(withCompdocDisplayStatus),
     getProjectName: (state) => state.projectName,
-    getCompdocFields: (state) => state.fields.map(fieldToSelectOption),
-    getUploadUrl: (state) => `${BASE_URL}/${state.projectName}/compdocs/upload/`,
-    getUpdateUrl: (state) => `${BASE_URL}/${state.projectName}/compdocs/update/`,
+    getUploadUrl: (state) => `${API_BASE_URL}/${state.projectName}/compdocs/upload/`,
     isLoading: (state) => state.loading
   },
   actions: {
@@ -99,23 +45,29 @@ export const useCompdocStore = defineStore('compdoc', {
       this.projectName = name
     },
     clearList() {
+      this.listRequestId += 1
       this.compdocs = []
+      this.loading = false
     },
     checkBonusFields() {
       return bonusFieldProjects.includes(this.projectName)
     },
-    createCompDocFields() {
-      this.fields = Object.keys(createEmptyCompdoc()).map(createLocalFieldMetadata)
-    },
     async fetchCompDocFields() {
+      const requestedProject = this.projectName
+      this.fieldsError = null
       try {
         return await handleRequest<ICompDocFieldsResponse>(
           axios.get(`${this.projectName}/${COMP_DOCS_PATH}/fields/`),
           (data) => {
-            this.fields = mergeFieldMetadata(data.fields)
+            if (this.projectName !== requestedProject) return
+            this.fields = data.fields
+            this.fieldsSchemaVersion = data.schema_version
           },
-          () => {
-            this.createCompDocFields()
+          (errorMessage) => {
+            if (this.projectName !== requestedProject) return
+            this.fields = []
+            this.fieldsError = errorMessage
+            errorNotification(errorMessage)
           }
         )
       } catch {
@@ -123,23 +75,29 @@ export const useCompdocStore = defineStore('compdoc', {
       }
     },
     async fetchCompdocs(query: PaginationQuery = {}) {
+      const requestedProject = this.projectName
+      const requestId = ++this.listRequestId
+      const isCurrent = () =>
+        this.projectName === requestedProject && this.listRequestId === requestId
       this.loading = true
       const response = await handleRequest<ICompDoc[]>(
         axios.get(`${this.projectName}/${COMP_DOCS_PATH}/`, {
-          params: compactPaginationQuery(query)
+          params: compactPaginationQuery(query),
+          paramsSerializer: { indexes: null }
         }),
         (data) => {
-          this.compdocs = data
+          if (isCurrent()) this.compdocs = data
         },
         (errorMsg) => {
+          if (!isCurrent()) return
           errorNotification(errorMsg)
           console.log(errorMsg)
         },
         () => {
-          this.loading = false
+          if (isCurrent()) this.loading = false
         }
       )
-      this.pagination = getPaginationMeta<ICompDoc>(response) || this.pagination
+      if (isCurrent()) this.pagination = getPaginationMeta<ICompDoc>(response) || this.pagination
     },
     async createCompdoc(newCompDocData: ICompDoc) {
       this.loading = true
@@ -225,22 +183,6 @@ export const useCompdocStore = defineStore('compdoc', {
         }
       )
       return history
-    },
-    async createCoverPage(compDocData: ICompDoc) {
-      this.loading = true
-      let res
-      await handleRequest<ICompDoc>(
-        axios.post(`${this.projectName}/${COMP_DOCS_PATH}/`, compDocData), // POST request
-        (data) => {
-          res = data
-        },
-        (errorMsg) => {
-          errorNotification(errorMsg)
-          console.log(errorMsg)
-        },
-        () => (this.loading = false)
-      )
-      return res
     }
   }
 })

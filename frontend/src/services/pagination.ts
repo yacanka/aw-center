@@ -50,7 +50,11 @@ export function getPaginationMeta<T>(payload: unknown): PaginationMeta | null {
 export function compactPaginationQuery(query: PaginationQuery): PaginationQuery {
   return Object.fromEntries(
     Object.entries(query).filter(
-      ([, value]) => value !== null && value !== undefined && value !== ''
+      ([, value]) =>
+        value !== null &&
+        value !== undefined &&
+        value !== '' &&
+        (!Array.isArray(value) || value.length)
     )
   )
 }

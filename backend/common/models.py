@@ -6,15 +6,9 @@ from simple_history.models import HistoricalRecords
 import uuid
 
 from .cover_page_models import CoverPage
+from .compdoc_workflow import WORKFLOW_STATUS_CHOICES, extract_workflow_projection
 
-STATUS_CHOICES = [
-    ('to_be_issued', 'To be Issued'),
-    ('airworthiness_review', 'Airworthiness Review'),
-    ('to_be_re-submitted', 'To be Re-Submitted'),
-    ('to_be_updated', 'To be Updated'),
-    ('authority_review', 'Authority Review'),
-    ('authority_approved', 'Authority Approved'),
-]
+STATUS_CHOICES = WORKFLOW_STATUS_CHOICES
 
 
 LOI_CHOICES = [
@@ -68,6 +62,15 @@ class CompDocBase(models.Model):
 
     requirements = models.JSONField(default=list, null=True, blank=True)
     status_flow = models.JSONField(default=list, null=True, blank=True)
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default="unknown",
+        db_index=True,
+        editable=False,
+    )
+    ubm_target_date = models.DateField(null=True, blank=True, db_index=True, editable=False)
+    ubm_delivery_date = models.DateField(null=True, blank=True, db_index=True, editable=False)
 
     path = models.CharField(max_length=512, null=True, blank=True)
 
@@ -81,9 +84,16 @@ class CompDocBase(models.Model):
         """Resolve the canonical project cover page before saving the document."""
 
         cover_page, cover_page_changed = self._resolve_cover_page()
+        self._sync_workflow_projection()
         self.cover_page = cover_page
         if kwargs.get("update_fields") is not None:
-            kwargs["update_fields"] = {*kwargs["update_fields"], "cover_page"}
+            kwargs["update_fields"] = {
+                *kwargs["update_fields"],
+                "cover_page",
+                "status",
+                "ubm_target_date",
+                "ubm_delivery_date",
+            }
         super().save(*args, **kwargs)
         if cover_page_changed:
             self._sync_legacy_cover_page_fields()
@@ -99,6 +109,12 @@ class CompDocBase(models.Model):
             cover_page.issue = self.cover_page_issue
             cover_page.save(update_fields=["issue"])
         return cover_page, created or issue_changed
+
+    def _sync_workflow_projection(self):
+        projection = extract_workflow_projection(self.status_flow)
+        self.status = projection.status
+        self.ubm_target_date = projection.target_date
+        self.ubm_delivery_date = projection.delivery_date
 
     def _sync_legacy_cover_page_fields(self):
         type(self).objects.filter(cover_page=self.cover_page).exclude(pk=self.pk).update(

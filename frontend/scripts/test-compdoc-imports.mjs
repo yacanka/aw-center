@@ -6,6 +6,7 @@ import axios from 'axios'
 const { confirmCompdocImport, previewCompdocImport } =
   await import('../src/services/compdocImports.ts')
 const { shouldLoadCompdocHistory } = await import('../src/services/compdocHistory.ts')
+const { fetchCompdocDashboard } = await import('../src/services/compdocDashboard.ts')
 
 test('loads CompDoc history when list responses omit the lazy-loaded field', () => {
   assert.equal(shouldLoadCompdocHistory({ id: 'document-id' }, true), true)
@@ -53,19 +54,23 @@ test('import UI refreshes database-conflicted previews without discarding the wo
 })
 
 test('CompDoc UI gates every mutation with project model permissions', async () => {
-  const [table, popup] = await Promise.all([
+  const [table, toolbar, remoteTable, popup] = await Promise.all([
     readFile(new URL('../src/views/CompDocTable.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/compdoc/CompDocTableToolbar.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/composables/compdoc/remoteTable.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/compdoc/CompDocPopup.vue', import.meta.url), 'utf8')
   ])
 
-  assert.match(table, /'view_compdoc'/)
-  assert.match(table, /'add_compdoc'/)
-  assert.match(table, /'change_compdoc'/)
-  assert.match(table, /'delete_compdoc'/)
+  assert.match(table, /permission\('view'\)/)
+  assert.match(table, /permission\('add'\)/)
+  assert.match(table, /permission\('change'\)/)
+  assert.match(table, /permission\('delete'\)/)
+  assert.match(table, /hasEffectiveRole\(project\.value, `\$\{action\}_compdoc`\)/)
   assert.match(table, /v-if="canImport"/)
-  assert.match(table, /v-if="canCreate"/)
-  assert.match(table, /v-if="canDelete"/)
-  assert.match(table, /\[route\.params\.project, canView\.value\]/)
+  assert.match(table, /:can-delete="canDelete"/)
+  assert.match(toolbar, /v-if="canCreate"/)
+  assert.match(toolbar, /v-if="canDelete"/)
+  assert.match(remoteTable, /dependencies\.project\.value, dependencies\.canView\.value/)
   assert.match(popup, /popupMode == 'view' && canEdit/)
 })
 
@@ -79,6 +84,64 @@ test('bulk delete requires the exact project phrase and reviewed server count', 
   assert.match(component, /expected_count: props\.count/)
   assert.match(store, /axios\.delete\([\s\S]*\{ data: payload \}/)
   assert.match(store, /pagination = \{ count: 0, next: null, previous: null \}/)
+})
+
+test('CompDoc table rejects stale project and list responses', async () => {
+  const [store, organizations] = await Promise.all([
+    readFile(new URL('../src/stores/compdoc.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/stores/organizationProjects.ts', import.meta.url), 'utf8')
+  ])
+
+  assert.match(store, /const requestedProject = this\.projectName/)
+  assert.match(store, /const requestId = \+\+this\.listRequestId/)
+  assert.match(store, /this\.projectName === requestedProject && this\.listRequestId === requestId/)
+  assert.match(organizations, /if \(state\.project === requestedProject\) state\.panels = data/)
+})
+
+test('dashboard requests complete project analytics with cancellation support', async () => {
+  const controller = new AbortController()
+  const captured = await captureRequest(
+    () => fetchCompdocDashboard('project name', controller.signal),
+    dashboardResponse()
+  )
+
+  assert.equal(captured.url, '/project%20name/compdocs/dashboard/')
+  assert.equal(captured.signal, controller.signal)
+})
+
+test('dashboard isolates paginated table state and stale project responses', async () => {
+  const [home, composable, dashboard] = await Promise.all([
+    readFile(new URL('../src/views/Home.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/composables/compdoc/dashboard.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/compdoc/ComplianceDashboard.vue', import.meta.url), 'utf8')
+  ])
+
+  assert.doesNotMatch(home, /fetchCompdocs|useCompdocStore/)
+  assert.match(composable, /activeController\?\.abort\(\)/)
+  assert.match(composable, /sequence === requestSequence/)
+  assert.match(dashboard, /dataQualityIssues/)
+  assert.match(dashboard, /invalid_status_flow/)
+})
+
+test('CompDoc charts use responsive modern Chart.js rendering paths', async () => {
+  const [graph, status, timeline, legacyStore] = await Promise.all([
+    readFile(new URL('../src/components/compdoc/Graph.vue', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../src/components/compdoc/CompDocStatusDashboard.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/components/compdoc/CompDocTimelineDashboard.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(new URL('../src/stores/chartStore.js', import.meta.url), 'utf8')
+  ])
+
+  assert.match(graph, /display-directive="if"/)
+  assert.match(graph, /buildClientCompdocSummary/)
+  assert.match(status, /createStatusChartData/)
+  assert.match(timeline, /createTimelineChartData/)
+  assert.doesNotMatch(legacyStore, /Outlabels|\$compdocStore/)
 })
 
 async function captureRequest(callback, responseData) {
@@ -115,5 +178,18 @@ function previewResponse() {
     rejected_count: 0,
     confirmation_token: 'signed-preview',
     database_state_protected: true
+  }
+}
+
+function dashboardResponse() {
+  return {
+    document_count: 0,
+    status_counts: {},
+    panels: [],
+    pending_days: { authority: 0, ubm: 0, aw: 0 },
+    timeline: { scheduled: [], actual: [], today: [], last_scheduled: null, last_actual: null },
+    performance: {},
+    data_quality: { issue_count: 0 },
+    generated_at: new Date(0).toISOString()
   }
 }

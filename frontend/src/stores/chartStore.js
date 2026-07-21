@@ -2,7 +2,6 @@
 import { getDaysDifference, parseDateFlex, getTodayEUFormat, findPreviousDate } from '@/utils/time'
 import 'chartjs-adapter-date-fns'
 import { parse } from 'date-fns'
-import { useUserStore } from './user'
 import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
 
 import {
@@ -19,7 +18,6 @@ import {
   Tooltip
 } from 'chart.js'
 import annotationPlugin from 'chartjs-plugin-annotation'
-import Outlabels from '@energiency/chartjs-plugin-piechart-outlabels'
 
 let areChartPluginsRegistered = false
 
@@ -40,8 +38,7 @@ export function ensureChartPluginsRegistered() {
     PointElement,
     LineElement,
     TimeScale,
-    annotationPlugin,
-    Outlabels
+    annotationPlugin
   )
 
   areChartPluginsRegistered = true
@@ -144,13 +141,13 @@ export function calculateLineChart(compdocs) {
     .sort(sortByDate)
 
   let total
-  total = window.$compdocStore.getCompdocs.length
+  total = compdocs.length
   scheduled = scheduled.map((item) => {
     total -= item.y
     return { x: item.x, y: total }
   })
 
-  total = window.$compdocStore.getCompdocs.length
+  total = compdocs.length
   actual = actual.map((item) => {
     total -= item.y
     return { x: item.x, y: total }
@@ -216,67 +213,8 @@ export const pieChartOptions = {
       callbacks: {
         label: chartViewPercentage
       }
-    },
-    outlabels: {
-      text: () => null
     }
   }
-}
-
-export function getPieChartOptionsLabel() {
-  const pieChartOptionsLabel = {
-    responsive: false,
-    maintainAspectRatio: false,
-    aspectRatio: 1,
-    radius: '65%',
-    layout: {
-      padding: { right: 50 }
-    },
-    plugins: {
-      legend: {
-        display: true,
-        position: 'bottom',
-        labels: {
-          boxWidth: 10,
-          usePointStyle: true
-        }
-      },
-      title: {
-        display: true,
-        text: 'Documents Status'
-      },
-      tooltip: {
-        callbacks: {
-          label: () => null
-        }
-      },
-      outlabels: {
-        text: (ctx) => {
-          const value = ctx.chart.data.datasets[0].data[ctx.dataIndex]
-          return value == 0 ? null : '%p %l (%v)'
-        },
-        color: window.$userStore?.getPreferences.theme == 'dark' ? '#fff' : '#333639',
-        //color: useUserStore().getPreferences.theme == 'dark' ? '#fff' : '#333639',
-        //backgroundColor: '#333',
-        //borderColor: '#000',
-        borderWidth: 2,
-        borderRadius: 6,
-        padding: { top: -4 },
-        //lineColor: '#fff',
-        lineWidth: 2,
-        stretch: 12,
-        font: {
-          resizable: true,
-          minSize: 8,
-          maxSize: 12,
-          weight: 'bold',
-          lineHeight: 1.1
-        },
-        textAlign: 'center'
-      }
-    }
-  }
-  return pieChartOptionsLabel
 }
 
 /**
@@ -376,9 +314,3 @@ export const barChartOptions = JSON.parse(JSON.stringify(pieChartOptions))
 barChartOptions.plugins.legend.display = false
 barChartOptions.plugins.title.text = 'Document Pending Days'
 barChartOptions.plugins.tooltip.callbacks.label = chartViewPercentage
-
-const pieChartOptionsPercentage = JSON.parse(JSON.stringify(getPieChartOptionsLabel()))
-pieChartOptionsPercentage.plugins.outlabels.text = (ctx) => {
-  const value = ctx.chart.data.datasets[0].data[ctx.dataIndex]
-  return value == 0 ? null : '%l (%p)'
-}

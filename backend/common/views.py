@@ -6,9 +6,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from awcenter.pagination import StandardResultsSetPagination
 
-from common.compdoc_fields import get_compdoc_field_metadata
+from common.compdoc_fields import COMPDOC_TABLE_SCHEMA_VERSION, get_compdoc_field_metadata
 from common.compdoc_bulk_delete import delete_compdoc_collection
 from common.compdoc_permissions import CompDocCollectionPermissions, StrictDjangoModelPermissions
+from common.compdoc_table_query import apply_compdoc_table_query
 from common.compdoc_versions import (
     object_with_current_history,
     update_versioned_compdoc,
@@ -57,10 +58,11 @@ def filtered_queryset(request, queryset):
     return queryset
 
 
-def paginated_response(request, queryset, serializer_class):
+def paginated_response(request, queryset, serializer_class, apply_filters=True):
     """Serialize a queryset using the standard paginated response contract."""
 
-    queryset = filtered_queryset(request, queryset)
+    if apply_filters:
+        queryset = filtered_queryset(request, queryset)
     paginator = StandardResultsSetPagination()
     page = paginator.paginate_queryset(queryset, request)
     serializer = serializer_class(page, many=True, context={"request": request})
@@ -110,7 +112,14 @@ def compdoc_fields_view_factory(model, view_permission_classes):
         queryset = model.objects.none()
 
         def get(self, request):
-            return Response({"fields": get_compdoc_field_metadata(model)}, status=status.HTTP_200_OK)
+            return Response(
+                {
+                    "schema_version": COMPDOC_TABLE_SCHEMA_VERSION,
+                    "project": model._meta.app_label,
+                    "fields": get_compdoc_field_metadata(model),
+                },
+                status=status.HTTP_200_OK,
+            )
 
         permission_classes = [*view_permission_classes, StrictDjangoModelPermissions]
 
@@ -121,8 +130,9 @@ def view_set_factory(model, serializer_class, view_permission_classes):
         queryset = model.objects.none()
 
         def get(self, request):
-            objs = with_current_history_id(model.objects.select_related("cover_page")).order_by("-id")
-            return paginated_response(request, objs, serializer_class)
+            objs = with_current_history_id(model.objects.select_related("cover_page"))
+            objs = apply_compdoc_table_query(request, objs)
+            return paginated_response(request, objs, serializer_class, apply_filters=False)
 
         def post(self, request):
             serializer = serializer_class(data=request.data, context={'request': request})

@@ -1,182 +1,162 @@
 import { reactive, type Ref } from 'vue'
 import type { DataTableColumn, DataTableColumns, SelectOption } from 'naive-ui'
-import type { IColumnSetting, ICompDoc } from '@/models/compdocs'
-import { toTitleCase } from '@/utils/text'
+import type { IColumnSetting, ICompDoc, ICompDocFieldMetadata } from '@/models/compdocs'
 import { getDateFilterMenuFunc } from '@/components/table/advancedFilterMenus'
 import { getStringFilterMenuFunc } from '@/components/table/valueFilterMenus'
-import { getDateFilterFunc, getStringFilterFunc } from '@/services/tableFilters'
+import {
+  getArrayFilterFunc,
+  getBooleanFilterFunc,
+  getDateFilterFunc,
+  getStringFilterFunc
+} from '@/services/tableFilters'
+import {
+  clearCompdocColumnSettings,
+  createAllColumnSettings,
+  createDefaultColumnSettings,
+  readCompdocColumnSettings,
+  reconcileColumnSettings,
+  saveCompdocColumnSettings
+} from '@/services/compdocColumns'
 
-const COLUMN_SETTINGS_STORAGE_KEY = 'compdocs>column_settings'
-const DISABLED_ACTION_KEY = 'actions'
-
-type FilterValue = Ref<Record<string, unknown>>
+type ConfigurableColumn = DataTableColumn<ICompDoc> & Record<string, any>
 type FilterHandler = (attribute: string, filterData: unknown) => void
-type CleanHandler = (attribute: string) => void
 
 export interface ColumnSettingsState {
   visible: boolean
   list: IColumnSetting[]
 }
 
-type ConfigurableColumn = DataTableColumn<ICompDoc> & Record<string, any>
-
 interface ColumnSettingsDependencies {
-  allColumns: Ref<DataTableColumns<ICompDoc>>
+  project: Ref<string>
+  schemaVersion: Ref<number>
+  fields: Ref<ICompDocFieldMetadata[]>
+  columnOverrides: Ref<DataTableColumns<ICompDoc>>
   currentColumns: Ref<DataTableColumns<ICompDoc>>
-  columnSelections: SelectOption[]
-  filterValue: FilterValue
+  ordering: Ref<string | null>
+  filterValue: Ref<Record<string, unknown>>
+  optionSources: () => Record<string, SelectOption[]>
   onFilter: FilterHandler
-  onClean: CleanHandler
+  onClean: (attribute: string) => void
 }
 
-/** Manage persisted compliance document table column preferences. */
+/** Manage schema-safe compliance-document column preferences. */
 export function useCompdocColumnSettings(dependencies: ColumnSettingsDependencies) {
   const state = reactive<ColumnSettingsState>({ visible: false, list: [] })
-
+  const load = () => loadSettings(state, dependencies)
+  const apply = () => applySettings(state, dependencies)
   return {
     state,
-    apply: () => applyColumnSettings(state, dependencies),
-    reset: () => resetColumnSettings(state, dependencies),
-    load: () => loadColumnSettings(state, dependencies.allColumns.value),
-    open: () => openColumnSettings(state, dependencies.columnSelections),
-    handleFieldChange: () => lockSelectedOptions(state, dependencies.columnSelections)
+    load,
+    apply,
+    refresh: () => renderColumns(state, dependencies),
+    open: () => (state.visible = true),
+    reset: () => resetSettings(state, dependencies),
+    useDefault: () => (state.list = createDefaultColumnSettings(dependencies.fields.value)),
+    useAll: () => (state.list = createAllColumnSettings(dependencies.fields.value))
   }
 }
 
-function applyColumnSettings(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
-  state.list = normalizeColumnSettings(state.list)
-  dependencies.currentColumns.value = state.list
-    .map((setting) => buildColumn(setting, dependencies))
-    .filter(Boolean) as DataTableColumns<ICompDoc>
-  localStorage.setItem(COLUMN_SETTINGS_STORAGE_KEY, JSON.stringify(state.list))
+function loadSettings(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
+  state.list = readCompdocColumnSettings(dependencies.project.value, dependencies.fields.value)
 }
 
-function resetColumnSettings(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
-  localStorage.removeItem(COLUMN_SETTINGS_STORAGE_KEY)
-  loadColumnSettings(state, dependencies.allColumns.value)
-  applyColumnSettings(state, dependencies)
+function applySettings(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
+  state.list = reconcileColumnSettings(state.list, dependencies.fields.value)
+  renderColumns(state, dependencies)
+  saveCompdocColumnSettings(
+    dependencies.project.value,
+    dependencies.schemaVersion.value,
+    state.list
+  )
+  state.visible = false
 }
 
-function openColumnSettings(state: ColumnSettingsState, columnSelections: SelectOption[]) {
-  lockSelectedOptions(state, columnSelections)
-  state.visible = true
+function renderColumns(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
+  const configured = state.list.map((setting) => buildColumn(setting, dependencies))
+  dependencies.currentColumns.value = [
+    ...fixedColumns(dependencies.columnOverrides.value, 'start'),
+    ...configured,
+    ...fixedColumns(dependencies.columnOverrides.value, 'end')
+  ]
 }
 
-function lockSelectedOptions(state: ColumnSettingsState, columnSelections: SelectOption[]) {
-  state.list = normalizeColumnSettings(state.list)
-  const selectedKeys = new Set(state.list.map((item) => item.key))
-  columnSelections.forEach((option) => {
-    option.disabled = selectedKeys.has(option.value as string)
-  })
-}
-
-function loadColumnSettings(state: ColumnSettingsState, columns: DataTableColumns<ICompDoc>) {
-  const savedSettings = readSavedSettings()
-  state.list = savedSettings || createDefaultSettings(columns)
-}
-
-function readSavedSettings() {
-  const rawSettings = localStorage.getItem(COLUMN_SETTINGS_STORAGE_KEY)
-  if (!rawSettings) return null
-
-  try {
-    return normalizeColumnSettings(JSON.parse(rawSettings))
-  } catch {
-    localStorage.removeItem(COLUMN_SETTINGS_STORAGE_KEY)
-    return null
-  }
-}
-
-function createDefaultSettings(columns: DataTableColumns<ICompDoc>) {
-  return columns.map((column) => createColumnSetting(column as ConfigurableColumn))
-}
-
-function createColumnSetting(column: ConfigurableColumn): IColumnSetting {
-  return {
-    key: String(column.key || column.type || ''),
-    title: String(column.title || ''),
-    width: column.width,
-    sorter: Boolean(column.sorter),
-    filter: Boolean(column.filter),
-    ellipsis: Boolean(column.ellipsis)
-  }
+function resetSettings(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
+  clearCompdocColumnSettings(dependencies.project.value)
+  state.list = createDefaultColumnSettings(dependencies.fields.value)
+  applySettings(state, dependencies)
 }
 
 function buildColumn(setting: IColumnSetting, dependencies: ColumnSettingsDependencies) {
-  const existingColumn = findExistingColumn(setting.key, dependencies.allColumns.value)
-  return existingColumn
-    ? mergeExistingColumn(existingColumn, setting)
-    : createDynamicColumn(setting, dependencies)
-}
-
-function findExistingColumn(key: string, columns: DataTableColumns<ICompDoc>) {
-  return columns.find((column) => getColumnIdentifier(column as ConfigurableColumn) === key) as
-    ConfigurableColumn | undefined
-}
-
-function getColumnIdentifier(column: ConfigurableColumn) {
-  return String(column.key || column.type || '')
-}
-
-function mergeExistingColumn(column: ConfigurableColumn, setting: IColumnSetting) {
+  const metadata = dependencies.fields.value.find((field) => field.key === setting.key)!
+  const override = findOverride(setting.key, dependencies.columnOverrides.value)
   return {
-    ...column,
-    width: setting.width || column.width,
-    sorter: setting.key === DISABLED_ACTION_KEY ? column.sorter : resolveSorter(setting),
-    ellipsis: resolveEllipsis(setting, column)
+    ...override,
+    title: metadata.label,
+    key: metadata.key,
+    width: setting.width,
+    sorter: setting.sorter ? 'default' : false,
+    sortOrder: resolveSortOrder(metadata.key, dependencies.ordering.value),
+    ...filterProperties(setting, metadata, dependencies),
+    ellipsis: setting.ellipsis ? { tooltip: true } : false
+  } as ConfigurableColumn
+}
+
+function filterProperties(
+  setting: IColumnSetting,
+  metadata: ICompDocFieldMetadata,
+  dependencies: ColumnSettingsDependencies
+) {
+  if (!setting.filter) return { filter: false, renderFilterMenu: undefined }
+  const key = metadata.key
+  if (metadata.filter_kind === 'date') {
+    return {
+      filter: getDateFilterFunc(key),
+      renderFilterMenu: getDateFilterMenuFunc(key, dependencies.onFilter, dependencies.onClean)
+    }
+  }
+  if (metadata.filter_kind === 'text' || metadata.filter_kind === 'number') {
+    return {
+      filter: getStringFilterFunc(key),
+      filterMultiple: false,
+      renderFilterMenu: getStringFilterMenuFunc(
+        key,
+        dependencies.filterValue,
+        dependencies.onFilter
+      )
+    }
+  }
+  const booleanFilter = metadata.filter_kind === 'boolean'
+  return {
+    filter: booleanFilter ? getBooleanFilterFunc(key) : getArrayFilterFunc(key),
+    filterMultiple: !booleanFilter,
+    filterOptions: resolveOptions(metadata, dependencies)
   }
 }
 
-function createDynamicColumn(setting: IColumnSetting, dependencies: ColumnSettingsDependencies) {
-  const columnKey = setting.key
-  return {
-    title: setting.title || toTitleCase(columnKey.replaceAll('_', ' ')),
-    key: columnKey,
-    sorter: resolveSorter(setting),
-    width: setting.width || 12,
-    renderFilterMenu: resolveFilterMenu(setting, dependencies),
-    filter: resolveFilter(setting),
-    ellipsis: setting.ellipsis ? { tooltip: true } : null
+function resolveOptions(metadata: ICompDocFieldMetadata, dependencies: ColumnSettingsDependencies) {
+  if (metadata.option_source) return dependencies.optionSources()[metadata.option_source] || []
+  if (metadata.filter_kind === 'boolean') {
+    return [
+      { label: 'Yes', value: true },
+      { label: 'No', value: false }
+    ]
   }
+  return metadata.choices
 }
 
-function resolveSorter(setting: IColumnSetting) {
-  return setting.sorter ? 'default' : false
+function resolveSortOrder(key: string, ordering: string | null) {
+  if (ordering === key) return 'ascend'
+  if (ordering === `-${key}`) return 'descend'
+  return false
 }
 
-function resolveEllipsis(setting: IColumnSetting, column: ConfigurableColumn) {
-  if (setting.ellipsis === undefined) return column.ellipsis
-  return setting.ellipsis ? { tooltip: true } : false
+function findOverride(key: string, columns: DataTableColumns<ICompDoc>) {
+  return columns.find((column) => String((column as ConfigurableColumn).key || '') === key) || {}
 }
 
-function resolveFilterMenu(setting: IColumnSetting, dependencies: ColumnSettingsDependencies) {
-  if (!setting.filter) return null
-  if (isDateColumn(setting.key))
-    return getDateFilterMenuFunc(setting.key, dependencies.onFilter, dependencies.onClean)
-  return getStringFilterMenuFunc(setting.key, dependencies.filterValue, dependencies.onFilter)
-}
-
-function resolveFilter(setting: IColumnSetting) {
-  if (!setting.filter) return null
-  return isDateColumn(setting.key)
-    ? getDateFilterFunc(setting.key)
-    : getStringFilterFunc(setting.key)
-}
-
-function normalizeColumnSettings(settings: unknown): IColumnSetting[] {
-  if (!Array.isArray(settings)) return []
-  return settings.filter(isValidColumnSetting).map((setting) => ({
-    ...setting,
-    key: setting.key.trim()
-  }))
-}
-
-function isValidColumnSetting(setting: unknown): setting is IColumnSetting {
-  if (!setting || typeof setting !== 'object') return false
-  const key = (setting as Partial<IColumnSetting>).key
-  return typeof key === 'string' && key.trim().length > 0
-}
-
-function isDateColumn(key: string) {
-  return key.includes('date')
+function fixedColumns(columns: DataTableColumns<ICompDoc>, position: 'start' | 'end') {
+  return columns.filter((column) => {
+    const configurable = column as ConfigurableColumn
+    return position === 'start' ? configurable.type === 'expand' : configurable.key === 'actions'
+  })
 }
