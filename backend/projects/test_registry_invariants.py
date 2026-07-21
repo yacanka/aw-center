@@ -75,6 +75,16 @@ class ProjectRegistryInvariantTests(TestCase):
                 self.assertFalse(any("<int:pk>" in pattern for pattern in patterns))
                 self.assertEqual(sum("<uuid:pk>" in pattern for pattern in patterns), 2)
 
+    def test_compdoc_projects_expose_dashboard_route(self):
+        """Every CompDoc-capable project exposes the shared analytics contract."""
+
+        for slug in PROJECT_DEFINITIONS:
+            with self.subTest(slug=slug):
+                module = import_module(f"projects.{slug}.compdocs.urls")
+                route_names = {pattern.name for pattern in module.urlpatterns}
+
+                self.assertIn("compdoc_dashboard", route_names)
+
     def get_disabled_project_definitions(self):
         """Return project definitions that are registered as disabled."""
         return [

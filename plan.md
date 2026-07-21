@@ -181,3 +181,31 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. Anonim self-signup kaldırıldı; kullanıcı oluşturma yönetici yetkisine bağlandı.
 3. Her isteğe güvenli `X-Request-ID` atanıyor; standart hata gövdesi ve backend logları aynı destek referansını taşıyor.
 4. JIRA, Teamcenter, DOORS, DocProof, Office ve medya köprülerini secretsız readiness/capability sözleşmesinde birleştiren Integration Hub eklendi.
+
+## 72. Compliance Documents product dashboard roadmap
+
+1. **Tamamlandı - Tam-proje analytics sözleşmesi:** Dashboard artık sayfalı listenin ilk 50 kaydını bütün proje gibi kullanmıyor; her proje için tek doküman sorgusu ve bounded iterator ile tam veri kümesini özetliyor.
+2. **Tamamlandı - Dayanıklı veri kalitesi sinyalleri:** Bozuk workflow JSON'u, geçersiz/ters tarihler, eksik panel ve bilinmeyen durumlar dashboardu düşürmeden izole edilip kullanıcıya görünür uyarıya dönüşüyor.
+3. **Tamamlandı - Sezgisel ve yarış-güvenli UI:** Ana ekran panel odaklama, durum dağılımı, takvim/teslim trendi, performans ve bekleme günü kartlarına ayrıldı; hızlı proje geçişlerinde eski response yeni seçimi ezemiyor.
+4. **P1 - Risk ve öncelik motoru:** SLA/target aşımı, eksik teknik referans, uzun bekleme, geri gönderim döngüsü ve authority aging sinyallerinden açıklanabilir belge risk skoru üret.
+5. **P1 - Düzeltilebilir veri kalitesi:** Dashboard kalite uyarılarını server-side filtreli CompDoc listesine ve alan-bazlı önerilen düzeltmeye deep-link et.
+6. **P1 - Kayıtlı dashboard görünümleri:** Kullanıcıya özel panel/status/tarih filtreleri, görünüm kaydetme ve paylaşılabilir güvenli URL parametreleri ekle.
+7. **P2 - Tarihsel trend snapshotları:** Günlük proje KPI snapshotlarıyla gerçek dönemsel throughput, approval lead time ve gecikme trendi üret; mevcut kaydın anlık durumundan geçmiş trend türetme.
+
+## 73. Compliance Documents dynamic table roadmap
+
+1. **Tamamlandı - Sunucu-sahipli sütun şeması:** Model alanları; tip, etiket, varsayılan görünürlük, genişlik, filtre türü, seçenek kaynağı ve gerçek sıralanabilirlik kabiliyetiyle sürümlü metadata sözleşmesine dönüştürüldü.
+2. **Tamamlandı - Gerçek remote sorgular:** Metin, çoklu seçim, boolean, sayı ve operatörlü tarih filtreleri ile tek alanlı sıralama allowlist doğrulamasıyla veritabanında, pagination öncesinde uygulanıyor.
+3. **Tamamlandı - Workflow projection:** `status`, UBM hedef tarihi ve UBM teslim tarihi JSON içinden tipli/indexli alanlara projekte edildi; mevcut ve tarihsel kayıtlar migration ile geri dolduruluyor.
+4. **Tamamlandı - Şema-güvenli kullanıcı tercihleri:** Sütun sırası/genişliği/sorter/filter/tooltip tercihleri proje bazında saklanıyor; kaldırılan ve yinelenen alanlar temizleniyor, yeni varsayılan alanlar otomatik ekleniyor.
+5. **Tamamlandı - Geliştirilebilir UI sınırları:** 826 satırlık tablo; remote state, renderer override, DocProof kontrolü, toolbar ve ayar modalı olarak 200 satır altı odaklı modüllere ayrıldı.
+6. **P2 - Sunucu-kalıcı kişisel görünümler:** Local storage tercihlerini kullanıcı hesabına bağlı, isimlendirilebilir ve cihazlar arası senkronize görünüm API'sine taşı.
+
+## 74. Compliance Documents visualization roadmap
+
+1. **Tamamlandı - Grafik görünürlüğü:** Eski pie outlabels eklentisi ve sabit canvas ölçüleri kaldırıldı; modern Chart.js kaydı, responsive yüzeyler ve güvenli boş durumlar eklendi.
+2. **Tamamlandı - Dayanıklı algoritmalar:** Mevcut status, bekleme günü ve timeline veri kümeleri korunarak tarih normalizasyonu, sıralama, sıfır-veri ve hatalı kayıt davranışları saf/test edilebilir servislere taşındı.
+3. **Tamamlandı - Görsel kalite:** Semantik renkler, dark/light tema, yüksek DPI canvas, özel durum legend'i, toplam/yüzde gösterimi, stepped burndown, bugün referansı ve yatay pending-day grafiği eklendi.
+4. **Tamamlandı - Gizli sekme güvenliği:** Tablo Summary modalındaki Status, Pending Days ve Burndown grafikleri yalnız görünür sekmede mount edilerek sıfır boyutlu canvas sorunu giderildi.
+5. **Tamamlandı - Responsive dashboard:** Grafik kartları iki sütunlu esnek gride taşındı ve 1180 px altında tek sütuna düşecek şekilde doğrulandı.
+6. **P2 - Tarihsel karşılaştırma:** Günlük KPI snapshot altyapısı tamamlandığında seçilebilir dönem ve önceki dönem karşılaştırmasını aynı görsel katmana ekle.

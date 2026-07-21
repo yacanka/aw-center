@@ -1,167 +1,151 @@
 <template>
-  <n-modal
-    v-model:show="showModal"
-    preset="dialog"
-    title="Document Summary"
-    :on-after-leave="onAfterLeave"
-    :style="{ width: '600px' }"
-  >
-    <div style="height: 440px; display: flex; align-items: center">
-      <n-tabs placement="top" v-model:value="activeTab" @update:value="handleTabChange">
-        <n-tab-pane name="pie" tab="Pie Chart">
-          <Pie :data="pieChartData" :options="pieChartOptions" :width="480" :height="360" />
-        </n-tab-pane>
-        <n-tab-pane name="bar" tab="Bar Chart">
-          <Bar :data="barChartData" :options="barChartOptions" :width="480" :height="360" />
-        </n-tab-pane>
-        <n-tab-pane name="line" tab="Burndown Graph">
-          <Line
-            :data="lineChartData"
-            :options="getLineChartOptions(null, null)"
-            :width="540"
-            :height="360"
-          />
-        </n-tab-pane>
-      </n-tabs>
-    </div>
-
-    <template #action>
-      <n-button :onClick="closeModal"> OK </n-button>
-    </template>
+  <n-modal v-model:show="showModal" preset="card" title="Document Summary" class="summary-modal">
+    <n-tabs v-model:value="activeTab" :animated="false" type="segment">
+      <n-tab-pane name="status" tab="Status" display-directive="if">
+        <div class="status-pane">
+          <div class="chart-surface chart-surface--status">
+            <Doughnut
+              v-if="statusTotal"
+              :data="statusData"
+              :options="statusOptions"
+              :plugins="[centerTextPlugin]"
+            />
+            <n-empty v-else description="No status data" />
+          </div>
+          <div class="summary-legend">
+            <div v-for="row in visibleStatusRows" :key="row.value" class="legend-row">
+              <span class="legend-dot" :style="{ background: row.color }" />
+              <span>{{ row.label }}</span>
+              <strong>{{ row.count }}</strong>
+              <n-text depth="3">{{ row.percentage }}%</n-text>
+            </div>
+          </div>
+        </div>
+      </n-tab-pane>
+      <n-tab-pane name="pending" tab="Pending Days" display-directive="if">
+        <div class="chart-surface">
+          <Bar :data="pendingData" :options="pendingOptions" />
+        </div>
+      </n-tab-pane>
+      <n-tab-pane name="timeline" tab="Burndown" display-directive="if">
+        <div class="chart-surface">
+          <Line v-if="hasTimeline" :data="timelineData" :options="timelineOptions" />
+          <n-empty v-else description="No schedule or delivery events" />
+        </div>
+      </n-tab-pane>
+    </n-tabs>
   </n-modal>
 </template>
 
-<script setup>
-import { defineAsyncComponent, ref, onMounted } from 'vue'
-import { statusColors, statusOptions } from '@/services/compdocCatalog'
-import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { Bar, Doughnut, Line } from 'vue-chartjs'
+import type { ICompDoc } from '@/models/compdocs'
+import { useUserStore } from '@/stores/user'
+import { resolvePreferredTheme } from '@/services/theme'
+import { buildClientCompdocSummary } from '@/services/compdocChartAlgorithms'
 import {
-  calculateBarChart,
-  calculatePieChart,
-  calculateLineChart,
-  ensureChartPluginsRegistered,
-  pieChartOptions,
-  barChartOptions,
-  getLineChartOptions
-} from '@/stores/chartStore'
+  createPendingChartData,
+  createStatusChartData,
+  createStatusChartRows,
+  createTimelineChartData
+} from '@/services/compdocChartData'
+import {
+  centerTextPlugin,
+  createStatusChartOptions,
+  ensureCompdocChartsRegistered
+} from '@/services/compdocChartTheme'
+import {
+  createPendingChartOptions,
+  createTimelineChartOptions
+} from '@/services/compdocChartAxisOptions'
 
-const Pie = defineAsyncComponent(() => import('vue-chartjs').then((module) => module.Pie))
-const Bar = defineAsyncComponent(() => import('vue-chartjs').then((module) => module.Bar))
-const Line = defineAsyncComponent(() => import('vue-chartjs').then((module) => module.Line))
-ensureChartPluginsRegistered()
-
+ensureCompdocChartsRegistered()
+const userStore = useUserStore()
 const showModal = ref(false)
-const activeTab = ref(null)
-const pieChartData = ref({
-  labels: statusOptions.map((item) => item.label),
-  datasets: [
-    {
-      data: [],
-      radius: '90%',
-      backgroundColor: statusOptions.map((item) => statusColors[item.value].color75),
-      hoverBorderWidth: 3,
-      hoverBorderColor: '#aaaaaa'
-    }
-  ]
-})
+const activeTab = ref(localStorage.getItem('summaryActiveTab') || 'status')
+const documents = ref<ICompDoc[]>([])
+const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
+const summary = computed(() => buildClientCompdocSummary(documents.value))
+const statusRows = computed(() => createStatusChartRows(summary.value.statuses))
+const visibleStatusRows = computed(() => statusRows.value.filter((row) => row.count > 0))
+const statusTotal = computed(() => visibleStatusRows.value.reduce((sum, row) => sum + row.count, 0))
+const statusData = computed(() => createStatusChartData(statusRows.value))
+const statusOptions = computed(() => createStatusChartOptions(theme.value))
+const pendingData = computed(() => createPendingChartData(summary.value.pendingDays))
+const pendingOptions = computed(() => createPendingChartOptions(theme.value))
+const timelineData = computed(() =>
+  createTimelineChartData(summary.value.timeline, documents.value.length)
+)
+const timelineOptions = computed(() =>
+  createTimelineChartOptions(
+    theme.value,
+    summary.value.timeline.today[0]?.x,
+    documents.value.length
+  )
+)
+const hasTimeline = computed(
+  () => summary.value.timeline.scheduled.length > 0 || summary.value.timeline.actual.length > 1
+)
 
-const barChartData = ref({
-  labels: ['Authority', 'UBM', 'AW'],
-  datasets: [
-    {
-      data: [],
-      radius: '90%',
-      backgroundColor: ['#1463bd', '#cf750e', '#c5252d'],
-      hoverBorderWidth: 3,
-      hoverBorderColor: '#aaaaaa'
-    }
-  ]
-})
-
-const lineChartData = ref({
-  datasets: [
-    {
-      label: 'Now',
-      data: [{ x: '2025-08-05', y: 30 }],
-      borderColor: 'black',
-      backgroundColor: 'red',
-      pointBorderColor: 'black',
-      pointBackgroundColor: 'red',
-      pointRadius: 6,
-      pointHoverRadius: 9
-    },
-    {
-      label: 'Scheduled',
-      data: [],
-      backgroundColor: 'gray',
-      borderColor: 'gray',
-      borderDash: [5, 5],
-      tension: 0.2
-    },
-    {
-      label: 'Actual',
-      data: [40, 39, 10, 40, 80, 70],
-      backgroundColor: 'orange',
-      borderColor: 'orange',
-      tension: 0.2
-    }
-  ]
-})
-
-function buildPieDataset(counter) {
-  const dataset = [
-    counter['to_be_issued'] + (SHOW_DELAYED_COMPDOCS ? 0 : counter['delayed']),
-    counter['airworthiness_review'],
-    counter['to_be_re-submitted'],
-    counter['to_be_updated'],
-    counter['authority_review'],
-    counter['authority_approved']
-  ]
-
-  if (SHOW_DELAYED_COMPDOCS) dataset.push(counter['delayed'])
-  return dataset
-}
-
-function openModal(compdocs) {
+function openModal(rows: ICompDoc[]) {
+  documents.value = [...rows]
   showModal.value = true
-
-  const barCounter = calculateBarChart(compdocs)
-  barChartData.value.datasets[0].data = [
-    barCounter['authority'],
-    barCounter['ubm'],
-    barCounter['aw']
-  ]
-
-  const pieCounter = calculatePieChart(compdocs)
-  pieChartData.value.datasets[0].data = buildPieDataset(pieCounter)
-
-  const lineCounter = calculateLineChart(compdocs)
-  lineChartData.value.datasets[0].data = lineCounter['today']
-  lineChartData.value.datasets[1].data = lineCounter['scheduled']
-  lineChartData.value.datasets[2].data = lineCounter['actual']
 }
 
-onMounted(() => {
-  const savedTab = localStorage.getItem('summaryActiveTab')
-  activeTab.value = savedTab ? savedTab : 'bar'
-})
+watch(activeTab, (tab) => localStorage.setItem('summaryActiveTab', tab))
 
-const handleTabChange = (tab) => {
-  localStorage.setItem('summaryActiveTab', tab)
-  activeTab.value = tab
-}
-
-function closeModal() {
-  showModal.value = false
-}
-
-function onAfterLeave() {
-  //activeTab.value = null
-}
-
-defineExpose({
-  openModal
-})
+defineExpose({ openModal })
 </script>
 
-<style></style>
+<style scoped>
+:global(.summary-modal) {
+  width: min(900px, calc(100vw - 32px));
+}
+
+.chart-surface {
+  position: relative;
+  height: 450px;
+  min-width: 0;
+  padding-top: 16px;
+}
+
+.status-pane {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(260px, 0.75fr);
+  gap: 28px;
+  align-items: center;
+}
+
+.chart-surface--status {
+  height: 420px;
+}
+
+.summary-legend {
+  display: grid;
+  gap: 12px;
+}
+
+.legend-row {
+  display: grid;
+  grid-template-columns: 10px minmax(150px, 1fr) 36px 44px;
+  gap: 9px;
+  align-items: center;
+}
+
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+@media (max-width: 680px) {
+  .status-pane {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-surface--status {
+    height: 330px;
+  }
+}
+</style>

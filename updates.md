@@ -1004,3 +1004,37 @@
 3. Persisted successfully validated JSESSIONID values through the shared storage service and DCC store so the JIRA container, DCC Creator, Outlook workflow, and draft preflight reuse one credential.
 4. Kept the credential out of job parameters, artifacts, and audit records; password-manager autofill remains disabled, and explicit logout or authentication failure removes the browser copy.
 5. Updated focused frontend regression coverage for canonical naming, legacy redirect behavior, centralized persistence, and direct-storage isolation in consuming components.
+
+## 122. Complete and resilient Compliance Documents dashboard
+
+1. Replaced first-page client aggregation with a project-scoped `/compdocs/dashboard/` API that analyzes the complete queryset in one document query and bounded iterator chunks.
+2. Added deterministic status, panel, pending-day, scheduled/actual timeline, and performance summaries with safe zero-document behavior.
+3. Isolated malformed workflow entries, invalid dates, out-of-order dates, missing panels, and unknown statuses into explicit data-quality signals instead of allowing one record to crash the dashboard.
+4. Kept the dashboard behind each concrete project's `view_compdoc` permission and added a registry invariant ensuring every CompDoc project exposes the same endpoint.
+5. Replaced the 740-line Home implementation with a 16-line shell and focused dashboard components/composable, all below the repository's 200-line production file limit.
+6. Added request cancellation and monotonic request sequencing so rapid project changes cannot display a stale project's response.
+7. Added panel focus, data-quality guidance, generated-at metadata, full status distributions, schedule/delivery trend, progress indicators, and accumulated pending-day summaries.
+8. Verified backend aggregation/authorization/query count, frontend request/race contracts, Naive UI registration, strict TypeScript, Prettier, production build, and bundle budget.
+
+## 123. Server-owned dynamic Compliance Documents table
+
+1. Replaced frontend-inferred columns with a versioned server schema generated from each concrete project's Django model fields.
+2. Added validated database filtering for text, select, boolean, number, and comparison-based date queries plus allow-listed remote ordering before pagination.
+3. Projected workflow status and UBM milestone dates into typed, indexed, read-only model fields and backfilled current and historical records across all eight projects.
+4. Made delayed and pending workflow states mutually exclusive in remote filtering while retaining a display-only delayed label without mutating API data.
+5. Scoped column preferences by project, reconciled them against every schema change, enforced server capabilities, and added recommended/all-field presets.
+6. Added repeated-query serialization for multi-select filters, ISO date serialization, stale response rejection, panel request race protection, and recoverable schema-load errors.
+7. Split the former 826-line table into focused sub-200-line controllers, renderer overrides, DocProof checks, toolbar, settings UI, and pure preference services.
+8. Added metadata, workflow projection, remote query, invalid ordering, delayed-state, query serialization, and schema reconciliation tests; all backend/frontend/build quality gates pass.
+
+## 124. High-quality Compliance Documents visualizations
+
+1. Removed `@energiency/chartjs-plugin-piechart-outlabels`, its global registration, and obsolete outlabel options that conflicted with the current Chart.js runtime.
+2. Introduced focused chart algorithm, data, theme, and axis-option services; all new production files remain below the repository's 200-line limit.
+3. Kept every existing statistic category while making date parsing calendar-safe, day differences DST-safe, status data zero-safe, and timeline events deterministically sorted.
+4. Added polished responsive doughnut, stepped burndown, and horizontal pending-day charts with high-DPI canvases, semantic colors, readable tooltips, empty states, a center total, and a today annotation.
+5. Added a custom status legend with counts and percentages, improved performance rails, and a responsive two-column dashboard that collapses cleanly below 1180 px.
+6. Rebuilt the table Summary modal around conditionally mounted tabs, preventing Chart.js from measuring hidden canvases and restoring Status, Pending Days, and Burndown visibility.
+7. Removed the obsolete `window.$compdocStore` dependency from the legacy line algorithm so a table summary can no longer fail before chart creation.
+8. Added aggregation and rendering-contract regression tests. `npm run test:ci`, `npm run typecheck`, `npm run format:check`, and `npm run build` pass.
+9. Performed browser QA against an isolated temporary SQLite database with 12 representative documents: all three dashboard canvases, all three Summary tabs, high-DPI sizing, and the 1024 px responsive layout rendered without console warnings or errors; the temporary database was removed afterward.

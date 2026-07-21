@@ -56,6 +56,11 @@ def versioned_serializer_factory(model_class):
         class Meta:
             model = model_class
             fields = '__all__'
-            read_only_fields = ('cover_page',)
+            read_only_fields = (
+                "cover_page",
+                "status",
+                "ubm_target_date",
+                "ubm_delivery_date",
+            )
 
     return DynamicVersionedSerializer
