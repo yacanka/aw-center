@@ -56,7 +56,7 @@ test('CompDoc UI gates every mutation with project model permissions', async () 
   assert.match(table, /v-if="canImport"/)
   assert.match(table, /v-if="canCreate"/)
   assert.match(table, /v-if="canDelete"/)
-  assert.match(table, /\[route\.params\.project, canView\.value, linkedCompdocId\.value\]/)
+  assert.match(table, /\[route\.params\.project, canView\.value\]/)
   assert.match(popup, /popupMode == 'view' && canEdit/)
 })
 

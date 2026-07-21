@@ -131,4 +131,4 @@ class CompdocImportConcurrencyTests(TestCase):
 def create_document(name):
     """Create one import target using the representative workbook business key."""
 
-    return CompDoc.objects.create(name=name, cover_page_no="CP-001")
+    return CompDoc.objects.create(name=name, cover_page_no="CP-001", tech_doc_no="TD-001")

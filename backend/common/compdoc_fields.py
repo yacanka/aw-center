@@ -7,7 +7,11 @@ TEXT_FIELD_TYPES = {"CharField", "TextField", "EmailField"}
 def get_compdoc_field_metadata(model):
     """Return frontend-safe column metadata for concrete compliance-document fields."""
 
-    return [build_field_metadata(field) for field in model._meta.fields]
+    return [
+        build_field_metadata(field)
+        for field in model._meta.fields
+        if field.name != "cover_page"
+    ]
 
 
 def build_field_metadata(field):

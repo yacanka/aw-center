@@ -21,9 +21,6 @@ from jobs.services import (
     IdempotencyConflict, find_idempotent_job, validate_idempotency_key,
 )
 
-from .compdoc_bridge import attach_compliance_documents, parse_compdoc_selection
-from .compdoc_confirmation import validate_compdoc_preview_current
-from .compdoc_recommendations import recommend_compdocs
 from .document_preview import prepare_dcc_preview
 from .document_snapshot import (
     DccSnapshotError, capture_dcc_snapshot, extract_issue_key, validate_snapshot_size,
@@ -50,20 +47,14 @@ def preview_dcc_document_job(request):
     validation_response = validate_request_values(session_id, issue_reference)
     if validation_response:
         return validation_response
-    try:
-        compdoc_project, compdoc_ids = parse_compdoc_selection(request.data)
-    except DccSnapshotError as error:
-        return snapshot_error_response(error)
-    return capture_preview_response(request, session_id, issue_reference, compdoc_project, compdoc_ids)
+    return capture_preview_response(request, session_id, issue_reference)
 
 
-def capture_preview_response(request, session_id, issue_reference, compdoc_project, compdoc_ids):
+def capture_preview_response(request, session_id, issue_reference):
     """Map JIRA and preview failures to sanitized API errors."""
 
     try:
-        return create_snapshot_preview(
-            request, session_id, issue_reference, compdoc_project, compdoc_ids
-        )
+        return create_snapshot_preview(request, session_id, issue_reference)
     except DccSnapshotError as error:
         return snapshot_error_response(error)
     except DccProjectResolutionError:
@@ -76,37 +67,32 @@ def capture_preview_response(request, session_id, issue_reference, compdoc_proje
         return unexpected_capture_response(logger)
 
 
-def create_snapshot_preview(request, session_id, issue_reference, compdoc_project, compdoc_ids):
+def create_snapshot_preview(request, session_id, issue_reference):
     """Create or replay one immutable, owner-bound confirmation preview."""
 
     issue_key = extract_issue_key(issue_reference)
-    parameters = build_preview_parameters(issue_key, compdoc_project, compdoc_ids)
+    parameters = build_preview_parameters(issue_key)
     key = validate_idempotency_key(request.headers.get("Idempotency-Key", ""))
     existing = find_idempotent_job(request.user, JOB_KIND, key)
     if existing:
-        return replay_snapshot_preview(request.user, existing, parameters)
+        return replay_snapshot_preview(existing, parameters)
     snapshot = capture_dcc_snapshot(session_id, issue_key, settings.JIRA_URL)
-    attach_compliance_documents(snapshot, request.user, compdoc_project, compdoc_ids)
-    recommendations = recommend_compdocs(snapshot, request.user, compdoc_ids)
     validate_snapshot_size(snapshot)
-    return persist_snapshot_preview(
-        request, issue_key, parameters, snapshot, recommendations, key
-    )
+    return persist_snapshot_preview(request, issue_key, parameters, snapshot, key)
 
 
-def replay_snapshot_preview(user, existing, parameters):
+def replay_snapshot_preview(existing, parameters):
     """Replay only an identical preview that remains authorized."""
 
     if existing.parameters != parameters:
         raise IdempotencyConflict()
-    validate_compdoc_preview_current(user, existing)
     return job_creation_response(existing, False)
 
 
-def persist_snapshot_preview(request, issue_key, parameters, snapshot, recommendations, key):
+def persist_snapshot_preview(request, issue_key, parameters, snapshot, key):
     """Persist a dry-rendered private snapshot awaiting explicit confirmation."""
 
-    summary = prepare_dcc_preview(snapshot, recommendations)
+    summary = prepare_dcc_preview(snapshot)
     expires_at = timezone.now() + timedelta(seconds=preview_ttl_seconds())
     job, created = create_confirmation_job(
         request.user, JOB_KIND, f"Create DCC for {issue_key}", parameters,
@@ -128,7 +114,6 @@ def confirm_dcc_document_job(request, job_id):
         if job is None:
             return error_response("DCC preview was not found.", code="DCC_PREVIEW_NOT_FOUND", response_status=404)
         try:
-            validate_compdoc_preview_current(request.user, job)
             return confirm_dcc_preview(job, request.data)
         except DccSnapshotError as error:
             return snapshot_error_response(error)

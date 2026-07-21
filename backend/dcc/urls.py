@@ -5,20 +5,8 @@ from .issue_draft_views import (
     issue_draft_publish,
 )
 from .job_views import confirm_dcc_document_job, preview_dcc_document_job
-from .compdoc_traceability_views import compdoc_traceability_list
-from .compdoc_refresh_views import refresh_compdoc_trace_preview
-from .compdoc_recommendation_views import apply_compdoc_recommendations
 
 urlpatterns = [
-    path(
-        'compdoc-traceability/', compdoc_traceability_list,
-        name='compdoc_traceability_list',
-    ),
-    path(
-        'compdoc-traceability/<uuid:trace_id>/refresh-preview/',
-        refresh_compdoc_trace_preview,
-        name='refresh_compdoc_trace_preview',
-    ),
     path(
         'jobs/create-document/preview/', preview_dcc_document_job,
         name='preview_dcc_document_job',
@@ -26,11 +14,6 @@ urlpatterns = [
     path(
         'jobs/create-document/<uuid:job_id>/confirm/', confirm_dcc_document_job,
         name='confirm_dcc_document_job',
-    ),
-    path(
-        'jobs/create-document/<uuid:job_id>/compdoc-recommendations/',
-        apply_compdoc_recommendations,
-        name='apply_compdoc_recommendations',
     ),
     path('issue-drafts/', issue_draft_create, name='issue_draft_create'),
     path('issue-drafts/<uuid:draft_id>/', issue_draft_detail, name='issue_draft_detail'),

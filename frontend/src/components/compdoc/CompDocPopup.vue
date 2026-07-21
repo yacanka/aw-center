@@ -295,29 +295,11 @@
           </n-scrollbar>
         </n-collapse-item>
       </n-collapse>
-      <CompDocDccHistory
-        v-if="popupMode == 'view' && canReviewDccImpact && compdoc.id"
-        :project="project"
-        :compdoc-id="compdoc.id"
-        :allowed="true"
-      />
-      <CompDocChangeImpact
-        v-if="popupMode == 'update' && canReviewDccImpact && compdoc.id"
-        :project="project"
-        :compdoc-id="compdoc.id"
-        :source-history-id="compdoc.source_history_id"
-        :active="showModal"
-        @ready="impactReady = $event"
-      />
     </n-form>
 
     <template #action>
       <n-button v-if="popupMode == 'new'" type="success" @click="addDatabase">New</n-button>
-      <n-button
-        v-else-if="popupMode == 'update' && canEdit"
-        type="warning"
-        :disabled="updateBlocked"
-        @click="updateDatabase"
+      <n-button v-else-if="popupMode == 'update' && canEdit" type="warning" @click="updateDatabase"
         >Update</n-button
       >
     </template>
@@ -325,7 +307,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { ICompDoc, IHistory } from '@/models/compdocs'
 import { NModal, FormRules, FormInst } from 'naive-ui'
 import { Edit24Regular } from '@vicons/fluent'
@@ -334,14 +316,9 @@ import { useOrgsStore } from '@/stores/organizations'
 import { checkArrayEquals } from '@/utils/array'
 import { catOptions, mocOptions, statusColors, statusOptions } from '@/services/compdocCatalog'
 import { validateForm } from '@/composables/forms'
-import CompDocChangeImpact from '@/components/compdoc/CompDocChangeImpact.vue'
-import CompDocDccHistory from '@/components/compdoc/CompDocDccHistory.vue'
 
 const formRef = ref<FormInst | null>(null)
-const props = withDefaults(
-  defineProps<{ canEdit?: boolean; canReviewDccImpact?: boolean; project?: string }>(),
-  { canEdit: false, canReviewDccImpact: false, project: '' }
-)
+const props = withDefaults(defineProps<{ canEdit?: boolean }>(), { canEdit: false })
 
 const rules = ref<FormRules>({
   name: [
@@ -370,8 +347,6 @@ const orgs = useOrgsStore()
 let originalCompdoc: ICompDoc
 const popupMode = ref<string | null>(null)
 const hasExtraFields = ref(false)
-const impactReady = ref(false)
-const updateBlocked = computed(() => props.canReviewDccImpact && !impactReady.value)
 
 function openModal(value: ICompDoc, mode: string) {
   popupMode.value = mode
@@ -379,7 +354,6 @@ function openModal(value: ICompDoc, mode: string) {
 
   originalCompdoc = { ...dummy }
   compdoc.value = { ...dummy }
-  impactReady.value = !props.canReviewDccImpact
   hasExtraFields.value = window.$compdocStore.checkBonusFields()
   showModal.value = true
 }
@@ -405,7 +379,6 @@ async function updateDatabase() {
 
 function setPopupMode(mode: string) {
   if (mode == 'update' && !props.canEdit) return
-  impactReady.value = !props.canReviewDccImpact
   popupMode.value = mode
 }
 

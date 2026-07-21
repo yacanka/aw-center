@@ -8,7 +8,6 @@ from jobs.models import JobStatus
 from jobs.serializers import JobSerializer
 from jobs.services import record_event, set_job_state
 
-from .compdoc_traceability import create_traceability_links
 from .readiness import validate_readiness_acknowledgement
 
 
@@ -24,7 +23,6 @@ def confirm_dcc_preview(job, payload):
         job.delete()
         return expired_preview_response()
     warning_codes = validate_readiness_acknowledgement(job.result_summary, payload)
-    create_traceability_links(job)
     record_acknowledgement(job, warning_codes)
     set_job_state(job, JobStatus.QUEUED, 0, "Preview confirmed; job queued.")
     return Response(JobSerializer(job).data)

@@ -2,15 +2,13 @@
 
 from .document_snapshot import DccSnapshotError
 
-APPROVED_STATUS = "authority_approved"
 MAX_ACKNOWLEDGEMENTS = 16
 
 
-def assess_dcc_readiness(snapshot, missing_fields, compliance):
+def assess_dcc_readiness(snapshot, missing_fields):
     """Return a deterministic score and content-free readiness checklist."""
 
     checks = [template_check(), source_field_check(missing_fields), panel_check(snapshot)]
-    checks.extend(compliance_checks(compliance))
     warnings = [check["code"] for check in checks if check["status"] == "warning"]
     return {
         "readiness_score": readiness_score(checks),
@@ -98,58 +96,6 @@ def panel_check(snapshot):
         "No panel subtasks are captured.",
         "Confirm that a parent-only DCC is intentional or add panel subtasks in JIRA.", 0, 15,
     )
-
-
-def compliance_checks(compliance):
-    """Return traceability, technical-reference, and maturity checks."""
-
-    count = compliance["compliance_document_count"]
-    if not count:
-        return [unlinked_compliance_check()]
-    return [linked_compliance_check(count), technical_reference_check(compliance), maturity_check(compliance)]
-
-
-def unlinked_compliance_check():
-    """Explain optional traceability when no CompDoc source was selected."""
-
-    return check(
-        "DCC_COMPDOC_LINKAGE", "Compliance traceability", "info",
-        "No Compliance Documents are linked to this DCC.",
-        "Link relevant records when this change affects controlled documents.", 0, 0,
-    )
-
-
-def linked_compliance_check(count):
-    """Report a successful immutable CompDoc linkage."""
-
-    return check(
-        "DCC_COMPDOC_LINKAGE", "Compliance traceability", "success",
-        f"{count} immutable Compliance Document sources are linked.",
-        "No action is required.", 10, 10,
-    )
-
-
-def technical_reference_check(compliance):
-    """Score selected documents that carry a technical-document reference."""
-
-    total = compliance["compliance_document_count"]
-    missing = compliance["compliance_documents_without_technical_reference"]
-    covered = total - missing
-    status = "success" if missing == 0 else "warning"
-    detail = f"{covered} of {total} linked documents have a technical reference."
-    hint = "No action is required." if not missing else "Complete missing technical references before approval when applicable."
-    return check("DCC_COMPDOC_TECH_REFERENCE", "Technical references", status, detail, hint, covered * 10, total * 10)
-
-
-def maturity_check(compliance):
-    """Show whether every linked source reached authority approval."""
-
-    total = compliance["compliance_document_count"]
-    approved = compliance["compliance_document_statuses"].get(APPROVED_STATUS, 0)
-    status = "success" if approved == total else "warning"
-    detail = f"{approved} of {total} linked documents are authority approved."
-    hint = "No action is required." if status == "success" else "Review non-approved source states before queueing the DCC."
-    return check("DCC_COMPDOC_MATURITY", "Source maturity", status, detail, hint, approved * 10, total * 10)
 
 
 def readiness_score(checks):

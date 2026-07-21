@@ -140,6 +140,23 @@ class CompDocImportConfirmationTests(TestCase):
             {"ROW_DUPLICATE_KEY"},
         )
 
+    def test_one_cover_page_can_import_multiple_compliance_documents(self):
+        """Distinct technical documents under one cover page are planned independently."""
+
+        second = valid_row(name="Second Compliance Document")
+        second["Tech Doc No"] = "TD-002"
+        content, preview = self.preview([valid_row(), second])
+
+        self.assertEqual(preview.data["created_count"], 2)
+        self.assertEqual(preview.data["rejected_count"], 0)
+        response = self.confirm(
+            workbook_upload_bytes(content), preview.data["confirmation_token"]
+        )
+        documents = list(CompDoc.objects.order_by("name"))
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(documents[0].cover_page_id, documents[1].cover_page_id)
+
     def preview(self, rows):
         """Return exact workbook bytes and preview response."""
 
