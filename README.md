@@ -714,8 +714,7 @@ IPV4_ADDRESS=127.0.0.1
 PORT=8000
 DOCPROOF_URL=http://localhost/docproof
 DOORS_EXECUTABLE=doors
-JIRA_LEGACY_URL=http://localhost/jira-legacy
-JIRA_BTB_URL=http://localhost/jira
+JIRA_URL=http://localhost/jira
 JIRA_DEFAULT_PROJECT_KEY=CHN
 AW_USERNAME=
 AW_PASSWORD=
@@ -753,8 +752,7 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `TEAMCENTER_CONNECT_TIMEOUT_SECONDS` / `TEAMCENTER_READ_TIMEOUT_SECONDS` | `10` / `60` | Bounded HTTP timeout değerleri. |
 | `TEAMCENTER_MAX_READ_RETRIES` | Varsayılan `2` | Yalnızca idempotent read çağrılarının retry sayısı. |
 | `TEAMCENTER_MAX_RESPONSE_BYTES` | Varsayılan `10485760` | Stream edilen Teamcenter response boyut sınırı. |
-| `JIRA_LEGACY_URL` | Zorunlu | Legacy JIRA URL'i. |
-| `JIRA_BTB_URL` | Zorunlu | Ana JIRA URL'i. |
+| `JIRA_URL` | Zorunlu | Ana JIRA URL'i. |
 | `JIRA_DEFAULT_PROJECT_KEY` | `CHN` | Analizden üretilen yeni issue taslaklarının düzenlenebilir başlangıç projesi. |
 | `JIRA_DRAFT_PUBLISH_STALE_SECONDS` | `300` (minimum etkin değer `60`) | Kesilmiş bir yayın rezervasyonunun marker ile güvenli kurtarmaya açılacağı süre. |
 | `AW_USERNAME` | Varsayılan boş | DocProof/DOORS gibi entegrasyonlarda kullanılır; hassas kabul edilmelidir. |
@@ -1008,7 +1006,7 @@ curl -fsS http://localhost:8080/app/
 
 ### Backend check `.env` değişkenleri yüzünden başlamıyor
 
-`IPV4_ADDRESS`, `PORT`, `DOCPROOF_URL`, `DOORS_EXECUTABLE`, `JIRA_LEGACY_URL`, `JIRA_BTB_URL` zorunlu okunur. Launcher env dosyası üretmez. Local yapılandırmayı açıkça oluşturup gözden geçirin:
+`IPV4_ADDRESS`, `PORT`, `DOCPROOF_URL`, `DOORS_EXECUTABLE`, `JIRA_URL` zorunlu okunur. Launcher env dosyası üretmez. Local yapılandırmayı açıkça oluşturup gözden geçirin:
 
 ```bash
 cp .env.example backend/.env
