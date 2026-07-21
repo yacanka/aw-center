@@ -12,6 +12,7 @@ import {
   type PaginationQuery
 } from '@/services/pagination'
 import { API_PATHS } from '@/stores/apiPaths'
+import { readString, removeKey, STORAGE_KEYS, writeString } from '@/services/storage'
 
 type AddDccRequest = { url: string; JSESSIONID: string | null }
 type DccMailRequest = {
@@ -29,7 +30,7 @@ type DccState = {
 
 export const useDccStore = defineStore('dcc', {
   state: () => ({
-    jSessionId: '',
+    jSessionId: readString(STORAGE_KEYS.jiraSession) || '',
     dccList: [] as IDcc[],
     pagination: { count: 0, next: null, previous: null } as PaginationMeta,
     issueInfo: {} as IJira,
@@ -44,7 +45,9 @@ export const useDccStore = defineStore('dcc', {
   actions: {
     /** Set the active JIRA session identifier for DCC requests. */
     setSessionId(id: string): void {
-      this.jSessionId = id
+      this.jSessionId = id.trim()
+      if (this.jSessionId) writeString(STORAGE_KEYS.jiraSession, this.jSessionId)
+      else removeKey(STORAGE_KEYS.jiraSession)
     },
     /** Add the active JIRA session identifier to a mutable request payload. */
     importSessionId(payload: object): void {

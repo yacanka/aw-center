@@ -4,23 +4,27 @@ import test from 'node:test'
 
 const componentUrl = new URL('../src/views/dcc/DCCCreator.vue', import.meta.url)
 const dccServiceUrl = new URL('../src/services/dccJobs.ts', import.meta.url)
+const dccStoreUrl = new URL('../src/stores/dcc.ts', import.meta.url)
+const storageServiceUrl = new URL('../src/services/storage.ts', import.meta.url)
+const routesUrl = new URL('../src/router/routes.ts', import.meta.url)
+const menuUrl = new URL('../src/services/mainMenu.ts', import.meta.url)
 const jobCenterUrl = new URL('../src/views/JobCenter.vue', import.meta.url)
 const sessionConsumerUrls = [
-  '../src/views/ECDContainer.vue',
+  '../src/views/JiraContainer.vue',
   '../src/views/dcc/SubtaskGenerator.vue',
   '../src/views/dcc/ExcelSubtaskGenerator.vue',
   '../src/views/dcc/Watcher.vue',
   '../src/components/dcc/EmailPopup.vue',
   '../src/components/dcc/UploadPopup.vue'
 ].map((path) => new URL(path, import.meta.url))
-const temporaryCredentialUrls = [
+const jiraCredentialUrls = [
   '../src/views/dcc/DCCCreator.vue',
-  '../src/views/ECDContainer.vue',
+  '../src/views/JiraContainer.vue',
   '../src/components/outlook/EcrTask.vue',
   '../src/components/jobs/JiraDraftPreflightPanel.vue'
 ].map((path) => new URL(path, import.meta.url))
 
-test('DCC creator previews and confirms one durable snapshot without browser secrets', async () => {
+test('DCC creator previews and confirms one durable snapshot without job secrets', async () => {
   const [component, service] = await Promise.all([
     readFile(componentUrl, 'utf8'),
     readFile(dccServiceUrl, 'utf8')
@@ -77,14 +81,31 @@ test('Job Center performs one action and links pending DCC previews back to revi
   assert.match(listItem, /job.status === 'awaiting_confirmation'/)
 })
 
-test('DCC tools keep JIRA sessions in memory instead of browser storage', async () => {
-  const sources = await Promise.all(sessionConsumerUrls.map((url) => readFile(url, 'utf8')))
+test('JIRA tools reuse one locally persisted session without direct storage access', async () => {
+  const [store, storage, ...consumers] = await Promise.all([
+    readFile(dccStoreUrl, 'utf8'),
+    readFile(storageServiceUrl, 'utf8'),
+    ...sessionConsumerUrls.map((url) => readFile(url, 'utf8'))
+  ])
 
-  assert.doesNotMatch(sources.join('\n'), /jira>session_id/)
+  assert.match(storage, /jiraSession: 'jira_session_id'/)
+  assert.match(store, /readString\(STORAGE_KEYS\.jiraSession\)/)
+  assert.match(store, /writeString\(STORAGE_KEYS\.jiraSession/)
+  assert.match(store, /removeKey\(STORAGE_KEYS\.jiraSession\)/)
+  assert.doesNotMatch(consumers.join('\n'), /localStorage|sessionStorage/)
 })
 
-test('temporary JIRA credentials cannot be populated as saved login passwords', async () => {
-  const sources = await Promise.all(temporaryCredentialUrls.map((url) => readFile(url, 'utf8')))
+test('JIRA is the canonical navigation and route name', async () => {
+  const [routes, menu] = await Promise.all([readFile(routesUrl, 'utf8'), readFile(menuUrl, 'utf8')])
+
+  assert.match(menu, /menuItem\('JIRA', '\/jira', 'jira'/)
+  assert.match(routes, /path: '\/jira',[\s\S]*name: 'jira'/)
+  assert.doesNotMatch(routes, /path: '\/dcc'/)
+  assert.match(routes, /JiraContainer\.vue/)
+})
+
+test('JIRA session fields cannot be populated as saved login passwords', async () => {
+  const sources = await Promise.all(jiraCredentialUrls.map((url) => readFile(url, 'utf8')))
 
   for (const source of sources) {
     assert.match(source, /input-props/)

@@ -56,7 +56,7 @@ function workflowOptions(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
   return [
     groupItem('Compliance Docs', '/compdocs', 'projects', Book24Regular, projectItems(projects)),
     menuItem('Outlook Task', '/outlook', 'outlook', Mail24Regular),
-    menuItem('ECR Master', '/dcc', 'dcc', EyeTracking24Regular),
+    menuItem('JIRA', '/jira', 'jira', EyeTracking24Regular),
     doorsGroup(),
     developerGroup(),
     menuItem('Teamcenter', '/teamcenter/agent', 'teamcenter', Glasses24Regular),

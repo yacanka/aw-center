@@ -5,6 +5,7 @@ import { handleRequest } from '@/composables/promise'
 import { setAuthToken } from '@/services/http'
 import { notifyError, notifySuccess } from '@/services/notify'
 import { removeKey, STORAGE_KEYS, writeString } from '@/services/storage'
+import { useDccStore } from '@/stores/dcc'
 import {
   compactPaginationQuery,
   getPaginationMeta,
@@ -48,6 +49,7 @@ export const useAuthStore = defineStore('auth', {
     async login(credentials: any) {
       this.loading = true
       let authenticatedUser: IUser | null = null
+      useDccStore().setSessionId('')
       setAuthToken(null)
       removeKey(STORAGE_KEYS.token)
       await handleRequest<LoginResponse>(
@@ -137,10 +139,12 @@ export const useAuthStore = defineStore('auth', {
 
       this.me = {} as IUser
       this.token = ''
+      useDccStore().setSessionId('')
       setAuthToken(null)
       removeKey(STORAGE_KEYS.token)
       removeKey(STORAGE_KEYS.user)
       removeKey(STORAGE_KEYS.project)
+      removeKey(STORAGE_KEYS.jiraSession)
       notifySuccess('Logout successful')
     },
     async fetchPermissions(query: PaginationQuery = {}) {

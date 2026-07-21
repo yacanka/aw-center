@@ -2,7 +2,9 @@ export const STORAGE_KEYS = {
   token: 'token',
   user: 'user',
   project: 'project',
-  quickCommands: 'quick_commands'
+  quickCommands: 'quick_commands',
+  jiraSession: 'jira_session_id',
+  jiraActiveTab: 'jira_active_tab'
 } as const
 
 export function writeString(key: string, value: string) {

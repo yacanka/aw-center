@@ -28,6 +28,7 @@ export function logout() {
   removeKey(STORAGE_KEYS.token)
   removeKey(STORAGE_KEYS.user)
   removeKey(STORAGE_KEYS.project)
+  removeKey(STORAGE_KEYS.jiraSession)
   setAuthToken(null)
 }
 

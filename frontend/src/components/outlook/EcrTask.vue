@@ -74,7 +74,7 @@
       show-password-on="click"
       :input-props="{
         autocomplete: 'one-time-code',
-        name: 'temporary-jira-session'
+        name: 'jira-session-id'
       }"
     />
     <n-flex justify="center" style="margin-top: 10px">
@@ -305,11 +305,12 @@ function ecrApproveProgress() {
 
 function getJiraSession() {
   const item = currentTask.value
-  item.description = 'Waiting for Jira Session ID...'
+  item.description = 'Waiting for JIRA Session ID...'
   item.status = undefined
 
+  sessionPopup.value.input = dcc.getSessionId
   sessionPopup.value.visible = true
-  sessionPopup.value.title = 'Enter Jira Session ID'
+  sessionPopup.value.title = 'Enter JIRA Session ID'
   sessionPopup.value.onClick = connectJiraProgress
 }
 
@@ -318,6 +319,7 @@ async function connectJiraProgress() {
   item.description = 'Connecting JIRA account...'
   try {
     userInfo.value = await dcc.checkSession(sessionPopup.value.input)
+    dcc.setSessionId(sessionPopup.value.input)
     item.events.SuccessEvent()
   } catch (e) {
     item.events.ErrorEvent()
@@ -418,7 +420,7 @@ function addAttachmentSuccess() {
 
 function getJiraSubtaskList() {
   const item = currentTask.value
-  item.description = 'Waiting for Jira subtask selection...'
+  item.description = 'Waiting for JIRA subtask selection...'
   item.status = undefined
 
   subtaskListPopup.value.visible = true
@@ -443,7 +445,7 @@ async function createJiraSubTaskProgress() {
       list: subtaskListPopup.value.input
     }
 
-    item.description = `Creating Jira subtasks for ${createdIssue}...`
+    item.description = `Creating JIRA subtasks for ${createdIssue}...`
     loadingBar.value.status = 'default'
     loadingBar.value.percentage = 0
 

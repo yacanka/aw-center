@@ -13,13 +13,15 @@ import {
   type JiraIssueDraftPreflight
 } from '@/services/jiraIssueDrafts'
 import { useUserStore } from '@/stores/user'
+import { useDccStore } from '@/stores/dcc'
 
 /** Coordinate the owner-visible JIRA draft review lifecycle for one selected job. */
 export function useJiraIssueDraft(selectedJob: () => Job) {
   const userStore = useUserStore()
+  const dccStore = useDccStore()
   const draft = ref<JiraIssueDraft | null>(null)
   const busy = ref(false)
-  const sessionId = ref('')
+  const sessionId = ref(dccStore.getSessionId)
   const preflight = ref<JiraIssueDraftPreflight | null>(null)
   const form = reactive({
     project_key: '',
@@ -78,6 +80,7 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
     if (!current) return
     await run(async () => {
       preflight.value = await preflightJiraIssueDraft(current, sessionId.value)
+      dccStore.setSessionId(sessionId.value)
     }, 'JIRA requirements checked.')
   }
 
@@ -88,10 +91,8 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
   async function publishDraft(): Promise<void> {
     const current = draft.value
     if (!current) return
-    const credential = sessionId.value
-    sessionId.value = ''
     await run(
-      async () => setDraft(await publishJiraIssueDraft(current, credential)),
+      async () => setDraft(await publishJiraIssueDraft(current, sessionId.value)),
       'JIRA Task published.'
     )
   }
@@ -129,7 +130,7 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
 
   function resetPanel(): void {
     draft.value = null
-    sessionId.value = ''
+    sessionId.value = dccStore.getSessionId
     preflight.value = null
   }
 
