@@ -67,7 +67,7 @@
               </n-alert>
               <router-link
                 v-if="job.status === 'awaiting_confirmation'"
-                :to="{ name: 'dcc', query: { dcc_job: job.id } }"
+                :to="{ name: 'jira', query: { dcc_job: job.id } }"
               >
                 Review and confirm in DCC Creator
               </router-link>

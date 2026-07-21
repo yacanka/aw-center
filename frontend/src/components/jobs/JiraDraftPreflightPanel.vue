@@ -2,8 +2,8 @@
   <n-card title="JIRA readiness" size="small" embedded>
     <n-space vertical>
       <n-alert type="info" :bordered="false">
-        Uses the temporary session only to inspect the live Task create screen. The credential is
-        never saved.
+        Uses the session only to inspect the live Task create screen. A successfully validated
+        session is saved in this browser.
       </n-alert>
       <n-input
         :value="sessionId"
@@ -11,9 +11,9 @@
         show-password-on="click"
         :input-props="{
           autocomplete: 'one-time-code',
-          name: 'temporary-jira-session'
+          name: 'jira-session-id'
         }"
-        placeholder="Temporary JIRA session ID"
+        placeholder="JIRA session ID"
         @update:value="emit('update:sessionId', $event)"
       />
       <n-alert v-if="dirty" type="warning" :bordered="false">

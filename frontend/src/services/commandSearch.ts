@@ -22,7 +22,7 @@ const COMMAND_ALIASES: Record<string, string> = {
   '/jobs':
     'islem kuyruk gorev gecmis retry tekrar iptal artifact workflow otomasyon akis recipe pipeline',
   '/outlook': 'mail eposta msg ecr task gorev',
-  '/dcc': 'ecr change degisiklik jira master watcher',
+  '/jira': 'ecr change degisiklik dcc watcher session issue task',
   '/doors/poclinker': 'gereksinim requirement link baglanti poc',
   '/doors/agent': 'gereksinim requirement nesne object',
   '/doors/scripter': 'dxl script kod generator',

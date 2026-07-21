@@ -111,7 +111,7 @@ docs/                     Mimari, deployment ve kalite dokümantasyonu
 ### 1. DCC / ECD ve JIRA Otomasyonları
 
 Backend route kökü: `/dcc/`
-Frontend ekranları: `/app/dcc`, `/app/compare/...`, `/app/compdocs/...`
+Frontend ekranları: `/app/jira`, `/app/compare/...`, `/app/compdocs/...`
 
 Özellikler:
 

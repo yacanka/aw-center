@@ -793,7 +793,7 @@
 ## 101. Durable JIRA-to-DCC document creation
 
 1. Replaced DCC Creator's process-local cache/SSE transport and inline base64 DOCX payload with an owner-scoped `dcc.create_document` Job Center operation and authenticated Blob download.
-2. Uses the temporary JIRA session only while capturing a bounded, versioned, credential-free snapshot; the session is never written to browser storage, job parameters, artifacts, or audit events.
+2. Uses the JIRA session only while capturing a bounded, versioned, credential-free snapshot; the session may be reused from browser local storage but is never written to job parameters, artifacts, or audit events.
 3. Persists the snapshot as a private SHA-256-verified job input, enabling lease recovery and safe retry without repeating JIRA reads or retaining JIRA credentials.
 4. Added a worker executor that resolves only registry-allowlisted templates, renders to isolated storage, validates the output as real OOXML containing `word/document.xml`, and publishes a private artifact fingerprint.
 5. Fixed the zero-subtask undefined-variable failure, handles missing assignees safely, and rejects conflicting explicit Responsible AS values instead of silently choosing one.
@@ -984,6 +984,7 @@
 1. Removed the redundant `scripts/starter.py`, `scripts/starter_core.py`, and starter-only tests after confirming the root launcher covers setup, checks, tests, development, production, offline packaging, and worker supervision.
 2. Kept `scripts/launcher/` because root `launcher.py` is intentionally a thin entry point importing that package; launcher regression tests remain the supported process contract.
 3. Updated README and repository agent guidance to use only `launcher.py`, eliminating the duplicate startup path that had drifted away from durable worker requirements.
+
 ## 119. Backend environment profiles
 
 1. Added committed backend development and production env profiles selected by a local `backend/.env` file through `AWCENTER_ENV_FILE`.
@@ -995,3 +996,11 @@
 2. Added a project-scoped canonical `CoverPage` model and a protected one-to-many relation from every project CompDoc model, including historical-record backfill migrations.
 3. Relaxed the former one-CompDoc-per-cover-page restriction and changed Excel import identity to cover page plus technical-document reference, with document name as the fallback.
 4. Kept `cover_page_no` and `cover_page_issue` in API/workbook contracts as synchronized compatibility fields so existing clients do not need a coordinated migration.
+
+## 121. JIRA navigation and reusable browser session
+
+1. Renamed the frontend's `ECR Master` navigation surface to `JIRA` and replaced its frontend route with `/app/jira` without retaining a legacy `/app/dcc` alias.
+2. Renamed the route and container identities to `jira` and `JiraContainer` while preserving the backend `/dcc/*` API and DCC domain contracts.
+3. Persisted successfully validated JSESSIONID values through the shared storage service and DCC store so the JIRA container, DCC Creator, Outlook workflow, and draft preflight reuse one credential.
+4. Kept the credential out of job parameters, artifacts, and audit records; password-manager autofill remains disabled, and explicit logout or authentication failure removes the browser copy.
+5. Updated focused frontend regression coverage for canonical naming, legacy redirect behavior, centralized persistence, and direct-storage isolation in consuming components.

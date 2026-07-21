@@ -99,7 +99,11 @@ export const routes: RouteRecordRaw[] = [
     meta: { access: navigationAccessPolicy('/users') },
     component: lazyRoute(() => import('@/views/Users.vue'))
   },
-  { path: '/dcc', name: 'dcc', component: lazyRoute(() => import('@/views/ECDContainer.vue')) },
+  {
+    path: '/jira',
+    name: 'jira',
+    component: lazyRoute(() => import('@/views/JiraContainer.vue'))
+  },
   {
     path: '/ddfAssistant',
     name: 'ddfAssistant',

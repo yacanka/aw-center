@@ -98,7 +98,7 @@ export async function preflightJiraIssueDraft(
   return response.data
 }
 
-/** Publish an approved draft with a transient, non-persisted JIRA session. */
+/** Publish an approved draft while keeping the JIRA session out of the durable draft payload. */
 export async function publishJiraIssueDraft(
   draft: JiraIssueDraft,
   sessionId: string

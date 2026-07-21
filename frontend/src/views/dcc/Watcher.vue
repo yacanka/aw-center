@@ -439,7 +439,7 @@ function onUpdateExpandedRowKeys(keys: Array<string | number>) {
     :onUploadSuccess="onSuccessUpload"
     :onAddSuccess="onSuccessAdd"
     title="Upload a DCC"
-    description="Additionally, this process will create a Jira task for DCC"
+    description="Additionally, this process will create a JIRA task for DCC"
   />
   <EmailForm ref="emailPopup" />
   <ApproveForm ref="approvePopup" :onApprove="onApproved" />
