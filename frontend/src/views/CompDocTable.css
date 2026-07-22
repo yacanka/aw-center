@@ -1,0 +1,25 @@
+.cell-color {
+  color: var(--n-text-color);
+}
+
+.cell-color.hovered {
+  color: var(--n-th-icon-color-active);
+}
+
+.compdoc-table-hint {
+  display: block;
+  margin-top: 8px;
+}
+
+.compdoc-row--selected td {
+  background-color: rgba(24, 160, 88, 0.1) !important;
+}
+
+.n-data-table-tr[tabindex='0'] {
+  cursor: pointer;
+}
+
+.n-data-table-tr[tabindex='0']:focus-visible {
+  outline: 2px solid rgba(24, 160, 88, 0.8);
+  outline-offset: -2px;
+}

@@ -7,6 +7,35 @@ const { confirmCompdocImport, previewCompdocImport } =
   await import('../src/services/compdocImports.ts')
 const { shouldLoadCompdocHistory } = await import('../src/services/compdocHistory.ts')
 const { fetchCompdocDashboard } = await import('../src/services/compdocDashboard.ts')
+const { getCompdocReference, humanizeCompdocStatus, joinCompdocValues } =
+  await import('../src/services/compdocWorkspace.ts')
+const [tableSource, workspaceSource, overridesSource, issueColumnsSource] = await Promise.all([
+  readFile(new URL('../src/views/CompDocTable.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../src/components/compdoc/CompDocWorkspace.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../src/composables/compdoc/columnOverrides.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/composables/compdoc/issueColumns.ts', import.meta.url), 'utf8')
+])
+
+test('builds safe operator-facing compliance document labels', () => {
+  assert.equal(humanizeCompdocStatus('authority_approved'), 'Authority approved')
+  assert.equal(humanizeCompdocStatus('to_be_re-submitted'), 'To be re submitted')
+  assert.equal(getCompdocReference({ tech_doc_no: 'TD-42', cover_page_no: 'CP-7' }), 'TD-42')
+  assert.equal(getCompdocReference({ tech_doc_no: '', cover_page_no: 'CP-7' }), 'CP-7')
+  assert.equal(joinCompdocValues(['Panel A', '', 'Panel B']), 'Panel A, Panel B')
+  assert.equal(joinCompdocValues([]), 'Not assigned')
+})
+
+test('opens row workspaces without restoring an actions column', () => {
+  assert.match(tableSource, /:row-props="rowProps"/)
+  assert.match(tableSource, /onDblclick: \(\) => openWorkspace\(document\)/)
+  assert.match(tableSource, /event\.key === 'Enter'/)
+  assert.match(tableSource, /<CompDocWorkspace/)
+  assert.match(workspaceSource, /Quick actions/)
+  assert.match(workspaceSource, /v-if="canEdit"/)
+  assert.match(workspaceSource, /v-if="canDelete"/)
+  assert.doesNotMatch(overridesSource, /key: 'actions'/)
+  assert.match(issueColumnsSource, /event\.stopPropagation\(\)/)
+})
 
 test('loads CompDoc history when list responses omit the lazy-loaded field', () => {
   assert.equal(shouldLoadCompdocHistory({ id: 'document-id' }, true), true)
