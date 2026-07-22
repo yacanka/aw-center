@@ -49,8 +49,10 @@
         <DccJobStatus
           v-if="currentJob"
           :job="currentJob"
+          :cancelling="cancelling"
           :retrying="retrying"
           :downloading="downloading"
+          @cancel="cancelCurrentJob"
           @open="openJobCenter"
           @retry="retryCurrentJob"
           @download="downloadCurrentJob"
@@ -67,7 +69,7 @@ import DccCreationPreview from '@/components/dcc/DccCreationPreview.vue'
 import DccJobStatus from '@/components/dcc/DccJobStatus.vue'
 import { formatApiError } from '@/services/apiError'
 import { confirmDccDocumentJob, previewDccDocumentJob } from '@/services/dccJobs'
-import { downloadJob, fetchJob, retryJob, type Job } from '@/services/jobs'
+import { cancelJob, downloadJob, fetchJob, retryJob, type Job } from '@/services/jobs'
 import { useDccStore } from '@/stores/dcc'
 const route = useRoute()
 const router = useRouter()
@@ -77,6 +79,7 @@ const currentJob = ref<Job | null>(null)
 const errorMessage = ref('')
 const submitting = ref(false)
 const confirming = ref(false)
+const cancelling = ref(false)
 const retrying = ref(false)
 const downloading = ref(false)
 let refreshTimer: number | undefined
@@ -161,6 +164,19 @@ async function retryCurrentJob(): Promise<void> {
     errorMessage.value = formatApiError(error)
   } finally {
     retrying.value = false
+  }
+}
+
+async function cancelCurrentJob(): Promise<void> {
+  if (!currentJob.value) return
+  cancelling.value = true
+  try {
+    setCurrentJob(await cancelJob(currentJob.value.id))
+    window.$message.success('Cancellation requested.')
+  } catch (error) {
+    errorMessage.value = formatApiError(error)
+  } finally {
+    cancelling.value = false
   }
 }
 

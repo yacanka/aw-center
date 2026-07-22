@@ -1,8 +1,8 @@
 <template>
-  <n-card v-if="job.status !== 'awaiting_confirmation'" size="small" :title="job.title" embedded>
+  <n-card v-if="job" size="small" :title="job.title" embedded>
     <n-space vertical>
       <n-space justify="space-between" align="center">
-        <n-tag :type="statusType">{{ job.status.replace('_', ' ') }}</n-tag>
+        <n-tag :type="statusType">{{ statusLabel }}</n-tag>
         <n-text depth="3">Attempt {{ job.attempt }}/{{ job.max_attempts }}</n-text>
       </n-space>
       <n-progress
@@ -21,7 +21,7 @@
           Cancel
         </n-button>
         <n-button v-if="job.can_retry" type="warning" :loading="retrying" @click="$emit('retry')">
-          Retry immutable snapshot
+          Retry
         </n-button>
         <n-button
           v-if="job.download_url"
@@ -29,7 +29,7 @@
           :loading="downloading"
           @click="$emit('download')"
         >
-          Download verified DOCX
+          {{ downloadLabel }}
         </n-button>
       </n-space>
     </n-space>
@@ -40,22 +40,30 @@
 import { computed } from 'vue'
 import type { Job } from '@/services/jobs'
 
-const props = defineProps<{
-  job: Job
-  cancelling: boolean
-  retrying: boolean
-  downloading: boolean
-}>()
-defineEmits<{ cancel: []; open: []; retry: []; download: [] }>()
+const props = withDefaults(
+  defineProps<{
+    job: Job | null
+    cancelling: boolean
+    retrying: boolean
+    downloading: boolean
+    downloadLabel?: string
+  }>(),
+  { downloadLabel: 'Download result' }
+)
 
-const active = computed(() => ['queued', 'running', 'cancel_requested'].includes(props.job.status))
+defineEmits<{ cancel: []; download: []; open: []; retry: [] }>()
+
+const active = computed(() =>
+  ['queued', 'running', 'cancel_requested'].includes(props.job?.status || '')
+)
+const statusLabel = computed(() => props.job?.status.replaceAll('_', ' ') || '')
 const statusType = computed(() => statusValue('success', 'error', 'warning', 'info'))
 const progressStatus = computed(() => statusValue('success', 'error', 'warning', 'default'))
 
 function statusValue<T>(success: T, failure: T, cancelled: T, fallback: T): T {
-  if (props.job.status === 'succeeded') return success
-  if (props.job.status === 'failed') return failure
-  if (props.job.status === 'cancelled') return cancelled
+  if (props.job?.status === 'succeeded') return success
+  if (props.job?.status === 'failed') return failure
+  if (props.job?.status === 'cancelled') return cancelled
   return fallback
 }
 </script>

@@ -5,8 +5,8 @@
     "dev": "vite",
     "build": "vite build && node scripts/check-bundle-budget.mjs && node scripts/postbuild.js",
     "typecheck": "vue-tsc --noEmit",
-    "format": "prettier --write \"src/**/*.{ts,js,vue}\" \"*.{json,ts}\" \"scripts/**/*.js\" \"scripts/check-bundle-budget.mjs\" \"scripts/test-naive-registration.mjs\" \"scripts/test-outlook-attachments.mjs\" \"scripts/test-dcc-jobs.mjs\" \"scripts/test-compdoc-imports.mjs\" \"scripts/test-people-search.mjs\" \"scripts/test-home-dashboard.mjs\"",
-    "format:check": "prettier --check \"src/**/*.{ts,js,vue}\" \"*.{json,ts}\" \"scripts/**/*.js\" \"scripts/check-bundle-budget.mjs\" \"scripts/test-naive-registration.mjs\" \"scripts/test-outlook-attachments.mjs\" \"scripts/test-dcc-jobs.mjs\" \"scripts/test-compdoc-imports.mjs\" \"scripts/test-people-search.mjs\" \"scripts/test-home-dashboard.mjs\"",
+    "format": "prettier --write \"src/**/*.{ts,js,vue}\" \"*.{json,ts}\" \"scripts/**/*.js\" \"scripts/check-bundle-budget.mjs\" \"scripts/test-naive-registration.mjs\" \"scripts/test-outlook-attachments.mjs\" \"scripts/test-dcc-jobs.mjs\" \"scripts/test-compdoc-imports.mjs\" \"scripts/test-people-search.mjs\" \"scripts/test-home-dashboard.mjs\" \"scripts/test-page-jobs.mjs\"",
+    "format:check": "prettier --check \"src/**/*.{ts,js,vue}\" \"*.{json,ts}\" \"scripts/**/*.js\" \"scripts/check-bundle-budget.mjs\" \"scripts/test-naive-registration.mjs\" \"scripts/test-outlook-attachments.mjs\" \"scripts/test-dcc-jobs.mjs\" \"scripts/test-compdoc-imports.mjs\" \"scripts/test-people-search.mjs\" \"scripts/test-home-dashboard.mjs\" \"scripts/test-page-jobs.mjs\"",
     "test:commands": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-command-search.mjs",
     "test:access": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-route-access.mjs",
     "test:errors": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-api-errors.mjs",
@@ -19,7 +19,8 @@
     "test:compdoc": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-compdoc-imports.mjs",
     "test:people-search": "node --test scripts/test-people-search.mjs",
     "test:home": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-home-dashboard.mjs",
-    "test:ci": "npm run test:commands && npm run test:access && npm run test:errors && npm run test:stores && npm run test:tables && npm run test:ui-registration && npm run test:uploads && npm run test:outlook && npm run test:dcc && npm run test:compdoc && npm run test:people-search && npm run test:home",
+    "test:jobs": "node --test scripts/test-page-jobs.mjs",
+    "test:ci": "npm run test:commands && npm run test:access && npm run test:errors && npm run test:stores && npm run test:tables && npm run test:ui-registration && npm run test:uploads && npm run test:outlook && npm run test:dcc && npm run test:compdoc && npm run test:people-search && npm run test:home && npm run test:jobs",
     "serve": "vite preview"
   },
   "dependencies": {

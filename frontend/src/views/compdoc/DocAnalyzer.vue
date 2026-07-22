@@ -28,19 +28,33 @@
       <n-button
         type="primary"
         :loading="queueing"
-        :disabled="!selectedFile || selectedChecks.length === 0"
+        :disabled="!selectedFile || selectedChecks.length === 0 || active"
         @click="queueAnalysis"
       >
         Queue private analysis
       </n-button>
+      <n-alert v-if="errorMessage" type="error" closable @close="errorMessage = ''">
+        {{ errorMessage }}
+      </n-alert>
+      <PageJobStatus
+        :job="job"
+        :cancelling="cancelling"
+        :retrying="retrying"
+        :downloading="downloading"
+        @cancel="cancel"
+        @retry="retry"
+        @download="download"
+        @open="openJobCenter"
+      />
     </n-space>
   </n-card>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import type { UploadFileInfo, UploadInst } from 'naive-ui'
+import PageJobStatus from '@/components/jobs/PageJobStatus.vue'
+import { usePageJob } from '@/composables/usePageJob'
 import { formatApiError } from '@/services/apiError'
 import { createDocumentAnalysisJob } from '@/services/jobs'
 import { selectedUploadFile } from '@/utils/uploads'
@@ -52,11 +66,23 @@ const checkOptions = [
   { value: 'revision_history', label: 'Revision history' },
   { value: 'approvals', label: 'Approval and signature information' }
 ]
-const router = useRouter()
 const uploadForm = ref<UploadInst | null>(null)
 const files = ref<UploadFileInfo[]>([])
 const selectedChecks = ref(checkOptions.map((option) => option.value))
 const queueing = ref(false)
+const {
+  active,
+  cancel,
+  cancelling,
+  download,
+  downloading,
+  errorMessage,
+  job,
+  openJobCenter,
+  retry,
+  retrying,
+  setJob
+} = usePageJob('analysis_job')
 const selectedFile = computed(() => selectedUploadFile(files.value, false))
 
 function handleFileChange(value: { fileList: UploadFileInfo[] }): void {
@@ -67,11 +93,10 @@ async function queueAnalysis(): Promise<void> {
   if (!selectedFile.value || !selectedChecks.value.length) return
   queueing.value = true
   try {
-    await createDocumentAnalysisJob(selectedFile.value, selectedChecks.value)
+    setJob(await createDocumentAnalysisJob(selectedFile.value, selectedChecks.value))
     uploadForm.value?.clear()
     files.value = []
-    window.$message.success('Private document analysis queued in Job Center.')
-    await router.push('/jobs')
+    window.$message.success('Private analysis queued. Progress is shown below.')
   } catch (error) {
     window.$message.error(formatApiError(error))
   } finally {
