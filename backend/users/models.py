@@ -99,7 +99,6 @@ class UserPreferences(models.Model):
         help_text='Use compact view mode'
     )
 
-    # Additional settings
     extra_settings = models.JSONField(
         default=dict,
         blank=True,
@@ -111,8 +110,8 @@ class UserPreferences(models.Model):
         blank=True,
         help_text='JIRA subtask list'
     )
+    document_analysis_checks = models.JSONField(default=list, blank=True)
 
-    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -147,6 +146,7 @@ class UserPreferences(models.Model):
         self.compact_view = False
         self.extra_settings = {}
         self.jira_list = []
+        self.document_analysis_checks = []
         self.save()
 
 

@@ -6,7 +6,7 @@ from django.conf import settings
 from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobExecutionFailure, JobExecutionResult
 from jobs.worker import update_progress
-from word.analysis_contracts import ANALYSIS_CHECKS, validate_check_ids
+from word.analysis_contracts import ANALYSIS_CHECKS, resolve_analysis_checks
 from word.analysis_results import bounded_index, bounded_score, score_status
 from word.service.paraphrase import ExplainableDocxRetriever
 
@@ -14,12 +14,14 @@ from word.service.paraphrase import ExplainableDocxRetriever
 def execute_document_analysis(job):
     """Analyze a Word document and produce a private explainable JSON report."""
 
-    check_ids = validate_check_ids(job.parameters.get("check_ids"))
+    checks = resolve_analysis_checks(
+        job.parameters.get("check_ids"), job.parameters.get("custom_checks")
+    )
     input_path = materialize_job_input(job)
     output_path = temporary_output(".json")
     result_ready = False
     try:
-        report, summary = analyze_document(job.id, input_path, job.input_name, check_ids)
+        report, summary = analyze_document(job.id, input_path, job.input_name, checks)
         output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         result_ready = True
         filename = f"analysis-{Path(job.input_name).stem[:100]}.json"
@@ -30,7 +32,7 @@ def execute_document_analysis(job):
             output_path.unlink(missing_ok=True)
 
 
-def analyze_document(job_id, input_path, input_name, check_ids):
+def analyze_document(job_id, input_path, input_name, checks):
     """Build one local semantic index and execute allowlisted checks."""
 
     engine = create_analysis_engine()
@@ -38,7 +40,7 @@ def analyze_document(job_id, input_path, input_name, check_ids):
     add_document(engine, input_path, input_name)
     update_progress(job_id, 25, "Building private semantic index.")
     build_analysis_index(engine)
-    results = execute_checks(job_id, engine, check_ids)
+    results = execute_checks(job_id, engine, checks)
     return {"document": input_name, "checks": results}, summarize_results(results)
 
 
@@ -87,16 +89,16 @@ def add_document(engine, input_path, input_name):
         raise JobExecutionFailure("The document exceeds the analysis unit limit.", "WORD_ANALYZER_UNIT_LIMIT")
 
 
-def execute_checks(job_id, engine, check_ids):
+def execute_checks(job_id, engine, checks):
     """Run allowlisted checks and publish bounded progress between searches."""
 
     results = []
-    total = len(check_ids)
-    for index, check_id in enumerate(check_ids, start=1):
+    total = len(checks)
+    for index, check in enumerate(checks, start=1):
         progress = 30 + int((index - 1) / total * 60)
         update_progress(job_id, progress, f"Running analysis check {index}/{total}.")
-        result = search_engine(engine, ANALYSIS_CHECKS[check_id])
-        results.append(sanitize_result(check_id, result))
+        result = search_engine(engine, check["title"])
+        results.append(sanitize_result(check, result))
     return results
 
 
@@ -113,14 +115,14 @@ def search_engine(engine, query):
         ) from error
 
 
-def sanitize_result(check_id, result):
+def sanitize_result(check, result):
     """Keep explainable evidence while removing internal paths and model objects."""
 
     evidence = [sanitize_evidence(item) for item in result.get("results", [])[:5]]
     score = bounded_score(result.get("best_score"))
     return {
-        "id": check_id,
-        "title": ANALYSIS_CHECKS[check_id],
+        "id": check["id"],
+        "title": check["title"],
         "score": score,
         "status": score_status(score),
         "explanation": str(result.get("explanation", ""))[:4000],

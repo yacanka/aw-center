@@ -5,6 +5,7 @@ from jobs.models import Job, JobStatus
 from jobs.services import create_job
 from jobs.worker import claim_next_job, execute_claimed_job
 from word.analysis import ANALYSIS_CHECKS
+from word.analysis_contracts import CUSTOM_CHECK_PREFIX
 from word.analysis_results import bounded_score
 
 from .base import JobTestCase
@@ -40,7 +41,6 @@ class DocumentAnalysisApiTests(JobTestCase):
             )
             self.assertEqual(response.status_code, 400)
         self.assertEqual(Job.objects.count(), 0)
-
 
 class DocumentAnalysisWorkerTests(JobTestCase):
     """Verify private reports, safe summaries, and model failures."""
@@ -103,12 +103,38 @@ class DocumentAnalysisWorkerTests(JobTestCase):
         self.assertEqual(bounded_score(float("inf")), 0.0)
         self.assertEqual(bounded_score("invalid"), 0.0)
 
+    @patch("word.analysis.create_analysis_engine")
+    def test_worker_executes_snapshotted_custom_question(self, engine_factory):
+        """The worker searches the exact validated question stored at enqueue time."""
+
+        engine = FakeAnalysisEngine()
+        engine_factory.return_value = engine
+        custom = {"id": "9729ce05-79c4-4d2d-8b1b-4c6c410507aa", "question": "Is RAM shown?"}
+        job, _ = create_job(
+            self.user,
+            "word.analyze",
+            "Analyze",
+            {
+                "check_ids": [f"{CUSTOM_CHECK_PREFIX}{custom['id']}"],
+                "custom_checks": [custom],
+            },
+            word_upload(),
+        )
+
+        execute_claimed_job(claim_next_job("custom-analysis-worker"))
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.SUCCEEDED)
+        self.assertEqual(engine.queries, [custom["question"]])
+        self.assertEqual(job.result_summary["checks"][0]["title"], custom["question"])
+
 
 class FakeAnalysisEngine:
     """Provide deterministic retrieval output without loading local models."""
 
     def __init__(self):
         self.units = [{"text": "Approval evidence"}]
+        self.queries = []
 
     def add_docx_file(self, _source, _name):
         """Accept the materialized test document."""
@@ -116,8 +142,10 @@ class FakeAnalysisEngine:
     def build_index(self):
         """Represent successful local index creation."""
 
-    def search(self, _query):
+    def search(self, query):
         """Return explainable evidence including a path that must be removed."""
+
+        self.queries.append(query)
 
         return {
             "best_score": 0.9,
