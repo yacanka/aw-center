@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.cache import cache
-from django.test import SimpleTestCase, TestCase
+from django.core.exceptions import ImproperlyConfigured
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -16,6 +17,8 @@ from dcc.models import JIRA_DCC
 from dcc.service.JIRAConnector import JiraConnector
 from dcc.service.effectivity import match_effectivity_options, normalize_effectivity_text
 from dcc.service.reminder_rate_limit import reserve_reminder_email_slot
+from dcc.serializers import JIRA_DCC_Serializer
+from dcc.services.jira_links import attach_jira_issue_urls, build_jira_issue_url
 from dcc.service.text_parsing import (
     check_panel_text,
     classify_dcc,
@@ -137,6 +140,60 @@ class JiraConnectorSubtaskFieldTests(SimpleTestCase):
         options = connector.get_create_field_allowed_values("CHN", "Task", "customfield_34115")
 
         self.assertEqual(options, [{"value": "4AV 1-12"}])
+
+
+@override_settings(JIRA_URL="https://jira.example.test/root/")
+class JiraIssueLinkTests(SimpleTestCase):
+    """Verify browser links are generated only from backend JIRA settings."""
+
+    def test_build_jira_issue_url_normalizes_base_and_encodes_key(self):
+        """Configured base paths are preserved and issue values cannot alter the URL path."""
+
+        self.assertEqual(
+            build_jira_issue_url(" CHN/42 "),
+            "https://jira.example.test/root/browse/CHN%2F42",
+        )
+
+    @override_settings(JIRA_URL="javascript:alert(1)")
+    def test_build_jira_issue_url_rejects_unsafe_backend_configuration(self):
+        """Frontend navigation never receives a non-HTTP URL from configuration."""
+
+        with self.assertRaises(ImproperlyConfigured):
+            build_jira_issue_url("CHN-42")
+
+    def test_dcc_serializer_exposes_read_only_jira_issue_url(self):
+        """DCC API rows include the backend-owned URL and ignore client overrides."""
+
+        instance = SimpleNamespace(
+            id=1, issue="CHN-42", ecd_name="Change", dcc_path="//", active=True
+        )
+        serialized = JIRA_DCC_Serializer(instance).data
+        incoming = JIRA_DCC_Serializer(
+            data={
+                **serialized,
+                "jira_issue_url": "javascript:alert(1)",
+            }
+        )
+
+        self.assertEqual(
+            serialized["jira_issue_url"],
+            "https://jira.example.test/root/browse/CHN-42",
+        )
+        self.assertTrue(incoming.is_valid(), incoming.errors)
+        self.assertNotIn("jira_issue_url", incoming.validated_data)
+
+    def test_attach_jira_issue_urls_enriches_issue_and_subtasks(self):
+        """Live JIRA payloads receive complete links for every navigable issue."""
+
+        payload = {"key": "CHN-1", "fields": {"subtasks": [{"key": "CHN-2"}, {}]}}
+
+        enriched = attach_jira_issue_urls(payload)
+
+        self.assertEqual(enriched["jira_issue_url"], build_jira_issue_url("CHN-1"))
+        self.assertEqual(
+            enriched["fields"]["subtasks"][0]["jira_issue_url"],
+            build_jira_issue_url("CHN-2"),
+        )
 
 
 class DccTemplateResolverTests(SimpleTestCase):

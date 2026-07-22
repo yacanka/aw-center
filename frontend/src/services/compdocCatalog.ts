@@ -1,5 +1,4 @@
 import type { ICompDoc } from '@/models/compdocs'
-import { SHOW_DELAYED_COMPDOCS } from '@/services/featureFlags'
 
 export interface CompdocOption {
   value: string
@@ -24,7 +23,7 @@ const BASE_STATUS_OPTIONS: CompdocOption[] = [
 
 export const statusOptions: CompdocOption[] = [
   ...BASE_STATUS_OPTIONS,
-  ...(SHOW_DELAYED_COMPDOCS ? [{ value: 'delayed', label: 'Delayed' }] : [])
+  { value: 'delayed', label: 'Delayed' }
 ]
 
 export const statusColors: Record<string, StatusColorSet> = {

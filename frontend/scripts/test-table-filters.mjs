@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseBooleanFeatureFlag } from '../src/services/featureFlags.ts'
 import {
   getArrayFilterFunc,
   getBooleanFilterFunc,
@@ -18,13 +17,6 @@ import {
   createStatusChartRows,
   createTimelineChartData
 } from '../src/services/compdocChartData.ts'
-
-test('parses production feature flags without enabling the string false', () => {
-  assert.equal(parseBooleanFeatureFlag('true'), true)
-  assert.equal(parseBooleanFeatureFlag('false'), false)
-  assert.equal(parseBooleanFeatureFlag('0'), false)
-  assert.equal(parseBooleanFeatureFlag('unexpected', true), true)
-})
 
 test('matches equal dates and supports both accepted date formats', () => {
   const filter = getDateFilterFunc('date')

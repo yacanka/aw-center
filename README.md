@@ -827,12 +827,11 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `VITE_API_BASE_URL` | Launcher'ın compatibility için yazdığı backend URL adı. |
 | `VITE_BACKEND_URL` | Launcher'ın compatibility için yazdığı backend URL adı. |
 | `VITE_SERVER_URL` | Launcher'ın compatibility için yazdığı backend URL adı. |
-| `VITE_JIRA_SERVER` | Frontend JIRA linkleri için gösterim URL'i; yoksa fallback kullanılır. |
 | `VITE_VERSION` | Main view'de sürüm gösterimi. |
 | `VITE_APP_TITLE` | Home ekranı başlığı. |
-| `VITE_SHOW_DELAYED_COMPDOCS` | CompDoc gecikme göstergeleri için production-safe Vite değişken adı. |
 
-Boolean Vite değişkenleri merkezi parser üzerinden değerlendirilir; `false`, `0`, `no` ve `off` metinleri kapalı kabul edilir. Böylece environment string değerleri yanlışlıkla bir özelliği etkinleştirmez.
+JIRA tarayıcı bağlantıları frontend build konfigürasyonundan okunmaz. Backend, `JIRA_URL`
+değerinden tam issue bağlantısını üretip DCC API yanıtlarında salt okunur olarak döndürür.
 
 ### Production Cookie/CORS Önerileri
 

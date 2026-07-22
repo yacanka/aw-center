@@ -236,7 +236,7 @@ Run from `frontend/`:
 | `PORT` | Required integer | Used for reset URL default and Cheroot bind port. |
 | `DOCPROOF_URL` | Required | DocProof integration base URL. |
 | `DOORS_EXECUTABLE` | Required | DOORS executable path. |
-| `JIRA_URL` | Required | Main JIRA URL used by DCC views. |
+| `JIRA_URL` | Required | Main JIRA URL used by DCC views and backend-generated browser links. |
 | `AW_USERNAME` | Optional default `""` | Used by DocProof/DOORS integrations. DOORS code base64-decodes it. |
 | `AW_PASSWORD` | Optional default `""` | Used by DocProof/DOORS integrations. DOORS code base64-decodes it. |
 | `FRONTEND_RESET_URL` | Optional computed default | Password reset frontend link. |
@@ -256,9 +256,6 @@ Used via `import.meta.env` in frontend code:
 | `VITE_API_URL` | Axios base URL in `frontend/src/services/http.ts`. |
 | `VITE_VERSION` | Displayed in `frontend/src/views/MainView.vue`. |
 | `VITE_APP_TITLE` | Used in `frontend/src/views/Home.vue`. |
-| `SHOW_DELAYED_COMPDOCS` | Used in compdoc/dashboard stores and views to flag delayed documents. |
-
-> Note: Vite exposes only `VITE_`-prefixed variables to client code by default. This repository also references `SHOW_DELAYED_COMPDOCS` without the `VITE_` prefix. **Verify in repository** whether the local Vite configuration or runtime environment intentionally exposes this variable.
 
 ## Coding Standards
 
@@ -344,7 +341,6 @@ Used via `import.meta.env` in frontend code:
 - Confirm `VITE_API_URL` before debugging API calls; Axios uses it as the base URL.
 - Confirm the app is opened under `/app/` when using the Django-served route, because Vue Router is configured with `createWebHistory('/app/')`.
 - For production builds, remember that `npm run build` also copies files into backend directories. Ensure `backend/templates` and `backend/core` exist before relying on `postbuild.js`.
-- If delayed compdoc behavior is unexpected, inspect `SHOW_DELAYED_COMPDOCS` usage and verify whether it is exposed to the client build.
 - If imports fail, check the `@` alias in `frontend/vite.config.ts` and `frontend/tsconfig.json`.
 
 ## Common Pitfalls
@@ -354,7 +350,6 @@ Used via `import.meta.env` in frontend code:
 - `frontend/package.json` defines `deploy` and `start`, but the referenced `scripts/deploy.sh` and `server.js` are not present in the current repository tree.
 - Frontend build requires a Vite entry file such as `frontend/index.html`; that file is not present in the current repository tree, so `npm run build` fails until the entry file is restored or Vite is reconfigured.
 - Frontend build post-processing assumes Django template/static target directories exist.
-- `SHOW_DELAYED_COMPDOCS` is referenced without a `VITE_` prefix in frontend code; verify intended exposure before depending on it.
 - SQLite database files are ignored and should not be used as source-of-truth fixtures unless a committed fixture strategy is added.
 - `run_cheroot.py` uses relative certificate filenames, so its working directory matters.
 - The repository contains many project-specific apps with similar structure. Make changes in the exact project app requested; do not assume all projects should change together.

@@ -54,7 +54,10 @@
           "
           >{{ jiraInfo.subtasks[index].fields.status.name }}</n-card
         >
-        <n-button size="large" style="height: 100%" @click="goPage(jiraInfo.subtasks[index].key)"
+        <n-button
+          size="large"
+          style="height: 100%"
+          @click="openJiraIssue(jiraInfo.subtasks[index].jira_issue_url)"
           >Go Page</n-button
         >
       </n-space>
@@ -67,13 +70,11 @@ import { ref, onMounted } from 'vue'
 import { NSpace, NCard } from 'naive-ui'
 import { IJira, type JiraIssueResponse } from '@/models/jira'
 
-const jiraServer = import.meta.env.VITE_JIRA_SERVER || 'https://jira.com'
 const props = defineProps<{ dcc: JiraIssueResponse }>()
 const jiraInfo = ref<IJira>({} as IJira)
 
-function goPage(url: string) {
-  url = `${jiraServer}/browse/${url}`
-  const newWindow = window.open(url, '_blank')
+function openJiraIssue(url: string) {
+  const newWindow = window.open(url, '_blank', 'noopener,noreferrer')
   if (newWindow !== null) {
     newWindow.focus()
   }
