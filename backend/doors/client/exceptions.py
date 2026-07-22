@@ -12,3 +12,8 @@ class DoorsDxlError(DoorsError):
 
 class DoorsOperationError(DoorsError):
     """Raised when a high-level DOORS operation reports an error."""
+
+    def __init__(self, message: str, code: str = "DOORS_OPERATION_FAILED") -> None:
+        """Store a stable operation code with the user-facing reason."""
+        super().__init__(message)
+        self.code = code

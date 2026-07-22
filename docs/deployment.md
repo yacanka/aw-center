@@ -41,7 +41,8 @@ These variables are read by `backend/awcenter/settings.py`.
 | `DOORS_EXECUTABLE` | Yes | None | External DOORS executable path. |
 | `DOORS_DATABASE` | No | Empty | Optional DOORS `port@host` database selection. |
 | `DOORS_AUTO_START_CLIENT` | No | `False` | Keep disabled unless desktop process startup is explicitly required. |
-| `DOORS_MAX_RESULT_BYTES` | No | `10485760` | Maximum DXL result-file bytes. |
+| `DOORS_MAX_RESULT_BYTES` | No | `10485760` | Maximum DXL result payload bytes. |
+| `DOORS_RESULT_MODE` | No | `file` | DXL result transport: `file` or `application_result`. |
 | `TEAMCENTER_BASE_URL` | Integration only | Empty | Teamcenter web-tier context root; production requires HTTPS. |
 | `TEAMCENTER_SERVICE_ROOT` | No | `RestServices` | Deployed Teamcenter REST service root. |
 | `TEAMCENTER_AUTH_MODE` | No | `password` | Server-side `password` or `cookie` authentication. |

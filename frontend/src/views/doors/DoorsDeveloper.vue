@@ -34,6 +34,9 @@
       </n-form>
       <n-space>
         <n-button @click="runStatus">GET status</n-button>
+        <n-button type="info" @click="runApplicationResultProbe">
+          Test Application.Result
+        </n-button>
         <n-button @click="runCheckModule">POST modules/check</n-button>
         <n-button @click="runListObjects">POST objects</n-button>
         <n-button @click="runGetObject">POST objects/detail</n-button>
@@ -55,6 +58,7 @@ import {
   fetchDoorsObject,
   fetchDoorsObjects,
   fetchDoorsStatus,
+  probeDoorsApplicationResult,
   updateDoorsObject,
   type DoorsLoop,
   type DoorsPosition
@@ -87,6 +91,11 @@ const responseText = computed(() => JSON.stringify(lastResponse.value, null, 2))
 /** Runs the non-secret DOORS status endpoint. */
 async function runStatus() {
   await capture(() => fetchDoorsStatus())
+}
+
+/** Runs a fixed oleSetResult/Application.Result round-trip diagnostic. */
+async function runApplicationResultProbe() {
+  await capture(() => probeDoorsApplicationResult())
 }
 
 /** Runs the module accessibility endpoint with the current module path. */

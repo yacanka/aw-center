@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from . import builder_read, builder_write
 from .builder_common import wrap_dxl
-from .config import DoorsClientConfig
+from .config import RESULT_MODE_APPLICATION, RESULT_MODE_FILE, DoorsClientConfig
 from .escape import decode_field
 from .exceptions import DoorsDxlError, DoorsOperationError
 from .models import DoorsObject, OperationResult
@@ -24,15 +24,33 @@ class DoorsClient:
         self.transport.connect()
         return self
 
-    def run_dxl(self, body: str) -> OperationResult:
-        """Execute generated DXL and always clean its temporary result."""
-        result_file = Path(tempfile.gettempdir()) / f"aw_doors_{uuid4().hex}.txt"
+    def run_dxl(self, body: str, result_mode: str | None = None) -> OperationResult:
+        """Execute generated DXL using the requested result transport."""
+        mode = result_mode or self.config.result_mode
+        result_file = self.create_result_file(mode)
         try:
-            execution = self.transport.run_dxl(wrap_dxl(body, result_file), result_file)
+            script = wrap_dxl(body, result_file, mode)
+            execution = self.transport.run_dxl(script, result_file, mode)
             errors = tuple(line for line in execution.lines if line.startswith("ERR\t"))
             return OperationResult(not errors, errors[0] if errors else "OK", execution.lines)
         finally:
-            result_file.unlink(missing_ok=True)
+            if result_file is not None:
+                result_file.unlink(missing_ok=True)
+
+    @staticmethod
+    def create_result_file(result_mode: str) -> Path | None:
+        """Create a unique file path only for file result mode."""
+        if result_mode == RESULT_MODE_APPLICATION:
+            return None
+        if result_mode != RESULT_MODE_FILE:
+            raise ValueError("Unsupported DOORS result mode.")
+        return Path(tempfile.gettempdir()) / f"aw_doors_{uuid4().hex}.txt"
+
+    def probe_application_result(self) -> OperationResult:
+        """Verify a minimal oleSetResult to Application.Result round trip."""
+        result = self.run_dxl('__aw_ok("APPLICATION_RESULT_AVAILABLE")', RESULT_MODE_APPLICATION)
+        self.raise_on_error(result)
+        return result
 
     def check_module(self, module_path: str, mode: str = "read") -> OperationResult:
         """Check access to a DOORS module."""
@@ -96,8 +114,12 @@ class DoorsClient:
 
     @staticmethod
     def raise_on_error(result: OperationResult) -> None:
-        """Raise a sanitized operation error for DXL ERR rows."""
+        """Raise an operation error containing the DXL code and reason."""
         if result.ok:
             return
-        code = result.message.split("\t", 2)[1] if "\t" in result.message else "DXL_ERROR"
-        raise DoorsOperationError(f"DOORS operation failed with code {decode_field(code)}.")
+        _, code, detail = (result.message.split("\t", 2) + ["", ""])[:3]
+        decoded_code = decode_field(code or "DXL_ERROR") or "DXL_ERROR"
+        decoded_detail = decode_field(detail or "") or "No additional detail was returned."
+        raise DoorsOperationError(
+            f"DOORS operation failed ({decoded_code}): {decoded_detail}", code=decoded_code
+        )

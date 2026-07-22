@@ -8,9 +8,9 @@ noError
 {open_statement}
 string __aw_open_error = lastError
 if (!null __aw_open_error || null module) {{
-    __aw_error(__aw_output, "OPEN_MODULE", __aw_open_error)
+    __aw_error("OPEN_MODULE", __aw_open_error)
 }} else {{
-    __aw_ok(__aw_output, "MODULE_OPENED")
+    __aw_ok("MODULE_OPENED")
     close(module, false)
 }}
 '''.strip()
@@ -20,20 +20,20 @@ noError
 {open_statement}
 string __aw_open_error = lastError
 if (!null __aw_open_error || null module) {{
-    __aw_error(__aw_output, "OPEN_MODULE", __aw_open_error)
+    __aw_error("OPEN_MODULE", __aw_open_error)
 }} else {{
     {declarations}
     Object object
     int __aw_count = 0
     for object in {iterable} do {{
         if (__aw_count >= {limit}) break
-        __aw_output << "OBJECT" << "\t" << (object."Absolute Number" "")
-                    << "\t" << __aw_escape(identifier(object))
-                    << "\t" << (level(object) "") {fields} << "\n"
+        __aw_emit("OBJECT\t" (object."Absolute Number" "")
+                  "\t" __aw_escape(identifier(object))
+                  "\t" (level(object) "") {fields})
         __aw_count++
     }}
     close(module, false)
-    __aw_ok(__aw_output, "LIST_OBJECTS_DONE")
+    __aw_ok("LIST_OBJECTS_DONE")
 }}
 '''.strip()
 
@@ -42,16 +42,16 @@ noError
 {open_statement}
 string __aw_open_error = lastError
 if (!null __aw_open_error || null module) {{
-    __aw_error(__aw_output, "OPEN_MODULE", __aw_open_error)
+    __aw_error("OPEN_MODULE", __aw_open_error)
 }} else {{
     {declarations}
     Object object = object({absolute_number}, module)
     if (null object) {{
-        __aw_error(__aw_output, "OBJECT_NOT_FOUND", "Object was not found")
+        __aw_error("OBJECT_NOT_FOUND", "Object was not found")
     }} else {{
-        __aw_output << "OBJECT" << "\t" << (object."Absolute Number" "")
-                    << "\t" << __aw_escape(identifier(object))
-                    << "\t" << (level(object) "") {fields} << "\n"
+        __aw_emit("OBJECT\t" (object."Absolute Number" "")
+                  "\t" __aw_escape(identifier(object))
+                  "\t" (level(object) "") {fields})
     }}
     close(module, false)
 }}
@@ -96,5 +96,5 @@ def attribute_fragments(attributes: Iterable[str]) -> tuple[str, str]:
     for index, attribute in enumerate(attributes):
         variable = f"__aw_attribute_{index}"
         declarations.append(f"string {variable} = {dxl_quote(attribute)}")
-        fields.append(f' << "\\t" << __aw_escape(object.{variable})')
+        fields.append(f' "\\t" __aw_escape(object.{variable})')
     return "\n".join(declarations), "".join(fields)
