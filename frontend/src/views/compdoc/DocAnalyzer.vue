@@ -22,8 +22,48 @@
           v-model:value="selectedChecks"
           multiple
           :options="checkOptions"
+          :loading="loadingChecks"
           placeholder="Select checks"
         />
+      </n-form-item>
+      <n-form-item label="My saved questions">
+        <n-space vertical style="width: 100%">
+          <n-space align="center">
+            <n-input
+              v-model:value="newQuestion"
+              maxlength="500"
+              show-count
+              placeholder="Ask a question to search in the document"
+              style="min-width: min(520px, 70vw)"
+              @keyup.enter="saveQuestion"
+            />
+            <n-button
+              secondary
+              type="primary"
+              :loading="savingQuestion"
+              :disabled="!newQuestion.trim()"
+              @click="saveQuestion"
+            >
+              Save and select
+            </n-button>
+          </n-space>
+          <n-list v-if="customChecks.length" bordered>
+            <n-list-item v-for="check in customChecks" :key="check.id">
+              {{ check.question }}
+              <template #suffix>
+                <n-popconfirm @positive-click="removeQuestion(check)">
+                  <template #trigger>
+                    <n-button text type="error">Delete</n-button>
+                  </template>
+                  Delete this saved question from your profile?
+                </n-popconfirm>
+              </template>
+            </n-list-item>
+          </n-list>
+          <n-text v-else-if="!loadingChecks" depth="3">
+            Add reusable questions here. They are private to your user profile.
+          </n-text>
+        </n-space>
       </n-form-item>
       <n-button
         type="primary"
@@ -54,12 +94,14 @@
 import { computed, ref } from 'vue'
 import type { UploadFileInfo, UploadInst } from 'naive-ui'
 import PageJobStatus from '@/components/jobs/PageJobStatus.vue'
+import { useDocumentAnalysisChecks } from '@/composables/useDocumentAnalysisChecks'
 import { usePageJob } from '@/composables/usePageJob'
 import { formatApiError } from '@/services/apiError'
+import { customAnalysisCheckValue } from '@/services/documentAnalysis'
 import { createDocumentAnalysisJob } from '@/services/jobs'
 import { selectedUploadFile } from '@/utils/uploads'
 
-const checkOptions = [
+const defaultCheckOptions = [
   { value: 'compliance_documents', label: 'Compliance document list' },
   { value: 'abbreviations', label: 'Abbreviations table' },
   { value: 'attachments', label: 'Attachments section' },
@@ -68,8 +110,10 @@ const checkOptions = [
 ]
 const uploadForm = ref<UploadInst | null>(null)
 const files = ref<UploadFileInfo[]>([])
-const selectedChecks = ref(checkOptions.map((option) => option.value))
+const selectedChecks = ref(defaultCheckOptions.map((option) => option.value))
 const queueing = ref(false)
+const { customChecks, loadingChecks, newQuestion, removeQuestion, saveQuestion, savingQuestion } =
+  useDocumentAnalysisChecks(selectedChecks)
 const {
   active,
   cancel,
@@ -83,6 +127,13 @@ const {
   retrying,
   setJob
 } = usePageJob('analysis_job')
+const checkOptions = computed(() => [
+  ...defaultCheckOptions,
+  ...customChecks.value.map((check) => ({
+    value: customAnalysisCheckValue(check.id),
+    label: check.question
+  }))
+])
 const selectedFile = computed(() => selectedUploadFile(files.value, false))
 
 function handleFileChange(value: { fileList: UploadFileInfo[] }): void {
