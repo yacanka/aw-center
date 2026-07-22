@@ -1074,3 +1074,12 @@
 4. Added Integration Exceptions using the existing cached, timeout-bounded, circuit-broken health catalog and showing only configuration, degraded, or unavailable results.
 5. Kept each new production module below 200 lines and added pure selection plus page-composition regression tests.
 6. Verified all frontend tests, strict TypeScript, Prettier, production build, bundle budget, desktop rendering, 1024 px responsive stacking, and Quick Access navigation.
+
+## 129. In-page durable job monitoring
+
+1. Removed forced Job Center navigation after queueing media conversion, Word translation, private document analysis, and Excel cover-page jobs.
+2. Added a shared page-owned monitor that restores the job from a route query, polls owner-scoped job detail every two seconds while active, and stops cleanly on completion or unmount.
+3. Added a reusable status card with live progress/message, recovery guidance, cooperative cancellation, retry, verified output download, and an explicit Show in Job Center action.
+4. Prevented each page from queueing another job while its current job is active, while retaining the durable job's full live and historical record in Job Center after navigation.
+5. Added cooperative cancellation to the existing in-page DCC generation status without changing its preview/confirmation contract.
+6. Added focused regression coverage and verified the full frontend test suite, strict TypeScript, Prettier, production build, and Naive UI bundle budget.

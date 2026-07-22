@@ -16,7 +16,10 @@
         {{ job.recovery_hint }}
       </n-alert>
       <n-space justify="end">
-        <n-button @click="$emit('open')">Open in Job Center</n-button>
+        <n-button @click="$emit('open')">Show in Job Center</n-button>
+        <n-button v-if="job.can_cancel" type="error" :loading="cancelling" @click="$emit('cancel')">
+          Cancel
+        </n-button>
         <n-button v-if="job.can_retry" type="warning" :loading="retrying" @click="$emit('retry')">
           Retry immutable snapshot
         </n-button>
@@ -37,8 +40,13 @@
 import { computed } from 'vue'
 import type { Job } from '@/services/jobs'
 
-const props = defineProps<{ job: Job; retrying: boolean; downloading: boolean }>()
-defineEmits<{ open: []; retry: []; download: [] }>()
+const props = defineProps<{
+  job: Job
+  cancelling: boolean
+  retrying: boolean
+  downloading: boolean
+}>()
+defineEmits<{ cancel: []; open: []; retry: []; download: [] }>()
 
 const active = computed(() => ['queued', 'running', 'cancel_requested'].includes(props.job.status))
 const statusType = computed(() => statusValue('success', 'error', 'warning', 'info'))

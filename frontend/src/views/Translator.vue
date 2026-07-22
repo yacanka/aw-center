@@ -2,8 +2,8 @@
   <n-card title="Word Translator">
     <n-space vertical size="large">
       <n-alert type="info" :bordered="false">
-        Translation runs as a durable background job. You can leave this page, monitor progress,
-        cancel the operation, and download the result from Job Center.
+        Translation runs as a durable background job. Progress and controls remain on this page; you
+        can still leave and find its history in Job Center.
       </n-alert>
       <n-upload
         ref="uploadForm"
@@ -29,29 +29,55 @@
         <n-button
           type="primary"
           :loading="queueing"
-          :disabled="!selectedFile || !translationType"
+          :disabled="!selectedFile || !translationType || active"
           @click="queueTranslation"
         >
           Queue translation
         </n-button>
       </n-form>
+      <n-alert v-if="errorMessage" type="error" closable @close="errorMessage = ''">
+        {{ errorMessage }}
+      </n-alert>
+      <PageJobStatus
+        :job="job"
+        :cancelling="cancelling"
+        :retrying="retrying"
+        :downloading="downloading"
+        @cancel="cancel"
+        @retry="retry"
+        @download="download"
+        @open="openJobCenter"
+      />
     </n-space>
   </n-card>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import type { UploadFileInfo, UploadInst } from 'naive-ui'
+import PageJobStatus from '@/components/jobs/PageJobStatus.vue'
+import { usePageJob } from '@/composables/usePageJob'
 import { createWordTranslationJob } from '@/services/jobs'
 import { formatApiError } from '@/services/apiError'
 import { selectedUploadFile } from '@/utils/uploads'
 
-const router = useRouter()
 const uploadForm = ref<UploadInst | null>(null)
 const files = ref<UploadFileInfo[]>([])
 const translationType = ref<string | null>(null)
 const queueing = ref(false)
+const {
+  active,
+  cancel,
+  cancelling,
+  download,
+  downloading,
+  errorMessage,
+  job,
+  openJobCenter,
+  retry,
+  retrying,
+  setJob
+} = usePageJob('translation_job')
 const selectedFile = computed(() => selectedUploadFile(files.value, false))
 const translationOptions = [
   { value: 'tr2en', label: 'Turkish → English' },
@@ -66,11 +92,10 @@ async function queueTranslation(): Promise<void> {
   if (!selectedFile.value || !translationType.value) return
   queueing.value = true
   try {
-    await createWordTranslationJob(selectedFile.value, translationType.value)
+    setJob(await createWordTranslationJob(selectedFile.value, translationType.value))
     uploadForm.value?.clear()
     files.value = []
-    window.$message.success('Word translation queued in Job Center.')
-    await router.push('/jobs')
+    window.$message.success('Word translation queued. Progress is shown below.')
   } catch (error) {
     window.$message.error(formatApiError(error))
   } finally {

@@ -23,11 +23,24 @@
         <n-button
           type="primary"
           :loading="queueing || inspecting"
-          :disabled="!selectedFile || missingColumns.length > 0 || inspecting"
+          :disabled="!selectedFile || missingColumns.length > 0 || inspecting || active"
           @click="queueCoverPages"
         >
           Queue cover-page creation
         </n-button>
+        <n-alert v-if="errorMessage" type="error" closable @close="errorMessage = ''">
+          {{ errorMessage }}
+        </n-alert>
+        <PageJobStatus
+          :job="job"
+          :cancelling="cancelling"
+          :retrying="retrying"
+          :downloading="downloading"
+          @cancel="cancel"
+          @retry="retry"
+          @download="download"
+          @open="openJobCenter"
+        />
       </n-space>
     </n-card>
   </n-flex>
@@ -35,8 +48,9 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import type { UploadFileInfo } from 'naive-ui'
+import PageJobStatus from '@/components/jobs/PageJobStatus.vue'
+import { usePageJob } from '@/composables/usePageJob'
 import { inspectExcelColumns } from '@/services/excelTools'
 import { createCoverPageJob } from '@/services/jobs'
 import { formatApiError } from '@/services/apiError'
@@ -56,12 +70,24 @@ const requiredColumns = [
   'AS Name',
   'CVE Name'
 ]
-const router = useRouter()
 const files = ref<UploadFileInfo[]>([])
 const detectedColumns = ref<string[]>([])
 const missingColumns = ref<string[]>([])
 const inspecting = ref(false)
 const queueing = ref(false)
+const {
+  active,
+  cancel,
+  cancelling,
+  download,
+  downloading,
+  errorMessage,
+  job,
+  openJobCenter,
+  retry,
+  retrying,
+  setJob
+} = usePageJob('cover_page_job')
 const selectedFile = computed(() => selectedUploadFile(files.value, false))
 
 async function handleFileChange(value: { fileList: UploadFileInfo[] }): Promise<void> {
@@ -90,9 +116,8 @@ async function queueCoverPages(): Promise<void> {
   if (!selectedFile.value || missingColumns.value.length) return
   queueing.value = true
   try {
-    await createCoverPageJob(selectedFile.value)
-    window.$message.success('Cover-page creation queued in Job Center.')
-    await router.push('/jobs')
+    setJob(await createCoverPageJob(selectedFile.value))
+    window.$message.success('Cover-page creation queued. Progress is shown below.')
   } catch (error) {
     window.$message.error(formatApiError(error))
   } finally {

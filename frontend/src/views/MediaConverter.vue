@@ -50,7 +50,7 @@
           <n-button
             type="success"
             :loading="isQueueing"
-            :disabled="!selectedFile"
+            :disabled="!selectedFile || active"
             @click="convertFile"
           >
             Queue conversion
@@ -69,13 +69,27 @@
         <n-descriptions-item label="Method">{{ preview.method }}</n-descriptions-item>
       </n-descriptions>
     </n-card>
+    <n-alert v-if="errorMessage" type="error" closable @close="errorMessage = ''">
+      {{ errorMessage }}
+    </n-alert>
+    <PageJobStatus
+      :job="job"
+      :cancelling="cancelling"
+      :retrying="retrying"
+      :downloading="downloading"
+      @cancel="cancel"
+      @retry="retry"
+      @download="download"
+      @open="openJobCenter"
+    />
   </n-space>
 </template>
 
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import MediaUploadDropzone from '@/components/MediaUploadDropzone.vue'
+import PageJobStatus from '@/components/jobs/PageJobStatus.vue'
+import { usePageJob } from '@/composables/usePageJob'
 import { formatApiError } from '@/services/apiError'
 import { previewMediaConversion, type MediaPreviewResult } from '@/services/mediaTools'
 import { createMediaJob } from '@/services/jobs'
@@ -99,10 +113,22 @@ const videoBitrateOptions = createBitrateOptions([750, 1500, 3000, 6000, 12000])
 const audioBitrateOptions = createBitrateOptions([96, 128, 192, 256, 320])
 
 const selectedFile = ref<File | null>(null)
-const router = useRouter()
 const preview = ref<MediaPreviewResult | null>(null)
 const isPreviewing = ref(false)
 const isQueueing = ref(false)
+const {
+  active,
+  cancel,
+  cancelling,
+  download,
+  downloading,
+  errorMessage,
+  job,
+  openJobCenter,
+  retry,
+  retrying,
+  setJob
+} = usePageJob('media_job')
 const videoBitratePreset = ref<number | string>(1500)
 const audioBitratePreset = ref<number | string>(128)
 const parameters = reactive({
@@ -137,9 +163,8 @@ async function convertFile() {
   if (!selectedFile.value) return
   isQueueing.value = true
   try {
-    await createMediaJob(selectedFile.value, parameters)
-    window.$message.success('Conversion queued in Job Center.')
-    await router.push('/jobs')
+    setJob(await createMediaJob(selectedFile.value, parameters))
+    window.$message.success('Conversion queued. Progress is shown below.')
   } catch (error) {
     window.$message.error(formatApiError(error))
   } finally {
