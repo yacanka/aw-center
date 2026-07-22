@@ -5,6 +5,11 @@ urlpatterns = [
     path('script/', views.create_script, name='script'),
     path('run_dxl/', views.run_dxl, name='run_dxl'),
     path('status/', api_views.status_view, name='doors_status'),
+    path(
+        'application-result/probe/',
+        api_views.application_result_probe,
+        name='doors_application_result_probe',
+    ),
     path('modules/check/', api_views.check_module, name='doors_check_module'),
     path('objects/', api_views.list_objects, name='doors_list_objects'),
     path('objects/detail/', api_views.get_object, name='doors_get_object'),

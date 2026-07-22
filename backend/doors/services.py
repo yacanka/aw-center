@@ -21,6 +21,7 @@ def build_client_config() -> DoorsClientConfig:
         startup_timeout_seconds=settings.DOORS_STARTUP_TIMEOUT_SECONDS,
         run_timeout_seconds=settings.DOORS_RUN_TIMEOUT_SECONDS,
         max_result_bytes=settings.DOORS_MAX_RESULT_BYTES,
+        result_mode=settings.DOORS_RESULT_MODE,
     )
 
 
@@ -53,4 +54,5 @@ def integration_status() -> dict[str, object]:
         "platform_supported": sys.platform == "win32",
         "prefer_active_instance": settings.DOORS_PREFER_ACTIVE_INSTANCE,
         "auto_start_client": settings.DOORS_AUTO_START_CLIENT,
+        "result_mode": settings.DOORS_RESULT_MODE,
     }

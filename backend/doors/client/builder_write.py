@@ -8,18 +8,18 @@ noError
 {open_statement}
 string __aw_open_error = lastError
 if (!null __aw_open_error || null module) {{
-    __aw_error(__aw_output, "OPEN_MODULE_EDIT", __aw_open_error)
+    __aw_error("OPEN_MODULE_EDIT", __aw_open_error)
 }} else {{
     Object object = object({absolute_number}, module)
     if (null object) {{
-        __aw_error(__aw_output, "OBJECT_NOT_FOUND", "Object was not found")
+        __aw_error("OBJECT_NOT_FOUND", "Object was not found")
         close(module, false)
     }} else {{
         bool __aw_has_error = false
         {assignments}
         if (!__aw_has_error) {{
             save(module)
-            __aw_ok(__aw_output, "ATTRIBUTES_SAVED")
+            __aw_ok("ATTRIBUTES_SAVED")
         }}
         close(module, false)
     }}
@@ -31,23 +31,25 @@ noError
 {open_statement}
 string __aw_open_error = lastError
 if (!null __aw_open_error || null module) {{
-    __aw_error(__aw_output, "OPEN_MODULE_EDIT", __aw_open_error)
+    __aw_error("OPEN_MODULE_EDIT", __aw_open_error)
 }} else {{
     {lookup}
-    noError
-    {creation}
-    string __aw_create_error = lastError
-    if (!null __aw_create_error || null created) {{
-        __aw_error(__aw_output, "CREATE_OBJECT", __aw_create_error)
-    }} else {{
-        bool __aw_has_error = false
-        {assignments}
-        if (!__aw_has_error) {{
-            save(module)
-            __aw_output << "CREATED" << "\t" << (created."Absolute Number" "")
-                        << "\t" << __aw_escape(identifier(created))
-                        << "\t" << (level(created) "") << "\n"
-            __aw_ok(__aw_output, "OBJECT_CREATED")
+    if (__aw_can_create) {{
+        noError
+        {creation}
+        string __aw_create_error = lastError
+        if (!null __aw_create_error || null created) {{
+            __aw_error("CREATE_OBJECT", __aw_create_error)
+        }} else {{
+            bool __aw_has_error = false
+            {assignments}
+            if (!__aw_has_error) {{
+                save(module)
+                __aw_emit("CREATED\t" (created."Absolute Number" "")
+                          "\t" __aw_escape(identifier(created))
+                          "\t" (level(created) ""))
+                __aw_ok("OBJECT_CREATED")
+            }}
         }}
     }}
     close(module, false)
@@ -55,11 +57,11 @@ if (!null __aw_open_error || null module) {{
 '''.strip()
 
 RELATIVE_TEMPLATE = r'''
+bool __aw_can_create = true
 Object relative = object({absolute_number}, module)
 if (null relative) {{
-    __aw_error(__aw_output, "BASE_OBJECT_NOT_FOUND", "Relative object was not found")
-    close(module, false)
-    halt
+    __aw_error("BASE_OBJECT_NOT_FOUND", "Relative object was not found")
+    __aw_can_create = false
 }}
 '''.strip()
 
@@ -69,7 +71,7 @@ noError
 {object_name}.{variable} = {attribute_value}
 string {error_variable} = lastError
 if (!null {error_variable}) {{
-    __aw_error(__aw_output, "SET_ATTRIBUTE", {attribute_name} " : " {error_variable})
+    __aw_error("SET_ATTRIBUTE", {attribute_name} " : " {error_variable})
     __aw_has_error = true
 }}
 '''.strip()
@@ -100,7 +102,7 @@ def create_object(module_path: str, position: str, relative_number, attributes) 
 def create_fragments(position: str, relative_number: int | None) -> tuple[str, str]:
     """Return safe lookup and creation DXL fragments."""
     if position == "first":
-        return "", "Object created = create(module)"
+        return "bool __aw_can_create = true", "Object created = create(module)"
     if position not in {"after", "before", "below", "below_last"}:
         raise ValueError("Unsupported object creation position.")
     if relative_number is None:

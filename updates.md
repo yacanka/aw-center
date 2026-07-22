@@ -1092,3 +1092,11 @@
 4. Fixed responsible filtering to use the ATA value emitted by serializers and corrected the Responsible delete action so it removes the assignment instead of calling project deletion.
 5. Added stale-response protection for rapid responsible filter changes, preselected the active panel for new assignments, stripped UI-only project context from project-specific mutation payloads, closed successful responsible forms, and added clearer cascade/data-retention confirmation messages.
 6. Added backend and frontend regressions for registry ownership, mutation rejection, ATA filtering, and removed project CRUD; verified 54 focused backend tests, the complete frontend test suite, strict TypeScript, Prettier, production build, bundle budget, and an isolated browser flow with no console errors.
+
+## 131. Actionable DOORS errors and Application.Result transport
+
+1. Preserved the DXL error code and decoded reason in the standardized API `detail`, so frontend consumers no longer replace actionable DOORS failures with a generic message.
+2. Added a configurable `DOORS_RESULT_MODE` with backward-compatible `file` and file-free `application_result` transports under the same bounded line protocol.
+3. Refactored generated DXL output through one emitter while retaining incremental temp-file writes in file mode and using `oleSetResult` plus Python `Application.Result` reads in direct mode.
+4. Added an administrator-only, fixed-payload Application.Result probe to the Developer / DOORS tester without exposing arbitrary DXL execution.
+5. Added transport, generated-script, error parsing, and API-detail regressions; verified the DOORS Django tests, Python compilation, frontend strict TypeScript, and Prettier checks.

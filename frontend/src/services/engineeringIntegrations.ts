@@ -12,6 +12,7 @@ export type DoorsStatus = {
   platform_supported: boolean
   prefer_active_instance: boolean
   auto_start_client: boolean
+  result_mode: DoorsResultMode
 }
 
 export type DoorsObject = {
@@ -28,6 +29,7 @@ export type DoorsObjectList = {
 
 export type DoorsLoop = 'module' | 'entire' | 'all' | 'document'
 export type DoorsPosition = 'first' | 'after' | 'before' | 'below' | 'below_last'
+export type DoorsResultMode = 'file' | 'application_result'
 export type DoorsScalarAttributes = Record<string, string | number | boolean | null>
 
 /** Returns non-secret Teamcenter integration readiness. */
@@ -53,6 +55,15 @@ export async function loadTeamcenterObjects(uids: string[]) {
 /** Returns non-secret IBM Rational DOORS integration readiness. */
 export async function fetchDoorsStatus() {
   return (await axios.get<DoorsStatus>('doors/status/')).data
+}
+
+/** Verifies that a fixed DXL payload round-trips through Application.Result. */
+export async function probeDoorsApplicationResult() {
+  return (
+    await axios.post<{ available: boolean; result_mode: DoorsResultMode; lines: string[] }>(
+      'doors/application-result/probe/'
+    )
+  ).data
 }
 
 /** Checks whether the active DOORS desktop session can read a module. */

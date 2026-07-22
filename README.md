@@ -742,7 +742,8 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `DOORS_OLE_PROG_ID` | Varsayılan `DOORS.Application` | Windows OLE automation program ID. |
 | `DOORS_AUTO_START_CLIENT` | Varsayılan `False` | Aktif istemci yoksa DOORS'u açıkça başlatır. |
 | `DOORS_STARTUP_TIMEOUT_SECONDS` / `DOORS_RUN_TIMEOUT_SECONDS` | `30` / `120` | OLE başlangıç ve DXL çalışma sınırları. |
-| `DOORS_MAX_RESULT_BYTES` | Varsayılan `10485760` | DXL result dosyasının maksimum boyutu. |
+| `DOORS_MAX_RESULT_BYTES` | Varsayılan `10485760` | DXL result payload'unun maksimum boyutu. |
+| `DOORS_RESULT_MODE` | Varsayılan `file` | DXL sonucunu `file` veya `application_result` ile taşır. |
 | `TEAMCENTER_BASE_URL` | Entegrasyon için zorunlu | Teamcenter web-tier context root'u. |
 | `TEAMCENTER_SERVICE_ROOT` | Varsayılan `RestServices` | `RestServices` veya deployment sözleşmesi. |
 | `TEAMCENTER_AUTH_MODE` | Varsayılan `password` | Server-side `password` veya `cookie` authentication. |
@@ -922,7 +923,7 @@ Teamcenter ve IBM Rational DOORS istemcileri AW Center backend'ine gömülü ada
 
 Teamcenter için `TEAMCENTER_BASE_URL`, authentication mode ve ilgili server-side secret'ları `.env`/secret manager üzerinden tanımlayın. Production'da HTTPS ve TLS doğrulaması zorunludur. Okuma endpoint'leri authenticated kullanıcılara; property update endpoint'i yalnızca admin kullanıcılara açıktır. İstekler timeout, sınırlı read retry ve maksimum response boyutu ile çalışır.
 
-DOORS OLE entegrasyonu Windows, `pywin32` ve oturum açılmış bir DOORS desktop client gerektirir. Varsayılan davranış aktif istemciye bağlanmaktır; `DOORS_AUTO_START_CLIENT=False` güvenli varsayılan olarak korunur. Açılması gerekiyorsa executable ve opsiyonel database yalnızca subprocess argüman listesiyle aktarılır. Object listeleme 1000 kayıtla, DXL sonuç dosyası da yapılandırılabilir byte limitiyle sınırlandırılmıştır. Object create/update endpoint'leri yalnızca admin kullanıcılar içindir.
+DOORS OLE entegrasyonu Windows, `pywin32` ve oturum açılmış bir DOORS desktop client gerektirir. Varsayılan davranış aktif istemciye bağlanmaktır; `DOORS_AUTO_START_CLIENT=False` güvenli varsayılan olarak korunur. Açılması gerekiyorsa executable ve opsiyonel database yalnızca subprocess argüman listesiyle aktarılır. Object listeleme 1000 kayıtla, DXL sonuç payload'u da yapılandırılabilir byte limitiyle sınırlandırılmıştır. Varsayılan `file` result mode geriye dönük uyumludur; `application_result` modu DXL `oleSetResult` çıktısını Python'da `Application.Result` üzerinden okur. Object create/update ve Application.Result probe endpoint'leri yalnızca admin kullanıcılar içindir.
 
 Başlıca API yüzeyleri:
 

@@ -35,14 +35,17 @@ def validate(serializer_class, data):
 
 
 def execute(operation):
-    """Execute a DOORS operation with sanitized error mapping."""
+    """Execute a DOORS operation with user-actionable error mapping."""
     try:
         return Response(execute_with_client(operation))
-    except DoorsConnectionError:
-        return doors_error("DOORS automation is unavailable.", "DOORS_UNAVAILABLE", 503)
-    except (DoorsDxlError, DoorsOperationError) as error:
-        LOGGER.warning("DOORS operation failed: %s", type(error).__name__)
-        return doors_error("DOORS operation failed.", "DOORS_OPERATION_FAILED", 502)
+    except DoorsConnectionError as error:
+        return doors_error(str(error), "DOORS_UNAVAILABLE", 503)
+    except DoorsOperationError as error:
+        LOGGER.warning("DOORS operation failed with code %s", error.code)
+        return doors_error(str(error), "DOORS_OPERATION_FAILED", 502)
+    except DoorsDxlError as error:
+        LOGGER.warning("DOORS DXL transport failed: %s", type(error).__name__)
+        return doors_error(str(error), "DOORS_OPERATION_FAILED", 502)
     except ValueError:
         return doors_error("Invalid DOORS operation parameters.", ErrorCodes.VALIDATION_ERROR, 400)
 
@@ -57,6 +60,19 @@ def doors_error(detail: str, code: str, response_status: int):
 def status_view(request):
     """Return non-secret DOORS configuration status."""
     return Response(integration_status())
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminUser])
+def application_result_probe(request):
+    """Verify a fixed DXL payload through oleSetResult/Application.Result."""
+    return execute(lambda client: application_result_probe_response(client))
+
+
+def application_result_probe_response(client):
+    """Return the non-secret Application.Result round-trip payload."""
+    result = client.probe_application_result()
+    return {"available": True, "result_mode": "application_result", "lines": result.raw_lines}
 
 
 @api_view(["POST"])
