@@ -100,7 +100,7 @@ def responsible_view_set_factory(model, view_serializer_class, view_permission_c
 
             panel = self.request.query_params.get("panel")
             if panel:
-                qs = qs.filter(panel__name__iexact=panel)
+                qs = qs.filter(panel__ata__iexact=panel)
 
             return qs
 

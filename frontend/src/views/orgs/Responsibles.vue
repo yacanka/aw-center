@@ -1,225 +1,167 @@
 <template>
-  <n-card title="Responsible Management" style="max-width: 93%">
-    <n-button
-      @click="responsiblePopup.openModal({ project: activeProject }, 'new')"
-      :focusable="false"
-      style="margin: 0 0 6px 0"
-    >
-      <template #icon>
-        <n-icon size="24">
-          <Add24Regular />
-        </n-icon>
-      </template>
-      New Responsible
-    </n-button>
-
-    <n-tabs placement="top" v-model:value="activeProject" @update:value="handleProjectChange">
+  <n-card title="Responsible Management">
+    <n-tabs v-model:value="activeProject" @update:value="selectProject">
       <n-tab-pane
-        v-for="(project, index) in store.getProjects"
-        :key="index"
+        v-for="project in store.getEnabledProjects"
+        :key="project.slug"
         :name="project.slug"
-        :tab="project.name"
-      />
-    </n-tabs>
-    <n-tabs
-      v-if="activeProject"
-      placement="top"
-      animated
-      v-model:value="activePanel"
-      @update:value="handlePanelChange"
-    >
-      <n-tab-pane
-        v-for="(panel, index) in store.getPanels"
-        :key="index"
-        :name="panel.ata"
-        :tab="panel.ata"
+        :tab="project.display_name"
       />
     </n-tabs>
 
+    <n-space align="center" style="margin-bottom: 12px">
+      <n-button :disabled="!activeProject" :focusable="false" @click="openNewResponsible">
+        <template #icon
+          ><n-icon size="24"><Add24Regular /></n-icon
+        ></template>
+        New Responsible
+      </n-button>
+      <n-select
+        v-model:value="activePanel"
+        :disabled="!activeProject"
+        :options="panelOptions"
+        clearable
+        placeholder="All panels"
+        style="width: 260px"
+        @update:value="selectPanel"
+      />
+    </n-space>
+
+    <n-empty
+      v-if="!activeProject && !store.isLoading"
+      description="No active project is registered."
+    />
     <n-data-table
+      v-else
       :loading="store.isLoading"
-      striped
       :columns="columns"
       :data="store.getResponsibles"
       :pagination="pagination"
-      ref="table"
-      :row-key="rowKey"
+      :row-key="responsibleRowKey"
+      striped
     />
   </n-card>
   <ResponsiblePopup ref="responsiblePopup" />
 </template>
 
-<script setup>
-import { ref, onMounted, h } from 'vue'
-import { NSpace, NButton } from 'naive-ui'
-
-import { setUser, getUser, isAuthenticated, logout, setProjectName } from '@/stores/user'
-import {
-  Edit24Regular,
-  Delete24Regular,
-  Add24Regular,
-  ArrowReset24Regular,
-  Checkmark24Regular
-} from '@vicons/fluent'
-import { useOrgsStore } from '@/stores/organizations'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+<script setup lang="ts">
+import { computed, h, onMounted, ref } from 'vue'
+import { NButton, NSpace, type DataTableColumns } from 'naive-ui'
+import { Add24Regular, Delete24Regular, Edit24Regular } from '@vicons/fluent'
 import ResponsiblePopup from '@/components/orgs/ResponsiblePopup.vue'
+import type { IResponsible } from '@/models/orgs'
+import { useOrgsStore } from '@/stores/organizations'
 
-const router = useRouter()
-const store = useOrgsStore()
-const responsiblePopup = ref(null)
-
-const pagination = {
-  pageSize: 8
+type ResponsiblePopupApi = {
+  openModal: (responsible: IResponsible, mode: 'new' | 'update') => void
 }
 
-const columns = [
+const ACTIVE_PROJECT_KEY = 'responsiblesActiveProject'
+const ACTIVE_PANEL_KEY = 'responsiblesActivePanel'
+const store = useOrgsStore()
+const responsiblePopup = ref<ResponsiblePopupApi | null>(null)
+const activeProject = ref<string | null>(null)
+const activePanel = ref<string | null>(null)
+const pagination = { pageSize: 8 }
+const panelOptions = computed(() =>
+  store.getPanels.map((panel) => ({
+    label: `${panel.ata} – ${panel.name}`,
+    value: panel.ata
+  }))
+)
+
+const columns: DataTableColumns<IResponsible> = [
+  { title: 'ATA', key: 'panel', width: 90 },
+  { title: 'Panel', key: 'panel_name', minWidth: 150 },
+  { title: 'Title', key: 'title', width: 100 },
+  { title: 'ID', key: 'person_id', width: 100 },
+  { title: 'Name', key: 'name', minWidth: 170 },
+  { title: 'Email', key: 'email', minWidth: 220 },
   {
-    title: 'ATA Chapter',
-    key: 'panel',
-    filter(value, row) {
-      return ~row.panel.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    },
-    width: 120
-  },
-  {
-    title: 'Panel',
-    key: 'panel_name',
-    filter(value, row) {
-      return ~row.panel.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    }
-  },
-  {
-    title: 'Title',
-    key: 'title',
-    filter(value, row) {
-      return ~row.title.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    }
-  },
-  {
-    title: 'ID',
-    key: 'person_id',
-    filter(value, row) {
-      return ~row.person_id.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    }
-  },
-  {
-    title: 'Name',
-    key: 'name',
-    filter(value, row) {
-      return ~row.name.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    }
-  },
-  {
-    title: 'Email',
-    key: 'email',
-    filter(value, row) {
-      return ~row.email.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    }
-  },
-  {
-    title: 'Action',
+    title: 'Actions',
     key: 'actions',
-    width: '20%',
-    render(row, index) {
-      return h(
-        NSpace,
-        {},
-        {
-          default: () => [
-            h(
-              NButton,
-              {
-                ghost: true,
-                size: 'small',
-                type: 'warning',
-                focusable: false,
-                renderIcon: () => h(Edit24Regular),
-                onClick: () => {
-                  responsiblePopup.value.openModal(row, 'update')
-                }
-              },
-              { default: () => null }
-            ),
-            h(
-              NButton,
-              {
-                ghost: true,
-                size: 'small',
-                type: 'error',
-                focusable: false,
-                renderIcon: () => h(Delete24Regular),
-                onClick: () => {
-                  window.$dialog.error({
-                    title: 'Delete',
-                    content: 'Are you sure to delete?',
-                    positiveText: 'Yes',
-                    negativeText: 'No',
-                    onPositiveClick: () => {
-                      store.deleteProject(row.id)
-                    }
-                  })
-                }
-              },
-              { default: () => null }
-            )
-          ]
-        }
-      )
-    }
+    width: 120,
+    render: (responsible) =>
+      h(NSpace, null, {
+        default: () => [
+          actionButton('warning', Edit24Regular, () =>
+            responsiblePopup.value?.openModal(responsible, 'update')
+          ),
+          actionButton('error', Delete24Regular, () => confirmDelete(responsible))
+        ]
+      })
   }
 ]
 
-function rowKey(row) {
-  return row.id
+function actionButton(type: 'warning' | 'error', icon: object, onClick: () => void) {
+  return h(NButton, {
+    ghost: true,
+    size: 'small',
+    type,
+    focusable: false,
+    renderIcon: () => h(icon),
+    onClick
+  })
 }
 
-const activeProject = ref(null)
-const activePanel = ref(null)
+function openNewResponsible(): void {
+  if (!activeProject.value) return
+  responsiblePopup.value?.openModal(
+    {
+      project: activeProject.value,
+      panel: activePanel.value ?? '',
+      person_id: '',
+      name: '',
+      email: '',
+      title: ''
+    },
+    'new'
+  )
+}
 
-const handleProjectChange = (tab) => {
-  store.setProject(tab)
-  store.fetchPanels()
-  store.fetchResponsibles('')
-  localStorage.setItem('activeProjectTab', tab)
+function confirmDelete(responsible: IResponsible): void {
+  const responsibleId = responsible.id
+  if (responsibleId === undefined) return
+  window.$dialog.error({
+    title: 'Delete Responsible',
+    content: `Remove ${responsible.name} from this project? The people directory is unchanged.`,
+    positiveText: 'Delete',
+    negativeText: 'Cancel',
+    onPositiveClick: () => store.deleteResponsible(responsibleId)
+  })
+}
+
+function responsibleRowKey(responsible: IResponsible): number | string {
+  return responsible.id ?? `${responsible.panel}-${responsible.person_id}`
+}
+
+async function selectProject(projectSlug: string): Promise<void> {
+  activeProject.value = projectSlug
   activePanel.value = null
-  activeProject.value = tab
+  store.setProject(projectSlug)
+  localStorage.setItem(ACTIVE_PROJECT_KEY, projectSlug)
+  localStorage.removeItem(ACTIVE_PANEL_KEY)
+  await store.fetchPanels()
+  await store.fetchResponsibles('')
 }
 
-const handlePanelChange = (tab) => {
-  store.fetchResponsibles(activeProject.value, tab)
-  localStorage.setItem('activePanelTab', tab)
-  activePanel.value = tab
+async function selectPanel(panelAta: string | null): Promise<void> {
+  activePanel.value = panelAta
+  if (panelAta) localStorage.setItem(ACTIVE_PANEL_KEY, panelAta)
+  else localStorage.removeItem(ACTIVE_PANEL_KEY)
+  await store.fetchResponsibles(panelAta ?? '')
 }
 
-onMounted(() => {
-  store.fetchProjects()
-  const projectTab = localStorage.getItem('activeProjectTab')
-  activeProject.value = projectTab ? projectTab : null
-  if (activeProject.value) {
-    store.setProject(activeProject.value)
-    store.fetchPanels()
-    store.fetchResponsibles('')
-  }
+onMounted(async () => {
+  await store.fetchProjects()
+  const projects = store.getEnabledProjects
+  const savedProject = localStorage.getItem(ACTIVE_PROJECT_KEY)
+  const savedPanel = localStorage.getItem(ACTIVE_PANEL_KEY)
+  const projectSlug = projects.some((project) => project.slug === savedProject)
+    ? savedProject
+    : projects[0]?.slug
+  if (!projectSlug) return
+  await selectProject(projectSlug)
+  if (store.getPanels.some((panel) => panel.ata === savedPanel)) await selectPanel(savedPanel)
 })
 </script>
-
-<style scoped></style>

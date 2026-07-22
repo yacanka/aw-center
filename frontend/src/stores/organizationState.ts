@@ -7,6 +7,7 @@ export interface OrganizationState {
   projects: IProject[]
   panels: IPanel[]
   responsibles: IResponsible[]
+  responsiblesRequestId: number
   people: IPerson[]
   peoplePagination: PaginationMeta
   peopleFetched: boolean
@@ -22,6 +23,7 @@ export function createOrganizationState(): OrganizationState {
     projects: [],
     panels: [],
     responsibles: [],
+    responsiblesRequestId: 0,
     people: [],
     peoplePagination: { count: 0, next: null, previous: null },
     peopleFetched: false,

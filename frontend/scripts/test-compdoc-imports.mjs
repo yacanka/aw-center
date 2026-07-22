@@ -97,7 +97,10 @@ test('CompDoc table rejects stale project and list responses', async () => {
   assert.match(store, /const requestedProject = this\.projectName/)
   assert.match(store, /const requestId = \+\+this\.listRequestId/)
   assert.match(store, /this\.projectName === requestedProject && this\.listRequestId === requestId/)
-  assert.match(organizations, /if \(state\.project === requestedProject\) state\.panels = data/)
+  assert.match(
+    organizations,
+    /if \(state\.project === requestedProject\) state\.panels = getPaginatedResults<IPanel>\(data\)/
+  )
 })
 
 test('dashboard requests complete project analytics with cancellation support', async () => {

@@ -88,7 +88,7 @@ function openModal(value: IPerson, mode: string) {
   person.value = dummy
   showModal.value = true
   projectOptions.value = window.$orgsStore.getProjects.map((project: IProject) => {
-    return { label: project.name, value: project.name }
+    return { label: project.display_name, value: project.slug }
   })
   panelOptions.value = window.$orgsStore.getPanels.map((panel: IPanel) => {
     return { label: `${panel.ata} (${panel.name})`, value: panel.ata }

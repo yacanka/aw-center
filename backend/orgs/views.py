@@ -9,16 +9,11 @@ from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
-from .serializers import ProjectSerializer, PanelSerializer, ResponsibleSerializer, PeopleSerializer
-from .models import  Project, Panel, Responsible, People
+from .serializers import PanelSerializer, ResponsibleSerializer, PeopleSerializer
+from .models import Panel, Responsible, People
 from .people_search import MAX_QUERY_LENGTH, rank_people
 
 from utils.arrays import find_missing_elements
-
-class ProjectViewSet(ModelViewSet):
-    permission_classes = [IsAuthenticated]
-    serializer_class = ProjectSerializer
-    queryset = Project.objects.all()
 
 class PanelViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]

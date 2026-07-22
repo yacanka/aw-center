@@ -59,6 +59,18 @@ test('preserves corrected organization and presentation mutation targets', () =>
   assert.match(presentationSource, /API_PATHS\.presentations}\/slides\/\$\{id}/)
 })
 
+test('keeps registered projects read-only in Organizations', () => {
+  const store = read(join(storeRoot, 'organizations.ts'))
+  const requests = read(join(storeRoot, 'organizationProjects.ts'))
+  const projectView = read(join(sourceRoot, 'views/orgs/Projects.vue'))
+
+  assert.doesNotMatch(store, /(create|update|delete)Project\(/)
+  assert.doesNotMatch(requests, /axios\.(post|put|patch|delete)\([^\n]*projects/)
+  assert.doesNotMatch(projectView, /ProjectsPopup|New Project/)
+  assert.match(projectView, /project\.capabilities/)
+  assert.match(projectView, /project\.enabled/)
+})
+
 function sourceFiles() {
   return walk(sourceRoot).filter((file) => /\.(ts|vue)$/.test(file))
 }
