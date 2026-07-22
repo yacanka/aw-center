@@ -1083,3 +1083,12 @@
 4. Prevented each page from queueing another job while its current job is active, while retaining the durable job's full live and historical record in Job Center after navigation.
 5. Added cooperative cancellation to the existing in-page DCC generation status without changing its preview/confirmation contract.
 6. Added focused regression coverage and verified the full frontend test suite, strict TypeScript, Prettier, production build, and Naive UI bundle budget.
+
+## 130. Registry-owned Organizations project management
+
+1. Replaced the mutable `/orgs/projects/` model viewset with an authenticated, GET-only alias of the central project registry; create, update, and delete requests are no longer available.
+2. Rebuilt Project Management as a read-only registry catalog showing display name, slug, enabled state, capabilities, tags, and API route, including inactive registered projects.
+3. Updated Panel and Responsible Management to select only enabled registry projects, recover from stale saved selections, use canonical project slugs, and safely unwrap the existing paginated API responses.
+4. Fixed responsible filtering to use the ATA value emitted by serializers and corrected the Responsible delete action so it removes the assignment instead of calling project deletion.
+5. Added stale-response protection for rapid responsible filter changes, preselected the active panel for new assignments, stripped UI-only project context from project-specific mutation payloads, closed successful responsible forms, and added clearer cascade/data-retention confirmation messages.
+6. Added backend and frontend regressions for registry ownership, mutation rejection, ATA filtering, and removed project CRUD; verified 54 focused backend tests, the complete frontend test suite, strict TypeScript, Prettier, production build, bundle budget, and an isolated browser flow with no console errors.

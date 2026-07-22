@@ -64,6 +64,71 @@ class SyncProjectsCommandTests(TestCase):
         self.assertIn("skipped_disabled=0", output)
 
 
+class RegisteredProjectsApiTests(TestCase):
+    """Verify Organizations exposes the central registry as read-only data."""
+
+    def setUp(self):
+        """Create an authenticated client for the protected registry alias."""
+        user = get_user_model().objects.create_user(username="org-admin", password="secret")
+        self.client = APIClient()
+        self.client.force_authenticate(user=user)
+
+    def test_project_list_comes_from_registry_without_database_rows(self):
+        """Registered projects are visible even when orgs.Project is empty."""
+        response = self.client.get("/orgs/projects/", {"capability": "orgs"})
+
+        expected_slugs = {
+            definition.slug
+            for definition in PROJECT_DEFINITIONS.values()
+            if "orgs" in definition.capabilities
+        }
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Project.objects.exists())
+        self.assertEqual({item["slug"] for item in response.data}, expected_slugs)
+
+    def test_project_collection_rejects_mutation(self):
+        """Clients cannot create projects outside the backend registry."""
+        response = self.client.post("/orgs/projects/", {"name": "Unregistered"})
+
+        self.assertEqual(response.status_code, 405)
+
+
+class ProjectOrganizationApiTests(TestCase):
+    """Verify project-specific panel and responsible query contracts."""
+
+    def setUp(self):
+        """Create one project panel and responsibles with distinct ATA chapters."""
+        from projects.ozgur.models import Panel, Responsible
+
+        user = get_user_model().objects.create_user(username="org-user", password="secret")
+        self.client = APIClient()
+        self.client.force_authenticate(user=user)
+        first_panel = Panel.objects.create(name="Avionics", discipline="System", ata="21-00")
+        second_panel = Panel.objects.create(name="Propulsion", discipline="System", ata="72-00")
+        Responsible.objects.create(
+            panel=first_panel,
+            person_id="100001",
+            name="Ada Engineer",
+            email="ada@example.com",
+            title="AS",
+        )
+        Responsible.objects.create(
+            panel=second_panel,
+            person_id="100002",
+            name="Grace Engineer",
+            email="grace@example.com",
+            title="CVE",
+        )
+
+    def test_responsibles_are_filtered_by_panel_ata(self):
+        """The frontend panel value is an ATA chapter, not a panel name."""
+        response = self.client.get("/ozgur/orgs/responsibles/", {"panel": "21-00"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["person_id"], "100001")
+
+
 class PeopleApiTests(TestCase):
     """Verify people API authentication, search, and pagination behavior."""
 

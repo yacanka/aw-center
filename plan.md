@@ -143,6 +143,8 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 ## 11. Project registry cleanup follow-up
 
 1. **P2 - Legacy Projects enum removal:** One-release deprecation window sonunda `backend/awcenter/enums.py` içindeki `Projects` enum'unun kalan dış bağımlılıkları tekrar `rg "awcenter.enums|Projects" backend frontend` ile doğrulanmalı ve kullanılmıyorsa enum tamamen kaldırılmalıdır.
+2. **Tamamlandı - Organizations registry convergence:** Project Management kullanıcı tarafından değiştirilen `orgs.Project` listesinden ayrıldı; merkezi registry'nin salt-okunur API görünümünü, aktiflik durumunu, capability/tag bilgisini ve route metadata'sını gösteriyor. Panel ve Responsible yönetimi yalnız aktif `orgs` capability projelerini kullanıyor.
+3. **P2 - Legacy organization project model cleanup:** `orgs.Project`, merkezi `orgs.Panel`/`orgs.Responsible` modelleri ve `sync_projects`/`check_project_registry` komutlarının kalan dış tüketicilerini ölç; proje-özel organization modelleri tek otorite olarak doğrulanırsa legacy veri katmanını ayrı ve geri alınabilir bir migration planıyla kaldır.
 
 ## 12. Project app ortaklaşma değerlendirmesi
 

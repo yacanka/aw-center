@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { IPerson, IPanel, IProject, IResponsible } from '@/models/orgs'
+import type { IPerson, IPanel, IResponsible } from '@/models/orgs'
 import { toTitleCase } from '@/utils/text'
 import type { PaginationQuery } from '@/services/pagination'
 import { createOrganizationState } from '@/stores/organizationState'
@@ -12,6 +12,7 @@ export const useOrgsStore = defineStore('orgs', {
   getters: {
     isLoading: (state) => state.loading,
     getProjects: (state) => state.projects,
+    getEnabledProjects: (state) => state.projects.filter((project) => project.enabled),
     getPanels: (state) => sortedByName(state.panels),
     getPanelOptions: (state) => panelOptions(state.panels),
     getAtaOptions: (state) => ataOptions(state.panels),
@@ -22,23 +23,14 @@ export const useOrgsStore = defineStore('orgs', {
   actions: {
     /** Select the project used by panel and responsible operations. */
     setProject(projectName: string): void {
+      if (this.project === projectName) return
       this.project = projectName
+      this.panels = []
+      this.responsibles = []
     },
     /** Load organization projects. */
     fetchProjects(): Promise<void> {
       return projects.fetchProjects(this)
-    },
-    /** Create an organization project. */
-    createProject(data: IProject): Promise<void> {
-      return projects.createProject(this, data)
-    },
-    /** Update an organization project. */
-    updateProject(id: number, data: IProject): Promise<void> {
-      return projects.updateProject(this, id, data)
-    },
-    /** Delete an organization project. */
-    deleteProject(id: number): Promise<void> {
-      return projects.deleteProject(this, id)
     },
     /** Load panels for the selected project. */
     fetchPanels(): Promise<void> {

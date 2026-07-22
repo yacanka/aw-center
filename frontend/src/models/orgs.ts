@@ -1,21 +1,26 @@
+import type { ProjectCapability } from '@/models/projectRegistry'
+
 export interface IProject {
-  id?: number
-  name: string
-  slug?: string
+  slug: string
+  display_name: string
+  route: string
+  enabled: boolean
+  capabilities: ProjectCapability[]
+  tags: string[]
 }
 
 export interface IPanel {
   id?: number
   name: string
   slug?: string
-  project: string
+  project?: string
   ata: string
   discipline?: string
 }
 
 export interface IResponsible {
   id?: number
-  project: string
+  project?: string
   panel: string
   name: string
   email: string

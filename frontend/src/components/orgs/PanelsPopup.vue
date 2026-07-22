@@ -107,7 +107,7 @@ function openModal(value: IPanel, mode: string) {
   panel.value = dummy
   showModal.value = true
   projectOptions.value = window.$orgsStore.getProjects.map((project: IProject) => {
-    return { label: project.name, value: project.name }
+    return { label: project.display_name, value: project.slug }
   })
 }
 

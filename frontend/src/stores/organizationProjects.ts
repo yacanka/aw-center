@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { IPanel, IProject, IResponsible } from '@/models/orgs'
 import { notifySuccess } from '@/services/notify'
+import { getPaginatedResults } from '@/services/pagination'
 import { API_PATHS } from '@/stores/apiPaths'
 import { runOrganizationRequest } from '@/stores/organizationRequest'
 import type { OrganizationState } from '@/stores/organizationState'
@@ -9,51 +10,23 @@ import type { OrganizationState } from '@/stores/organizationState'
 export async function fetchProjects(state: OrganizationState): Promise<void> {
   await runOrganizationRequest<IProject[]>(
     state,
-    axios.get(`${API_PATHS.orgs}/projects/`),
+    axios.get(`${API_PATHS.orgs}/projects/`, { params: { capability: 'orgs' } }),
     (data) => (state.projects = data)
   )
 }
 
-/** Create an organization project. */
-export async function createProject(state: OrganizationState, data: IProject): Promise<void> {
-  await runOrganizationRequest<IProject>(state, axios.post(projectsPath(), data), (created) => {
-    state.projects.unshift(created)
-    notifySuccess('New project added successfully.')
-  })
-}
-
-/** Update an organization project. */
-export async function updateProject(
-  state: OrganizationState,
-  id: number,
-  data: IProject
-): Promise<void> {
-  await runOrganizationRequest<IProject>(
-    state,
-    axios.put(`${projectsPath()}${id}/`, data),
-    (item) => {
-      replaceById(state.projects, id, item)
-      notifySuccess('Updated successfully.')
-    }
-  )
-}
-
-/** Delete an organization project. */
-export async function deleteProject(state: OrganizationState, id: number): Promise<void> {
-  await runOrganizationRequest<void>(state, axios.delete(`${projectsPath()}${id}/`), () => {
-    state.projects = state.projects.filter((item) => item.id !== id)
-    notifySuccess('Deleted successfully.')
-  })
-}
-
 /** Load panels for the selected project. */
 export async function fetchPanels(state: OrganizationState): Promise<void> {
+  if (!state.project) {
+    state.panels = []
+    return
+  }
   const requestedProject = state.project
-  await runOrganizationRequest<IPanel[]>(
+  await runOrganizationRequest<unknown>(
     state,
-    axios.get(`${projectPath(state)}/panels/`),
+    axios.get(`${projectPath(state)}/panels/`, { params: { page_size: 200 } }),
     (data) => {
-      if (state.project === requestedProject) state.panels = data
+      if (state.project === requestedProject) state.panels = getPaginatedResults<IPanel>(data)
     }
   )
 }
@@ -62,9 +35,9 @@ export async function fetchPanels(state: OrganizationState): Promise<void> {
 export async function createPanel(state: OrganizationState, data: IPanel): Promise<void> {
   await runOrganizationRequest<IPanel>(
     state,
-    axios.post(`${projectPath(state)}/panels/`, data),
+    axios.post(`${projectPath(state)}/panels/`, withoutProject(data)),
     (created) => {
-      state.panels.unshift(created)
+      state.panels.unshift({ ...created, project: state.project })
       notifySuccess('New panel added successfully.')
     }
   )
@@ -78,7 +51,7 @@ export async function updatePanel(
 ): Promise<void> {
   await runOrganizationRequest<IPanel>(
     state,
-    axios.put(`${projectPath(state)}/panels/${id}/`, data),
+    axios.put(`${projectPath(state)}/panels/${id}/`, withoutProject(data)),
     (item) => {
       replaceById(state.panels, id, item)
       notifySuccess('Updated successfully.')
@@ -100,10 +73,20 @@ export async function deletePanel(state: OrganizationState, id: number): Promise
 
 /** Load responsibles for one panel. */
 export async function fetchResponsibles(state: OrganizationState, panel: string): Promise<void> {
-  await runOrganizationRequest<IResponsible[]>(
+  if (!state.project) {
+    state.responsibles = []
+    return
+  }
+  const requestedProject = state.project
+  const requestId = ++state.responsiblesRequestId
+  await runOrganizationRequest<unknown>(
     state,
-    axios.get(`${projectPath(state)}/responsibles/`, { params: { panel } }),
-    (data) => (state.responsibles = data)
+    axios.get(`${projectPath(state)}/responsibles/`, { params: { panel, page_size: 200 } }),
+    (data) => {
+      if (state.project === requestedProject && state.responsiblesRequestId === requestId) {
+        state.responsibles = getPaginatedResults<IResponsible>(data)
+      }
+    }
   )
 }
 
@@ -114,9 +97,9 @@ export async function createResponsible(
 ): Promise<void> {
   await runOrganizationRequest<IResponsible>(
     state,
-    axios.post(`${projectPath(state)}/responsibles/`, data),
+    axios.post(`${projectPath(state)}/responsibles/`, withoutProject(data)),
     (created) => {
-      state.responsibles.unshift(created)
+      state.responsibles.unshift({ ...created, project: state.project })
       notifySuccess('New person added successfully.')
     }
   )
@@ -130,7 +113,7 @@ export async function updateResponsible(
 ): Promise<void> {
   await runOrganizationRequest<IResponsible>(
     state,
-    axios.put(`${projectPath(state)}/responsibles/${id}/`, data),
+    axios.put(`${projectPath(state)}/responsibles/${id}/`, withoutProject(data)),
     (item) => {
       replaceById(state.responsibles, id, item)
       notifySuccess('Updated successfully.')
@@ -150,15 +133,16 @@ export async function deleteResponsible(state: OrganizationState, id: number): P
   )
 }
 
-function projectsPath(): string {
-  return `${API_PATHS.orgs}/projects/`
-}
-
 function projectPath(state: OrganizationState): string {
-  return `${state.project}/${API_PATHS.orgs}`
+  return `/${encodeURIComponent(state.project)}/${API_PATHS.orgs}`
 }
 
 function replaceById<T extends { id?: number }>(items: T[], id: number, updated: T): void {
   const index = items.findIndex((item) => item.id === id)
   if (index >= 0) items[index] = { ...items[index], ...updated }
+}
+
+function withoutProject<T extends { project?: string }>(item: T): Omit<T, 'project'> {
+  const { project: _project, ...payload } = item
+  return payload
 }

@@ -1,171 +1,125 @@
 <template>
   <n-card title="Panel Management">
-    <n-button
-      @click="panelsPopup.openModal({ project: activeTab }, 'new')"
-      :focusable="false"
-      style="margin: 0px 0 6px 0"
-    >
-      <template #icon>
-        <n-icon size="24">
-          <Add24Regular />
-        </n-icon>
-      </template>
-      New Panel
-    </n-button>
-
-    <n-tabs style="card" placement="top" v-model:value="activeTab" @update:value="handleTabChange">
+    <n-tabs v-model:value="activeProject" @update:value="selectProject">
       <n-tab-pane
-        v-for="(project, index) in store.getProjects"
-        :key="index"
+        v-for="project in store.getEnabledProjects"
+        :key="project.slug"
         :name="project.slug"
-        :tab="project.name"
+        :tab="project.display_name"
       />
     </n-tabs>
 
+    <n-button
+      :disabled="!activeProject"
+      :focusable="false"
+      style="margin-bottom: 12px"
+      @click="openNewPanel"
+    >
+      <template #icon
+        ><n-icon size="24"><Add24Regular /></n-icon
+      ></template>
+      New Panel
+    </n-button>
+
+    <n-empty
+      v-if="!activeProject && !store.isLoading"
+      description="No active project is registered."
+    />
     <n-data-table
+      v-else
       :loading="store.isLoading"
-      striped
       :columns="columns"
       :data="store.getPanels"
       :pagination="pagination"
-      ref="table"
-      :row-key="rowKey"
+      :row-key="panelRowKey"
+      striped
     />
   </n-card>
-  <PanelsPopup ref="panelsPopup" />
+  <PanelsPopup ref="panelPopup" />
 </template>
 
-<script setup>
-import { ref, onMounted, h } from 'vue'
-import { NSpace, NButton } from 'naive-ui'
-
-import { setUser, getUser, isAuthenticated, logout, setProjectName } from '@/stores/user'
-import {
-  Edit24Regular,
-  Delete24Regular,
-  Add24Regular,
-  ArrowReset24Regular,
-  Checkmark24Regular
-} from '@vicons/fluent'
-import { useOrgsStore } from '@/stores/organizations'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+<script setup lang="ts">
+import { h, onMounted, ref } from 'vue'
+import { NButton, NSpace, type DataTableColumns } from 'naive-ui'
+import { Add24Regular, Delete24Regular, Edit24Regular } from '@vicons/fluent'
 import PanelsPopup from '@/components/orgs/PanelsPopup.vue'
+import type { IPanel } from '@/models/orgs'
+import { useOrgsStore } from '@/stores/organizations'
 
-const router = useRouter()
+type PanelPopup = { openModal: (panel: Partial<IPanel>, mode: 'new' | 'update') => void }
+
+const ACTIVE_PROJECT_KEY = 'panelsActiveTab'
 const store = useOrgsStore()
-const panelsPopup = ref(null)
+const panelPopup = ref<PanelPopup | null>(null)
+const activeProject = ref<string | null>(null)
+const pagination = { pageSize: 8 }
 
-const pagination = {
-  pageSize: 8
-}
-
-const columns = [
+const columns: DataTableColumns<IPanel> = [
+  { title: 'ATA Chapter', key: 'ata', width: 130 },
+  { title: 'Name', key: 'name', minWidth: 180 },
+  { title: 'Discipline', key: 'discipline', minWidth: 180 },
   {
-    title: 'ATA Chapter',
-    key: 'ata',
-    filter(value, row) {
-      return ~row.ata.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    },
-    width: 120
-  },
-  {
-    title: 'Name',
-    key: 'name',
-    filter(value, row) {
-      return ~row.name.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    }
-  },
-  {
-    title: 'Discipline',
-    key: 'discipline',
-    filter(value, row) {
-      return ~row.discipline.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    }
-  },
-  {
-    title: 'Action',
+    title: 'Actions',
     key: 'actions',
-    width: '20%',
-    render(row, index) {
-      return h(
-        NSpace,
-        {},
-        {
-          default: () => [
-            h(
-              NButton,
-              {
-                ghost: true,
-                size: 'small',
-                type: 'warning',
-                focusable: false,
-                renderIcon: () => h(Edit24Regular),
-                onClick: () => {
-                  panelsPopup.value.openModal(row, 'update')
-                }
-              },
-              { default: () => null }
-            ),
-            h(
-              NButton,
-              {
-                ghost: true,
-                size: 'small',
-                type: 'error',
-                focusable: false,
-                renderIcon: () => h(Delete24Regular),
-                onClick: () => {
-                  window.$dialog.error({
-                    title: 'Delete',
-                    content: 'Are you sure to delete?',
-                    positiveText: 'Yes',
-                    negativeText: 'No',
-                    onPositiveClick: () => {
-                      store.deletePanel(row.id)
-                    }
-                  })
-                }
-              },
-              { default: () => null }
-            )
-          ]
-        }
-      )
-    }
+    width: 120,
+    render: (panel) =>
+      h(NSpace, null, {
+        default: () => [
+          actionButton('warning', Edit24Regular, () =>
+            panelPopup.value?.openModal(panel, 'update')
+          ),
+          actionButton('error', Delete24Regular, () => confirmDelete(panel))
+        ]
+      })
   }
 ]
 
-const activeTab = ref(null)
-
-const handleTabChange = (tab) => {
-  console.log(tab)
-  store.setProject(tab)
-  store.fetchPanels()
-  localStorage.setItem('panelsActiveTab', tab)
-  activeTab.value = tab
+function actionButton(type: 'warning' | 'error', icon: object, onClick: () => void) {
+  return h(NButton, {
+    ghost: true,
+    size: 'small',
+    type,
+    focusable: false,
+    renderIcon: () => h(icon),
+    onClick
+  })
 }
 
-function rowKey(row) {
-  return row.id
+function confirmDelete(panel: IPanel): void {
+  const panelId = panel.id
+  if (panelId === undefined) return
+  window.$dialog.error({
+    title: 'Delete Panel',
+    content: `Delete ${panel.ata} – ${panel.name}? Its responsible assignments may also be removed.`,
+    positiveText: 'Delete',
+    negativeText: 'Cancel',
+    onPositiveClick: () => store.deletePanel(panelId)
+  })
 }
 
-onMounted(() => {
-  store.fetchProjects()
-  const savedTab = localStorage.getItem('panelsActiveTab')
-  activeTab.value = savedTab ? savedTab : null
-  if (activeTab.value) {
-    store.fetchPanels(activeTab.value)
-  }
+function openNewPanel(): void {
+  if (!activeProject.value) return
+  panelPopup.value?.openModal({ project: activeProject.value }, 'new')
+}
+
+function panelRowKey(panel: IPanel): number | string {
+  return panel.id ?? panel.ata
+}
+
+async function selectProject(projectSlug: string): Promise<void> {
+  activeProject.value = projectSlug
+  store.setProject(projectSlug)
+  localStorage.setItem(ACTIVE_PROJECT_KEY, projectSlug)
+  await store.fetchPanels()
+}
+
+onMounted(async () => {
+  await store.fetchProjects()
+  const projects = store.getEnabledProjects
+  const savedSlug = localStorage.getItem(ACTIVE_PROJECT_KEY)
+  const initialSlug = projects.some((project) => project.slug === savedSlug)
+    ? savedSlug
+    : projects[0]?.slug
+  if (initialSlug) await selectProject(initialSlug)
 })
 </script>
-
-<style scoped></style>

@@ -1,125 +1,73 @@
 <template>
   <n-card title="Project Management">
-    <n-button
-      @click="projectsPopup.openModal({}, 'new')"
-      :focusable="false"
-      style="margin-bottom: 12px"
-    >
-      <template #icon>
-        <n-icon size="24">
-          <Add24Regular />
-        </n-icon>
-      </template>
-      New Project
-    </n-button>
+    <n-alert type="info" :show-icon="false" style="margin-bottom: 16px">
+      Projects are read from the backend registry. Additions and configuration changes must be made
+      in the backend project definition.
+    </n-alert>
     <n-data-table
       :loading="store.isLoading"
-      striped
       :columns="columns"
       :data="store.getProjects"
       :pagination="pagination"
-      ref="table"
-      :row-key="rowKey"
+      :row-key="projectRowKey"
+      :scroll-x="840"
+      striped
     />
   </n-card>
-  <ProjectsPopup ref="projectsPopup" />
 </template>
-<script setup>
-import { ref, onMounted, h } from 'vue'
-import { NSpace, NButton, NInput, NText } from 'naive-ui'
-import {
-  Edit24Regular,
-  Delete24Regular,
-  Add24Regular,
-  ArrowReset24Regular,
-  Checkmark24Regular
-} from '@vicons/fluent'
-import { setUser, getUser, isAuthenticated, logout, setProjectName } from '@/stores/user'
+
+<script setup lang="ts">
+import { h, onMounted } from 'vue'
+import { NTag, type DataTableColumns } from 'naive-ui'
+import type { IProject } from '@/models/orgs'
 import { useOrgsStore } from '@/stores/organizations'
-import ProjectsPopup from '@/components/orgs/ProjectsPopup.vue'
 
-import { RouterLink, RouterView, useRouter } from 'vue-router'
-
-const router = useRouter()
 const store = useOrgsStore()
-const projectsPopup = ref(null)
+const pagination = { pageSize: 8 }
 
-const pagination = {
-  pageSize: 8
-}
-
-const columns = [
+const columns: DataTableColumns<IProject> = [
   {
-    title: 'Name',
-    key: 'name',
-    filter(value, row) {
-      return ~row.name.indexOf(value)
-    },
-    ellipsis: {
-      tooltip: true
-    },
-    width: '40%'
+    title: 'Project',
+    key: 'display_name',
+    minWidth: 140,
+    sorter: (left, right) => left.display_name.localeCompare(right.display_name, 'tr')
+  },
+  { title: 'Slug', key: 'slug', minWidth: 100 },
+  {
+    title: 'Status',
+    key: 'enabled',
+    width: 100,
+    render: (project) =>
+      h(
+        NTag,
+        { type: project.enabled ? 'success' : 'default', bordered: false },
+        { default: () => (project.enabled ? 'Active' : 'Inactive') }
+      )
   },
   {
-    title: 'Action',
-    key: 'actions',
-    width: '20%',
-    render(row, index) {
-      return h(
-        NSpace,
-        {},
-        {
-          default: () => [
-            h(
-              NButton,
-              {
-                ghost: true,
-                size: 'small',
-                type: 'warning',
-                focusable: false,
-                renderIcon: () => h(Edit24Regular),
-                onClick: () => {
-                  projectsPopup.value.openModal(row, 'update')
-                }
-              },
-              { default: () => null }
-            ),
-            h(
-              NButton,
-              {
-                ghost: true,
-                size: 'small',
-                type: 'error',
-                focusable: false,
-                renderIcon: () => h(Delete24Regular),
-                onClick: () => {
-                  window.$dialog.error({
-                    title: 'Delete',
-                    content: 'Are you sure to delete?',
-                    positiveText: 'Yes',
-                    negativeText: 'No',
-                    onPositiveClick: () => {
-                      store.deleteProject(row.id)
-                    }
-                  })
-                }
-              },
-              { default: () => null }
-            )
-          ]
-        }
-      )
-    }
-  }
+    title: 'Capabilities',
+    key: 'capabilities',
+    minWidth: 190,
+    render: (project) => renderTags(project.capabilities, 'info')
+  },
+  {
+    title: 'Tags',
+    key: 'tags',
+    minWidth: 190,
+    render: (project) => renderTags(project.tags, 'default')
+  },
+  { title: 'API Route', key: 'route', minWidth: 120 }
 ]
 
-function rowKey(row) {
-  return row.id
+function renderTags(values: string[], type: 'info' | 'default') {
+  return values.map((value) =>
+    h(NTag, { type, size: 'small', bordered: false, style: 'margin: 2px 4px 2px 0' }, () => value)
+  )
 }
 
-onMounted(() => {
-  store.fetchProjects()
-})
-</script>
+function projectRowKey(project: IProject): string {
+  return project.slug
+}
 
-<style scoped></style>
+onMounted(() => store.fetchProjects())
+</script>
