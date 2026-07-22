@@ -1,10 +1,10 @@
 """API serializers for owned JIRA issue drafts and content-free audit events."""
 
-from django.conf import settings
 from rest_framework import serializers
 
 from .issue_draft_contracts import normalize_project_key, validate_extra_fields
 from .issue_draft_models import JiraIssueDraft, JiraIssueDraftEvent
+from .services.jira_links import build_jira_issue_url
 
 
 class JiraIssueDraftEventSerializer(serializers.ModelSerializer):
@@ -40,7 +40,7 @@ class JiraIssueDraftSerializer(serializers.ModelSerializer):
 
         if not draft.jira_issue_key:
             return None
-        return f"{settings.JIRA_URL.rstrip('/')}/browse/{draft.jira_issue_key}"
+        return build_jira_issue_url(draft.jira_issue_key)
 
 
 class JiraIssueDraftCreateSerializer(serializers.Serializer):

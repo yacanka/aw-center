@@ -188,8 +188,9 @@ const columns: any[] = [
                 size: 'small',
                 focusable: false,
                 style: 'width: 100%',
+                disabled: !row.jira_issue_url,
                 onClick: () => {
-                  goPage(row.issue)
+                  openJiraIssue(row.jira_issue_url)
                 }
               },
               { default: () => 'Go page' }
@@ -259,11 +260,9 @@ const columns: any[] = [
   }
 ]
 
-const jiraServer = import.meta.env.VITE_JIRA_SERVER || 'https://jira.com'
-
-function goPage(url: string) {
-  url = `${jiraServer}/browse/${url}`
-  const newWindow = window.open(url, '_blank')
+function openJiraIssue(url?: string) {
+  if (!url) return
+  const newWindow = window.open(url, '_blank', 'noopener,noreferrer')
   if (newWindow !== null) {
     newWindow.focus()
   }

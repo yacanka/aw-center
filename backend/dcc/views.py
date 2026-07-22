@@ -25,6 +25,7 @@ from .service.JIRAConnector import JiraConnector, split_text_by_chracter, ISO_ti
 from .service.MailSender import *
 from .service.reminder_rate_limit import get_reminder_wait_seconds, reserve_reminder_email_slot
 from .permissions import DCCAutomationPermission, DCCPermission, IsDCCOwner
+from .services.jira_links import attach_jira_issue_urls
 from .services.project_resolver import DccProjectResolutionError, resolve_project_from_jira_components
 
 from .forms import UploadForm
@@ -149,7 +150,7 @@ def get_issue(request):
             issue.raw["dcc_signed_path"] =  check_filename(data["dcc_path"], f"{clear_name}.pdf")
             issue.raw["ecd_path"] = check_filename(data["dcc_path"], issue.fields.customfield_45000)
         
-        return Response(issue.raw, status=200)
+        return Response(attach_jira_issue_urls(issue.raw), status=200)
     except json.JSONDecodeError as e:
         return Response(f"Error while loads json: {e}", status=400)
     except Exception as e:

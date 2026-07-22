@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { handleRequest } from '@/composables/promise'
 import type { IDcc } from '@/models/dcc'
 import type { IEcd } from '@/models/ecd'
-import type { IJira, IUser as JiraUser } from '@/models/jira'
+import type { JiraIssueResponse, IUser as JiraUser } from '@/models/jira'
 import { notifyError, notifySuccess } from '@/services/notify'
 import {
   compactPaginationQuery,
@@ -23,7 +23,7 @@ type DccMailRequest = {
 }
 type DccState = {
   dccList: IDcc[]
-  issueInfo: IJira
+  issueInfo: JiraIssueResponse
   loading: boolean
   pagination: PaginationMeta
 }
@@ -33,7 +33,7 @@ export const useDccStore = defineStore('dcc', {
     jSessionId: readString(STORAGE_KEYS.jiraSession) || '',
     dccList: [] as IDcc[],
     pagination: { count: 0, next: null, previous: null } as PaginationMeta,
-    issueInfo: {} as IJira,
+    issueInfo: {} as JiraIssueResponse,
     loading: false
   }),
   getters: {
@@ -98,9 +98,9 @@ export const useDccStore = defineStore('dcc', {
       })
     },
     /** Load current JIRA issue details for a DCC row. */
-    async getIssue(payload: object): Promise<IJira> {
+    async getIssue(payload: object): Promise<JiraIssueResponse> {
       this.importSessionId(payload)
-      return handleRequest<IJira>(
+      return handleRequest<JiraIssueResponse>(
         axios.post('dcc/get_issue/', payload),
         (data) => (this.issueInfo = data),
         notifyError

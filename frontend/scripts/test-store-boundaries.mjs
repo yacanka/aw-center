@@ -27,6 +27,19 @@ test('prevents the removed API-store facade from returning', () => {
   assert.deepEqual(offenders.map((file) => relative(sourceRoot, file)), [])
 })
 
+test('prevents the removed delayed CompDoc feature flag from returning', () => {
+  const featureFlagPath = join(sourceRoot, 'services', 'featureFlags.ts')
+  const offenders = sourceFiles().filter((file) =>
+    /VITE_SHOW_DELAYED_COMPDOCS|SHOW_DELAYED_COMPDOCS|services\/featureFlags/.test(read(file))
+  )
+
+  assert.equal(existsSync(featureFlagPath), false)
+  assert.deepEqual(
+    offenders.map((file) => relative(sourceRoot, file)),
+    []
+  )
+})
+
 test('keeps every new integration store below the repository size limit', () => {
   const tableModules = [
     join(sourceRoot, 'components/table/advancedFilterMenus.ts'),

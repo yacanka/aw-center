@@ -1050,3 +1050,11 @@
 7. The review action opens the Compliance Documents table with a bounded, sanitized route filter that is applied server-side on the first request.
 8. Added exact scoring, boundary, privacy, bounded-memory, secondary-reference, API-contract, frontend-contract, and strict TypeScript regression coverage without a migration or dependency.
 9. Verified the complete risk flow in the browser against an isolated temporary database: level counts, priority order, score explanations, filtered navigation, and console health all passed; the temporary database was removed afterward.
+
+## 126. Backend-owned JIRA links and simplified delayed status
+
+1. Removed `VITE_JIRA_SERVER`; DCC list, live issue, subtask, and issue-draft responses now derive complete browser links from backend `JIRA_URL` configuration.
+2. Added centralized URL normalization, issue-key encoding, unsafe scheme/credential rejection, and read-only serializer fields so clients cannot override navigation targets.
+3. Updated JIRA frontend navigation to consume `jira_issue_url` directly with opener isolation instead of constructing URLs from build-time environment values.
+4. Removed `VITE_SHOW_DELAYED_COMPDOCS`, its parser, declarations, tests, and obsolete conditional chart algorithms; the backend-derived virtual `delayed` state is now an unconditional catalog option.
+5. Added backend link-generation/security tests and frontend architecture regressions preventing both removed Vite flags from returning.

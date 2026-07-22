@@ -47,10 +47,12 @@ export interface IJira {
 
 export interface JiraSubtask {
   key: string
+  jira_issue_url: string
   fields: { summary: string; status: { name: string } }
 }
 
 export interface JiraIssueResponse {
+  jira_issue_url: string
   fields: IJira
   ecd_path?: string | boolean
   dcc_unsigned_path?: string | boolean

@@ -9,6 +9,8 @@ const storageServiceUrl = new URL('../src/services/storage.ts', import.meta.url)
 const routesUrl = new URL('../src/router/routes.ts', import.meta.url)
 const menuUrl = new URL('../src/services/mainMenu.ts', import.meta.url)
 const jobCenterUrl = new URL('../src/views/JobCenter.vue', import.meta.url)
+const watcherUrl = new URL('../src/views/dcc/Watcher.vue', import.meta.url)
+const detailedInfoUrl = new URL('../src/components/dcc/DetailedInfo.vue', import.meta.url)
 const sessionConsumerUrls = [
   '../src/views/JiraContainer.vue',
   '../src/views/dcc/SubtaskGenerator.vue',
@@ -102,6 +104,20 @@ test('JIRA is the canonical navigation and route name', async () => {
   assert.match(routes, /path: '\/jira',[\s\S]*name: 'jira'/)
   assert.doesNotMatch(routes, /path: '\/dcc'/)
   assert.match(routes, /JiraContainer\.vue/)
+})
+
+test('JIRA browser links are owned by backend API responses', async () => {
+  const [watcher, detailedInfo, store] = await Promise.all([
+    readFile(watcherUrl, 'utf8'),
+    readFile(detailedInfoUrl, 'utf8'),
+    readFile(dccStoreUrl, 'utf8')
+  ])
+  const sources = `${watcher}\n${detailedInfo}\n${store}`
+
+  assert.doesNotMatch(sources, /VITE_JIRA_SERVER|jiraServer/)
+  assert.match(watcher, /row\.jira_issue_url/)
+  assert.match(detailedInfo, /subtasks\[index\]\.jira_issue_url/)
+  assert.match(store, /JiraIssueResponse/)
 })
 
 test('JIRA session fields cannot be populated as saved login passwords', async () => {
