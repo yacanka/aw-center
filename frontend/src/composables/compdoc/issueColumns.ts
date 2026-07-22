@@ -61,7 +61,10 @@ function lookupTrigger(
       style: { userSelect: 'text', cursor: 'pointer' },
       onMouseenter: toggleHovered(true),
       onMouseleave: toggleHovered(false),
-      onDblclick: () => lookupIssue(number, values, proofStore)
+      onDblclick: (event: MouseEvent) => {
+        event.stopPropagation()
+        lookupIssue(number, values, proofStore)
+      }
     },
     () => (expectedIssue ? String(expectedIssue) : '')
   )

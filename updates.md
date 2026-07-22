@@ -1100,3 +1100,12 @@
 3. Refactored generated DXL output through one emitter while retaining incremental temp-file writes in file mode and using `oleSetResult` plus Python `Application.Result` reads in direct mode.
 4. Added an administrator-only, fixed-payload Application.Result probe to the Developer / DOORS tester without exposing arbitrary DXL execution.
 5. Added transport, generated-script, error parsing, and API-detail regressions; verified the DOORS Django tests, Python compilation, frontend strict TypeScript, and Prettier checks.
+
+## 132. Compliance Documents row workspace
+
+1. Removed the per-row Actions and expansion columns and replaced them with a selected-row workspace opened by double-click or keyboard Enter.
+2. Added a responsive right-side document workspace with status, stable reference, identity fields, requirements, notes, and permission-gated edit/delete actions.
+3. Preserved full-detail editing and register export while clarifying that export is project-wide; added safe reference-path copying and an explicit destructive-action confirmation.
+4. Prevented the existing DocProof issue double-click from bubbling into the row workspace interaction.
+5. Added selected-row and focus-visible states, concise interaction guidance, pure presentation helpers, and focused regression coverage.
+6. Verified strict TypeScript, CompDoc tests, Naive UI registration, Prettier, production build, bundle budget, and the double-click workflow in a browser preview.
