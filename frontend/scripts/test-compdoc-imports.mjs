@@ -112,14 +112,28 @@ test('dashboard requests complete project analytics with cancellation support', 
 })
 
 test('dashboard isolates paginated table state and stale project responses', async () => {
-  const [home, composable, dashboard, riskDashboard] = await Promise.all([
-    readFile(new URL('../src/views/Home.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/composables/compdoc/dashboard.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/compdoc/ComplianceDashboard.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/compdoc/CompDocRiskDashboard.vue', import.meta.url), 'utf8')
-  ])
+  const [applicationHome, complianceHome, routes, menu, composable, dashboard, riskDashboard] =
+    await Promise.all([
+      readFile(new URL('../src/views/Home.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../src/views/compdoc/Home.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../src/router/routes.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../src/services/mainMenu.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../src/composables/compdoc/dashboard.ts', import.meta.url), 'utf8'),
+      readFile(
+        new URL('../src/components/compdoc/ComplianceDashboard.vue', import.meta.url),
+        'utf8'
+      ),
+      readFile(
+        new URL('../src/components/compdoc/CompDocRiskDashboard.vue', import.meta.url),
+        'utf8'
+      )
+    ])
 
-  assert.doesNotMatch(home, /fetchCompdocs|useCompdocStore/)
+  assert.match(applicationHome, /ActionCenter/)
+  assert.doesNotMatch(applicationHome, /ComplianceDashboard/)
+  assert.match(complianceHome, /ComplianceDashboard/)
+  assert.match(routes, /name: 'compdocsHome',[\s\S]*path: 'home'/)
+  assert.match(menu, /menuItem\('Home', '\/compdocs\/home', 'compdocsHome'/)
   assert.match(composable, /activeController\?\.abort\(\)/)
   assert.match(composable, /sequence === requestSequence/)
   assert.match(dashboard, /dataQualityIssues/)

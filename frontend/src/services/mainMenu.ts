@@ -1,4 +1,4 @@
-import { h, type Component } from 'vue'
+import { h, type Component, type ComputedRef, type InjectionKey } from 'vue'
 import { NIcon, type MenuOption } from 'naive-ui'
 import {
   ArrowRepeatAll24Regular,
@@ -29,6 +29,9 @@ export type ProjectMenuOption = MenuOption & {
   name: string
   children?: ProjectMenuOption[]
 }
+
+export const MAIN_MENU_OPTIONS_KEY: InjectionKey<ComputedRef<ProjectMenuOption[]>> =
+  Symbol('mainMenuOptions')
 
 /** Build the application menu from the authorized project registry. */
 export function createMainMenuOptions(
@@ -79,6 +82,7 @@ function administrationOptions(): ProjectMenuOption[] {
 
 function projectItems(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
   return [
+    menuItem('Home', '/compdocs/home', 'compdocsHome', Home24Regular),
     menuItem('Doc Analyzer', '/compdocs/docAnalyzer', 'docAnalyzer', EyeTracking24Regular),
     menuItem(
       'Cover Page Creator',

@@ -18,6 +18,8 @@ const MAX_QUERY_LENGTH = 80
 const MAX_RESULTS = 25
 
 const COMMAND_ALIASES: Record<string, string> = {
+  '/compdocs/home':
+    'uyumluluk belge dashboard panel risk oncelik takvim teslimat durum akis bekleyen gun',
   '/integrations': 'baglanti kopru servis durum health jira doors teamcenter docproof',
   '/jobs':
     'islem kuyruk gorev gecmis retry tekrar iptal artifact workflow otomasyon akis recipe pipeline',
@@ -72,6 +74,23 @@ export function prioritizeRecentCommands(
     .map((command, index) => ({ command, index }))
     .sort((left, right) => compareRecent(left, right, recentOrder))
     .map(({ command }) => command)
+}
+
+/** Select recent then default authorized commands for the application home. */
+export function selectQuickAccessCommands(
+  commands: NavigationCommand[],
+  recentPaths: string[],
+  limit = 6
+): NavigationCommand[] {
+  const candidates = commands.filter((command) => command.path !== '/home')
+  const commandsByPath = new Map(candidates.map((command) => [command.path, command]))
+  const recent = recentPaths.flatMap((path) => {
+    const command = commandsByPath.get(path)
+    return command ? [command] : []
+  })
+  const recentPathsSet = new Set(recent.map((command) => command.path))
+  const defaults = candidates.filter((command) => !recentPathsSet.has(command.path))
+  return [...recent, ...defaults].slice(0, Math.max(0, Math.min(limit, MAX_RESULTS)))
 }
 
 /** Add a route to bounded most-recent-first command history. */

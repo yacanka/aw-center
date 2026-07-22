@@ -5,6 +5,7 @@ import {
   mergeRecentCommand,
   normalizeSearchText,
   prioritizeRecentCommands,
+  selectQuickAccessCommands,
   searchNavigationCommands
 } from '../src/services/commandSearch.ts'
 
@@ -58,6 +59,16 @@ test('prioritizes and updates bounded recent history', () => {
     '/translator',
     '/home'
   ])
+})
+
+test('builds home quick access from valid recent and authorized commands', () => {
+  const commands = buildNavigationCommands(sources)
+  const selected = selectQuickAccessCommands(commands, ['/translator', '/missing'], 2)
+  assert.deepEqual(
+    selected.map(({ path }) => path),
+    ['/translator', '/pptxGallery']
+  )
+  assert.doesNotMatch(selected.map(({ path }) => path).join(' '), /\/home/)
 })
 
 test('respects the result limit', () => {
