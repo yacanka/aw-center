@@ -114,6 +114,11 @@ export const routes: RouteRecordRaw[] = [
     path: '/compdocs',
     children: [
       {
+        name: 'compdocsHome',
+        path: 'home',
+        component: lazyRoute(() => import('@/views/compdoc/Home.vue'))
+      },
+      {
         name: 'compdocs',
         path: ':project',
         component: lazyRoute(() => import('@/views/CompDocTable.vue'))

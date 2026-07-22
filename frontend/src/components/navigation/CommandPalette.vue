@@ -40,8 +40,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { InputInst } from 'naive-ui'
-import { useRouter } from 'vue-router'
-import { readJson, STORAGE_KEYS, writeJson } from '@/services/storage'
+import { useRoute, useRouter } from 'vue-router'
+import { quickCommandStorageKey, readJson, writeJson } from '@/services/storage'
 import { useUserStore } from '@/stores/user'
 import {
   buildNavigationCommands,
@@ -54,12 +54,13 @@ import {
 
 const props = defineProps<{ options: CommandSource[] }>()
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const visible = ref(false)
 const query = ref('')
 const activeIndex = ref(0)
 const inputReference = ref<InputInst | null>(null)
-const recentStorageKey = `${STORAGE_KEYS.quickCommands}:${userStore.getUser.id || 'anonymous'}`
+const recentStorageKey = quickCommandStorageKey(userStore.getUser.id)
 const recentPaths = ref(readJson<string[]>(recentStorageKey, []))
 const shortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K'
 
@@ -69,6 +70,7 @@ const matches = computed(() => searchNavigationCommands(orderedCommands.value, q
 
 watch(query, () => (activeIndex.value = 0))
 watch(visible, (isVisible) => isVisible && void focusSearch())
+watch(() => route.path, rememberVisitedCommand, { immediate: true })
 
 onMounted(() => window.addEventListener('keydown', handleGlobalShortcut))
 onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalShortcut))
@@ -118,6 +120,12 @@ function executeCommand(command: NavigationCommand): void {
   writeJson(recentStorageKey, recentPaths.value)
   visible.value = false
   void router.push(command.path)
+}
+
+function rememberVisitedCommand(path: string): void {
+  if (path === '/home' || !commands.value.some((command) => command.path === path)) return
+  recentPaths.value = mergeRecentCommand(recentPaths.value, path)
+  writeJson(recentStorageKey, recentPaths.value)
 }
 </script>
 

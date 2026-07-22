@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, provide, watch } from 'vue'
 import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
 import { useMessage, useDialog, useNotification, useLoadingBar } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
@@ -54,7 +54,7 @@ import { useReleaseNotesStore } from '@/stores/releaseNotes'
 import { PROJECT_REGISTRY_FALLBACK, fetchCompdocProjectRegistry } from '@/services/projectRegistry'
 import { formatApiError } from '@/services/apiError'
 import type { ProjectRegistryItem } from '@/models/projectRegistry'
-import { createMainMenuOptions } from '@/services/mainMenu'
+import { createMainMenuOptions, MAIN_MENU_OPTIONS_KEY } from '@/services/mainMenu'
 import CommandPalette from '@/components/navigation/CommandPalette.vue'
 
 window.$loadingBar = useLoadingBar()
@@ -82,6 +82,7 @@ const projectRegistryItems = ref<ProjectRegistryItem[]>(PROJECT_REGISTRY_FALLBAC
 const menuOptions = computed(() =>
   createMainMenuOptions(projectRegistryItems.value, userStore.getUser)
 )
+provide(MAIN_MENU_OPTIONS_KEY, menuOptions)
 
 const currentPage = computed(() => route.path)
 const isPublicPage = computed(() => route.meta.public === true)

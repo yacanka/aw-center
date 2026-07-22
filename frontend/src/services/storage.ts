@@ -7,6 +7,11 @@ export const STORAGE_KEYS = {
   jiraActiveTab: 'jira_active_tab'
 } as const
 
+/** Return the account-scoped storage key used by recent quick commands. */
+export function quickCommandStorageKey(userId?: number): string {
+  return `${STORAGE_KEYS.quickCommands}:${userId || 'anonymous'}`
+}
+
 export function writeString(key: string, value: string) {
   localStorage.setItem(key, value)
 }

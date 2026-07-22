@@ -210,3 +210,11 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 4. **Tamamlandı - Gizli sekme güvenliği:** Tablo Summary modalındaki Status, Pending Days ve Burndown grafikleri yalnız görünür sekmede mount edilerek sıfır boyutlu canvas sorunu giderildi.
 5. **Tamamlandı - Responsive dashboard:** Grafik kartları iki sütunlu esnek gride taşındı ve 1180 px altında tek sütuna düşecek şekilde doğrulandı.
 6. **P2 - Tarihsel karşılaştırma:** Günlük KPI snapshot altyapısı tamamlandığında seçilebilir dönem ve önceki dönem karşılaştırmasını aynı görsel katmana ekle.
+7. **Tamamlandı - Domain ana sayfası:** Proje bazlı risk, panel, durum, takvim/teslimat, akış performansı ve birikmiş bekleme günü dashboardu AW Center ana sayfasından ayrılarak Compliance Docs altındaki `/compdocs/home` rotasına taşındı.
+
+## 75. AW Center application home roadmap
+
+1. **Tamamlandı - Kişisel iş özeti:** Needs Attention altında yalnız kullanıcıya ait onay bekleyen, kuyruktaki ve çalışan iş sayıları ile güvenli Job Center kısayolu gösteriliyor.
+2. **Tamamlandı - Yetki-duyarlı hızlı başlangıç:** Merkezi menü erişim politikasıyla filtrelenen son kullanılan ve varsayılan araçlar hesap-bazlı Quick Access kartında gösteriliyor.
+3. **Tamamlandı - İstisna odaklı entegrasyon sağlığı:** Cache/circuit-breaker korumalı Integration Hub sözleşmesinden yalnız configuration, degraded ve unavailable istisnaları gösteriliyor.
+4. **Tamamlandı - Son faaliyet ve teslimatlar:** Kullanıcının son başarılı işlerinden indirilebilir artefaktlar ve Job Center detay bağlantıları owner-scoped API üzerinden özetleniyor.

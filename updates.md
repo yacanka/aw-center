@@ -1058,3 +1058,19 @@
 3. Updated JIRA frontend navigation to consume `jira_issue_url` directly with opener isolation instead of constructing URLs from build-time environment values.
 4. Removed `VITE_SHOW_DELAYED_COMPDOCS`, its parser, declarations, tests, and obsolete conditional chart algorithms; the backend-derived virtual `delayed` state is now an unconditional catalog option.
 5. Added backend link-generation/security tests and frontend architecture regressions preventing both removed Vite flags from returning.
+
+## 127. Compliance Documents home separation
+
+1. Moved the complete project-based Compliance Documents dashboard from the AW Center application home to a dedicated `/compdocs/home` route without changing its analytics API or interactions.
+2. Added Home as the first Compliance Docs navigation item and made it searchable through the existing command palette.
+3. Kept Needs Attention on the AW Center home as the sole operational intervention surface.
+4. Added frontend regression coverage for the page ownership, menu entry, and route, then verified the targeted tests, strict TypeScript, formatting, production build, and bundle budget.
+
+## 128. Personal AW Center operational home
+
+1. Added an owner-scoped My Work summary for confirmation, queue, and running counts, including worker-unavailable guidance only when pending work exists.
+2. Added Recent Activity from the newest successful owned jobs with secure Job Center details and existing authenticated artifact downloads.
+3. Added account-scoped Quick Access derived exclusively from the already permission-filtered main menu, sharing recent-command storage with the command palette.
+4. Added Integration Exceptions using the existing cached, timeout-bounded, circuit-broken health catalog and showing only configuration, degraded, or unavailable results.
+5. Kept each new production module below 200 lines and added pure selection plus page-composition regression tests.
+6. Verified all frontend tests, strict TypeScript, Prettier, production build, bundle budget, desktop rendering, 1024 px responsive stacking, and Quick Access navigation.
