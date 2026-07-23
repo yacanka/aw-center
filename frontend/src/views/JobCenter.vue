@@ -24,7 +24,6 @@
       {{ systemStatus.active_workers }} worker{{ systemStatus.active_workers === 1 ? '' : 's' }}
       available.
     </n-alert>
-    <WorkflowAutomation ref="workflowAutomation" @open-job="showJobDetails" />
     <n-empty v-if="!loading && jobs.length === 0" description="No jobs have been queued yet." />
 
     <n-list v-else bordered>
@@ -62,7 +61,6 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import JobListItem from '@/components/jobs/JobListItem.vue'
 import JobDetailDrawer from '@/components/jobs/JobDetailDrawer.vue'
-import WorkflowAutomation from '@/components/jobs/WorkflowAutomation.vue'
 import { formatApiError } from '@/services/apiError'
 import {
   cancelJob,
@@ -90,7 +88,6 @@ const totalJobs = ref(0)
 const selectedJob = ref<Job | null>(null)
 const detailsVisible = ref(false)
 const detailsLoading = ref(false)
-const workflowAutomation = ref<InstanceType<typeof WorkflowAutomation> | null>(null)
 let refreshTimer: number | undefined
 
 onMounted(initializeJobs)
@@ -114,7 +111,6 @@ async function loadJobs(): Promise<void> {
     jobs.value = jobPage.results
     totalJobs.value = jobPage.count
     systemStatus.value = currentSystemStatus
-    await workflowAutomation.value?.refresh(true)
     errorMessage.value = ''
   } catch (error) {
     errorMessage.value = formatApiError(error)
