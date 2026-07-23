@@ -58,7 +58,16 @@ function primaryOptions(): ProjectMenuOption[] {
 function workflowOptions(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
   return [
     groupItem('Compliance Docs', '/compdocs', 'projects', Book24Regular, projectItems(projects)),
-    menuItem('Outlook Task', '/outlook', 'outlook', Mail24Regular),
+    groupItem(
+      'Workflow Accelerator',
+      '/accelerator',
+      'workflowAccelerator',
+      ArrowRepeatAll24Regular,
+      [
+        menuItem('Accelerator', '/accelerator', 'accelerator', ArrowRepeatAll24Regular),
+        menuItem('Outlook Task', '/accelerator/outlook', 'outlook', Mail24Regular)
+      ]
+    ),
     menuItem('JIRA', '/jira', 'jira', EyeTracking24Regular),
     doorsGroup(),
     developerGroup(),

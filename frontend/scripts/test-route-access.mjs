@@ -39,6 +39,15 @@ test('enforces granular user, DDF, Outlook Task, and developer policies', () => 
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/ddfAssistant'), ddfViewer), 'allow')
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), standardUser), 'forbidden')
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), dccCreator), 'allow')
+  assert.equal(
+    resolveRouteAccess(navigationAccessPolicy('/accelerator'), standardUser),
+    'forbidden'
+  )
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/accelerator'), dccCreator), 'allow')
+  assert.equal(
+    resolveRouteAccess(navigationAccessPolicy('/accelerator/outlook'), dccCreator),
+    'allow'
+  )
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/task/ecr'), dccCreator), 'allow')
   assert.equal(
     resolveRouteAccess(navigationAccessPolicy('/developer/doors'), standardUser),

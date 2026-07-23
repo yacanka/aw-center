@@ -35,6 +35,12 @@ const NAVIGATION_POLICIES: Record<string, RouteAccessPolicy> = {
   '/outlook': {
     allow: [{ anyPermissions: ['dcc.add_jira_dcc'] }]
   },
+  '/accelerator': {
+    allow: [{ anyPermissions: ['dcc.add_jira_dcc'] }]
+  },
+  '/accelerator/outlook': {
+    allow: [{ anyPermissions: ['dcc.add_jira_dcc'] }]
+  },
   '/task/ecr': {
     allow: [{ anyPermissions: ['dcc.add_jira_dcc'] }]
   },

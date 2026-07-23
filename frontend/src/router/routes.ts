@@ -23,15 +23,22 @@ export const routes: RouteRecordRaw[] = [
     component: lazyRoute(() => import('@/views/JobCenter.vue'))
   },
   {
-    path: '/outlook',
-    name: 'outlook',
-    meta: { access: navigationAccessPolicy('/outlook') },
-    component: lazyRoute(() => import('@/views/OutlookContainer.vue'))
+    path: '/accelerator',
+    name: 'workflowAccelerator',
+    meta: { access: navigationAccessPolicy('/accelerator') },
+    component: lazyRoute(() => import('@/views/WorkflowAccelerator.vue'))
   },
+  {
+    path: '/accelerator/outlook',
+    name: 'acceleratorOutlook',
+    meta: { access: navigationAccessPolicy('/accelerator/outlook') },
+    component: lazyRoute(() => import('@/views/WorkflowAccelerator.vue'))
+  },
+  { path: '/outlook', redirect: '/accelerator/outlook' },
   {
     path: '/task/ecr',
     name: 'ecrTask',
-    meta: { access: navigationAccessPolicy('/task/ecr') },
+    meta: { access: navigationAccessPolicy('/accelerator/outlook') },
     component: lazyRoute(() => import('@/components/outlook/EcrTask.vue'))
   },
   {
