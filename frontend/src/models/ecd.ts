@@ -3,11 +3,13 @@ export interface IEcd {
   ecd_no: string
   ecd_title: string
   approved?: boolean
-  project: string
+  project: string | string[]
   change_class: string
   cage_code: string
   change_type: string
   effectivity: string
+  effectivity_normalized?: string
+  effectivity_suggestion?: string
   record_of_change: string
   requestor: string
   ata: string
