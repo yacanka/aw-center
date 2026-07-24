@@ -3,7 +3,6 @@ import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import type { IUser } from '@/models/jira'
-import { readString, STORAGE_KEYS, writeString } from '@/services/storage'
 import { useDccStore } from '@/stores/dcc'
 import { nullCheck } from '@/utils/general'
 import Unauthorized from '@/views/Unauthorized.vue'
@@ -12,8 +11,7 @@ import ExcelSubtaskGenerator from '@/views/dcc/ExcelSubtaskGenerator.vue'
 import SubtaskGenerator from '@/views/dcc/SubtaskGenerator.vue'
 import Watcher from '@/views/dcc/Watcher.vue'
 
-const DEFAULT_TAB = 'dcc'
-const sessionRequiredTabs = new Set(['watcher', 'subtask', 'excelSubtask'])
+const DEFAULT_TAB = 'watcher'
 const route = useRoute()
 const store = useDccStore()
 const activeTab = ref(DEFAULT_TAB)
@@ -36,13 +34,10 @@ async function connectJiraAccount(): Promise<void> {
   }
 }
 
-/** Restore the most recent JIRA tab and validate its saved session when required. */
+/** Restore the JIRA workspace only after a valid browser-saved session exists. */
 async function initialize(): Promise<void> {
-  activeTab.value =
-    typeof route.query.dcc_job === 'string'
-      ? DEFAULT_TAB
-      : readString(STORAGE_KEYS.jiraActiveTab) || DEFAULT_TAB
-  if (sessionRequiredTabs.has(activeTab.value)) await ensureJiraSession()
+  activeTab.value = typeof route.query.dcc_job === 'string' ? 'dcc' : DEFAULT_TAB
+  await ensureJiraSession()
 }
 
 /** Remove the browser-persisted JIRA session and connected user details. */
@@ -50,14 +45,12 @@ function disconnectJiraAccount(): void {
   store.setSessionId('')
   jiraClientInfo.value = undefined
   sessionId.value = ''
-  if (sessionRequiredTabs.has(activeTab.value)) showSessionPopup()
+  showSessionPopup()
 }
 
-/** Save navigation state and require a valid session for connected JIRA tools. */
+/** Keep tab navigation local to this visit; the JIRA session is shared by all tools. */
 function handleTabChange(tab: string): void {
-  writeString(STORAGE_KEYS.jiraActiveTab, tab)
   activeTab.value = tab
-  if (sessionRequiredTabs.has(tab)) void ensureJiraSession()
 }
 
 /** Reuse and validate the locally saved session, or ask the user for one. */
@@ -70,12 +63,6 @@ async function ensureJiraSession(): Promise<void> {
 
 function showSessionPopup(): void {
   sessionField.value.visible = true
-}
-
-function continueWithoutSession(): void {
-  activeTab.value = DEFAULT_TAB
-  writeString(STORAGE_KEYS.jiraActiveTab, DEFAULT_TAB)
-  sessionField.value.visible = false
 }
 
 onMounted(initialize)
@@ -93,11 +80,10 @@ onMounted(initialize)
             autocomplete: 'one-time-code',
             name: 'jira-session-id'
           }"
-          placeholder="Saved locally after validation"
+          placeholder="Enter JSESSIONID to use JIRA tools"
           @keydown.enter="connectJiraAccount"
         />
         <n-flex justify="center" style="margin-top: 10px">
-          <n-button @click="continueWithoutSession">DCC Creator without session</n-button>
           <n-button type="info" :disabled="nullCheck(sessionId)" @click="connectJiraAccount">
             Connect
           </n-button>
@@ -118,13 +104,13 @@ onMounted(initialize)
             Connected to JIRA as {{ jiraClientInfo.displayName }}
           </n-tag>
         </template>
-        <n-tab-pane name="watcher" tab="Watcher">
-          <n-divider style="margin: 0 0 10px" />
-          <Watcher />
-        </n-tab-pane>
         <n-tab-pane name="dcc" tab="DCC Creator">
           <n-divider style="margin: 0 0 10px" />
           <DCCCreator />
+        </n-tab-pane>
+        <n-tab-pane name="watcher" tab="Watcher">
+          <n-divider style="margin: 0 0 10px" />
+          <Watcher />
         </n-tab-pane>
         <n-tab-pane name="subtask" tab="Subtask Generator (List)">
           <n-divider style="margin: 0 0 10px" />

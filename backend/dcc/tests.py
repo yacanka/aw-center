@@ -335,6 +335,18 @@ class DccPermissionTests(TestCase):
                 response = getattr(self.client, method)(path, payload, format="json")
                 self.assertIn(response.status_code, [401, 403])
 
+    def test_dcc_api_accepts_boolean_query_filters(self):
+        """Watcher filters must not raise validation errors for UI boolean values."""
+
+        self.user.user_permissions.add(Permission.objects.get(codename="view_jira_dcc"))
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get("/dcc/api/", {"active": "true"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["issue"], self.dcc.issue)
+
     def test_authenticated_user_cannot_read_another_users_dcc(self):
         other = get_user_model().objects.create_user("other-dcc-user", password="pass")
         other.user_permissions.add(Permission.objects.get(codename="view_jira_dcc"))
