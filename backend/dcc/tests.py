@@ -19,6 +19,7 @@ from dcc.service.effectivity import match_effectivity_options, normalize_effecti
 from dcc.service.reminder_rate_limit import reserve_reminder_email_slot
 from dcc.serializers import JIRA_DCC_Serializer
 from dcc.services.jira_links import attach_jira_issue_urls, build_jira_issue_url
+from dcc.views import enrich_effectivity, resolve_projects_from_request
 from dcc.service.text_parsing import (
     check_panel_text,
     classify_dcc,
@@ -92,6 +93,22 @@ class DccTextParsingTests(SimpleTestCase):
         self.assertEqual(
             match_effectivity_options("1-12, 80 (4AV) 9 (HC2)", options),
             "4AV 1-12; 4AV-080; HC2 9",
+        )
+
+    def test_enrich_effectivity_keeps_parsed_value_and_adds_suggestion(self):
+        parsed = {"effectivity": "1-12, 80 (4AV)"}
+
+        enriched = enrich_effectivity(parsed, None)
+
+        self.assertEqual(enriched["effectivity"], "1-12, 80 (4AV)")
+        self.assertEqual(enriched["effectivity_suggestion"], "4AV 1-12; 4AV-80")
+
+    def test_project_request_accepts_multiple_registry_slugs(self):
+        definitions = resolve_projects_from_request(["piku", "hys"])
+
+        self.assertEqual(
+            [definition.jira_component for definition in definitions],
+            ["PIKU", "HYS"],
         )
 
 
