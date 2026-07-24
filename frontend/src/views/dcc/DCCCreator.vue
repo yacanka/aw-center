@@ -3,27 +3,13 @@
     <n-card title="JIRA DCC Creator" style="width: min(960px, 96vw)">
       <n-space vertical size="large">
         <n-alert type="info" :bordered="false">
-          JIRA is read once with the session below. After a successful preview, the session is saved
-          in this browser; the captured source and generated DOCX remain private in Job Center.
+          JIRA is read with the session connected from the JIRA workspace. The captured source and
+          generated DOCX remain private in Job Center.
         </n-alert>
         <n-form label-placement="top" @submit.prevent="previewDcc">
-          <n-grid cols="1 700:6" x-gap="12">
-            <n-form-item-gi span="1 700:4" label="JIRA task URL or issue key">
-              <n-input v-model:value="generator.url" placeholder="DCC-123 or JIRA browse URL" />
-            </n-form-item-gi>
-            <n-form-item-gi span="1 700:2" label="JSESSIONID">
-              <n-input
-                v-model:value="generator.JSESSIONID"
-                type="password"
-                show-password-on="click"
-                :input-props="{
-                  autocomplete: 'one-time-code',
-                  name: 'jira-session-id'
-                }"
-                placeholder="Saved locally after validation"
-              />
-            </n-form-item-gi>
-          </n-grid>
+          <n-form-item label="JIRA task URL or issue key">
+            <n-input v-model:value="generator.url" placeholder="DCC-123 or JIRA browse URL" />
+          </n-form-item>
           <n-space justify="end">
             <n-button
               attr-type="submit"
@@ -74,7 +60,7 @@ import { useDccStore } from '@/stores/dcc'
 const route = useRoute()
 const router = useRouter()
 const dccStore = useDccStore()
-const generator = reactive({ JSESSIONID: dccStore.getSessionId, url: '' })
+const generator = reactive({ url: '' })
 const currentJob = ref<Job | null>(null)
 const errorMessage = ref('')
 const submitting = ref(false)
@@ -83,7 +69,7 @@ const cancelling = ref(false)
 const retrying = ref(false)
 const downloading = ref(false)
 let refreshTimer: number | undefined
-const canSubmit = computed(() => Boolean(generator.JSESSIONID.trim() && generator.url.trim()))
+const canSubmit = computed(() => Boolean(dccStore.getSessionId.trim() && generator.url.trim()))
 const isActive = computed(() =>
   ['queued', 'running', 'cancel_requested'].includes(currentJob.value?.status || '')
 )
@@ -100,8 +86,7 @@ async function previewDcc(): Promise<void> {
   submitting.value = true
   errorMessage.value = ''
   try {
-    setCurrentJob(await previewDccDocumentJob(generator.JSESSIONID, generator.url))
-    dccStore.setSessionId(generator.JSESSIONID)
+    setCurrentJob(await previewDccDocumentJob(dccStore.getSessionId, generator.url))
     window.$notification.success({
       title: 'DCC preview ready',
       description: 'Review the exact immutable snapshot before queueing it.'

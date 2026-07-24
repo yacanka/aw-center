@@ -17,7 +17,6 @@
             :disabled="
               loadingBar.status == 'default' ||
               generator.url == '' ||
-              generator.JSESSIONID == '' ||
               fileList.length == 0
             "
             @click="createSubtasks"
