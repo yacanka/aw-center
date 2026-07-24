@@ -12,7 +12,13 @@
           <n-input v-model:value="ecd.ecd_no" placeholder="None" @keydown.enter.prevent />
         </n-form-item-gi>
         <n-form-item-gi span="3" path="project" label="Project">
-          <n-input v-model:value="ecd.project" placeholder="None" @keydown.enter.prevent />
+          <n-select
+            v-model:value="ecd.project"
+            multiple
+            filterable
+            :options="projectOptions"
+            placeholder="Select project"
+          />
         </n-form-item-gi>
         <n-form-item-gi span="3" path="change_class" label="Class">
           <n-input v-model:value="ecd.change_class" placeholder="None" @keydown.enter.prevent />
@@ -25,6 +31,17 @@
         </n-form-item-gi>
         <n-form-item-gi span="4" path="effectivity" label="Effectivity">
           <n-input v-model:value="ecd.effectivity" placeholder="None" @keydown.enter.prevent />
+        </n-form-item-gi>
+
+        <n-form-item-gi v-if="hasEffectivitySuggestion" span="24" label="Effectivity Suggestion">
+          <n-alert type="info" :show-icon="false">
+            <n-flex align="center" justify="space-between">
+              <span>{{ ecd.effectivity_suggestion }}</span>
+              <n-button size="small" type="info" ghost @click="applyEffectivitySuggestion">
+                Apply suggestion
+              </n-button>
+            </n-flex>
+          </n-alert>
         </n-form-item-gi>
 
         <n-form-item-gi span="24" path="ecd_title" label="ECD Title">
@@ -97,15 +114,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { FormRules, NModal } from 'naive-ui'
 import { IEcd } from '@/models/ecd'
 import { validateForm } from '@/composables/forms'
 import NSearch from '@/components/NSearch.vue'
+import { fetchDccProjectRegistry } from '@/services/projectRegistry'
+import type { ProjectRegistryItem } from '@/models/projectRegistry'
 
 const showModal = ref(false)
 const ecd = ref<IEcd>({} as IEcd)
 const formRef = ref()
+const projectOptions = ref<{ label: string; value: string }[]>([])
+
+const hasEffectivitySuggestion = computed(() => {
+  const suggestion = ecd.value.effectivity_suggestion?.trim()
+  return Boolean(suggestion && suggestion !== ecd.value.effectivity)
+})
 
 const rules: FormRules = {
   ecd_title: [{ required: true, trigger: 'blur' }],
@@ -129,6 +154,7 @@ const rules: FormRules = {
 }
 
 function openModal(value: IEcd) {
+  value.project = normalizeSelectedProjects(value.project)
   ecd.value = value
   showModal.value = true
 }
@@ -147,6 +173,26 @@ function rejectInfo() {
   props.onReject?.(ecd.value)
   closeModal()
 }
+
+function applyEffectivitySuggestion() {
+  ecd.value.effectivity = ecd.value.effectivity_suggestion || ecd.value.effectivity
+}
+
+function normalizeSelectedProjects(project: string | string[]): string[] {
+  if (Array.isArray(project)) return project
+  return project ? [project] : []
+}
+
+function toProjectOptions(projects: ProjectRegistryItem[]) {
+  return projects.map((project) => ({
+    label: project.display_name,
+    value: project.slug
+  }))
+}
+
+onMounted(async () => {
+  projectOptions.value = toProjectOptions(await fetchDccProjectRegistry())
+})
 
 const props = defineProps<{
   onApprove?: (data: IEcd) => void

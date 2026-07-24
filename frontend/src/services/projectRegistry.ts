@@ -18,8 +18,21 @@ export const PROJECT_REGISTRY_FALLBACK: ProjectRegistryItem[] = [
 
 /** Fetches frontend-safe project registry items for compliance-document screens. */
 export async function fetchCompdocProjectRegistry(): Promise<ProjectRegistryItem[]> {
-  const response = await axios.get<unknown>('/projects/registry/?capability=compdocs')
-  return parseProjectRegistryItems(response.data)
+  return fetchProjectRegistryByCapability('compdocs')
+}
+
+/** Fetches active project registry items that support DCC workflows. */
+export async function fetchDccProjectRegistry(): Promise<ProjectRegistryItem[]> {
+  return fetchProjectRegistryByCapability('dcc')
+}
+
+async function fetchProjectRegistryByCapability(
+  capability: ProjectCapability
+): Promise<ProjectRegistryItem[]> {
+  const response = await axios.get<unknown>(
+    `/projects/registry/?capability=${capability}&enabled=true`
+  )
+  return parseProjectRegistryItems(response.data, capability)
 }
 
 function createFallbackProject(
@@ -32,16 +45,22 @@ function createFallbackProject(
     display_name: displayName,
     route: `/${slug}/`,
     enabled,
-    capabilities: ['compdocs'],
+    capabilities: ['compdocs', 'dcc', 'orgs'],
     tags: enabled ? ['fallback', 'active'] : ['fallback', 'inactive']
   }
 }
 
-function parseProjectRegistryItems(data: unknown): ProjectRegistryItem[] {
-  if (!Array.isArray(data)) return PROJECT_REGISTRY_FALLBACK
+function parseProjectRegistryItems(
+  data: unknown,
+  capability: ProjectCapability = 'compdocs'
+): ProjectRegistryItem[] {
+  const fallback = PROJECT_REGISTRY_FALLBACK.filter((item) =>
+    item.capabilities.includes(capability)
+  )
+  if (!Array.isArray(data)) return fallback
 
   const projects = data.filter(isProjectRegistryItem)
-  return projects.length > 0 ? projects : PROJECT_REGISTRY_FALLBACK
+  return projects.length > 0 ? projects : fallback
 }
 
 function isProjectRegistryItem(item: unknown): item is ProjectRegistryItem {

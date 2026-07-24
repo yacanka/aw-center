@@ -26,7 +26,12 @@ from .service.MailSender import *
 from .service.reminder_rate_limit import get_reminder_wait_seconds, reserve_reminder_email_slot
 from .permissions import DCCAutomationPermission, DCCPermission, IsDCCOwner
 from .services.jira_links import attach_jira_issue_urls
-from .services.project_resolver import DccProjectResolutionError, resolve_project_from_jira_components
+from .services.project_resolver import (
+    DccCapabilityMissingError,
+    DccProjectResolutionError,
+    resolve_project_from_jira_components,
+)
+from projects.registry import UnknownProjectDefinitionError, get_project_definition
 
 from .forms import UploadForm
 from .parsers import safe_ecd_parse
@@ -174,16 +179,17 @@ def create_issue(request):
             return Response({"message": "Client error while connecting."}, status=400)
         
         try:
-            project_definition = resolve_project_from_jira_components([data.get("project")])
+            project_definitions = resolve_projects_from_request(data.get("project"))
         except DccProjectResolutionError:
             return Response({"message": "Unsupported project."})
+        project_definition = project_definitions[0]
         
         issue_fields = {
             "project": "CHN",
             'summary': data["ecd_title"],
             "description": data["ecd_title"],
             'issuetype': {'name': 'Task'},
-            "components": [{"name": project_definition.jira_component}],
+            "components": [{"name": definition.jira_component} for definition in project_definitions],
             "customfield_13054": [{"name": data["requestor"]}], #customfield_10768
             'customfield_45000': data["ecd_no"].split("/")[0].strip(), #customfield_13712
             'customfield_45001': data["ecd_no"].split("/")[1].strip(), #customfield_14297
@@ -234,16 +240,34 @@ def resolve_effectivity_value(jira_client, raw_effectivity: str) -> str:
     return match_effectivity_options(raw_effectivity, options)
 
 
+def resolve_projects_from_request(project_value):
+    """Resolve selected active DCC projects, falling back to legacy component text."""
+    project_values = project_value if isinstance(project_value, list) else [project_value]
+    project_definitions = []
+    for value in project_values:
+        try:
+            definition = get_project_definition(str(value))
+        except (UnknownProjectDefinitionError, TypeError):
+            continue
+        if not definition.enabled or "dcc" not in definition.capabilities:
+            raise DccCapabilityMissingError(
+                f"Project {definition.slug!r} does not support active DCC workflows."
+            )
+        project_definitions.append(definition)
+    if project_definitions:
+        return tuple(project_definitions)
+    return (resolve_project_from_jira_components(project_values),)
+
+
 def enrich_effectivity(ecd_parsed: dict, session_id: str | None) -> dict:
     """Add normalized and, when possible, JIRA-matched effectivity to parsed ECR data."""
     raw_effectivity = ecd_parsed.get("effectivity", "")
-    ecd_parsed["effectivity_original"] = raw_effectivity
     ecd_parsed["effectivity_normalized"] = normalize_effectivity_text(raw_effectivity)
     if session_id:
         jira_client = JiraConnector(server_url=JIRA_URL, jira_session_id=session_id)
-        ecd_parsed["effectivity"] = resolve_effectivity_value(jira_client, raw_effectivity)
+        ecd_parsed["effectivity_suggestion"] = resolve_effectivity_value(jira_client, raw_effectivity)
     else:
-        ecd_parsed["effectivity"] = ecd_parsed["effectivity_normalized"]
+        ecd_parsed["effectivity_suggestion"] = ecd_parsed["effectivity_normalized"]
     return ecd_parsed
 
 
