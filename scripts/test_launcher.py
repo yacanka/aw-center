@@ -14,7 +14,14 @@ from scripts.launcher.dependencies import install_backend
 from scripts.launcher.discovery import discover_project, infer_wsgi_application
 from scripts.launcher.model import LauncherError, Project, Scope
 from scripts.launcher.packaging import package_offline
-from scripts.launcher.runtime import dev, frontend_env, production_argv, runtime_env
+from scripts.launcher.runtime import (
+    dev,
+    frontend_env,
+    production_argv,
+    production_env,
+    prepare_production,
+    runtime_env,
+)
 
 
 def create_project(root: Path) -> Project:
@@ -106,6 +113,27 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(frontend_env("http://127.0.0.1:8000"), {
             "VITE_API_URL": "http://127.0.0.1:8000"
         })
+
+    def test_production_selects_repository_profile_when_available(self) -> None:
+        """Production must not inherit development values from backend/.env."""
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            (project.backend / ".env.production").write_text("DEBUG=False\n", encoding="utf-8")
+            values = production_env(project, "127.0.0.1", 8000)
+        self.assertEqual(values["AWCENTER_ENV_FILE"], ".env.production")
+
+    @mock.patch("scripts.launcher.runtime.run_script")
+    @mock.patch("scripts.launcher.runtime.django")
+    def test_production_migrates_before_final_schema_check(
+        self, django_mock: mock.Mock, _: mock.Mock
+    ) -> None:
+        """An explicit migration must run before the clean-schema gate."""
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            prepare_production(project, {}, True, False, False, True)
+        commands = [call.args[1] for call in django_mock.call_args_list]
+        self.assertEqual(commands[1], ["migrate", "--noinput"])
+        self.assertEqual(commands[2], ["migrate", "--check"])
 
     @mock.patch("scripts.launcher.runtime.supervise")
     @mock.patch("scripts.launcher.runtime.start")
