@@ -103,7 +103,7 @@ def prod(
     """Build, validate, and run one production WSGI process."""
     require_port(host, port)
     ensure_virtual_environment(project, create=False)
-    extra_env = runtime_env(host, port, None)
+    extra_env = production_env(project, host, port)
     prepare_production(project, extra_env, migrate, build, collect_static, checks)
     command = production_argv(project, host, port, production_command)
     print(f"Production endpoint: {public_url(host, port)}")
@@ -123,9 +123,10 @@ def prepare_production(
         run_script(project, "build")
     if checks:
         django(project, ["check", "--deploy", "--fail-level", "WARNING"], extra_env)
-        django(project, ["migrate", "--check"], extra_env)
     if migrate:
         django(project, ["migrate", "--noinput"], extra_env)
+    if checks:
+        django(project, ["migrate", "--check"], extra_env)
     if collect_static:
         django(project, ["collectstatic", "--noinput"], extra_env)
 
@@ -153,6 +154,15 @@ def runtime_env(host: str, backend_port: int, frontend_port: int | None) -> dict
     if frontend_port is not None:
         values["DEV_FRONTEND_PORT"] = str(frontend_port)
         values["DEV_BACKEND_PORT"] = str(backend_port)
+    return values
+
+
+def production_env(project: Project, host: str, port: int) -> dict[str, str]:
+    """Select the repository production profile when it is available."""
+    values = runtime_env(host, port, None)
+    production_profile = project.backend / ".env.production"
+    if production_profile.is_file():
+        values["AWCENTER_ENV_FILE"] = production_profile.name
     return values
 
 

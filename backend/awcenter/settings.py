@@ -36,10 +36,15 @@ def get_environment_file_path():
 
 
 DEFAULT_ENV_FILE = BASE_DIR / ".env"
-env.read_env(DEFAULT_ENV_FILE)
-ENV_FILE = get_environment_file_path()
-if ENV_FILE != DEFAULT_ENV_FILE:
+SELECTED_ENV_FILE = os.environ.get("AWCENTER_ENV_FILE")
+if SELECTED_ENV_FILE:
+    ENV_FILE = resolve_environment_file_path(SELECTED_ENV_FILE)
     env.read_env(ENV_FILE)
+else:
+    env.read_env(DEFAULT_ENV_FILE)
+    ENV_FILE = get_environment_file_path()
+    if ENV_FILE != DEFAULT_ENV_FILE:
+        env.read_env(ENV_FILE, overwrite=True)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
