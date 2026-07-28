@@ -33,7 +33,7 @@ class DoorsClientFoundationTests(SimpleTestCase):
         """Generated DXL stops iterating at the validated result limit."""
         script = list_objects("/Project/Module", ["Object Text"], "entire", 25)
 
-        self.assertIn("if (__aw_count >= 25) break", script)
+        self.assertIn("if (awc_count >= 25) break", script)
         self.assertIn('read("/Project/Module", false)', script)
 
     def test_start_command_uses_argument_list_for_database(self):

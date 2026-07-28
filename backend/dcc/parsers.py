@@ -97,6 +97,7 @@ def ecd_parser_1(ecd_file):
             ecd["change_class"] = table[4][2]
             ecd["change_type"] = str(table[4][3]).replace("\n", " ")
             ecd["effectivity"] = table[9][1]
+            ecd["track_type"] = table[10][1]
             ecd["ecd_title"] = str(table[2][0]).replace("\n", " ")
             ecd["ecd_no"] = "-".join(str(table[4][0]).replace("\n", " ").split("-")[:2])
             ecd["record_of_change"] = table[7][0]
@@ -131,6 +132,7 @@ def ecd_parser_2(ecd_file):
             ecd["change_class"] = table[4][2]
             ecd["change_type"] = str(table[4][3]).replace("\n", " ")
             ecd["effectivity"] = table[9][1]
+            ecd["track_type"] = table[10][1]
             ecd["ecd_title"] = str(table[2][0]).replace("\n", " ")
             ecd["ecd_no"] = str(table[4][0]).replace("\n", " ").split(ecd["ecd_title"])[0][:-1]
             ecd["record_of_change"] = table[7][0]

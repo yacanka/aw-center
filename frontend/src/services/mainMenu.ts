@@ -57,6 +57,7 @@ function primaryOptions(): ProjectMenuOption[] {
 
 function workflowOptions(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
   return [
+    developerGroup(),
     groupItem('Compliance Docs', '/compdocs', 'projects', Book24Regular, projectItems(projects)),
     groupItem(
       'Workflow Accelerator',
@@ -70,7 +71,6 @@ function workflowOptions(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
     ),
     menuItem('JIRA', '/jira', 'jira', EyeTracking24Regular),
     doorsGroup(),
-    developerGroup(),
     menuItem('Teamcenter', '/teamcenter/agent', 'teamcenter', Glasses24Regular),
     compareGroup(),
     groupItem('Pdf', '/pdf', 'pdf', Pdf, [menuItem('Split', '/pdf/split', 'split', Cut24Regular)]),

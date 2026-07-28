@@ -18,7 +18,7 @@ import json
 import os
 from base64 import b64decode
 from utils.process import get_or_run
-from .dxl_library import get_ata_chapter_check, get_req_poc_linker
+from .client.dxl_library import get_ata_chapter_check, get_req_poc_linker
 from awcenter.file_security import EXCEL_POLICY, validate_request_upload
 
 

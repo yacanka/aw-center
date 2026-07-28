@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from uuid import uuid4
 
-from . import builder_read, builder_write
+from . import builder_read, builder_write, checklist
 from .builder_common import wrap_dxl
 from .config import RESULT_MODE_APPLICATION, RESULT_MODE_FILE, DoorsClientConfig
 from .escape import decode_field
@@ -30,6 +30,7 @@ class DoorsClient:
         result_file = self.create_result_file(mode)
         try:
             script = wrap_dxl(body, result_file, mode)
+            print(script)
             execution = self.transport.run_dxl(script, result_file, mode)
             errors = tuple(line for line in execution.lines if line.startswith("ERR\t"))
             return OperationResult(not errors, errors[0] if errors else "OK", execution.lines)
@@ -48,7 +49,7 @@ class DoorsClient:
 
     def probe_application_result(self) -> OperationResult:
         """Verify a minimal oleSetResult to Application.Result round trip."""
-        result = self.run_dxl('__aw_ok("APPLICATION_RESULT_AVAILABLE")', RESULT_MODE_APPLICATION)
+        result = self.run_dxl('awc_ok("APPLICATION_RESULT_AVAILABLE")', RESULT_MODE_APPLICATION)
         self.raise_on_error(result)
         return result
 
@@ -92,6 +93,46 @@ class DoorsClient:
             if line.startswith("CREATED\t"):
                 return self.parse_created_object(line, attributes)
         raise DoorsOperationError("DOORS did not return the created object.")
+    
+    def get_attr(self, module_path: str, search_text: str):
+        """Create one DOORS object in a module."""
+        body = builder_read.get_attr(module_path, search_text)
+        result = self.run_dxl(body)
+        self.raise_on_error(result)
+        for line in result.raw_lines:
+            if line.startswith("OBJECT\t"):
+                return self.parse_info(line)
+        raise DoorsOperationError("DOORS did not return the object.")
+
+    
+    def check_applicable_disciplines(self, module_path: str):
+        """Create one DOORS object in a module."""
+        try:
+            applicable_attr = self.get_attr(module_path, "Applicable")
+            discipline_attr = self.get_attr(module_path, "Discipline")
+            doors_list = self.list_objects(module_path, [applicable_attr, discipline_attr], "entire", 20)
+            for doors_object in doors_list:
+                print(doors_object.attributes)
+                print(f"{doors_object.attributes[applicable_attr]} - {doors_object.attributes[discipline_attr]}")
+            return doors_list
+        except Exception as e:
+            print(e)
+            return None
+        body = checklist.check_applicable_disciplines(module_path)
+        result = self.run_dxl(body)
+        self.raise_on_error(result)
+        for line in result.raw_lines:
+            if line.startswith("OBJECT\t"):
+                return self.parse_object(line)
+        raise DoorsOperationError("DOORS did not complete request.")
+
+    @staticmethod
+    def parse_info(line: str) -> str:
+        """Parse one line-oriented DOORS object result."""
+        try:
+            return decode_field(line.split("\t")[1])
+        except ValueError:
+            raise DoorsDxlError("DOORS returned a malformed info.") 
 
     @staticmethod
     def parse_object(line: str, attributes: Iterable[str]) -> DoorsObject:

@@ -20,13 +20,11 @@
           <n-button :loading="isChecking" :disabled="!canRun" @click="verifyModule">
             Check module
           </n-button>
-          <n-button
-            type="primary"
-            :loading="isLoadingObjects"
-            :disabled="!canRun"
-            @click="loadObjects"
-          >
+          <n-button :loading="isLoadingObjects" :disabled="!canRun" @click="loadObjects">
             List objects
+          </n-button>
+          <n-button type="primary" :loading="isRunning" :disabled="!canRun" @click="runChecklist">
+            Run
           </n-button>
         </n-space>
       </n-form>
@@ -47,6 +45,7 @@ import {
   checkDoorsModule,
   fetchDoorsObjects,
   fetchDoorsStatus,
+  runChecklistAutomation,
   type DoorsObject,
   type DoorsStatus
 } from '@/services/engineeringIntegrations'
@@ -58,6 +57,7 @@ const status = ref<DoorsStatus | null>(null)
 const objects = ref<DoorsObject[]>([])
 const isChecking = ref(false)
 const isLoadingObjects = ref(false)
+const isRunning = ref(false)
 
 const attributes = computed(() =>
   attributeText.value
@@ -119,6 +119,18 @@ async function loadObjects() {
     window.$message.error(formatApiError(error))
   } finally {
     isLoadingObjects.value = false
+  }
+}
+
+async function runChecklist() {
+  isRunning.value = true
+  try {
+    const response = await runChecklistAutomation(modulePath.value.trim())
+    objects.value = response.results
+  } catch (error) {
+    window.$message.error(formatApiError(error))
+  } finally {
+    isRunning.value = false
   }
 }
 </script>

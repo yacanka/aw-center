@@ -104,13 +104,13 @@ onMounted(initialize)
             Connected to JIRA as {{ jiraClientInfo.displayName }}
           </n-tag>
         </template>
-        <n-tab-pane name="dcc" tab="DCC Creator">
-          <n-divider style="margin: 0 0 10px" />
-          <DCCCreator />
-        </n-tab-pane>
         <n-tab-pane name="watcher" tab="Watcher">
           <n-divider style="margin: 0 0 10px" />
           <Watcher />
+        </n-tab-pane>
+        <n-tab-pane name="dcc" tab="DCC Creator">
+          <n-divider style="margin: 0 0 10px" />
+          <DCCCreator />
         </n-tab-pane>
         <n-tab-pane name="subtask" tab="Subtask Generator (List)">
           <n-divider style="margin: 0 0 10px" />

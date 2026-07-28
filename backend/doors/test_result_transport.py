@@ -25,17 +25,17 @@ class ApplicationResultTransportTests(SimpleTestCase):
 
     def test_application_result_script_has_no_result_stream(self):
         """Application.Result mode publishes the buffer without a temp file."""
-        script = wrap_dxl('__aw_ok("PROBE")', None, RESULT_MODE_APPLICATION)
+        script = wrap_dxl('awc_ok("PROBE")', None, RESULT_MODE_APPLICATION)
 
-        self.assertIn('oleSetResult("AW_DOORS_RESULT|" stringOf(__aw_result))', script)
-        self.assertNotIn("Stream __aw_result", script)
+        self.assertIn('oleSetResult("AW_DOORS_RESULT|" stringOf(awc_result))', script)
+        self.assertNotIn("Stream awc_result", script)
 
     def test_file_script_opens_result_stream_before_operation(self):
         """File mode preserves incremental output for backward compatibility."""
-        script = wrap_dxl('__aw_ok("FILE")', Path("result.txt"), RESULT_MODE_FILE)
+        script = wrap_dxl('awc_ok("FILE")', Path("result.txt"), RESULT_MODE_FILE)
 
-        self.assertLess(script.index("Stream __aw_result"), script.index('__aw_ok("FILE")'))
-        self.assertIn("close __aw_result", script)
+        self.assertLess(script.index("Stream awc_result"), script.index('awc_ok("FILE")'))
+        self.assertIn("close awc_result", script)
 
     def test_transport_reads_application_result_lines(self):
         """Python reads the line protocol directly from Application.Result."""
@@ -46,7 +46,7 @@ class ApplicationResultTransportTests(SimpleTestCase):
 
         self.assertEqual(result.raw_lines, ("OK\tAPPLICATION_RESULT_AVAILABLE",))
         script = self.application.runStr.call_args.args[0]
-        self.assertIn('__aw_ok("APPLICATION_RESULT_AVAILABLE")', script)
+        self.assertIn('awc_ok("APPLICATION_RESULT_AVAILABLE")', script)
 
     def test_operation_error_keeps_dxl_reason(self):
         """DXL error codes and reasons remain visible to API callers."""

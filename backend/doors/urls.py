@@ -15,4 +15,5 @@ urlpatterns = [
     path('objects/detail/', api_views.get_object, name='doors_get_object'),
     path('objects/update/', api_views.update_object, name='doors_update_object'),
     path('objects/create/', api_views.create_object, name='doors_create_object'),
+    path('checklist/check_applicable_disciplines/', api_views.check_applicable_disciplines, name='doors_check_applicable_disciplines'),
 ]
