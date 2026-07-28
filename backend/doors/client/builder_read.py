@@ -1,16 +1,16 @@
 from collections.abc import Iterable
 
-from .builder_common import open_module
+from .builder_common import open_module, attribute_fragments
 from .escape import dxl_quote
 
 CHECK_TEMPLATE = r'''
 noError
 {open_statement}
-string __aw_open_error = lastError
-if (!null __aw_open_error || null module) {{
-    __aw_error("OPEN_MODULE", __aw_open_error)
+string awc_open_error = lastError
+if (!null awc_open_error || null module) {{
+    awc_error("OPEN_MODULE", awc_open_error)
 }} else {{
-    __aw_ok("MODULE_OPENED")
+    awc_ok("MODULE_OPENED")
     close(module, false)
 }}
 '''.strip()
@@ -18,44 +18,66 @@ if (!null __aw_open_error || null module) {{
 LIST_TEMPLATE = r'''
 noError
 {open_statement}
-string __aw_open_error = lastError
-if (!null __aw_open_error || null module) {{
-    __aw_error("OPEN_MODULE", __aw_open_error)
+string awc_open_error = lastError
+if (!null awc_open_error || null module) {{
+    awc_error("OPEN_MODULE", awc_open_error)
 }} else {{
     {declarations}
     Object object
-    int __aw_count = 0
+    int awc_count = 0
     for object in {iterable} do {{
-        if (__aw_count >= {limit}) break
-        __aw_emit("OBJECT\t" (object."Absolute Number" "")
-                  "\t" __aw_escape(identifier(object))
-                  "\t" (level(object) "") {fields})
-        __aw_count++
+        if (awc_count >= {limit}) break
+        awc_emit("OBJECT\t" (object."Absolute Number" "") "\t" (awc_escape(identifier(object))"") "\t" (level(object) "") {fields})
+        awc_count++
     }}
     close(module, false)
-    __aw_ok("LIST_OBJECTS_DONE")
+    awc_ok("LIST_OBJECTS_DONE")
 }}
 '''.strip()
 
 GET_TEMPLATE = r'''
 noError
 {open_statement}
-string __aw_open_error = lastError
-if (!null __aw_open_error || null module) {{
-    __aw_error("OPEN_MODULE", __aw_open_error)
+string awc_open_error = lastError
+if (!null awc_open_error || null module) {{
+    awc_error("OPEN_MODULE", awc_open_error)
 }} else {{
     {declarations}
     Object object = object({absolute_number}, module)
     if (null object) {{
-        __aw_error("OBJECT_NOT_FOUND", "Object was not found")
+        awc_error("OBJECT_NOT_FOUND", "Object was not found")
     }} else {{
-        __aw_emit("OBJECT\t" (object."Absolute Number" "")
-                  "\t" __aw_escape(identifier(object))
-                  "\t" (level(object) "") {fields})
+        awc_emit("OBJECT\t" (object."Absolute Number" "") "\t" (awc_escape(identifier(object))"") "\t" (level(object) "") {fields})
     }}
     close(module, false)
 }}
 '''.strip()
+
+GET_ATTR = r'''
+noError
+{open_statement}
+string awc_open_error = lastError
+if (!null awc_open_error || null module) {{
+    awc_error("OPEN_MODULE", awc_open_error)
+}} else {{
+    AttrDef object
+	int offset, length
+    bool isFound
+	for object in module do {{
+		isFound = findPlainText(object.name, "{search_text}", offset, length, {case_sensitive})
+		if (isFound) {{
+			break
+		}}
+	}}
+    close(module, false)
+	if (isFound) {{
+        awc_emit("OBJECT\t" (object.name ""))
+        awc_ok("OBJECT_FOUND")
+    }} else {{
+	    awc_error("OBJECT_NOT_FOUND", "Object was not found")
+    }}
+}}
+'''
 
 
 def check_module(module_path: str, mode: str = "read") -> str:
@@ -67,7 +89,8 @@ def list_objects(module_path: str, attributes: Iterable[str], loop: str, limit: 
     """Build bounded DXL that lists module objects."""
     if loop not in {"module", "entire", "all", "document"}:
         raise ValueError("Unsupported DOORS object loop.")
-    declarations, fields = attribute_fragments(attributes)
+    declarations, fields, _ = attribute_fragments(attributes)
+    fields = "".join(f' "\\t" ({field}"")' for field in fields)
     iterable = "module" if loop == "module" else f"{loop}(module)"
     return LIST_TEMPLATE.format(
         open_statement=open_module(module_path, "read"),
@@ -80,7 +103,8 @@ def list_objects(module_path: str, attributes: Iterable[str], loop: str, limit: 
 
 def get_object(module_path: str, absolute_number: int, attributes: Iterable[str]) -> str:
     """Build DXL that reads one object and selected attributes."""
-    declarations, fields = attribute_fragments(attributes)
+    declarations, fields, _ = attribute_fragments(attributes)
+    fields = "".join(f' "\\t" ({field}"")' for field in fields)
     return GET_TEMPLATE.format(
         open_statement=open_module(module_path, "read"),
         declarations=declarations,
@@ -89,12 +113,10 @@ def get_object(module_path: str, absolute_number: int, attributes: Iterable[str]
     )
 
 
-def attribute_fragments(attributes: Iterable[str]) -> tuple[str, str]:
-    """Build safe attribute declarations and output fragments."""
-    declarations = []
-    fields = []
-    for index, attribute in enumerate(attributes):
-        variable = f"__aw_attribute_{index}"
-        declarations.append(f"string {variable} = {dxl_quote(attribute)}")
-        fields.append(f' "\\t" __aw_escape(object.{variable})')
-    return "\n".join(declarations), "".join(fields)
+def get_attr(module_path: str, search_text: str, case_sensitive: bool = False) -> str:
+    """Build bounded DXL that lists module objects."""
+    return GET_ATTR.format(
+        open_statement=open_module(module_path, "read"),
+        search_text=search_text,
+        case_sensitive="true" if case_sensitive else "false"
+    )

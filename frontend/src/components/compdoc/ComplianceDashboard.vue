@@ -33,7 +33,7 @@
       <CompDocRiskDashboard :project="activeProject" :risk="summary.risk" />
       <div class="dashboard-grid">
         <div class="dashboard-column">
-          <CompDocPanelDashboard
+          <CompDocPanelDashboard style="background: linear-gradient(145deg, rgba(60, 130, 250, 0.06), transparent 90%);"
             :loading="loading"
             :panels="summary.panels"
             :selected-panel="selectedPanel?.panel"

@@ -92,6 +92,20 @@ def check_module(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def check_applicable_disciplines(request):
+    """Check whether an authenticated DOORS client can read a module."""
+    values, failure = validate(ModuleSerializer, request.data)
+    if failure:
+        return failure
+    return execute(lambda client: check_applicable_disciplines_response(client, values))
+
+def check_applicable_disciplines_response(client, values):
+    """Build a stable DOORS object-list API response."""
+    objects = client.check_applicable_disciplines(values["module_path"])
+    return {"count": len(objects), "results": [item.to_dict() for item in objects]}
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def list_objects(request):
     """Return a bounded list of objects from a DOORS module."""
     values, failure = validate(ObjectListSerializer, request.data)

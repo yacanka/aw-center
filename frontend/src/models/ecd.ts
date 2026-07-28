@@ -7,6 +7,7 @@ export interface IEcd {
   change_class: string
   cage_code: string
   change_type: string
+  track_type: string
   effectivity: string
   effectivity_normalized?: string
   effectivity_suggestion?: string
@@ -15,7 +16,7 @@ export interface IEcd {
   ata: string
   subata: string
   ecd_initiator: string
-  status: string
+  originator: string
   change_justification: string
   proposed_solution: string
   consequence: string

@@ -6,11 +6,15 @@ from pathlib import Path
 
 from .config import RESULT_MODE_APPLICATION, DoorsClientConfig
 from .exceptions import DoorsConnectionError, DoorsDxlError
+from django.conf import settings
+from base64 import b64decode
 
 CONNECTION_LOCK = threading.Lock()
 APPLICATION_RESULT_PREFIX = "AW_DOORS_RESULT|"
 FILE_RESULT_PREFIXES = ("AW_DOORS_OK|", "AW_DOORS_ERR|")
 
+AW_USERNAME = settings.AW_USERNAME
+AW_PASSWORD = settings.AW_PASSWORD
 
 @dataclass(frozen=True, slots=True)
 class DxlExecution:
@@ -102,6 +106,8 @@ class DoorsOleTransport:
         command = [str(self.config.executable)]
         if self.config.database:
             command.extend(["-d", self.config.database])
+        if AW_USERNAME and AW_PASSWORD:
+            command.extend(["-u", b64decode(AW_USERNAME).decode("utf-8"), "-P", b64decode(AW_PASSWORD).decode("utf-8")])
         return command
 
     def wait_for_application(self, automation):
