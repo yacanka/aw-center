@@ -39,7 +39,7 @@
       >
     </n-space>
     <n-space justify="space-around">
-      <n-space v-if="jiraInfo.subtasks" v-for="(item, index) in jiraInfo.subtasks" :key="index">
+      <n-space v-if="jiraInfo.subtasks" v-for="(_, index) in jiraInfo.subtasks" :key="index">
         <n-card size="small" style="width: 400px" content-style="font-size: 12px;">{{
           jiraInfo.subtasks[index].fields.summary
         }}</n-card>

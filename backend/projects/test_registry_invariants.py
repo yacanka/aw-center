@@ -65,15 +65,29 @@ class ProjectRegistryInvariantTests(TestCase):
                 self.assertNotIn(definition.url_prefix, generated_prefixes)
 
     def test_compdoc_routes_use_uuid_identifiers(self):
-        """Every project CompDoc detail and history route accepts the model UUID."""
+        """Every object-scoped CompDoc route accepts the model UUID."""
+
+        expected_uuid_routes = {
+            "compdoc_tracking",
+            "compdoc_docproof",
+            "compdoc_notification",
+            "compdoc_notification_draft",
+            "compdoc_obj",
+            "history",
+        }
 
         for slug in PROJECT_DEFINITIONS:
             with self.subTest(slug=slug):
                 module = import_module(f"projects.{slug}.compdocs.urls")
                 patterns = [str(pattern.pattern) for pattern in module.urlpatterns]
+                uuid_route_names = {
+                    pattern.name
+                    for pattern in module.urlpatterns
+                    if "<uuid:pk>" in str(pattern.pattern)
+                }
 
                 self.assertFalse(any("<int:pk>" in pattern for pattern in patterns))
-                self.assertEqual(sum("<uuid:pk>" in pattern for pattern in patterns), 2)
+                self.assertEqual(uuid_route_names, expected_uuid_routes)
 
     def test_compdoc_projects_expose_dashboard_route(self):
         """Every CompDoc-capable project exposes the shared analytics contract."""

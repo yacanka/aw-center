@@ -2,9 +2,7 @@ from jira import JIRA, JIRAError
 from typing import Dict, Any
 import pprint
 import re
-from docxtpl import DocxTemplate
 from datetime import datetime, timedelta
-import os
 import logging
 from urllib.parse import urlparse
 from django.conf import settings

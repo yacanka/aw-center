@@ -3,7 +3,6 @@ import { computed, h, ref, onMounted } from 'vue'
 import axios from 'axios'
 import { NButton, NDataTable, NSpace, NTag, NSpin, PaginationInfo } from 'naive-ui'
 import { useDccStore } from '@/stores/dcc'
-import { useOrgsStore } from '@/stores/organizations'
 import { IDcc } from '@/models/dcc'
 import UpdateForm from '@/components/dcc/UpdatePopup.vue'
 import UploadForm from '@/components/dcc/UploadPopup.vue'
@@ -20,7 +19,6 @@ import {
 import { getStringFilterFunc } from '@/services/tableFilters'
 
 const store = useDccStore()
-const orgstore = useOrgsStore()
 const page = ref(1)
 const pageSize = ref(12)
 
@@ -343,7 +341,7 @@ async function onApproved(data: any) {
   }
 }
 
-const rowPropsAttr = (rowData: IDcc, rowIndex: number) => {
+const rowPropsAttr = (rowData: IDcc) => {
   const rowKey = rowData.id ?? rowData.issue
   return {
     onDblclick: () => {

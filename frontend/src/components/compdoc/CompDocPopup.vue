@@ -314,7 +314,7 @@ import { Edit24Regular } from '@vicons/fluent'
 import { isoToTurkishDateTime, getTodayEUFormat } from '@/utils/time'
 import { useOrgsStore } from '@/stores/organizations'
 import { checkArrayEquals } from '@/utils/array'
-import { catOptions, mocOptions, statusColors, statusOptions } from '@/services/compdocCatalog'
+import { catOptions, mocOptions, statusOptions } from '@/services/compdocCatalog'
 import { shouldLoadCompdocHistory } from '@/services/compdocHistory'
 import { validateForm } from '@/composables/forms'
 

@@ -64,16 +64,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import axios from 'axios'
-import { useRoute } from 'vue-router'
-import { useDoorsStore } from '@/stores/doors'
-import { useExcelStore } from '@/stores/excel'
 import { getFileNameAndExt } from '@/utils/text'
 import { selectedUploadFile } from '@/utils/uploads'
 import { UploadFileInfo } from 'naive-ui'
 import { formatApiError } from '@/services/apiError'
-const route = useRoute()
 
 const splitter = ref({
   parts: null,
@@ -89,16 +85,11 @@ const loadingBar = ref({
 
 const fileList = ref<UploadFileInfo[]>([])
 
-const doors = useDoorsStore()
-const excel = useExcelStore()
-
 function handleFileChange(options: { fileList: UploadFileInfo[] }) {
   fileList.value = options.fileList
 }
 
-function handleFileRemove(file: UploadFileInfo, fileList: Array<UploadFileInfo>, index: number) {}
-
-onMounted(() => {})
+function handleFileRemove() {}
 
 function splitPdf() {
   const selectedFile = selectedUploadFile(fileList.value)
@@ -122,7 +113,7 @@ function splitPdf() {
       const downloader = document.createElement('a')
       downloader.href = urlObj
 
-      const { name, ext } = getFileNameAndExt(fileList.value[0].name)
+      const { name } = getFileNameAndExt(fileList.value[0].name)
       downloader.download = name || 'Split'
       document.body.appendChild(downloader)
       downloader.click()

@@ -76,9 +76,7 @@ export async function checkDoorsModule(modulePath: string) {
 }
 
 /** Run automation task from a DOORS module. */
-export async function runChecklistAutomation(
-  modulePath: string
-) {
+export async function runChecklistAutomation(modulePath: string) {
   return (
     await axios.post<DoorsObjectList>('doors/checklist/check_applicable_disciplines/', {
       module_path: modulePath

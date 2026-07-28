@@ -1,5 +1,5 @@
 import re
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 

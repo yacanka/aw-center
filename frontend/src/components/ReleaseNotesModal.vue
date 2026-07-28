@@ -46,7 +46,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useReleaseNotesStore } from '@/stores/releaseNotes'
 import MarkdownIt from 'markdown-it'
 

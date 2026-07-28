@@ -45,7 +45,6 @@ const {
   confirmDocumentDeletion,
   copyDocumentPath,
   openTracking,
-  openWorkspace,
   rowProps,
   trackingVisible,
   workspaceVisible

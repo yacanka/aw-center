@@ -8,20 +8,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from awcenter.api_errors import error_response
-from docproof.client import (
+from docproof.client import (  # noqa: F401
     DOCPROOF_URL,
     REQUEST_TIMEOUT_SECONDS,
-    decode_secret,
     find_document_issue,
     find_latest_edms_object_id,
-    get_credentials,
-    get_json,
     login,
-    login_url,
     normalize_document_number,
     search_issue_number,
-    search_params,
-    session,
 )
 
 LOGGER = logging.getLogger(__name__)

@@ -2,8 +2,6 @@ from projects.havasoj.models import Panel, Responsible
 from projects.havasoj.serializers import PanelSerializer, ResponsibleSerializer
 
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.viewsets import ModelViewSet
-
 from common.views import responsible_view_set_factory, panel_view_set_factory
 
 PanelViewSet = panel_view_set_factory(Panel, PanelSerializer, [IsAuthenticated])

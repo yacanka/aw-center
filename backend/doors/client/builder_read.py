@@ -1,7 +1,4 @@
-from collections.abc import Iterable
-
 from .builder_common import open_module, attribute_fragments
-from .escape import dxl_quote
 
 CHECK_TEMPLATE = r'''
 noError

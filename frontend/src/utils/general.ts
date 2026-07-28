@@ -54,18 +54,6 @@ export function nullCheck(
   return false
 }
 
-function getCssVariableValue(variableName: string) {
-  const root = document.documentElement
-  const value = getComputedStyle(root).getPropertyValue(variableName).trim()
-
-  if (!value) {
-    console.warn(`CSS değişkeni bulunamadı: ${variableName}`)
-    return null
-  }
-
-  return value
-}
-
 export function base64ToBytes(base64: string) {
   try {
     const byteCharacters = atob(base64)

@@ -90,7 +90,7 @@
   <EcrUploadPopup
     ref="ecrUploadPopup"
     @onSuccess="
-      (file: File, parsed: string | null) => {
+      (file: File, _parsed: string | null) => {
         manualPdfFiles.push(file)
         currentTask.events.ProgressEvent()
       }

@@ -15,9 +15,7 @@
             type="info"
             ghost
             :disabled="
-              loadingBar.status == 'default' ||
-              generator.url == '' ||
-              fileList.length == 0
+              loadingBar.status == 'default' || generator.url == '' || fileList.length == 0
             "
             @click="createSubtasks"
             >Generate</n-button
@@ -75,7 +73,7 @@
                 :options="jiraOptions"
                 placeholder="Select Field"
                 clearable
-                @update:value="(value: string) => handleFieldChange(index, value)"
+                @update:value="handleFieldChange"
               />
             </n-grid-item>
           </n-grid>
@@ -89,8 +87,6 @@
 import { ref } from 'vue'
 import axios from 'axios'
 import { createAuthenticatedEventSource } from '@/services/eventSource'
-import { useRoute } from 'vue-router'
-import { useDoorsStore } from '@/stores/doors'
 import { useExcelStore } from '@/stores/excel'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
 import { formatApiError } from '@/services/apiError'
@@ -103,8 +99,6 @@ type ListItem = {
 }
 
 type JiraOption = { value: string; label: string; disabled?: boolean }
-
-const route = useRoute()
 
 const generator = ref({
   JSESSIONID: '',
@@ -122,16 +116,10 @@ const loadingBar = ref({
 })
 const username = ref('')
 
-const columns = ref([])
 const fileList = ref<UploadFileInfo[]>([])
 
-const doors = useDoorsStore()
 const excel = useExcelStore()
 const dccStore = useDccStore()
-const modal = ref({
-  show: false,
-  content: ''
-})
 
 const jiraOptions = ref<JiraOption[]>([
   { value: 'summary', label: 'Summary' },
@@ -144,15 +132,15 @@ function handleFileChange(options: { fileList: UploadFileInfo[] }) {
   fileList.value = options.fileList
 }
 
-function handleFileRemove(file: UploadFileInfo, fileList: Array<UploadFileInfo>, index: number) {
+function handleFileRemove() {
   generator.value.list = []
-  handleFieldChange(0, '')
+  handleFieldChange()
 }
 
-function handleFieldChange(index: number, value: string) {
+function handleFieldChange() {
   for (let option of jiraOptions.value) {
     let locked = false
-    generator.value.list.forEach((item, i) => {
+    generator.value.list.forEach((item) => {
       if (option.value == item.jira) {
         locked = true
       }
@@ -161,7 +149,7 @@ function handleFieldChange(index: number, value: string) {
   }
 }
 
-function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions) {
+function handleUploadReq({ file, onError }: UploadCustomRequestOptions) {
   const selectedFile = selectedUploadFile([file])
   if (!selectedFile) return onError()
   window.$loadingBar.start()

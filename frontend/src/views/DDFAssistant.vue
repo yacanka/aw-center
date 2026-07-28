@@ -13,12 +13,10 @@ import {
   ChannelAdd24Regular,
   Add24Regular,
   DataBarVertical24Regular,
-  Edit24Regular,
   Delete24Regular,
   Eye24Regular
 } from '@vicons/fluent'
-import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
-import { FilterOptionValue, RowData } from 'naive-ui/es/data-table/src/interface'
+import { useRoute } from 'vue-router'
 import { getDateFilterMenuFunc } from '@/components/table/advancedFilterMenus'
 import { getStringFilterMenuFunc } from '@/components/table/valueFilterMenus'
 import { getDateFilterFunc, getStringFilterFunc } from '@/services/tableFilters'
@@ -61,7 +59,7 @@ const onClean = (attrib: string) => {
 const columns: DataTableColumns<IDdf> = [
   {
     type: 'expand',
-    expandable: (row) => true,
+    expandable: () => true,
     renderExpand: (row) => {
       return h(Details, { ddf: row })
     }

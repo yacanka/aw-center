@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from django.utils import timezone
 
 from .handoffs import create_handoff_job
-from .models import Job, JobStatus, WorkerHeartbeat
+from .models import Job, WorkerHeartbeat
 from .serializers import JobDetailSerializer, JobSerializer
 from .services import request_cancellation, retry_job
 

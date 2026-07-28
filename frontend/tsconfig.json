@@ -6,6 +6,8 @@
     "lib": ["DOM", "ESNext", "WebWorker"],
     "skipLibCheck": true,
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "jsx": "preserve",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,

@@ -115,8 +115,6 @@ function setPopupMode(mode: string) {
   popupMode.value = mode
 }
 
-function handleItemHeaderClick(value: any) {}
-
 function onAfterLeave() {}
 
 defineExpose({ openModal })

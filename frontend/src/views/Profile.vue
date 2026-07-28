@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { h, ref, onMounted } from 'vue'
-import { NButton, NDataTable, NSpace, NTag, NUpload } from 'naive-ui'
+import { h, ref } from 'vue'
 import { Settings16Regular, Door16Regular } from '@vicons/fluent'
 import { useRouter } from 'vue-router'
 import { logout, useUserStore } from '@/stores/user'

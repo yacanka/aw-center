@@ -20,7 +20,6 @@ const sessionConsumerUrls = [
   '../src/components/dcc/UploadPopup.vue'
 ].map((path) => new URL(path, import.meta.url))
 const jiraCredentialUrls = [
-  '../src/views/dcc/DCCCreator.vue',
   '../src/views/JiraContainer.vue',
   '../src/components/outlook/EcrTask.vue',
   '../src/components/jobs/JiraDraftPreflightPanel.vue'
@@ -42,6 +41,7 @@ test('DCC creator previews and confirms one durable snapshot without job secrets
   assert.doesNotMatch(component, /EventSource|createAuthenticatedEventSource/)
   assert.doesNotMatch(component, /\batob\s*\(/)
   assert.doesNotMatch(component, /localStorage|sessionStorage/)
+  assert.doesNotMatch(component, /type="password"|JSESSIONID/)
   assert.doesNotMatch(service, /['"]\/dcc\/jobs\/create-document\/['"]/)
   assert.doesNotMatch(service, /compdoc_project|compdoc_ids|compdoc-recommendations/)
   assert.doesNotMatch(component, /DccCompdoc|compdocSelection/)

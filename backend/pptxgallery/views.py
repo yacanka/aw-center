@@ -1,7 +1,6 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db import transaction
 from .models import Presentation, Slide
 from .serializers import PresentationSerializer, PresentationCreateSerializer, SlideSerializer
 from .converters import convert_pptx_to_images

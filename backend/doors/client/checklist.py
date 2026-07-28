@@ -1,7 +1,4 @@
-from collections.abc import Iterable
-
 from .builder_common import open_module, attribute_fragments, create_func_declarations
-from .escape import dxl_quote
 
 CHECK_APPLICABLE_DISCIPLINES = r'''
 {func_declarations}

@@ -124,7 +124,7 @@ async function updateDatabase() {
   closeModal()
 }
 
-function handleTransferChange(value: any) {
+function handleTransferChange() {
   transferValues.value.sort()
 }
 

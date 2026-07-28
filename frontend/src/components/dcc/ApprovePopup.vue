@@ -1,6 +1,11 @@
 <template>
-  <n-modal v-model:show="showModal" preset="dialog" title="Approve Information" centered
-    :style="{ width: '60%', minWidth: '600px' }">
+  <n-modal
+    v-model:show="showModal"
+    preset="dialog"
+    title="Approve Information"
+    centered
+    :style="{ width: '60%', minWidth: '600px' }"
+  >
     <n-form ref="formRef" :rules="rules" :model="ecd">
       <n-grid cols="24" x-gap="12">
         <n-form-item-gi span="24" path="ecd_title" label="ECD Title">
@@ -11,8 +16,16 @@
           <n-input v-model:value="ecd.ecd_no" placeholder="None" @keydown.enter.prevent />
         </n-form-item-gi>
         <n-form-item-gi span="6" path="project" label="Project">
-          <n-select ref="projectSelectRef" v-model:value="ecd.project" multiple filterable :fallback-option="false" :options="projectOptions"
-            placeholder="Select project" @update:value="projectSelectRef.blur()" />
+          <n-select
+            ref="projectSelectRef"
+            v-model:value="ecd.project"
+            multiple
+            filterable
+            :fallback-option="false"
+            :options="projectOptions"
+            placeholder="Select project"
+            @update:value="projectSelectRef.blur()"
+          />
         </n-form-item-gi>
         <n-form-item-gi span="3" path="change_class" label="Change Class">
           <n-input v-model:value="ecd.change_class" placeholder="None" @keydown.enter.prevent />
@@ -29,22 +42,29 @@
 
         <n-form-item-gi :span="6" path="effectivity" label="Effectivity">
           <n-input v-model:value="ecd.effectivity" placeholder="None" @keydown.enter.prevent>
-            <template v-if=hasEffectivitySuggestion #suffix>
+            <template v-if="hasEffectivitySuggestion" #suffix>
               <n-tooltip>
                 <template #trigger>
-                  <n-button size="tiny" :type="isEffectivitySuggestionHovered ? 'success' : 'default'"
-                    style="width: 42px" @click="applyEffectivitySuggestion"
+                  <n-button
+                    size="tiny"
+                    :type="isEffectivitySuggestionHovered ? 'success' : 'default'"
+                    style="width: 42px"
+                    @click="applyEffectivitySuggestion"
                     @mouseenter="isEffectivitySuggestionHovered = true"
-                    @mouseleave="isEffectivitySuggestionHovered = false">
-                    <n-icon v-if=!isEffectivitySuggestionHovered>
+                    @mouseleave="isEffectivitySuggestionHovered = false"
+                  >
+                    <n-icon v-if="!isEffectivitySuggestionHovered">
                       <Alert24Regular />
                     </n-icon>
-                    <span v-else>
-                      Apply
-                    </span>
+                    <span v-else> Apply </span>
                   </n-button>
                 </template>
-                <n-alert type="success" :show-icon="false" style="padding: 0px 12px" class="input-height-alert">
+                <n-alert
+                  type="success"
+                  :show-icon="false"
+                  style="padding: 0px 12px"
+                  class="input-height-alert"
+                >
                   <n-flex align="center" justify="space-between">
                     <span>Suggestion: {{ ecd.effectivity_suggestion }}</span>
                   </n-flex>
@@ -71,26 +91,49 @@
             <n-collapse-item title="Details">
               <n-grid>
                 <n-form-item-gi span="24" path="change_justification" label="Change Justification">
-                  <n-input v-model:value="ecd.change_justification" type="textarea" size="tiny" placeholder="None"
-                    @keydown.enter.prevent />
+                  <n-input
+                    v-model:value="ecd.change_justification"
+                    type="textarea"
+                    size="tiny"
+                    placeholder="None"
+                    @keydown.enter.prevent
+                  />
                 </n-form-item-gi>
                 <n-form-item-gi span="24" path="proposed_solution" label="Proposed Solution">
-                  <n-input v-model:value="ecd.proposed_solution" type="textarea" size="tiny" placeholder="None"
-                    @keydown.enter.prevent />
+                  <n-input
+                    v-model:value="ecd.proposed_solution"
+                    type="textarea"
+                    size="tiny"
+                    placeholder="None"
+                    @keydown.enter.prevent
+                  />
                 </n-form-item-gi>
-                <n-form-item-gi span="24" path="consequence" label="Consequence of non-implementation">
-                  <n-input v-model:value="ecd.consequence" type="textarea" size="tiny" placeholder="None"
-                    @keydown.enter.prevent />
+                <n-form-item-gi
+                  span="24"
+                  path="consequence"
+                  label="Consequence of non-implementation"
+                >
+                  <n-input
+                    v-model:value="ecd.consequence"
+                    type="textarea"
+                    size="tiny"
+                    placeholder="None"
+                    @keydown.enter.prevent
+                  />
                 </n-form-item-gi>
                 <n-form-item-gi span="24" path="impacted_groups" label="Impacted Groups">
-                  <n-input v-model:value="ecd.impacted_groups" type="textarea" size="tiny" placeholder="None"
-                    @keydown.enter.prevent />
+                  <n-input
+                    v-model:value="ecd.impacted_groups"
+                    type="textarea"
+                    size="tiny"
+                    placeholder="None"
+                    @keydown.enter.prevent
+                  />
                 </n-form-item-gi>
               </n-grid>
             </n-collapse-item>
           </n-collapse>
         </n-gi>
-
       </n-grid>
     </n-form>
     <template #action>
@@ -101,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { FormRules, NModal } from 'naive-ui'
 import { IEcd } from '@/models/ecd'
 import { validateForm } from '@/composables/forms'
@@ -127,7 +170,7 @@ const rules: FormRules = {
   ecd_no: [
     { required: true, trigger: 'blur' },
     {
-      validator: (rule, value) => {
+      validator: (_rule, value) => {
         if (!value.includes('/')) {
           return new Error("ECD number must include '/'")
         }
@@ -137,7 +180,7 @@ const rules: FormRules = {
     }
   ],
   project: [{ required: true, type: 'array', trigger: 'blur' }],
-  effectivity: [{ required: true, trigger: 'blur' },],
+  effectivity: [{ required: true, trigger: 'blur' }],
   requestor: [
     { required: true, trigger: 'blur' },
     { min: 6, max: 6, message: 'Need 6 character' }

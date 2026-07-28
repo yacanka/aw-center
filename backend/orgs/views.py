@@ -1,4 +1,3 @@
-from django.shortcuts import render
 from django.forms import Form, FileField
 from awcenter.file_security import EXCEL_POLICY, validate_request_upload
 

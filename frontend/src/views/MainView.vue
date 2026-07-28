@@ -38,7 +38,7 @@
 
 <script setup lang="ts">
 import { ref, computed, provide, watch } from 'vue'
-import { RouterLink, RouterView, useRouter, useRoute } from 'vue-router'
+import { RouterView, useRouter, useRoute } from 'vue-router'
 import { useMessage, useDialog, useNotification, useLoadingBar } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
 import { useCompdocStore } from '@/stores/compdoc'
