@@ -61,6 +61,13 @@ IPV4_ADDRESS = env.str("IPV4_ADDRESS")
 PORT = env.int("PORT")
 
 DOCPROOF_URL = env.str("DOCPROOF_URL")
+DOCPROOF_VERIFY_SSL = env.bool("DOCPROOF_VERIFY_SSL", default=True)
+DOCPROOF_CERTIFICATE_FILE = Path(
+    env.path(
+        "DOCPROOF_CERTIFICATE_FILE",
+        default=BASE_DIR / "certificates" / "dmntai_intra.crt",
+    )
+)
 DOORS_EXECUTABLE = env.str("DOORS_EXECUTABLE")
 DOORS_DATABASE = env.str("DOORS_DATABASE", default="")
 DOORS_OLE_PROG_ID = env.str("DOORS_OLE_PROG_ID", default="DOORS.Application")
@@ -372,9 +379,43 @@ AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES = env.int(
 )
 AWCENTER_MAX_ARCHIVE_ENTRIES = env.int("AWCENTER_MAX_ARCHIVE_ENTRIES", default=5000)
 AWCENTER_MAX_COMPDOC_IMPORT_ROWS = env.int("AWCENTER_MAX_COMPDOC_IMPORT_ROWS", default=10000)
+AWCENTER_MAX_COMPDOC_EXPORT_ROWS = env.int("AWCENTER_MAX_COMPDOC_EXPORT_ROWS", default=10000)
 COMPDOC_IMPORT_PREVIEW_TTL_SECONDS = env.int(
     "COMPDOC_IMPORT_PREVIEW_TTL_SECONDS", default=15 * 60
 )
+COMPDOC_NOTIFICATION_POLL_SECONDS = env.int(
+    "COMPDOC_NOTIFICATION_POLL_SECONDS", default=5 * 60
+)
+COMPDOC_NOTIFICATION_BATCH_SIZE = env.int(
+    "COMPDOC_NOTIFICATION_BATCH_SIZE", default=25
+)
+COMPDOC_NOTIFICATION_LOCK_SECONDS = env.int(
+    "COMPDOC_NOTIFICATION_LOCK_SECONDS", default=15 * 60
+)
+COMPDOC_NOTIFICATION_RETRY_SECONDS = env.int(
+    "COMPDOC_NOTIFICATION_RETRY_SECONDS", default=60 * 60
+)
+COMPDOC_DOCPROOF_REFRESH_SECONDS = env.int(
+    "COMPDOC_DOCPROOF_REFRESH_SECONDS", default=30 * 60
+)
+AWCENTER_MAIL_TRANSPORT = env.str("AWCENTER_MAIL_TRANSPORT", default="outlook").lower()
+if AWCENTER_MAIL_TRANSPORT not in {"outlook", "django", "disabled"}:
+    raise ImproperlyConfigured(
+        "AWCENTER_MAIL_TRANSPORT must be outlook, django, or disabled."
+    )
+EMAIL_BACKEND = env.str(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_HOST = env.str("EMAIL_HOST", default="localhost")
+EMAIL_PORT = env.int("EMAIL_PORT", default=25)
+EMAIL_HOST_USER = env.str("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
+DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="awcenter@localhost")
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured("EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be enabled.")
 SOFFICE_BIN = env.str("SOFFICE_BIN", default="soffice")
 PDFTOPPM_BIN = env.str("PDFTOPPM_BIN", default="pdftoppm")
 PPTX_CONVERSION_TIMEOUT_SECONDS = env.int("PPTX_CONVERSION_TIMEOUT_SECONDS", default=180)

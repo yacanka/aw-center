@@ -205,6 +205,14 @@ Frontend ekranları: `/app/compdocs/:project`, `/app/compdocs/coverpagecreator`,
 - Audit kanıtını, reddedilen satırları, düzeltme önerilerini ve kolon kararlarını formül enjeksiyonuna dayanıklı Excel raporu olarak indirme.
 - Server-side pagination ve filtreleme.
 - DocProof arama entegrasyonu.
+- ATA chapter üzerinden otomatik/özel sorumlu seçimi ve gecikme, yaklaşan termin, yeni
+  DocProof revizyonu için opt-in HTML bildirimleri.
+- Her bildirim olayının güncel uygulanabilirlik nedeni, hedef tarih/DocProof kanıtı ve hazır
+  alıcı sayısı; geçersiz aksiyonları çağrıdan önce engelleme ve otomatik gönderimde açık onay.
+- Proje seviyesinde sürümlü ve immutable bildirim politikası; olay bazlı reminder/retry süresi,
+  ATA sorumlu rollerine göre primary/escalation zinciri ve değişiklik gerekçeli audit geçmişi.
+- Aynı alıcı, konu ve HTML şablonuyla hazırlanan; Outlook'ta açılıp düzenlenerek manuel
+  gönderilebilen Unicode `.msg` taslağı indirme.
 - Durum akışı ve gecikme göstergeleri.
 - Cover page üretimi.
 - Doküman analiz ekranı.
@@ -215,7 +223,10 @@ model yetkileri backend'de uygulanır:
 
 - `<project>.view_compdoc`: liste, UUID detay, geçmiş, alan metadata'sı ve Excel export.
 - `<project>.add_compdoc` + `<project>.change_compdoc`: manuel create/upsert ve Excel import.
-- `<project>.change_compdoc`: mevcut kaydı güncelleme.
+- `<project>.change_compdoc`: mevcut kaydı güncelleme, takip tercihlerini yönetme, otomatik
+  bildirim gönderme ve `.msg` bildirim taslağı oluşturma.
+- `<project>.change_compdoc` + `common.manage_compdoc_notification_policy`: proje bildirim
+  politikasının yeni, optimistic-lock korumalı bir revizyonunu yayımlama.
 - `<project>.delete_compdoc`: tekil silme; toplu silme ayrıca `view_compdoc`, güncel kayıt
   sayısı ve proje adını içeren tam onay cümlesi gerektirir.
 
@@ -737,6 +748,8 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `IPV4_ADDRESS` | Zorunlu | Allowed hosts varsayılanı, reset URL ve Cheroot bind host için kullanılır. |
 | `PORT` | Zorunlu integer | Reset URL ve Cheroot bind port için kullanılır. |
 | `DOCPROOF_URL` | Zorunlu | DocProof entegrasyon base URL'i. |
+| `DOCPROOF_VERIFY_SSL` | `True` | DocProof TLS sertifika doğrulamasını güvenli varsayılanla etkin tutar. |
+| `DOCPROOF_CERTIFICATE_FILE` | `certificates/dmntai_intra.crt` | Kurum içi CA/sertifika dosyası; dosya yoksa sistem CA deposu kullanılır. |
 | `DOORS_EXECUTABLE` | Zorunlu | DOORS executable path'i. |
 | `DOORS_DATABASE` | Varsayılan boş | Opsiyonel DOORS `port@host` database seçimi. |
 | `DOORS_OLE_PROG_ID` | Varsayılan `DOORS.Application` | Windows OLE automation program ID. |
@@ -769,7 +782,15 @@ FFMPEG_EXECUTABLE=ffmpeg
 | `AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES` | 250 MiB | OOXML/ZIP içeriğinin toplam açılmış boyut sınırı. |
 | `AWCENTER_MAX_ARCHIVE_ENTRIES` | 5000 | OOXML/ZIP içindeki maksimum entry sayısı. |
 | `AWCENTER_MAX_COMPDOC_IMPORT_ROWS` | 10000 | Tek CompDoc Excel importunda işlenecek maksimum veri satırı. |
+| `AWCENTER_MAX_COMPDOC_EXPORT_ROWS` | 10000 | Senkron, yeniden import edilebilir CompDoc exportundaki maksimum kayıt sayısı. |
 | `COMPDOC_IMPORT_PREVIEW_TTL_SECONDS` | `900` | İmzalı CompDoc Excel önizleme onayının geçerlilik süresi. |
+| `COMPDOC_NOTIFICATION_POLL_SECONDS` | `300` | Otomatik CompDoc bildirim taramaları arasındaki süre. |
+| `COMPDOC_NOTIFICATION_BATCH_SIZE` | `25` | Bir taramada işlenecek en fazla opt-in doküman profili; son kontrol zamanı adil sıra sağlar. |
+| `COMPDOC_NOTIFICATION_LOCK_SECONDS` | `900` | Aynı taramanın birden fazla worker tarafından çalışmasını engelleyen kilit süresi. |
+| `COMPDOC_NOTIFICATION_RETRY_SECONDS` | `3600` | Başarısız e-posta teslimatının yeniden denenmesinden önceki bekleme süresi. |
+| `COMPDOC_DOCPROOF_REFRESH_SECONDS` | `1800` | Otomatik yeni-revizyon kontrollerinde aynı doküman için minimum DocProof yenileme aralığı. |
+| `AWCENTER_MAIL_TRANSPORT` | `outlook` | HTML e-posta taşıyıcısı: Windows Outlook COM için `outlook`, SMTP/Django için `django`, gönderimi kapatmak için `disabled`. |
+| `DEFAULT_FROM_EMAIL` | `awcenter@localhost` | Django e-posta taşıyıcısında kullanılan gönderen adresi. |
 | `DATABASE_URL` | Varsayılan `backend/db.sqlite3` | Primary database URL'i. Production için PostgreSQL önerilir. |
 | `DB_OLD_URL` | Varsayılan `backend/db_old.sqlite3` | Legacy database bağlantısı. |
 | `DATABASE_CONN_MAX_AGE` | Varsayılan `60` | Persistent database connection süresi. |

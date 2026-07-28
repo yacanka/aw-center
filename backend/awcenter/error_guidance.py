@@ -45,6 +45,9 @@ _EXACT_GUIDANCE = {
     "COMPDOC_IMPORT_DATABASE_CONFLICT": ErrorGuidance(
         False, "Review a fresh import preview against the latest compliance documents."
     ),
+    "COMPDOC_EXPORT_ROW_LIMIT": ErrorGuidance(
+        False, "Narrow the register or ask an administrator to raise the bounded export limit."
+    ),
     "COMPDOC_DELETE_COUNT_CONFLICT": ErrorGuidance(
         False, "Refresh the document list and review the new total before deleting."
     ),
@@ -53,6 +56,30 @@ _EXACT_GUIDANCE = {
     ),
     "COMPDOC_VERSION_REQUIRED": ErrorGuidance(
         False, "Reload the document before editing so the current version can be verified."
+    ),
+    "DOCPROOF_UNAVAILABLE": ErrorGuidance(
+        True, "Check DocProof availability and retry the revision check."
+    ),
+    "COMPDOC_DOCPROOF_UNAVAILABLE": ErrorGuidance(
+        True, "Check DocProof availability and retry the document check."
+    ),
+    "COMPDOC_MSG_DRAFT_UNAVAILABLE": ErrorGuidance(
+        True, "Use a Windows server session with Outlook desktop available, then retry."
+    ),
+    "COMPDOC_MSG_DRAFT_RECIPIENT_INVALID": ErrorGuidance(
+        False, "Correct the responsible email addresses in the organization panel."
+    ),
+    "COMPDOC_NOTIFICATION_NOT_APPLICABLE": ErrorGuidance(
+        False, "Refresh the document and choose an alert that is currently applicable."
+    ),
+    "COMPDOC_TRACKING_REQUIRED": ErrorGuidance(
+        False, "Save the document tracking preferences before creating a notification."
+    ),
+    "COMPDOC_POLICY_VERSION_CONFLICT": ErrorGuidance(
+        False, "Reload the project policy, review the newer revision, and reapply your changes."
+    ),
+    "COMPDOC_POLICY_PERMISSION_DENIED": ErrorGuidance(
+        False, "Request the CompDoc notification-policy manager permission."
     ),
     "IDEMPOTENCY_CONFLICT": ErrorGuidance(False, "Refresh the job list before submitting new data."),
     "INVITATION_EXPIRED": ErrorGuidance(False, "Ask an administrator to create a new invitation."),

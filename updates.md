@@ -1109,3 +1109,50 @@
 4. Prevented the existing DocProof issue double-click from bubbling into the row workspace interaction.
 5. Added selected-row and focus-visible states, concise interaction guidance, pure presentation helpers, and focused regression coverage.
 6. Verified strict TypeScript, CompDoc tests, Naive UI registration, Prettier, production build, bundle budget, and the double-click workflow in a browser preview.
+
+## 133. Intelligent Compliance Documents tracking and round-trip export
+
+1. Added project-neutral tracking profiles and content-free notification audit records, while resolving project-specific responsible contacts from each document's ATA chapter.
+2. Added permission-protected tracking, DocProof refresh, and manual notification endpoints to all eight Compliance Documents projects.
+3. Added opt-in overdue, due-soon, and revision-available HTML notifications with deterministic deduplication, retry cooldown, bounded scanning, lock ownership, and a supervised notification worker.
+4. Refactored DocProof transport into a focused client, enabled verified TLS by default, persisted revision state, normalized numeric issues, and replaced upstream exception leakage with standard retryable errors.
+5. Added a responsive Tracking & alerts drawer, automatic/custom responsible selection, manual applicable-event delivery, recent audit display, localized timestamps, and dashboard tracking pulse metrics.
+6. Rebuilt project Excel export as a styled, filterable, validated, formula-safe workbook whose data remains directly editable and re-importable without losing status history.
+7. Added bounded export limits and deterministic European date handling, including edited status/milestone reconciliation and blank optional issue round-trips.
+8. Verified 43 focused backend tests, 15 CompDoc frontend tests, Django checks, migration drift, Python compilation, production build/bundle budget, and desktop/mobile browser flows against an isolated temporary database.
+
+## 134. Single-sheet Compliance Documents export contract
+
+1. Removed the hidden Reference and operator Read Me worksheets; each export now contains only `Compliance Documents`.
+2. Moved Status, Cat, and MoC dropdown allowlists into inline Excel data validations, preserving editable guidance without auxiliary sheets.
+3. Derived the ordered export columns directly from each concrete project's current importable model fields, excluding internal and server-path fields.
+4. Guaranteed that empty project exports still contain the complete required import header contract.
+5. Added all-project schema tests proving every exported column maps back to the importer and every required import field is present.
+
+## 135. Editable Outlook drafts for Compliance Document notifications
+
+1. Added a `change_compdoc`-protected MSG draft endpoint to every Compliance Documents project, using the same applicable-event rules, current ATA responsibles, subject, and HTML template as automatic delivery.
+2. Added a bounded Windows Outlook COM adapter that creates Unicode MSG files without calling `Send`, validates the OLE signature and size, and removes its server-generated temporary directory before responding.
+3. Added explicit recipient-injection rejection plus standardized unavailable, invalid-recipient, missing-tracking, and non-applicable-event recovery errors.
+4. Added “Send automatically” and “Download Outlook draft” choices to Tracking & alerts; downloaded drafts contain recipients, subject, and full HTML content for manual review, editing, and sending.
+5. Verified COM field mapping and cleanup, permission/error behavior, frontend Blob download contracts, 18 focused backend tests, 17 CompDoc frontend tests, and the production frontend build.
+
+## 136. Explainable and guarded Compliance Document notification actions
+
+1. Centralized overdue, seven-day due-soon, and DocProof revision applicability in a shared server policy with exact boundary tests and operator-facing evidence explanations.
+2. Extended tracking responses with explicit persisted-configuration state and per-event applicability so the browser no longer guesses whether an action is valid.
+3. Automatically focuses the first applicable event while retaining every inactive event for inspection and showing why it is unavailable.
+4. Blocks automatic delivery and MSG generation before the request when tracking is unsaved, no current ATA recipient exists, or the selected event is inactive.
+5. Added a mandatory automatic-send confirmation showing the event, current recipient count, and non-recallable external effect.
+6. Verified the policy, API projection, confirmation dialog, disabled-action states, and responsive drawer in the browser against an isolated database without sending mail.
+7. Removed the development profile's working-directory-dependent frontend path override; Django now uses its repository-root-derived default.
+
+## 137. Versioned Compliance Document notification policy
+
+1. Added immutable project policy revisions with a dedicated manager permission, operator identity snapshot, mandatory change reason, optimistic version conflict protection, and bounded history.
+2. Made reminder cadence and failed-delivery retry cooldown configurable per overdue, due-soon, and DocProof revision event while retaining safe send-once defaults.
+3. Reused current ATA responsible titles as primary and escalation roles; escalation recipients become CC only after the event-specific delay.
+4. Persisted first DocProof revision detection time so periodic refreshes cannot reset escalation age, while a genuinely new issue starts a new clock.
+5. Added exact primary/escalation recipient counts and policy version to action readiness, confirmation, `.msg` drafts, automatic delivery evidence, and recent activity.
+6. Added responsive project-policy management inside Tracking & alerts, including live policy-projection refresh without discarding unsaved document preferences.
+7. Verified authorization, stale-version rejection, role validation, deterministic cadence/retry, escalation delivery, DocProof timing, all enabled project routes, frontend API contracts, production build, and desktop/mobile browser flows against an isolated database without sending mail.

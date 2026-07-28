@@ -5,6 +5,8 @@ from rest_framework import serializers, status
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 
+from common.compdoc_tracking_models import CompDocTrackingProfile
+
 
 class CompDocDeleteCountConflict(APIException):
     """Reject deletion when the reviewed row count is stale."""
@@ -33,6 +35,7 @@ def delete_compdoc_collection(request, model):
         if actual_count != expected_count:
             raise CompDocDeleteCountConflict()
         model.objects.all().delete()
+        CompDocTrackingProfile.objects.filter(project_slug=model._meta.app_label).delete()
     return Response({"message": f"{actual_count} compliance documents deleted."})
 
 

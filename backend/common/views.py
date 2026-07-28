@@ -15,6 +15,7 @@ from common.compdoc_versions import (
     update_versioned_compdoc,
     with_current_history_id,
 )
+from common.compdoc_tracking import delete_document_and_tracking
 
 PAGINATION_QUERY_PARAMETERS = {"page", "page_size"}
 TEXT_FIELD_TYPES = {"CharField", "TextField", "EmailField"}
@@ -190,7 +191,7 @@ def view_set_obj_factory(model, serializer_class, view_permission_classes):
         def delete(self, request, pk):
             obj = get_object_or_404(model, pk=pk)
             serializer = serializer_class(obj)
-            obj.delete()
+            delete_document_and_tracking(model, obj)
             return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
 
         permission_classes = [*view_permission_classes, StrictDjangoModelPermissions]

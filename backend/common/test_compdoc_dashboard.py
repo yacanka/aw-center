@@ -9,6 +9,10 @@ from rest_framework.test import APIClient
 from common.compdoc_dashboard import build_compdoc_dashboard
 from common.cover_page_models import CoverPage
 from common.compdoc_risk import get_dashboard_value_fields
+from common.compdoc_tracking_models import (
+    CompDocNotificationLog,
+    CompDocTrackingProfile,
+)
 from projects.ozgur.models import CompDoc
 
 from .compdoc_import_test_utils import grant_model_permissions
@@ -116,13 +120,44 @@ class CompDocDashboardApiTests(TestCase):
         self.assertEqual(allowed.data["document_count"], 0)
         self.assertEqual(allowed.data["risk"]["at_risk_count"], 0)
         self.assertEqual(allowed.data["risk"]["policy"]["version"], 1)
+        self.assertEqual(allowed.data["tracking"]["configured_count"], 0)
 
-    def test_dashboard_uses_one_document_query(self):
-        """Aggregation remains constant-query as document volume grows."""
+    def test_dashboard_uses_constant_queries_with_tracking_summary(self):
+        """Document and tracking aggregation remain constant-query."""
 
         grant_model_permissions(self.user, CompDoc, "view")
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             response = self.client.get("/ozgur/compdocs/dashboard/")
 
         self.assertEqual(response.status_code, 200)
+
+    def test_dashboard_surfaces_revision_and_delivery_exceptions(self):
+        """Operators can see tracking exceptions without recipient content."""
+
+        grant_model_permissions(self.user, CompDoc, "view")
+        document = CompDoc.objects.create(name="Tracked", cover_page_no="CP-TRACKED")
+        profile = CompDocTrackingProfile.objects.create(
+            project_slug="ozgur",
+            document_id=document.pk,
+            notification_enabled=True,
+            docproof_status="revision_available",
+        )
+        CompDocNotificationLog.objects.create(
+            profile=profile,
+            event_type="revision_available",
+            event_key="dashboard-failure",
+            status="failed",
+        )
+
+        response = self.client.get("/ozgur/compdocs/dashboard/")
+
+        self.assertEqual(
+            response.data["tracking"],
+            {
+                "configured_count": 1,
+                "notification_enabled_count": 1,
+                "revision_available_count": 1,
+                "delivery_failure_count": 1,
+            },
+        )

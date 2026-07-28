@@ -43,3 +43,12 @@ class CompDocImportPermissions(StrictDjangoModelPermissions):
             "%(app_label)s.change_%(model_name)s",
         ],
     }
+
+
+class CompDocChangePermissions(StrictDjangoModelPermissions):
+    """Map action-style POST requests to the concrete model change permission."""
+
+    perms_map = {
+        **StrictDjangoModelPermissions.perms_map,
+        "POST": ["%(app_label)s.change_%(model_name)s"],
+    }

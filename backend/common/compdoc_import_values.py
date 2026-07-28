@@ -1,14 +1,13 @@
 """Pure value normalization for CompDoc spreadsheet rows."""
 
-import ast
-import json
-from datetime import date, datetime
-
-from dateutil import parser
+from common.compdoc_import_workflow import (
+    build_status_flow,
+    is_missing_workbook_value,
+    normalize_status,
+)
 
 VIRTUAL_IMPORT_FIELDS = {"status", "ubm_target_date", "ubm_delivery_date"}
 LIST_FIELDS = {"requirements", "signature_panel"}
-MAX_STATUS_EVENTS = 50
 
 
 def get_actual_import_fields(model):
@@ -32,6 +31,10 @@ def normalize_import_row(raw_values, model):
 
     actual_fields = get_actual_import_fields(model)
     values = {key: value for key, value in raw_values.items() if key in actual_fields}
+    values = {
+        key: None if is_missing_workbook_value(value) else value
+        for key, value in values.items()
+    }
     status = normalize_status(raw_values.get("status"))
     normalize_simple_fields(values)
     normalize_multivalue_fields(values, actual_fields)
@@ -40,14 +43,6 @@ def normalize_import_row(raw_values, model):
             values[field] = normalize_list(values.get(field))
     values["status_flow"] = build_status_flow(raw_values, status)
     return values
-
-
-def normalize_status(value):
-    """Return the canonical status identifier required for status history."""
-
-    if value is None or not str(value).strip():
-        raise ValueError("A status value is required.")
-    return str(value).strip().lower().replace(".", "").replace(" ", "_")
 
 
 def normalize_simple_fields(values):
@@ -81,7 +76,10 @@ def split_value(values, actual_fields, primary, secondary, converter):
     """Split newline-separated values into supported model fields."""
 
     raw_value = values.get(primary)
-    if raw_value is None:
+    if is_missing_workbook_value(raw_value):
+        values[primary] = None
+        if secondary in actual_fields:
+            values[secondary] = None
         return
     parts = [converter(item.strip()) for item in str(raw_value).splitlines() if item.strip()]
     values[primary] = parts[0] if parts else None
@@ -98,63 +96,8 @@ def normalize_issue(value):
 def normalize_list(value):
     """Return a JSON-list value from a list or newline-separated cell."""
 
-    if value is None or value == "":
+    if is_missing_workbook_value(value):
         return []
     if isinstance(value, list):
         return value
     return [item.strip() for item in str(value).splitlines() if item.strip()]
-
-
-def build_status_flow(raw_values, status):
-    """Return explicit status history or synthesize it from import dates."""
-
-    explicit_flow = parse_status_flow(raw_values.get("status_flow"))
-    if explicit_flow:
-        return explicit_flow
-    flow = [{"status": "to_be_issued", "date": format_date(raw_values.get("ubm_target_date"))}]
-    delivery_date = raw_values.get("ubm_delivery_date")
-    if delivery_date is not None:
-        flow.append({"status": "authority_review", "date": format_date(delivery_date)})
-    if status not in {"to_be_issued", "authority_review"}:
-        flow.append({"status": status, "date": format_date(None)})
-    return flow
-
-
-def parse_status_flow(value):
-    """Parse bounded JSON or Python-literal status events without execution."""
-
-    if value is None or value == "":
-        return []
-    if isinstance(value, list):
-        return validate_status_events(value)
-    events = [parse_status_event(line) for line in str(value).splitlines() if line.strip()]
-    return validate_status_events(events)
-
-
-def parse_status_event(value):
-    """Parse one status event from strict JSON or a safe literal fallback."""
-
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return ast.literal_eval(value)
-
-
-def validate_status_events(events):
-    """Reject malformed or excessive status history payloads."""
-
-    if len(events) > MAX_STATUS_EVENTS:
-        raise ValueError("Status history exceeds 50 events.")
-    if any(not isinstance(event, dict) for event in events):
-        raise ValueError("Status history must contain objects.")
-    return events
-
-
-def format_date(value):
-    """Return the established European status-history date format."""
-
-    if value is None:
-        return date.today().strftime("%d.%m.%Y")
-    if isinstance(value, (datetime, date)):
-        return value.strftime("%d.%m.%Y")
-    return parser.parse(str(value)).strftime("%d.%m.%Y")

@@ -408,9 +408,13 @@ def send_mail(request):
                 "retry_after_seconds": wait_seconds,
             }, status=429)
 
-        SendMail(mail_title, mail_body, to_list, cc_list)
+        if not SendMail(mail_title, mail_body, to_list, cc_list):
+            return Response(
+                {"message": "The configured email transport is unavailable."},
+                status=503,
+            )
 
-        return Response({"message": "Email was sent via Outlook!"}, status=200)
+        return Response({"message": "Email was sent successfully."}, status=200)
     except json.JSONDecodeError as e:
         return Response({"message": f"Error while loads json: {e}"}, status=400)
     except KeyError as e:

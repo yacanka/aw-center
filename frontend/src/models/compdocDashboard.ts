@@ -76,6 +76,13 @@ export interface DashboardRiskSummary {
   policy: DashboardRiskPolicy
 }
 
+export interface DashboardTrackingSummary {
+  configured_count: number
+  notification_enabled_count: number
+  revision_available_count: number
+  delivery_failure_count: number
+}
+
 export interface CompDocDashboardSummary {
   document_count: number
   status_counts: Record<string, number>
@@ -84,6 +91,7 @@ export interface CompDocDashboardSummary {
   timeline: DashboardTimeline
   performance: Record<'scheduled' | 'actual' | 'approved', DashboardMetric>
   risk: DashboardRiskSummary
+  tracking: DashboardTrackingSummary
   data_quality: DashboardDataQuality
   generated_at: string
 }

@@ -29,6 +29,7 @@ class CompDocPermissionTests(TestCase):
             self.client.get("/ozgur/compdocs/fields/"),
             self.client.get(f"/ozgur/compdocs/{self.document.id}/"),
             self.client.get(f"/ozgur/compdocs/{self.document.id}/history/"),
+            self.client.get(f"/ozgur/compdocs/{self.document.id}/tracking/"),
             self.client.get("/ozgur/compdocs/excel/"),
         ]
 
@@ -43,6 +44,7 @@ class CompDocPermissionTests(TestCase):
             "/ozgur/compdocs/fields/",
             f"/ozgur/compdocs/{self.document.id}/",
             f"/ozgur/compdocs/{self.document.id}/history/",
+            f"/ozgur/compdocs/{self.document.id}/tracking/",
             "/ozgur/compdocs/excel/",
         ]
 

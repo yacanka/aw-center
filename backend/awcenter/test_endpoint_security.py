@@ -108,9 +108,16 @@ class EndpointSecurityTests(SimpleTestCase):
 def project_endpoints(prefix):
     """Return protected document and organization routes for one project."""
 
+    document_id = "00000000-0000-0000-0000-000000000001"
     return [
         ("get", f"/{prefix}/compdocs/"),
         ("get", f"/{prefix}/compdocs/fields/"),
+        ("get", f"/{prefix}/compdocs/notification-policy/"),
+        ("put", f"/{prefix}/compdocs/notification-policy/"),
+        ("get", f"/{prefix}/compdocs/{document_id}/tracking/"),
+        ("post", f"/{prefix}/compdocs/{document_id}/docproof/"),
+        ("post", f"/{prefix}/compdocs/{document_id}/notifications/"),
+        ("post", f"/{prefix}/compdocs/{document_id}/notifications/draft/"),
         ("get", f"/{prefix}/orgs/panels/"),
         ("get", f"/{prefix}/orgs/responsibles/"),
     ]
