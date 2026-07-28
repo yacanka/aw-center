@@ -29,7 +29,7 @@ def get_dashboard_value_fields(model):
 
     field_names = {field.name for field in model._meta.fields}
     technical_fields = sorted(name for name in field_names if name.startswith("tech_doc_no"))
-    return ["id", "name", "panel", "ata", "status_flow", *technical_fields]
+    return ["id", "name", "panel", "ata", "cover_page_no", "status_flow", *technical_fields]
 
 
 def create_risk_state():

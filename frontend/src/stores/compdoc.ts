@@ -4,8 +4,7 @@ import {
   ICompDoc,
   ICompDocFieldMetadata,
   ICompDocFieldsResponse,
-  IHistory,
-  CompDocBulkDeleteRequest
+  IHistory
 } from '@/models/compdocs'
 import { withCompdocDisplayStatus } from '@/services/compdocStatus'
 import { handleRequest } from '@/composables/promise'
@@ -21,7 +20,6 @@ import {
 const errorNotification = notifyError
 const successNotification = notifySuccess
 const COMP_DOCS_PATH = 'compdocs'
-const bonusFieldProjects = ['aesa']
 
 export const useCompdocStore = defineStore('compdoc', {
   state: () => ({
@@ -50,7 +48,7 @@ export const useCompdocStore = defineStore('compdoc', {
       this.loading = false
     },
     checkBonusFields() {
-      return bonusFieldProjects.includes(this.projectName)
+      return this.fields.some((field) => field.key === 'tech_doc_no_2')
     },
     async fetchCompDocFields() {
       const requestedProject = this.projectName
@@ -133,6 +131,14 @@ export const useCompdocStore = defineStore('compdoc', {
         () => (this.loading = false)
       )
     },
+    async fetchCompdoc(compDocId: string): Promise<ICompDoc> {
+      const response = await axios.get<ICompDoc>(
+        `${this.projectName}/${COMP_DOCS_PATH}/${compDocId}/`
+      )
+      const index = this.compdocs.findIndex((document) => document.id === compDocId)
+      if (index >= 0) this.compdocs[index] = { ...this.compdocs[index], ...response.data }
+      return response.data
+    },
     async deleteCompdoc(compDocId: string) {
       this.loading = true
       await handleRequest<void> // Void response expected
@@ -140,7 +146,7 @@ export const useCompdocStore = defineStore('compdoc', {
         axios.delete(`${this.projectName}/${COMP_DOCS_PATH}/${compDocId}/`),
         () => {
           this.compdocs = this.compdocs.filter((doc: ICompDoc) => doc.id !== compDocId)
-          successNotification('Deleted successfully.')
+          successNotification('Document archived successfully.')
         },
         (errorMsg) => {
           errorNotification(errorMsg)
@@ -149,20 +155,18 @@ export const useCompdocStore = defineStore('compdoc', {
         () => (this.loading = false)
       )
     },
-    async deleteCompdocs(payload: CompDocBulkDeleteRequest) {
+    async archiveCompdoc(compDocId: string, sourceHistoryId: number, reason: string) {
       this.loading = true
-      return await handleRequest<any> // Void response expected
-      (
-        axios.delete(`${this.projectName}/${COMP_DOCS_PATH}/`, { data: payload }),
-        (data) => {
-          this.compdocs = []
-          this.pagination = { count: 0, next: null, previous: null }
-          successNotification(data)
+      await handleRequest<{ id: string; source_history_id: number }>(
+        axios.post(`${this.projectName}/${COMP_DOCS_PATH}/${compDocId}/archive/`, {
+          source_history_id: sourceHistoryId,
+          reason
+        }),
+        () => {
+          this.compdocs = this.compdocs.filter((doc) => doc.id !== compDocId)
+          successNotification('Document archived successfully.')
         },
-        (errorMsg) => {
-          errorNotification(errorMsg)
-          console.log(errorMsg)
-        },
+        errorNotification,
         () => (this.loading = false)
       )
     },

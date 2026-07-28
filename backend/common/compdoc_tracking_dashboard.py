@@ -8,7 +8,10 @@ from common.compdoc_tracking_models import CompDocTrackingProfile
 def build_tracking_summary(model):
     """Return one-query project tracking and delivery exception counts."""
 
-    profiles = CompDocTrackingProfile.objects.filter(project_slug=model._meta.app_label)
+    active_ids = model.objects.filter(is_archived=False).values("pk")
+    profiles = CompDocTrackingProfile.objects.filter(
+        project_slug=model._meta.app_label, document_id__in=active_ids
+    )
     return profiles.aggregate(
         configured_count=Count("id", distinct=True),
         notification_enabled_count=Count(

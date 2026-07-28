@@ -8,6 +8,15 @@ from common.compdoc_import_workflow import (
 
 VIRTUAL_IMPORT_FIELDS = {"status", "ubm_target_date", "ubm_delivery_date"}
 LIST_FIELDS = {"requirements", "signature_panel"}
+OPERATIONAL_FIELDS = {
+    "archive_reason",
+    "archived_at",
+    "archived_by",
+    "is_archived",
+    "next_action_due_date",
+    "owner",
+    "owner_group",
+}
 
 
 def get_actual_import_fields(model):
@@ -16,7 +25,9 @@ def get_actual_import_fields(model):
     return {
         field.name
         for field in model._meta.fields
-        if field.editable and not field.primary_key and field.name != "created_time"
+        if field.editable
+        and not field.primary_key
+        and field.name not in OPERATIONAL_FIELDS | {"created_time"}
     }
 
 

@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
@@ -7,75 +8,18 @@ from rest_framework import status
 from awcenter.pagination import StandardResultsSetPagination
 
 from common.compdoc_fields import COMPDOC_TABLE_SCHEMA_VERSION, get_compdoc_field_metadata
-from common.compdoc_bulk_delete import delete_compdoc_collection
+from common.compdoc_operational_filters import (
+    apply_compdoc_operational_filters,
+    apply_compdoc_search,
+)
 from common.compdoc_permissions import CompDocCollectionPermissions, StrictDjangoModelPermissions
 from common.compdoc_table_query import apply_compdoc_table_query
+from common.model_query_filters import filtered_queryset
 from common.compdoc_versions import (
     object_with_current_history,
     update_versioned_compdoc,
     with_current_history_id,
 )
-from common.compdoc_tracking import delete_document_and_tracking
-
-PAGINATION_QUERY_PARAMETERS = {"page", "page_size"}
-TEXT_FIELD_TYPES = {"CharField", "TextField", "EmailField"}
-BOOLEAN_FIELD_TYPES = {"BooleanField"}
-TRUE_QUERY_VALUES = {"1", "true", "yes", "on"}
-FALSE_QUERY_VALUES = {"0", "false", "no", "off"}
-
-
-def get_query_values(request, name):
-    """Return non-empty query values for DRF or Django requests."""
-
-    query_parameters = getattr(request, "query_params", request.GET)
-    values = query_parameters.getlist(name)
-    return [value for value in values if value not in (None, "")]
-
-
-def get_boolean_filter_value(value):
-    """Return a bool for supported query values, otherwise ignore the filter."""
-
-    normalized_value = str(value).strip().lower()
-    if normalized_value in TRUE_QUERY_VALUES:
-        return True
-    if normalized_value in FALSE_QUERY_VALUES:
-        return False
-    return None
-
-
-def get_filter_expression(field, values):
-    """Build a safe lookup expression for a model field and values."""
-
-    if not values:
-        return None
-    field_type = field.get_internal_type()
-    if field_type in BOOLEAN_FIELD_TYPES:
-        boolean_value = get_boolean_filter_value(values[0])
-        if boolean_value is None:
-            return None
-        return field.name, boolean_value
-    if len(values) > 1:
-        return f"{field.name}__in", values
-    if field_type in TEXT_FIELD_TYPES:
-        return f"{field.name}__icontains", values[0]
-    return field.name, values[0]
-
-
-def filtered_queryset(request, queryset):
-    """Apply safe server-side filters for model-backed list querysets."""
-
-    model = getattr(queryset, "model", None)
-    if model is None:
-        return queryset
-
-    fields = {field.name: field for field in model._meta.fields}
-    for name, field in fields.items():
-        if name in PAGINATION_QUERY_PARAMETERS:
-            continue
-        expression = get_filter_expression(field, get_query_values(request, name))
-        if expression:
-            queryset = queryset.filter(**{expression[0]: expression[1]})
-    return queryset
 
 
 def paginated_response(request, queryset, serializer_class, apply_filters=True):
@@ -150,7 +94,15 @@ def view_set_factory(model, serializer_class, view_permission_classes):
         queryset = model.objects.none()
 
         def get(self, request):
-            objs = with_current_history_id(model.objects.select_related("cover_page"))
+            objs = model.objects.select_related("cover_page", "owner", "owner_group")
+            archive_filter = request.query_params.get("archived")
+            if archive_filter == "true":
+                objs = objs.filter(is_archived=True)
+            elif archive_filter != "all":
+                objs = objs.filter(is_archived=False)
+            objs = apply_compdoc_search(objs, request.query_params.get("search"))
+            objs = apply_compdoc_operational_filters(request, objs, model)
+            objs = with_current_history_id(objs)
             objs = apply_compdoc_table_query(request, objs)
             return paginated_response(request, objs, serializer_class, apply_filters=False)
 
@@ -163,11 +115,15 @@ def view_set_factory(model, serializer_class, view_permission_classes):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         def delete(self, request):
-            return delete_compdoc_collection(request, model)
+            return Response(
+                {"detail": "Collection deletion is disabled. Archive selected records instead."},
+                status=status.HTTP_405_METHOD_NOT_ALLOWED,
+            )
 
         permission_classes = [*view_permission_classes, CompDocCollectionPermissions]
 
     return DynamicViewSet
+
 
 def view_set_obj_factory(model, serializer_class, view_permission_classes):
     class DynamicViewSet(APIView):
@@ -191,8 +147,14 @@ def view_set_obj_factory(model, serializer_class, view_permission_classes):
         def delete(self, request, pk):
             obj = get_object_or_404(model, pk=pk)
             serializer = serializer_class(obj)
-            delete_document_and_tracking(model, obj)
-            return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
+            obj.is_archived = True
+            obj.archived_at = timezone.now()
+            obj.archived_by = request.user
+            obj.archive_reason = "Archived through the legacy delete action."
+            obj._history_user = request.user
+            obj._change_reason = "Archived"
+            obj.save(update_fields=["is_archived", "archived_at", "archived_by", "archive_reason"])
+            return Response(serializer.data, status=status.HTTP_200_OK)
 
         permission_classes = [*view_permission_classes, StrictDjangoModelPermissions]
 

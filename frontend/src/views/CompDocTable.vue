@@ -7,11 +7,13 @@ import CompDocTrackingDrawer from '@/components/compdoc/CompDocTrackingDrawer.vu
 import UploadPopup from '@/components/compdoc/UploadPopup.vue'
 import CompDocColumnSettings from '@/components/compdoc/CompDocColumnSettings.vue'
 import CompDocTableToolbar from '@/components/compdoc/CompDocTableToolbar.vue'
+import CompDocBulkActions from '@/components/compdoc/CompDocBulkActions.vue'
 import GraphComponent from '@/components/compdoc/Graph.vue'
 import DownloadComponent from '@/components/Downloader.vue'
 import { useCompdocStore } from '@/stores/compdoc'
 import { useUserStore } from '@/stores/user'
 import { createEmptyCompdoc } from '@/services/compdocCatalog'
+import { compdocQuickFilter, compdocRouteFilters } from '@/services/compdocQuickFilters'
 import { useCompdocColumnOverrides } from '@/composables/compdoc/columnOverrides'
 import { useCompdocIssueChecks } from '@/composables/compdoc/issueChecks'
 import { useCompdocRemoteTable } from '@/composables/compdoc/remoteTable'
@@ -30,10 +32,7 @@ const canImport = computed(() => canAdd.value && canChange.value)
 const canViewAudits = computed(() =>
   userStore.hasEffectiveRole('common', 'view_compdocimportaudit')
 )
-const initialFilters = computed(() => {
-  const name = typeof route.query.name === 'string' ? route.query.name.trim().slice(0, 256) : ''
-  return name ? { name } : {}
-})
+const initialFilters = computed(() => compdocRouteFilters(route.query))
 const popup = ref()
 const upload = ref()
 const graph = ref()
@@ -56,11 +55,25 @@ const table = useCompdocRemoteTable({
   columnOverrides: overrides.columns,
   initialFilters
 })
+const checkedRowKeys = ref<Array<string | number>>([])
+const selectedDocuments = computed(() => {
+  const selected = new Set(checkedRowKeys.value.map(String))
+  return store.getCompdocs.filter((document) => document.id && selected.has(document.id))
+})
+const displayColumns = computed(() => [{ type: 'selection' as const }, ...table.columns.value])
 const issueChecks = useCompdocIssueChecks(
   computed(() => store.getCompdocs),
   overrides.issueValues
 )
 watch(project, closeWorkspace)
+watch(
+  () => [route.query.document, store.getCompdocs],
+  ([document]) => {
+    if (typeof document !== 'string' || workspaceVisible.value) return
+    const match = store.getCompdocs.find((item) => item.id === document)
+    if (match) workspace.openWorkspace(match)
+  }
+)
 
 function permission(action: string) {
   return computed(() => userStore.hasEffectiveRole(project.value, `${action}_compdoc`))
@@ -68,6 +81,15 @@ function permission(action: string) {
 
 function createDocument() {
   popup.value?.openModal(createEmptyCompdoc(), 'new')
+}
+
+function applyQuickFilter(value: string) {
+  table.replaceQuickFilters(compdocQuickFilter(value))
+}
+
+async function completeBulkAction() {
+  checkedRowKeys.value = []
+  await table.initialize(project.value, canView.value)
 }
 </script>
 
@@ -86,7 +108,7 @@ function createDocument() {
     <CompDocTableToolbar
       :project="project"
       :can-import="canImport"
-      :can-create="canImport"
+      :can-create="canAdd"
       :can-delete="canDelete"
       :can-view-audits="canViewAudits"
       :count="store.pagination.count"
@@ -100,6 +122,17 @@ function createDocument() {
       @export="download.openModal('Excel')"
       @settings="table.settings.open"
       @page-size="table.handlePageSize"
+      @search="table.updateCustomFilter('search', $event)"
+      @quick-filter="applyQuickFilter"
+    />
+
+    <CompDocBulkActions
+      v-if="selectedDocuments.length"
+      :project="project"
+      :documents="selectedDocuments"
+      :can-change="canChange"
+      :can-delete="canDelete"
+      @completed="completeBulkAction"
     />
 
     <n-data-table
@@ -107,19 +140,21 @@ function createDocument() {
       striped
       remote
       size="medium"
-      :columns="table.columns.value"
+      :columns="displayColumns"
       :data="store.getCompdocs"
       :pagination="table.pagination.value"
       :row-key="table.rowKey"
       :row-props="rowProps"
+      :checked-row-keys="checkedRowKeys"
       :filter-icon-popover-props="table.filterIconPopover"
       @update:filters="table.handleFilters"
       @update:sorter="table.handleSorter"
       @update:page="table.handlePage"
       @update:page-size="table.handlePageSize"
+      @update:checked-row-keys="checkedRowKeys = $event"
     />
     <n-text depth="3" class="compdoc-table-hint">
-      Double-click a document row to open its workspace. Press Enter when a row is focused.
+      Select a document row to open its workspace. Press Enter or Space when a row is focused.
     </n-text>
 
     <UpdateForm ref="popup" :can-edit="canChange" />
@@ -135,6 +170,7 @@ function createDocument() {
       @copy="copyDocumentPath"
       @tracking="openTracking"
       @delete="confirmDocumentDeletion"
+      @changed="table.initialize(project, true)"
     />
     <CompDocTrackingDrawer
       v-model:show="trackingVisible"

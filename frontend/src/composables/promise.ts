@@ -11,6 +11,18 @@ type RequestOptions = {
   suppressAuthenticationWarning?: boolean
 }
 
+export class RequestError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly code?: string,
+    readonly errors?: unknown
+  ) {
+    super(message)
+    this.name = 'RequestError'
+  }
+}
+
 function clearStoredAuthentication() {
   removeKey(STORAGE_KEYS.token)
   removeKey(STORAGE_KEYS.user)
@@ -59,7 +71,16 @@ export async function handleRequest<T>(
     const isAuthFailure = isAuthenticationFailure(axiosError)
     handleAuthenticationFailure(axiosError, options)
     if (!isAuthFailure || options.suppressAuthenticationWarning) onError(errorMessage)
-    throw new Error(errorMessage)
+    const payload =
+      axiosError.response?.data && typeof axiosError.response.data === 'object'
+        ? axiosError.response.data
+        : {}
+    throw new RequestError(
+      errorMessage,
+      axiosError.response?.status,
+      typeof payload.code === 'string' ? payload.code : undefined,
+      payload.errors
+    )
   } finally {
     onFinally?.()
   }

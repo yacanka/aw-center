@@ -74,6 +74,13 @@ class ProjectRegistryInvariantTests(TestCase):
             "compdoc_notification_draft",
             "compdoc_obj",
             "history",
+            "compdoc_transition",
+            "compdoc_work",
+            "compdoc_activity",
+            "compdoc_archive",
+            "compdoc_restore",
+            "compdoc_reviews",
+            "compdoc_review_decision",
         }
 
         for slug in PROJECT_DEFINITIONS:

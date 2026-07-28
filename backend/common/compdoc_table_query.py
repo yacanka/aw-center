@@ -38,6 +38,8 @@ def _apply_field_filter(queryset, metadata, values):
     kind = metadata["filter_kind"]
     if key == "status":
         return queryset.filter(_status_filter(values))
+    if metadata["type"] == "UUIDField":
+        return queryset.filter(**{f"{key}__in": values})
     if kind == "text":
         condition = Q()
         for value in values:

@@ -37,6 +37,7 @@ test('builds safe operator-facing compliance document labels', () => {
   assert.equal(getCompdocReference({ tech_doc_no: 'TD-42', cover_page_no: 'CP-7' }), 'TD-42')
   assert.equal(getCompdocReference({ tech_doc_no: '', cover_page_no: 'CP-7' }), 'CP-7')
   assert.equal(joinCompdocValues(['Panel A', '', 'Panel B']), 'Panel A, Panel B')
+  assert.equal(joinCompdocValues(['CP-1', null, undefined]), 'CP-1')
   assert.equal(joinCompdocValues([]), 'Not assigned')
 })
 
@@ -258,22 +259,10 @@ test('CompDoc UI gates every mutation with project model permissions', async () 
   assert.match(table, /:can-delete="canDelete"/)
   assert.match(table, /initialFilters/)
   assert.match(toolbar, /v-if="canCreate"/)
-  assert.match(toolbar, /v-if="canDelete"/)
+  assert.doesNotMatch(toolbar, /CompDocBulkDelete/)
   assert.match(remoteTable, /dependencies\.project\.value, dependencies\.canView\.value/)
   assert.match(remoteTable, /dependencies\.initialFilters/)
-  assert.match(popup, /popupMode == 'view' && canEdit/)
-})
-
-test('bulk delete requires the exact project phrase and reviewed server count', async () => {
-  const [component, store] = await Promise.all([
-    readFile(new URL('../src/components/compdoc/CompDocBulkDelete.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/stores/compdoc.ts', import.meta.url), 'utf8')
-  ])
-
-  assert.match(component, /DELETE \$\{props\.project\.toUpperCase\(\)\} COMPLIANCE DOCUMENTS/)
-  assert.match(component, /expected_count: props\.count/)
-  assert.match(store, /axios\.delete\([\s\S]*\{ data: payload \}/)
-  assert.match(store, /pagination = \{ count: 0, next: null, previous: null \}/)
+  assert.match(popup, /popupMode ={2,3} 'view' && canEdit/)
 })
 
 test('CompDoc table rejects stale project and list responses', async () => {
@@ -355,6 +344,28 @@ test('CompDoc charts use responsive modern Chart.js rendering paths', async () =
   assert.match(status, /createStatusChartData/)
   assert.match(timeline, /createTimelineChartData/)
   assert.doesNotMatch(legacyStore, /Outlabels|\$compdocStore/)
+})
+
+test('exposes lifecycle, ownership, review, activity, and bounded bulk workflows', async () => {
+  const [service, workspace, table, bulk, activity] = await Promise.all([
+    readFile(new URL('../src/services/compdocLifecycle.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/compdoc/CompDocWorkspace.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/CompDocTable.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/compdoc/CompDocBulkActions.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/compdoc/CompDocActivity.vue', import.meta.url), 'utf8')
+  ])
+
+  assert.match(service, /\/activity\//)
+  assert.match(service, /\/transitions\//)
+  assert.match(service, /\/reviews\//)
+  assert.match(service, /\/work\//)
+  assert.match(service, /\/bulk\//)
+  assert.match(workspace, /CompDocWorkPanel/)
+  assert.match(workspace, /CompDocReviewPanel/)
+  assert.match(workspace, /CompDocActivity/)
+  assert.match(table, /type: 'selection'/)
+  assert.match(bulk, /versioned/)
+  assert.match(activity, /Record transition/)
 })
 
 async function captureRequest(callback, responseData) {

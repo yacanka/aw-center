@@ -31,6 +31,7 @@
         <n-text depth="3">Updated {{ formattedGeneratedAt }}</n-text>
       </n-flex>
       <CompDocTrackingSummary :tracking="summary.tracking" />
+      <CompDocOperationalSummary :project="activeProject" :operations="summary.operations" />
       <CompDocRiskDashboard :project="activeProject" :risk="summary.risk" />
       <div class="dashboard-grid">
         <div class="dashboard-column">
@@ -68,6 +69,7 @@ import CompDocRiskDashboard from './CompDocRiskDashboard.vue'
 import CompDocStatusDashboard from './CompDocStatusDashboard.vue'
 import CompDocTimelineDashboard from './CompDocTimelineDashboard.vue'
 import CompDocTrackingSummary from './CompDocTrackingSummary.vue'
+import CompDocOperationalSummary from './CompDocOperationalSummary.vue'
 
 const { activeProject, dataQualityIssues, error, loading, loadProject, projectOptions, summary } =
   useCompdocDashboard()
@@ -92,7 +94,9 @@ const qualityMessage = computed(() => {
     quality.invalid_dates && `${quality.invalid_dates} invalid date`,
     quality.out_of_order_dates && `${quality.out_of_order_dates} out-of-order date`,
     quality.missing_panel && `${quality.missing_panel} missing panel`,
-    quality.unknown_status && `${quality.unknown_status} unknown status`
+    quality.unknown_status && `${quality.unknown_status} unknown status`,
+    quality.panel_ata_mismatch && `${quality.panel_ata_mismatch} panel/ATA mismatch`,
+    quality.blank_cover_page && `${quality.blank_cover_page} blank cover page`
   ]
     .filter(Boolean)
     .join(', ')

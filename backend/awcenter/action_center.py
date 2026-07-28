@@ -12,6 +12,7 @@ from jobs.recovery import recovery_hint
 from users.models import UserInvitation
 
 from .action_center_decisions import filter_user_decisions
+from .compdoc_action_center import compdoc_attention_items
 
 MAX_SOURCE_ITEMS = 6
 MAX_ITEMS = 12
@@ -40,6 +41,7 @@ def available_items(user):
         items.extend(import_items())
     if can_manage_invitations(user):
         items.extend(invitation_items())
+    items.extend(compdoc_attention_items(user, attention_item, MAX_SOURCE_ITEMS))
     return items
 
 
@@ -195,5 +197,4 @@ def can_manage_invitations(user):
 
 def recent_boundary():
     """Return the bounded action-center history window."""
-
     return timezone.now() - RECENT_WINDOW

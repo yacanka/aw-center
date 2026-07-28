@@ -32,13 +32,23 @@ PENDING_BUCKETS = {
 DATE_FORMATS = ("%d.%m.%Y", "%Y-%m-%d", "%Y/%m/%d")
 
 
-def build_compdoc_dashboard(queryset, today=None, risk_policy=DEFAULT_RISK_POLICY):
+def build_compdoc_dashboard(
+    queryset,
+    today=None,
+    risk_policy=DEFAULT_RISK_POLICY,
+    valid_panel_pairs=None,
+):
     """Aggregate the complete queryset into a safe dashboard contract."""
 
     current_day = today or timezone.localdate()
     state = _empty_state(current_day)
-    for document in queryset.iterator(chunk_size=500):
-        _accumulate_document(state, document, risk_policy)
+    documents = (
+        queryset.iterator(chunk_size=500)
+        if hasattr(queryset, "iterator")
+        else iter(queryset)
+    )
+    for document in documents:
+        _accumulate_document(state, document, risk_policy, valid_panel_pairs)
     return serialize_dashboard_state(state, risk_policy)
 
 
@@ -60,7 +70,7 @@ def _empty_status_counts():
     return Counter({key: 0 for key in STATUS_KEYS})
 
 
-def _accumulate_document(state, document, risk_policy):
+def _accumulate_document(state, document, risk_policy, valid_panel_pairs):
     state["total"] += 1
     entries = _normalize_flow(document["status_flow"], state["quality"])
     dated_entries = _parse_entries(entries, state["quality"])
@@ -71,9 +81,20 @@ def _accumulate_document(state, document, risk_policy):
     _accumulate_panel(state, document.get("panel"), current_status)
     _accumulate_timeline(state, dated_entries)
     _accumulate_pending_days(state, dated_entries)
+    _accumulate_reference_quality(state, document, valid_panel_pairs)
     accumulate_document_risk(
         state["risk"], document, dated_entries, current_status, state["today"], risk_policy
     )
+
+
+def _accumulate_reference_quality(state, document, valid_panel_pairs):
+    if not str(document.get("cover_page_no") or "").strip():
+        state["quality"]["blank_cover_page"] += 1
+    if valid_panel_pairs is None:
+        return
+    panel_pair = (document.get("panel"), document.get("ata"))
+    if all(panel_pair) and panel_pair not in valid_panel_pairs:
+        state["quality"]["panel_ata_mismatch"] += 1
 
 
 def _normalize_flow(raw_flow, quality):

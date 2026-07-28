@@ -74,29 +74,33 @@ def preview_import(prepared, model, serializer_class):
     return summarize_import_plan(plan), import_plan_fingerprint(plan)
 
 
-def execute_import(prepared, model, serializer_class, expected_fingerprint):
+def execute_import(
+    prepared, model, serializer_class, expected_fingerprint, actor=None, audit_id=None
+):
     """Atomically persist a plan only while its signed database state remains current."""
 
     try:
         with transaction.atomic():
             plan = build_import_plan(prepared, model, serializer_class, lock_existing=True)
             require_matching_import_state(plan, expected_fingerprint)
-            return execute_import_plan(plan, serializer_class)
+            return execute_import_plan(plan, serializer_class, model, actor, audit_id)
     except IntegrityError as error:
         raise CompDocImportDatabaseConflict() from error
 
 
-def execute_import_plan(plan, serializer_class):
+def execute_import_plan(plan, serializer_class, model=None, actor=None, audit_id=None):
     """Persist prevalidated plan rows inside the caller's atomic transaction."""
 
     result = summarize_import_plan(plan)
-    created_count, updated_count = save_rows(plan.rows, serializer_class)
+    created_count, updated_count = save_rows(
+        plan.rows, serializer_class, model, actor, audit_id
+    )
     result["created_count"] = created_count
     result["updated_count"] = updated_count
     return result
 
 
-def save_rows(planned_rows, serializer_class):
+def save_rows(planned_rows, serializer_class, model=None, actor=None, audit_id=None):
     """Persist planned changes while skipping unchanged rows."""
 
     created_count = 0
@@ -104,7 +108,7 @@ def save_rows(planned_rows, serializer_class):
     for row in planned_rows:
         if row.action == "unchanged":
             continue
-        save_row(row.instance, row.payload, serializer_class)
+        save_row(row.instance, row.payload, serializer_class, model, actor, audit_id)
         if row.action == "update":
             updated_count += 1
         else:
@@ -112,9 +116,66 @@ def save_rows(planned_rows, serializer_class):
     return created_count, updated_count
 
 
-def save_row(instance, payload, serializer_class):
+def save_row(instance, payload, serializer_class, model=None, actor=None, audit_id=None):
     """Persist one already planned row and propagate failures for batch rollback."""
 
-    serializer = serializer_class(instance, data=payload)
+    workflow = payload.get("status_flow") or []
+    append = instance is not None and workflow != (instance.status_flow or [])
+    safe_payload = {**payload, "status_flow": instance.status_flow} if append else payload
+    serializer = serializer_class(instance, data=safe_payload)
     serializer.is_valid(raise_exception=True)
-    return serializer.save()
+    document = serializer.save()
+    if append and model and actor:
+        events = workflow if not (instance.status_flow or []) else workflow[-1:]
+        for event in events:
+            document = _append_import_transition(
+                model, document, event, actor, audit_id
+            )
+    elif instance is None and workflow and model and actor:
+        _record_import_history(model, document, workflow, actor, audit_id)
+    return document
+
+
+def _append_import_transition(model, document, event, actor, audit_id):
+    from common.compdoc_lifecycle import transition_document
+    from common.compdoc_lifecycle_models import CompDocWorkflowEvent
+    from common.compdoc_versions import latest_history_id
+    from common.compdoc_workflow import parse_workflow_date
+
+    reason = str(event.get("note") or f"Import audit {audit_id}")[:255]
+    updated, _ = transition_document(
+        model,
+        document,
+        {
+            "source_history_id": latest_history_id(model, document.pk),
+            "status": event["status"],
+            "effective_date": parse_workflow_date(event["date"]),
+            "next_action_due_date": None,
+            "reason": reason,
+        },
+        actor,
+        CompDocWorkflowEvent.Source.IMPORT,
+    )
+    return updated
+
+
+def _record_import_history(model, document, workflow, actor, audit_id):
+    from common.compdoc_lifecycle_models import CompDocWorkflowEvent
+    from common.compdoc_workflow import parse_workflow_date
+
+    previous = ""
+    for sequence, event in enumerate(workflow, start=1):
+        status = event["status"]
+        CompDocWorkflowEvent.objects.create(
+            project_slug=model._meta.app_label,
+            document_id=document.pk,
+            sequence=sequence,
+            previous_status=previous,
+            status=status,
+            effective_date=parse_workflow_date(event["date"]),
+            reason=str(event.get("note") or f"Import audit {audit_id}")[:255],
+            source=CompDocWorkflowEvent.Source.IMPORT,
+            actor=actor,
+            actor_username=actor.get_username(),
+        )
+        previous = status
