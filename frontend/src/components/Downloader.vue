@@ -2,7 +2,7 @@
   <n-modal
     v-model:show="popup.visible"
     preset="card"
-    :title="'Download ' + popup.content"
+    :title="`Export ${popup.content}`"
     :style="{ width: '700px' }"
     :mask-closable="false"
     transform-origin="center"
@@ -12,13 +12,20 @@
         <n-spin v-if="popup.status == ''" size="tiny" />
       </template>
       <n-text v-if="popup.status == ''">
-        Preparing resources momentarily. A download button will become active once ready.
+        Building a styled, editable workbook from the complete project register.
       </n-text>
       <n-text v-else-if="popup.status == 'success'">
-        The file is now prepared and ready for download.
+        Your single-sheet workbook can be edited and imported directly back into AW Center.
       </n-text>
-      <n-text v-else> An error occured while preparing the file. </n-text>
+      <n-text v-else>{{ popup.error }}</n-text>
     </n-alert>
+    <n-card size="small" embedded style="margin-top: 16px">
+      <n-space vertical>
+        <n-text>✓ Frozen headers, filters, status colors, and editable dropdowns</n-text>
+        <n-text>✓ Every exported column is recognized by the current import contract</n-text>
+        <n-text>✓ One worksheet with lossless multiline status history</n-text>
+      </n-space>
+    </n-card>
     <n-flex justify="center" style="margin-top: 24px">
       <n-button :disabled="!popup.download" @click="downloadExcel">
         <template #icon>
@@ -31,73 +38,80 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { NSpace, NCard } from 'naive-ui'
 import axios from 'axios'
-import { ArrowDown24Regular, FlashSettings20Filled } from '@vicons/fluent'
+import { ArrowDown24Regular } from '@vicons/fluent'
+import { formatApiError } from '@/services/apiError'
 
 const popup = ref({
   visible: false,
   download: false,
   title: '',
   status: '',
-  content: ''
+  content: '',
+  error: ''
 })
 
 const route = useRoute()
 
-let downloadButton: HTMLAnchorElement
-let urlObj: string
+let downloadButton: HTMLAnchorElement | null = null
+let urlObject: string | null = null
+let requestSequence = 0
 
-async function prepareExcel() {
+async function prepareExcel(sequence: number) {
   try {
-    const res = await axios.get(
-      `${axios.defaults.baseURL}/${route.params.project}/compdocs/excel/`,
-      {
-        responseType: 'blob'
-      }
-    )
+    const project = encodeURIComponent(String(route.params.project || ''))
+    const response = await axios.get(`/${project}/compdocs/excel/`, { responseType: 'blob' })
+    if (sequence !== requestSequence) return
 
-    urlObj = URL.createObjectURL(res.data)
+    releaseDownload()
+    urlObject = URL.createObjectURL(response.data)
     downloadButton = document.createElement('a')
-    downloadButton.href = urlObj
+    downloadButton.href = urlObject
     downloadButton.download = `${(route.params.project as string).toUpperCase()} Compliance Documents.xlsx`
-    document.body.appendChild(downloadButton)
-
     popup.value.download = true
     popup.value.title = 'Ready'
     popup.value.status = 'success'
-  } catch {
-    window.$notification.error({
-      duration: 3000,
-      title: 'Error',
-      content: 'Something went wrong.'
-    })
+  } catch (cause) {
+    if (sequence !== requestSequence) return
+    popup.value.error = formatApiError(cause)
     popup.value.title = 'Error'
     popup.value.status = 'error'
   }
 }
 
 async function downloadExcel() {
-  downloadButton.click()
-  downloadButton.remove()
-  URL.revokeObjectURL(urlObj)
+  downloadButton?.click()
+  releaseDownload()
   popup.value.visible = false
 }
 
 function openModal(content: string) {
+  const sequence = ++requestSequence
+  releaseDownload()
   popup.value = {
     visible: true,
-    title: 'Preparing ' + content + ' File',
+    title: `Preparing ${content}`,
     content: content,
     status: '',
-    download: false
+    download: false,
+    error: ''
   }
-  setTimeout(() => prepareExcel(), 1000)
+  prepareExcel(sequence)
 }
 
-onMounted(() => {})
+function releaseDownload() {
+  downloadButton?.remove()
+  if (urlObject) URL.revokeObjectURL(urlObject)
+  downloadButton = null
+  urlObject = null
+}
+
+onBeforeUnmount(() => {
+  requestSequence += 1
+  releaseDownload()
+})
 
 defineExpose({
   openModal

@@ -1,20 +1,25 @@
 """Styled Excel export generation for project CompDoc models."""
 
-from io import BytesIO
+import json
 
 import pandas as pd
+from django.conf import settings
 from django.http import HttpResponse
-from openpyxl.formatting.rule import FormulaRule
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
 from rest_framework.views import APIView
 
+from awcenter.api_errors import error_response
+from .compdoc_import_values import get_mappable_import_fields
 from .compdoc_permissions import StrictDjangoModelPermissions
+from .compdoc_excel_workbook import write_workbook
+from .compdoc_workflow import WORKFLOW_STATUSES
 
-SHEET_NAME = "Compliance Documents"
-MAX_COLUMN_WIDTH = 50
 LIST_COLUMNS = {"Signature Panel", "Requirements", "Status Flow"}
-WRAP_COLUMNS = LIST_COLUMNS | {"Tech Doc No", "Tech Doc Issue", "Delivered Tech Doc Issue"}
+EXCLUDED_EXPORT_FIELDS = {
+    "path",
+    "tech_doc_no_2",
+    "tech_doc_issue_2",
+    "delivered_tech_doc_issue_2",
+}
 SECONDARY_FIELDS = (
     ("tech_doc_no", "tech_doc_no_2"),
     ("tech_doc_issue", "tech_doc_issue_2"),
@@ -42,27 +47,51 @@ def excel_creator_factory(model, serializer_class, view_permission_classes):
 def build_excel_response(model, serializer_class):
     """Serialize model rows and return a downloadable workbook response."""
 
-    serialized_rows = serializer_class(model.objects.all(), many=True).data
-    dataframe = prepare_export_dataframe(pd.DataFrame(serialized_rows))
-    buffer = write_workbook(dataframe)
+    queryset = model.objects.all()
+    row_count = queryset.count()
+    row_limit = max(int(settings.AWCENTER_MAX_COMPDOC_EXPORT_ROWS), 1)
+    if row_count > row_limit:
+        return error_response(
+            "The compliance register is too large for a synchronous export.",
+            code="COMPDOC_EXPORT_ROW_LIMIT",
+            response_status=413,
+        )
+    serialized_rows = serializer_class(queryset, many=True).data
+    dataframe = prepare_export_dataframe(pd.DataFrame(serialized_rows), model)
+    return _workbook_response(model, write_workbook(dataframe).getvalue())
+
+
+def _workbook_response(model, content):
     response = HttpResponse(
-        buffer.getvalue(),
+        content,
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    response["Content-Disposition"] = 'attachment; filename="Compliance Documents.xlsx"'
+    filename = f"{model._meta.app_label.upper()} Compliance Documents.xlsx"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 
-def prepare_export_dataframe(dataframe):
-    """Return a human-readable export dataframe without internal fields."""
+def prepare_export_dataframe(dataframe, model):
+    """Return the model's complete, import-compatible public workbook schema."""
 
     for primary, secondary in SECONDARY_FIELDS:
         merge_secondary_column(dataframe, primary, secondary)
     add_status_columns(dataframe)
-    dataframe.drop(columns=["id", "path", "created_time"], errors="ignore", inplace=True)
+    dataframe = dataframe.reindex(columns=get_export_field_order(model))
     dataframe.columns = [str(column).replace("_", " ").title() for column in dataframe.columns]
     normalize_list_columns(dataframe)
     return dataframe
+
+
+def get_export_field_order(model):
+    """Return ordered model fields that the current importer accepts."""
+
+    importable = get_mappable_import_fields(model)
+    return [
+        field.name
+        for field in model._meta.fields
+        if field.name in importable and field.name not in EXCLUDED_EXPORT_FIELDS
+    ]
 
 
 def merge_secondary_column(dataframe, primary, secondary):
@@ -102,22 +131,32 @@ def status_date(flow, status):
 
     if not isinstance(flow, list):
         return None
-    return next((event.get("date") for event in flow if event.get("status") == status), None)
+    return next(
+        (
+            event.get("date")
+            for event in flow
+            if isinstance(event, dict) and event.get("status") == status
+        ),
+        None,
+    )
 
 
 def current_status(flow):
     """Return the last status identifier from a safe event list."""
 
     if not isinstance(flow, list) or not flow:
-        return None
-    return flow[-1].get("status")
+        return "unknown"
+    events = [event for event in flow if isinstance(event, dict)]
+    status = events[-1].get("status") if events else None
+    return status if status in WORKFLOW_STATUSES else "unknown"
 
 
 def normalize_list_columns(dataframe):
     """Render JSON list columns as newline-separated workbook cells."""
 
     for column in LIST_COLUMNS.intersection(dataframe.columns):
-        dataframe[column] = dataframe[column].apply(format_list_value)
+        formatter = format_status_flow if column == "Status Flow" else format_list_value
+        dataframe[column] = dataframe[column].apply(formatter)
 
 
 def format_list_value(value):
@@ -128,61 +167,12 @@ def format_list_value(value):
     return "" if value is None or pd.isna(value) else str(value)
 
 
-def write_workbook(dataframe):
-    """Write and style one in-memory workbook buffer."""
+def format_status_flow(value):
+    """Render status events as one strict JSON object per line."""
 
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        dataframe.to_excel(writer, index=False, sheet_name=SHEET_NAME)
-        style_worksheet(writer.sheets[SHEET_NAME], dataframe.columns)
-    buffer.seek(0)
-    return buffer
-
-
-def style_worksheet(worksheet, columns):
-    """Apply bounded widths, stripes, wrapping, and header styling."""
-
-    set_column_widths(worksheet)
-    add_row_striping(worksheet)
-    add_wrapping(worksheet, columns)
-    style_header(worksheet)
-
-
-def set_column_widths(worksheet):
-    """Set readable widths capped against oversized cell values."""
-
-    for column_index in range(1, worksheet.max_column + 1):
-        letter = get_column_letter(column_index)
-        lengths = [len(str(cell.value or "")) for cell in worksheet[letter]]
-        worksheet.column_dimensions[letter].width = min(max(lengths, default=0) + 2, MAX_COLUMN_WIDTH)
-
-
-def add_row_striping(worksheet):
-    """Apply alternating fill across the complete data column range."""
-
-    if worksheet.max_row < 2 or worksheet.max_column < 1:
-        return
-    last_column = get_column_letter(worksheet.max_column)
-    fill = PatternFill(start_color="87CEB3", end_color="87CEB3", fill_type="solid")
-    worksheet.conditional_formatting.add(
-        f"A2:{last_column}{worksheet.max_row}",
-        FormulaRule(formula=["MOD(ROW(),2)=0"], fill=fill),
+    if not isinstance(value, (list, tuple)):
+        return format_list_value(value)
+    return "\n".join(
+        json.dumps(event, ensure_ascii=False, separators=(",", ":"), default=str)
+        for event in value
     )
-
-
-def add_wrapping(worksheet, columns):
-    """Wrap only established multiline export columns."""
-
-    for column_index, column in enumerate(columns, start=1):
-        if column not in WRAP_COLUMNS:
-            continue
-        for cell in worksheet[get_column_letter(column_index)]:
-            cell.alignment = Alignment(wrap_text=True)
-
-
-def style_header(worksheet):
-    """Apply the established dark export header styling."""
-
-    for cell in worksheet[1]:
-        cell.font = Font(bold=True, color="5BCEA8")
-        cell.fill = PatternFill(start_color="262626", end_color="262626", fill_type="solid")

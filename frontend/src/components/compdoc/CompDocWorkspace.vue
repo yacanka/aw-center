@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import {
+  Alert24Regular,
   ArrowDownload24Regular,
   Clipboard24Regular,
   Delete24Regular,
@@ -29,6 +30,7 @@ const emit = defineEmits<{
   edit: [document: ICompDoc]
   export: []
   copy: [document: ICompDoc]
+  tracking: [document: ICompDoc]
   delete: [document: ICompDoc]
 }>()
 
@@ -79,6 +81,10 @@ const statusColor = computed(() => statusColors[String(props.document?.status ||
           <n-button v-if="canEdit" @click="emit('edit', document)">
             <template #icon><Edit24Regular /></template>
             Edit
+          </n-button>
+          <n-button @click="emit('tracking', document)">
+            <template #icon><Alert24Regular /></template>
+            Tracking & alerts
           </n-button>
           <n-button @click="emit('export')">
             <template #icon><ArrowDownload24Regular /></template>

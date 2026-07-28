@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import UpdateForm from '@/components/compdoc/CompDocPopup.vue'
 import CompDocWorkspace from '@/components/compdoc/CompDocWorkspace.vue'
+import CompDocTrackingDrawer from '@/components/compdoc/CompDocTrackingDrawer.vue'
 import UploadPopup from '@/components/compdoc/UploadPopup.vue'
 import CompDocColumnSettings from '@/components/compdoc/CompDocColumnSettings.vue'
 import CompDocTableToolbar from '@/components/compdoc/CompDocTableToolbar.vue'
@@ -14,7 +15,7 @@ import { createEmptyCompdoc } from '@/services/compdocCatalog'
 import { useCompdocColumnOverrides } from '@/composables/compdoc/columnOverrides'
 import { useCompdocIssueChecks } from '@/composables/compdoc/issueChecks'
 import { useCompdocRemoteTable } from '@/composables/compdoc/remoteTable'
-import type { ICompDoc } from '@/models/compdocs'
+import { useCompdocWorkspace } from '@/composables/compdoc/workspace'
 import './CompDocTable.css'
 
 const route = useRoute()
@@ -37,12 +38,18 @@ const popup = ref()
 const upload = ref()
 const graph = ref()
 const download = ref()
-const selectedDocument = ref<ICompDoc | null>(null)
-const workspaceVisible = ref(false)
-const activeDocument = computed(() => {
-  const selectedId = selectedDocument.value?.id
-  return store.getCompdocs.find((document) => document.id === selectedId) || selectedDocument.value
-})
+const workspace = useCompdocWorkspace(store)
+const {
+  activeDocument,
+  closeWorkspace,
+  confirmDocumentDeletion,
+  copyDocumentPath,
+  openTracking,
+  openWorkspace,
+  rowProps,
+  trackingVisible,
+  workspaceVisible
+} = workspace
 const overrides = useCompdocColumnOverrides()
 const table = useCompdocRemoteTable({
   project,
@@ -62,59 +69,6 @@ function permission(action: string) {
 
 function createDocument() {
   popup.value?.openModal(createEmptyCompdoc(), 'new')
-}
-
-function openWorkspace(document: ICompDoc) {
-  selectedDocument.value = document
-  workspaceVisible.value = true
-}
-
-function closeWorkspace() {
-  workspaceVisible.value = false
-  selectedDocument.value = null
-}
-
-function rowProps(document: ICompDoc) {
-  return {
-    class: selectedDocument.value?.id === document.id ? 'compdoc-row--selected' : '',
-    tabindex: 0,
-    'aria-label': `Open document workspace for ${document.name}`,
-    onClick: () => (selectedDocument.value = document),
-    onDblclick: () => openWorkspace(document),
-    onKeydown: (event: KeyboardEvent) => {
-      if (event.key === 'Enter') openWorkspace(document)
-    }
-  }
-}
-
-async function copyDocumentPath(document: ICompDoc) {
-  if (!document.path) return
-  try {
-    await navigator.clipboard.writeText(document.path)
-    window.$message.success('Reference path copied.')
-  } catch {
-    window.$message.error('Reference path could not be copied.')
-  }
-}
-
-function confirmDocumentDeletion(document: ICompDoc) {
-  window.$dialog.error({
-    title: 'Delete compliance document',
-    content: `Delete “${document.name}”? This action cannot be undone.`,
-    positiveText: 'Delete document',
-    negativeText: 'Cancel',
-    onPositiveClick: () => deleteDocument(document)
-  })
-}
-
-async function deleteDocument(document: ICompDoc) {
-  if (!document.id) return
-  try {
-    await store.deleteCompdoc(document.id)
-    closeWorkspace()
-  } catch {
-    // The shared request handler already presents the recoverable API error.
-  }
 }
 </script>
 
@@ -180,7 +134,14 @@ async function deleteDocument(document: ICompDoc) {
       @edit="popup?.openModal($event, 'update')"
       @export="download?.openModal('Compliance Document Register')"
       @copy="copyDocumentPath"
+      @tracking="openTracking"
       @delete="confirmDocumentDeletion"
+    />
+    <CompDocTrackingDrawer
+      v-model:show="trackingVisible"
+      :document="activeDocument"
+      :project="project"
+      :can-edit="canChange"
     />
     <UploadPopup v-if="canImport" ref="upload" :upload-url="store.getUploadUrl" />
     <GraphComponent ref="graph" />

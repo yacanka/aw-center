@@ -9,12 +9,27 @@ const { shouldLoadCompdocHistory } = await import('../src/services/compdocHistor
 const { fetchCompdocDashboard } = await import('../src/services/compdocDashboard.ts')
 const { getCompdocReference, humanizeCompdocStatus, joinCompdocValues } =
   await import('../src/services/compdocWorkspace.ts')
-const [tableSource, workspaceSource, overridesSource, issueColumnsSource] = await Promise.all([
-  readFile(new URL('../src/views/CompDocTable.vue', import.meta.url), 'utf8'),
-  readFile(new URL('../src/components/compdoc/CompDocWorkspace.vue', import.meta.url), 'utf8'),
-  readFile(new URL('../src/composables/compdoc/columnOverrides.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/composables/compdoc/issueColumns.ts', import.meta.url), 'utf8')
-])
+const {
+  checkCompDocRevision,
+  downloadCompDocNotificationDraft,
+  fetchCompDocTracking,
+  formatTrackingTimestamp,
+  saveCompDocTracking,
+  sendCompDocNotification
+} = await import('../src/services/compdocTracking.ts')
+const {
+  cloneCompDocNotificationRules,
+  fetchCompDocNotificationPolicy,
+  saveCompDocNotificationPolicy
+} = await import('../src/services/compdocNotificationPolicy.ts')
+const [tableSource, workspaceSource, workspaceController, overridesSource, issueColumnsSource] =
+  await Promise.all([
+    readFile(new URL('../src/views/CompDocTable.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/compdoc/CompDocWorkspace.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/composables/compdoc/workspace.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/composables/compdoc/columnOverrides.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/composables/compdoc/issueColumns.ts', import.meta.url), 'utf8')
+  ])
 
 test('builds safe operator-facing compliance document labels', () => {
   assert.equal(humanizeCompdocStatus('authority_approved'), 'Authority approved')
@@ -27,14 +42,158 @@ test('builds safe operator-facing compliance document labels', () => {
 
 test('opens row workspaces without restoring an actions column', () => {
   assert.match(tableSource, /:row-props="rowProps"/)
-  assert.match(tableSource, /onDblclick: \(\) => openWorkspace\(document\)/)
-  assert.match(tableSource, /event\.key === 'Enter'/)
+  assert.match(workspaceController, /onDblclick: \(\) => openWorkspace\(document\)/)
+  assert.match(workspaceController, /event\.key === 'Enter'/)
   assert.match(tableSource, /<CompDocWorkspace/)
   assert.match(workspaceSource, /Quick actions/)
   assert.match(workspaceSource, /v-if="canEdit"/)
   assert.match(workspaceSource, /v-if="canDelete"/)
+  assert.match(workspaceSource, /Tracking & alerts/)
   assert.doesNotMatch(overridesSource, /key: 'actions'/)
   assert.match(issueColumnsSource, /event\.stopPropagation\(\)/)
+})
+
+test('uses project-scoped tracking, DocProof, and notification endpoints', async () => {
+  const response = trackingResponse()
+  const loaded = await captureRequest(() => fetchCompDocTracking('özgür test', 'doc/id'), response)
+  const saved = await captureRequest(
+    () =>
+      saveCompDocTracking('ozgur', 'document-id', {
+        responsible_mode: 'automatic',
+        responsible_person_ids: [],
+        notification_enabled: true,
+        notification_events: ['overdue']
+      }),
+    response
+  )
+  const checked = await captureRequest(() => checkCompDocRevision('ozgur', 'document-id'), response)
+  const sent = await captureRequest(
+    () => sendCompDocNotification('ozgur', 'document-id', 'revision_available'),
+    { status: 'sent', event_type: 'revision_available', tracking: response }
+  )
+
+  assert.equal(loaded.url, '/%C3%B6zg%C3%BCr%20test/compdocs/doc%2Fid/tracking/')
+  assert.equal(saved.url, '/ozgur/compdocs/document-id/tracking/')
+  assert.equal(saved.method, 'put')
+  assert.equal(checked.url, '/ozgur/compdocs/document-id/docproof/')
+  assert.equal(sent.url, '/ozgur/compdocs/document-id/notifications/')
+})
+
+test('downloads a template-backed Outlook notification draft', async () => {
+  const originalAdapter = axios.defaults.adapter
+  let captured
+  axios.defaults.adapter = async (config) => {
+    captured = config
+    return {
+      data: new Blob(['msg']),
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-disposition': 'attachment; filename="ozgur-TD-1-overdue.msg"' },
+      config
+    }
+  }
+  try {
+    const draft = await downloadCompDocNotificationDraft('ozgur', 'document-id', 'overdue')
+    assert.equal(captured.url, '/ozgur/compdocs/document-id/notifications/draft/')
+    assert.equal(captured.method, 'post')
+    assert.equal(captured.responseType, 'blob')
+    assert.equal(draft.filename, 'ozgur-TD-1-overdue.msg')
+  } finally {
+    axios.defaults.adapter = originalAdapter
+  }
+})
+
+test('presents automatic and editable Outlook notification choices together', async () => {
+  const [drawer, actions] = await Promise.all([
+    readFile(
+      new URL('../src/components/compdoc/CompDocTrackingDrawer.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/components/compdoc/CompDocNotificationActions.vue', import.meta.url),
+      'utf8'
+    )
+  ])
+
+  assert.match(drawer, /CompDocNotificationActions/)
+  assert.match(drawer, /refreshPolicyProjection/)
+  assert.match(drawer, /@policy-saved="refreshPolicyProjection"/)
+  assert.match(actions, /downloadCompDocNotificationDraft/)
+  assert.match(actions, /saveBlobAsFile/)
+  assert.match(actions, /Send automatically/)
+  assert.match(actions, /Download Outlook draft/)
+  assert.match(actions, /full HTML template/)
+  assert.match(actions, /window\.\$dialog\.warning/)
+  assert.match(actions, /Send notification/)
+  assert.match(actions, /selectedState\.value\?\.applicable/)
+  assert.match(actions, /Save tracking preferences/)
+  assert.match(actions, /Event condition detected/)
+  assert.match(actions, /escalation CC/)
+  assert.match(actions, /selectedState\.policy_version/)
+})
+
+test('loads and publishes optimistic project notification policy revisions', async () => {
+  const rules = notificationPolicyRules()
+  const loaded = await captureRequest(() => fetchCompDocNotificationPolicy('özgür test'), {
+    version: 0,
+    rules
+  })
+  const saved = await captureRequest(
+    () =>
+      saveCompDocNotificationPolicy('ozgur', {
+        expected_version: 2,
+        change_note: 'Controlled escalation update',
+        rules
+      }),
+    { version: 3, rules }
+  )
+  const cloned = cloneCompDocNotificationRules(rules)
+  cloned.overdue.primary_titles.push('CVE')
+
+  assert.equal(loaded.url, '/%C3%B6zg%C3%BCr%20test/compdocs/notification-policy/')
+  assert.equal(saved.method, 'put')
+  assert.equal(JSON.parse(saved.data).expected_version, 2)
+  assert.deepEqual(rules.overdue.primary_titles, [])
+})
+
+test('exposes versioned policy management and immutable history in tracking', async () => {
+  const [source, history] = await Promise.all([
+    readFile(
+      new URL('../src/components/compdoc/CompDocNotificationPolicyCard.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/components/compdoc/CompDocNotificationHistory.vue', import.meta.url),
+      'utf8'
+    )
+  ])
+
+  assert.match(source, /Manage policy/)
+  assert.match(source, /Publish new revision/)
+  assert.match(source, /expected_version: policy\.value\.version/)
+  assert.match(source, /Revision history/)
+  assert.match(source, /formatApiError/)
+  assert.match(source, /emit\('saved'\)/)
+  assert.match(history, /escalation_recipient_count/)
+  assert.match(history, /policy_version/)
+})
+
+test('formats persisted tracking timestamps for operators', () => {
+  assert.equal(formatTrackingTimestamp(null), 'never')
+  assert.doesNotMatch(formatTrackingTimestamp('2026-07-28T17:38:40Z'), /T|Z/)
+})
+
+test('explains the editable round-trip workbook and cleans download resources', async () => {
+  const downloader = await readFile(
+    new URL('../src/components/Downloader.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(downloader, /single-sheet workbook can be edited and imported directly back/)
+  assert.match(downloader, /Every exported column is recognized by the current import contract/)
+  assert.match(downloader, /encodeURIComponent\(String\(route\.params\.project/)
+  assert.match(downloader, /URL\.revokeObjectURL\(urlObject\)/)
+  assert.doesNotMatch(downloader, /setTimeout/)
 })
 
 test('loads CompDoc history when list responses omit the lazy-loaded field', () => {
@@ -171,6 +330,7 @@ test('dashboard isolates paginated table state and stale project responses', asy
   assert.match(dashboard, /dataQualityIssues/)
   assert.match(dashboard, /invalid_status_flow/)
   assert.match(dashboard, /CompDocRiskDashboard/)
+  assert.match(dashboard, /CompDocTrackingSummary/)
   assert.match(riskDashboard, /priority\.signals/)
   assert.match(riskDashboard, /risk\.policy/)
   assert.match(riskDashboard, /query: \{ name \}/)
@@ -258,7 +418,55 @@ function dashboardResponse() {
         priority_limit: 25
       }
     },
+    tracking: {
+      configured_count: 0,
+      notification_enabled_count: 0,
+      revision_available_count: 0,
+      delivery_failure_count: 0
+    },
     data_quality: { issue_count: 0 },
     generated_at: new Date(0).toISOString()
+  }
+}
+
+function trackingResponse() {
+  return {
+    document: {
+      id: 'document-id',
+      name: 'Manual',
+      ata: '21-00',
+      panel: 'Flight',
+      tech_doc_no: 'TD-1',
+      tech_doc_issue: '1',
+      delivered_tech_doc_issue: '',
+      status: 'to_be_issued',
+      ubm_target_date: null
+    },
+    responsible_mode: 'automatic',
+    responsible_person_ids: [],
+    responsibles: [],
+    candidate_responsibles: [],
+    configured: false,
+    notification_enabled: false,
+    notification_events: [],
+    event_options: [],
+    event_states: [],
+    docproof: { status: 'never_checked', issue: '', checked_at: null },
+    recent_notifications: []
+  }
+}
+
+function notificationPolicyRules() {
+  const rule = {
+    reminder_interval_hours: 0,
+    failure_retry_hours: 1,
+    primary_titles: [],
+    escalation_titles: [],
+    escalate_after_hours: 0
+  }
+  return {
+    overdue: { ...rule, primary_titles: [], escalation_titles: [] },
+    due_soon: { ...rule, primary_titles: [], escalation_titles: [] },
+    revision_available: { ...rule, primary_titles: [], escalation_titles: [] }
   }
 }

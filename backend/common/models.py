@@ -214,3 +214,8 @@ class CompDocImportAudit(models.Model):
 
 
 from .action_center_models import ActionCenterDecision  # noqa: E402,F401
+from .compdoc_tracking_models import (  # noqa: E402,F401
+    CompDocNotificationLog,
+    CompDocNotificationPolicy,
+    CompDocTrackingProfile,
+)

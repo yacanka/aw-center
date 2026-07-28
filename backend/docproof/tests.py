@@ -3,7 +3,7 @@
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, Timeout
 
 from docproof import views
 
@@ -57,6 +57,17 @@ class DocProofSearchTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, 4)
         login.assert_called_once()
+
+    def test_search_response_sanitizes_upstream_failures(self):
+        with patch(
+            "docproof.views.search_issue_number",
+            side_effect=Timeout("https://secret.internal/path"),
+        ):
+            response = views.search_response("ABC-123")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], "DOCPROOF_UNAVAILABLE")
+        self.assertNotIn("secret.internal", response.data["detail"])
 
     def test_search_response_keeps_missing_document_status(self):
         with patch("docproof.views.search_issue_number", return_value=(None, "missing")):

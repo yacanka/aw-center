@@ -30,10 +30,12 @@
         >
         <n-text depth="3">Updated {{ formattedGeneratedAt }}</n-text>
       </n-flex>
+      <CompDocTrackingSummary :tracking="summary.tracking" />
       <CompDocRiskDashboard :project="activeProject" :risk="summary.risk" />
       <div class="dashboard-grid">
         <div class="dashboard-column">
-          <CompDocPanelDashboard style="background: linear-gradient(145deg, rgba(60, 130, 250, 0.06), transparent 90%);"
+          <CompDocPanelDashboard
+            style="background: linear-gradient(145deg, rgba(60, 130, 250, 0.06), transparent 90%)"
             :loading="loading"
             :panels="summary.panels"
             :selected-panel="selectedPanel?.panel"
@@ -65,6 +67,7 @@ import CompDocPanelDashboard from './CompDocPanelDashboard.vue'
 import CompDocRiskDashboard from './CompDocRiskDashboard.vue'
 import CompDocStatusDashboard from './CompDocStatusDashboard.vue'
 import CompDocTimelineDashboard from './CompDocTimelineDashboard.vue'
+import CompDocTrackingSummary from './CompDocTrackingSummary.vue'
 
 const { activeProject, dataQualityIssues, error, loading, loadProject, projectOptions, summary } =
   useCompdocDashboard()

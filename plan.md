@@ -168,7 +168,7 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 
 ## 60. DocProof follow-up recommendations
 
-1. **P1 - Service boundary:** Move DocProof HTTP client helpers from `views.py` into a dedicated `client.py` or `services.py` once adjacent integration modules can be updated safely.
+1. **Tamamlandı - Service boundary:** DocProof HTTP/session/parser sorumlulukları `docproof/client.py` içine taşındı; view katmanı yalnız authenticated API orchestration ve standart hata sözleşmesini yönetiyor.
 2. **P1 - Contract tests with fixture payloads:** Capture representative DocProof JSON payload fixtures and add tests for missing keys, malformed payloads, and multiple document types.
 3. **Tamamlandı - Authentication policy:** `docproof/search/` authenticated hale getirildi ve placeholder `docproof/test/` route'u kaldırıldı.
 
@@ -223,3 +223,16 @@ Bu patch, davranışı kontrollü değiştirmek ve eski endpoint'leri kırmamak 
 2. **Tamamlandı - Yetki-duyarlı hızlı başlangıç:** Merkezi menü erişim politikasıyla filtrelenen son kullanılan ve varsayılan araçlar hesap-bazlı Quick Access kartında gösteriliyor.
 3. **Tamamlandı - İstisna odaklı entegrasyon sağlığı:** Cache/circuit-breaker korumalı Integration Hub sözleşmesinden yalnız configuration, degraded ve unavailable istisnaları gösteriliyor.
 4. **Tamamlandı - Son faaliyet ve teslimatlar:** Kullanıcının son başarılı işlerinden indirilebilir artefaktlar ve Job Center detay bağlantıları owner-scoped API üzerinden özetleniyor.
+
+## 76. Compliance Documents tracking and notification roadmap
+
+1. **Tamamlandı - ATA tabanlı sorumlu çözümleme:** Her proje dokümanı için otomatik ATA eşleşmesi veya ATA kapsamıyla sınırlı özel kişi seçimi, proje model yetkileriyle korunan takip profiline bağlandı.
+2. **Tamamlandı - Kalıcı DocProof durumu:** Son kontrol zamanı, bulunan issue ve `current`/`revision_available`/erişilemiyor durumları belge çalışma alanında kalıcı ve kullanıcıya görünür hale getirildi.
+3. **Tamamlandı - Güvenli otomatik bildirimler:** Gecikme, yedi gün içinde termin ve yeni DocProof revizyonu olayları; opt-in tercih, HTML template, içeriksiz audit, deduplication, retry cooldown ve bounded worker taramasıyla eklendi.
+4. **Tamamlandı - Operasyonel görünürlük:** Dashboard; takip edilen belge, uyarısı açık belge, yeni revizyon ve başarısız teslimat sayılarını tek ek sorguyla gösteriyor.
+5. **Tamamlandı - Tek sayfalı Excel round-trip:** Stil, filtre, dondurulmuş başlık, inline veri doğrulama, formül enjeksiyonu koruması ve kayıpsız status history uzlaştırması tek `Compliance Documents` sayfasında toplandı; export şeması doğrudan güncel importer alanlarından üretiliyor.
+6. **Tamamlandı - Düzenlenebilir Outlook taslağı:** Uygulanabilir olaylar için aynı güncel ATA alıcılarını, güvenli konuyu ve HTML template'i içeren Unicode `.msg` dosyası; `change_compdoc` yetkili kullanıcıya geçici ve doğrulanmış indirme olarak sunuluyor. Outlook bulunmayan sunucu sahte dosya üretmek yerine açıklayıcı 503 döndürüyor.
+7. **Tamamlandı - Açıklanabilir ve güvenli manuel aksiyon:** Backend her olay için hedef tarih/DocProof kanıtına dayalı uygulanabilirlik ve neden üretiyor; UI kaydedilmemiş profil, alıcısız ekip ve pasif olayı gönderimden önce engelliyor. Otomatik gönderim, alıcı sayısını ve geri çağrılamaz dış etkiyi gösteren açık onay gerektiriyor.
+8. **P1 - Staging kabulü:** Gerçek DocProof fixture/hesabı ve seçilen Outlook veya SMTP transportuyla TLS, teslim edilebilirlik, bounce davranışı ve HTML istemci uyumluluğunu doğrula; Windows/Outlook oturumunda oluşturulan `.msg` dosyasını da gerçek istemcide açma-düzenleme-gönderme akışıyla kabul et.
+9. **Tamamlandı - Operatör politikası:** Olay bazlı reminder ve başarısız teslimat retry süresi; ATA `title` rollerine dayalı primary/CC escalation zinciri; özel yönetim yetkisi, optimistic version kontrolü, değişiklik gerekçesi ve immutable proje revizyon geçmişiyle uygulandı.
+10. **P2 - Tarihsel KPI:** Günlük takip snapshotlarıyla revizyon yakalama süresi, gecikme kapanma süresi ve bildirim etkinliğini ölç.
