@@ -118,7 +118,7 @@ class CompDocTrackingApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["docproof"]["status"], "current")
 
-    def test_document_delete_removes_its_tracking_profile(self):
+    def test_document_archive_preserves_its_tracking_profile(self):
         grant_model_permissions(self.user, CompDoc, "change", "delete")
         saved = self.client.put(
             self.tracking_path,
@@ -128,8 +128,10 @@ class CompDocTrackingApiTests(TestCase):
         deleted = self.client.delete(f"/ozgur/compdocs/{self.document.pk}/")
 
         self.assertEqual(saved.status_code, 200)
-        self.assertEqual(deleted.status_code, 204)
-        self.assertFalse(CompDocTrackingProfile.objects.exists())
+        self.assertEqual(deleted.status_code, 200)
+        self.document.refresh_from_db()
+        self.assertTrue(self.document.is_archived)
+        self.assertTrue(CompDocTrackingProfile.objects.exists())
 
     def _tracking_payload(self, person_ids):
         return {

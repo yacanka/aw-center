@@ -16,6 +16,7 @@ export function getCompdocReference(document: ICompDoc): string {
 /** Join present values without displaying empty separators. */
 export function joinCompdocValues(values: unknown[], fallback = 'Not assigned'): string {
   const presentValues = values
+    .filter((value) => value !== null && value !== undefined)
     .map(String)
     .map((value) => value.trim())
     .filter(Boolean)

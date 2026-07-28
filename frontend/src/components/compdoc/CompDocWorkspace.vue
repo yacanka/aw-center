@@ -9,6 +9,9 @@ import {
   Eye24Regular
 } from '@vicons/fluent'
 import type { ICompDoc } from '@/models/compdocs'
+import CompDocActivity from '@/components/compdoc/CompDocActivity.vue'
+import CompDocReviewPanel from '@/components/compdoc/CompDocReviewPanel.vue'
+import CompDocWorkPanel from '@/components/compdoc/CompDocWorkPanel.vue'
 import { statusColors } from '@/services/compdocCatalog'
 import {
   getCompdocReference,
@@ -32,6 +35,7 @@ const emit = defineEmits<{
   copy: [document: ICompDoc]
   tracking: [document: ICompDoc]
   delete: [document: ICompDoc]
+  changed: []
 }>()
 
 const statusLabel = computed(() => humanizeCompdocStatus(props.document?.status))
@@ -139,12 +143,34 @@ const statusColor = computed(() => statusColors[String(props.document?.status ||
         <n-card size="small" embedded>{{ document.notes }}</n-card>
       </section>
 
+      <CompDocWorkPanel
+        :show="show"
+        :project="project"
+        :document="document"
+        :can-edit="canEdit"
+        @changed="emit('changed')"
+      />
+      <CompDocReviewPanel
+        :show="show"
+        :project="project"
+        :document="document"
+        :can-edit="canEdit"
+        @changed="emit('changed')"
+      />
+      <CompDocActivity
+        :show="show"
+        :project="project"
+        :document="document"
+        :can-edit="canEdit"
+        @changed="emit('changed')"
+      />
+
       <template #footer>
         <n-flex justify="space-between" align="center" class="workspace-footer">
-          <n-text depth="3">Double-click another row to switch context.</n-text>
+          <n-text depth="3">Select another row to switch context.</n-text>
           <n-button v-if="canDelete" type="error" ghost @click="emit('delete', document)">
             <template #icon><Delete24Regular /></template>
-            Delete
+            Archive
           </n-button>
         </n-flex>
       </template>

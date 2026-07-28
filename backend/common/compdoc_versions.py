@@ -57,9 +57,15 @@ def update_versioned_compdoc(request, model, serializer_class, pk, partial):
     instance = get_object_or_404(model.objects.select_for_update(), pk=pk)
     if latest_history_id(model, pk) != expected_version:
         raise CompDocVersionConflict()
-    serializer = serializer_class(instance, data=request.data, partial=partial)
+    serializer = serializer_class(
+        instance,
+        data=request.data,
+        partial=partial,
+        context={"request": request, "require_change_reason": True},
+    )
     serializer.is_valid(raise_exception=True)
     instance._history_user = request.user
+    instance._change_reason = str(request.data.get("change_reason", "")).strip()[:100]
     serializer.save()
     serializer.instance.source_history_id = latest_history_id(model, pk)
     return Response(serializer.data, status=status.HTTP_200_OK)

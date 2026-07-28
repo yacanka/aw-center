@@ -62,7 +62,8 @@ class CompdocConcurrencyTests(TestCase):
         previous_version = self.current_version()
         response = self.client.patch(
             self.path,
-            {"name": "Reviewed update", "source_history_id": previous_version},
+            {"name": "Reviewed update", "source_history_id": previous_version,
+             "change_reason": "Reviewed correction"},
         )
         latest_history = self.document.history.first()
 

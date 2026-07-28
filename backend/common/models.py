@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.contrib.auth.models import Group
 from django.utils import timezone
 from django.core.validators import RegexValidator
 from simple_history.models import HistoricalRecords
@@ -49,7 +50,7 @@ class CompDocBase(models.Model):
         related_name="%(app_label)s_compliance_documents",
         editable=False,
     )
-    cover_page_no = models.CharField(default=uuid.uuid4, max_length=32)
+    cover_page_no = models.CharField(max_length=32)
     cover_page_issue = models.CharField(null=True, blank=True)
     tech_doc_no = models.CharField(max_length=64, null=True, blank=True)
     tech_doc_issue = models.CharField(null=True, blank=True)
@@ -75,6 +76,23 @@ class CompDocBase(models.Model):
     path = models.CharField(max_length=512, null=True, blank=True)
 
     notes = models.TextField(null=True, blank=True)
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="%(app_label)s_owned_compdocs",
+    )
+    owner_group = models.ForeignKey(
+        Group, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="%(app_label)s_owned_compdocs",
+    )
+    next_action_due_date = models.DateField(null=True, blank=True, db_index=True)
+    is_archived = models.BooleanField(default=False, db_index=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="%(app_label)s_archived_compdocs",
+    )
+    archive_reason = models.CharField(max_length=255, blank=True)
 
     history = HistoricalRecords(inherit=True)
 
@@ -219,3 +237,4 @@ from .compdoc_tracking_models import (  # noqa: E402,F401
     CompDocNotificationPolicy,
     CompDocTrackingProfile,
 )
+from .compdoc_lifecycle_models import CompDocReviewTask, CompDocWorkflowEvent  # noqa: E402,F401

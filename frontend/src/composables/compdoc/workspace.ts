@@ -1,4 +1,5 @@
-import { computed, ref } from 'vue'
+import { computed, h, ref } from 'vue'
+import { NInput } from 'naive-ui'
 import type { ICompDoc } from '@/models/compdocs'
 import type { useCompdocStore } from '@/stores/compdoc'
 
@@ -33,10 +34,13 @@ export function useCompdocWorkspace(store: ReturnType<typeof useCompdocStore>) {
       class: selectedDocument.value?.id === document.id ? 'compdoc-row--selected' : '',
       tabindex: 0,
       'aria-label': `Open document workspace for ${document.name}`,
-      onClick: () => (selectedDocument.value = document),
+      onClick: () => openWorkspace(document),
       onDblclick: () => openWorkspace(document),
       onKeydown: (event: KeyboardEvent) => {
-        if (event.key === 'Enter') openWorkspace(document)
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          openWorkspace(document)
+        }
       }
     }
   }
@@ -52,19 +56,32 @@ export function useCompdocWorkspace(store: ReturnType<typeof useCompdocStore>) {
   }
 
   function confirmDocumentDeletion(document: ICompDoc) {
+    const reason = ref('')
     window.$dialog.error({
-      title: 'Delete compliance document',
-      content: `Delete “${document.name}”? This action cannot be undone.`,
-      positiveText: 'Delete document',
+      title: 'Archive compliance document',
+      content: () =>
+        h(NInput, {
+          value: reason.value,
+          placeholder: `Reason for archiving “${document.name}”`,
+          maxlength: 255,
+          'onUpdate:value': (value: string) => (reason.value = value)
+        }),
+      positiveText: 'Archive document',
       negativeText: 'Cancel',
-      onPositiveClick: () => deleteDocument(document)
+      onPositiveClick: () => {
+        if (reason.value.trim().length < 3) {
+          window.$message.warning('Enter a meaningful archive reason.')
+          return false
+        }
+        return archiveDocument(document, reason.value)
+      }
     })
   }
 
-  async function deleteDocument(document: ICompDoc) {
-    if (!document.id) return
+  async function archiveDocument(document: ICompDoc, reason: string) {
+    if (!document.id || !document.source_history_id) return
     try {
-      await store.deleteCompdoc(document.id)
+      await store.archiveCompdoc(document.id, document.source_history_id, reason)
       closeWorkspace()
     } catch {
       // The shared request handler presents the recoverable API error.

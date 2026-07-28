@@ -98,7 +98,7 @@ class ActionCenterTests(TestCase):
         create_partial_audit()
         create_expiring_invitation(self.user)
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(14):
             response = self.client.get("/action-center/")
 
         self.assertEqual(response.data["summary"]["total"], 3)

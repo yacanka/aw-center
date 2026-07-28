@@ -64,6 +64,14 @@ class CompDocTableQueryTests(TestCase):
         self.assertEqual(len(panels), 4)
         self.assertEqual({row["name"] for row in dates}, {"Delta Plan", "Bravo Report"})
 
+    def test_global_search_matches_document_identity(self):
+        """Global search covers names, cover pages, and technical references."""
+
+        self.review.tech_doc_no = "TECH-SEARCH-42"
+        self.review.save(update_fields=["tech_doc_no"])
+        results = self._results({"search": "search-42"})
+        self.assertEqual([row["name"] for row in results], ["Bravo Report"])
+
     def test_delayed_filter_and_database_ordering(self):
         """Virtual delayed status and configured ordering work across pagination."""
 
@@ -102,7 +110,7 @@ class CompDocTableQueryTests(TestCase):
         """Clients cannot forge indexed workflow projections independently of JSON."""
 
         grant_model_permissions(self.user, CompDoc, "add", "change")
-        response = self.client.post(
+        created = self.client.post(
             "/ozgur/compdocs/",
             {
                 "name": "Projection Test",
@@ -114,9 +122,22 @@ class CompDocTableQueryTests(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.data["status"], "to_be_issued")
-        self.assertEqual(response.data["ubm_target_date"], "2099-01-01")
+        self.assertEqual(created.status_code, 201)
+        response = self.client.post(
+            f"/ozgur/compdocs/{created.data['id']}/transitions/",
+            {
+                "source_history_id": created.data["source_history_id"],
+                "status": "to_be_issued",
+                "effective_date": "2099-01-01",
+                "next_action_due_date": "2099-01-01",
+                "reason": "Schedule initial delivery",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        document = CompDoc.objects.get(pk=created.data["id"])
+        self.assertEqual(document.status, "to_be_issued")
+        self.assertEqual(str(document.next_action_due_date), "2099-01-01")
 
     def _results(self, query):
         response = self.client.get("/ozgur/compdocs/", query)

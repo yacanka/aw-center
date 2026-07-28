@@ -51,9 +51,10 @@ def _process_one(profile):
     if not definition or "compdocs" not in definition.capabilities:
         return []
     model = apps.get_model(profile.project_slug, "CompDoc")
-    document = model.objects.filter(pk=profile.document_id).first()
+    document = model.objects.filter(pk=profile.document_id, is_archived=False).first()
     if not document:
-        profile.delete()
+        if not model.objects.filter(pk=profile.document_id).exists():
+            profile.delete()
         return []
     results = process_profile(model, document, profile)
     profile.notification_checked_at = timezone.now()

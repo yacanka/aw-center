@@ -56,16 +56,17 @@ class CompDocPermissionTests(TestCase):
         payload = {"name": "New Manual", "cover_page_no": "CP-NEW", "ata": "00-00"}
         self.assertEqual(self.client.post("/ozgur/compdocs/", payload).status_code, 403)
         grant_model_permissions(self.user, CompDoc, "add")
-        self.assertEqual(self.client.post("/ozgur/compdocs/", payload).status_code, 403)
+        created = self.client.post("/ozgur/compdocs/", payload)
+        self.assertEqual(created.status_code, 201)
         existing_path = f"/ozgur/compdocs/{self.document.id}/"
         self.assertEqual(self.client.patch(existing_path, {"name": "Changed"}).status_code, 403)
         grant_model_permissions(self.user, CompDoc, "change")
-        created = self.client.post("/ozgur/compdocs/", payload)
-        self.assertEqual(created.status_code, 201)
         detail_path = f"/ozgur/compdocs/{created.data['id']}/"
         version = created.data["source_history_id"]
         updated = self.client.patch(
-            detail_path, {"name": "Changed", "source_history_id": version}
+            detail_path, {
+                "name": "Changed", "source_history_id": version, "change_reason": "Review update"
+            }
         )
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(self.client.delete(detail_path).status_code, 403)
@@ -95,13 +96,10 @@ class CompDocPermissionTests(TestCase):
         )
         deleted = self.client.delete("/ozgur/compdocs/", payload, format="json")
 
-        self.assertEqual(invalid.status_code, 400)
-        self.assertEqual(stale.status_code, 409)
-        self.assertEqual(stale.data["code"], "COMPDOC_DELETE_COUNT_CONFLICT")
-        self.assertEqual(deleted.status_code, 200)
-        self.assertFalse(CompDoc.objects.exists())
-        deletion = CompDoc.history.get(history_type="-")
-        self.assertEqual(deletion.history_user, self.user)
+        self.assertEqual(invalid.status_code, 405)
+        self.assertEqual(stale.status_code, 405)
+        self.assertEqual(deleted.status_code, 405)
+        self.assertTrue(CompDoc.objects.exists())
 
     def _preview_import(self):
         return self.client.post(

@@ -65,6 +65,14 @@ export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
     void fetchRows()
   }
 
+  function replaceQuickFilters(values: Record<string, unknown>) {
+    const quickKeys = ['mine', 'my_team', 'unassigned', 'due', 'review', 'archived']
+    quickKeys.forEach((key) => delete filters.value[key])
+    Object.assign(filters.value, values)
+    page.value = 1
+    void fetchRows()
+  }
+
   async function initialize(project: string, hasViewPermission: boolean) {
     store.setProjectName(project)
     resetQueryState()
@@ -141,6 +149,8 @@ export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
     handleSorter,
     handlePage,
     handlePageSize,
+    replaceQuickFilters,
+    updateCustomFilter,
     rowKey: (row: ICompDoc) => row.id || ''
   }
 }

@@ -56,6 +56,8 @@ def _quality_summary(quality):
         "out_of_order_dates",
         "missing_panel",
         "unknown_status",
+        "panel_ata_mismatch",
+        "blank_cover_page",
     )
     values = {key: quality[key] for key in keys}
     return {"issue_count": sum(values.values()), **values}

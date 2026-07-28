@@ -30,6 +30,8 @@ export interface DashboardDataQuality {
   out_of_order_dates: number
   missing_panel: number
   unknown_status: number
+  panel_ata_mismatch: number
+  blank_cover_page: number
 }
 
 export type DashboardRiskLevel = 'high' | 'medium' | 'low' | 'none'
@@ -83,6 +85,16 @@ export interface DashboardTrackingSummary {
   delivery_failure_count: number
 }
 
+export interface DashboardOperationalSummary {
+  unassigned: number
+  action_overdue: number
+  action_due_soon: number
+  pending_review: number
+  pending_approval: number
+  archived: number
+  filters: Record<string, Record<string, string>>
+}
+
 export interface CompDocDashboardSummary {
   document_count: number
   status_counts: Record<string, number>
@@ -92,6 +104,7 @@ export interface CompDocDashboardSummary {
   performance: Record<'scheduled' | 'actual' | 'approved', DashboardMetric>
   risk: DashboardRiskSummary
   tracking: DashboardTrackingSummary
+  operations: DashboardOperationalSummary
   data_quality: DashboardDataQuality
   generated_at: string
 }

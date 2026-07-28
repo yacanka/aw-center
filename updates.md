@@ -1156,3 +1156,15 @@
 5. Added exact primary/escalation recipient counts and policy version to action readiness, confirmation, `.msg` drafts, automatic delivery evidence, and recent activity.
 6. Added responsive project-policy management inside Tracking & alerts, including live policy-projection refresh without discarding unsaved document preferences.
 7. Verified authorization, stale-version rejection, role validation, deterministic cadence/retry, escalation delivery, DocProof timing, all enabled project routes, frontend API contracts, production build, and desktop/mobile browser flows against an isolated database without sending mail.
+
+## 138. Compliance Documents lifecycle, ownership, and audit hardening
+
+1. Added non-destructive archive/restore, AW Center owner/team/next-action fields, immutable workflow events, and independent review/approval tasks across all eight project document models with additive historical migrations.
+2. Replaced unrestricted lifecycle editing with actor-attributed, reason-required, optimistic transitions while preserving legacy `status_flow` projections and safely backfilling valid legacy events without removing malformed source data.
+3. Split manual create and Excel import permissions, removed collection deletion, blocked archived import collisions, validated bounded text/list inputs and project-consistent Panel/ATA pairs, and added an anonymous migration preflight report.
+4. Added project-isolated work, review, assignee, transition, archive/restore, combined activity, selected export, and atomic bounded bulk APIs using the standard recoverable error contract.
+5. Added owner/reviewer Action Center entries, operational dashboard counters and deep-links, global search and quick filters, explicit row selection, and version-aware bulk operations.
+6. Rebuilt the document editor as responsive Identity, References, Ownership, Workflow, Notes, and History sections; added single-click/touch/keyboard workspace access, accessible actions, unsaved-change protection, field errors, and 409 reload-and-compare recovery.
+7. Kept ATA responsibles and existing notification delivery semantics unchanged; archived documents are omitted from normal lists, dashboard analytics, exports, and notification scans while their tracking and audit data remain intact.
+8. Removed selected-export history N+1 queries and retained streaming dashboard aggregation with bounded supplementary queries.
+9. Verified 130 backend tests, the full frontend CI suite, strict TypeScript, Prettier, production build/bundle budget, Django checks, migration drift, fresh-database migration, and isolated browser flows at 390, 1024, and 1440 px.

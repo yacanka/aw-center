@@ -2,6 +2,9 @@ from django.test import SimpleTestCase
 
 from common.compdoc_fields import get_compdoc_field_metadata
 from projects.ozgur.models import CompDoc
+from projects.aesa.models import CompDoc as AesaCompDoc
+from projects.blok4050.models import CompDoc as Blok4050CompDoc
+from projects.gokbey.models import CompDoc as GokbeyCompDoc
 
 
 class ComplianceDocumentFieldMetadataTests(SimpleTestCase):
@@ -42,3 +45,11 @@ class ComplianceDocumentFieldMetadataTests(SimpleTestCase):
                 "option_source",
             },
         )
+
+    def test_secondary_document_fields_are_server_discoverable(self):
+        for model in (AesaCompDoc, GokbeyCompDoc, Blok4050CompDoc):
+            with self.subTest(project=model._meta.app_label):
+                keys = {field["key"] for field in get_compdoc_field_metadata(model)}
+                self.assertIn("tech_doc_no_2", keys)
+                self.assertIn("tech_doc_issue_2", keys)
+                self.assertIn("delivered_tech_doc_issue_2", keys)

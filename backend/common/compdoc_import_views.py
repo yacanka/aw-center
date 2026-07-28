@@ -99,7 +99,12 @@ def confirmed_import_response(request, uploaded_file, model, serializer_class):
         if prepared.preview["missing_columns"]:
             return missing_columns_response(audit, prepared.preview["missing_columns"])
         result = execute_import(
-            prepared, model, serializer_class, confirmation.database_fingerprint
+            prepared,
+            model,
+            serializer_class,
+            confirmation.database_fingerprint,
+            request.user,
+            audit.id,
         )
         complete_import_audit(audit, result)
         return successful_import_response(audit, result)

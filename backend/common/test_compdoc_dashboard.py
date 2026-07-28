@@ -127,7 +127,7 @@ class CompDocDashboardApiTests(TestCase):
 
         grant_model_permissions(self.user, CompDoc, "view")
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(7):
             response = self.client.get("/ozgur/compdocs/dashboard/")
 
         self.assertEqual(response.status_code, 200)

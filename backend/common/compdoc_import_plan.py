@@ -3,9 +3,16 @@
 from collections import Counter
 from dataclasses import dataclass
 
+from .compdoc_import_errors import (
+    archived_error,
+    duplicate_error,
+    safe_row_error,
+    transform_error,
+    validation_error,
+    workbook_row_number,
+)
 from .compdoc_import_values import normalize_import_row
-
-MAX_ERROR_TEXT = 500
+from .compdoc_import_lifecycle import validate_workflow_append
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +122,13 @@ def plan_row(row_number, payload, duplicates, existing, history_watermarks, seri
     if key in duplicates:
         return None, duplicate_error(row_number, payload)
     instance = existing.get(key)
+    if instance is not None and getattr(instance, "is_archived", False):
+        return None, archived_error(row_number, payload)
+    workflow_error = validate_workflow_append(instance, payload)
+    if workflow_error:
+        return None, safe_row_error(
+            row_number, payload, "ROW_WORKFLOW_TAMPERED", workflow_error
+        )
     serializer = serializer_class(instance, data=payload)
     if not serializer.is_valid():
         return None, validation_error(row_number, payload, serializer.errors)
@@ -132,63 +146,7 @@ def resolve_action(instance, validated_data):
     return "update" if changed else "unchanged"
 
 
-def duplicate_error(row_number, payload):
-    """Return an ambiguity error for a repeated business key."""
-
-    return safe_row_error(
-        row_number,
-        payload,
-        "ROW_DUPLICATE_KEY",
-        "Cover page and technical document identity appear more than once in the workbook.",
-    )
-
-
 def import_business_key(values):
     """Return the cover-page-scoped compliance-document import identity."""
 
     return values.get("cover_page_no"), values.get("tech_doc_no") or values.get("name")
-
-
-def validation_error(row_number, payload, errors):
-    """Return a bounded serializer validation summary."""
-
-    fields = sanitize_field_errors(errors)
-    result = safe_row_error(row_number, payload, "ROW_VALIDATION_FAILED", "Validation failed.")
-    result["fields"] = fields
-    result["error_text"] = format_field_errors(fields)
-    return result
-
-
-def transform_error(row_number, raw_values, error):
-    """Return a bounded value-transformation summary."""
-
-    detail = str(error)[:MAX_ERROR_TEXT] or "Row values could not be normalized."
-    return safe_row_error(row_number, raw_values, "ROW_TRANSFORM_FAILED", detail)
-
-
-def safe_row_error(row_number, values, code, detail):
-    """Return audit-safe row identity and recovery detail."""
-
-    name = str(values.get("name") or f"Row {row_number}")[:256]
-    return {"row": row_number, "name": name, "code": code, "detail": detail[:MAX_ERROR_TEXT]}
-
-
-def sanitize_field_errors(errors):
-    """Return bounded serializer field messages without internal values."""
-
-    return {
-        str(field)[:64]: [str(message)[:MAX_ERROR_TEXT] for message in messages][:10]
-        for field, messages in dict(errors).items()
-    }
-
-
-def format_field_errors(errors):
-    """Return a compact validation string for the existing upload UI."""
-
-    return "; ".join(f"{field}: {', '.join(messages)}" for field, messages in errors.items())
-
-
-def workbook_row_number(row_index, header_result):
-    """Return the one-based source workbook row number."""
-
-    return int(row_index) + header_result.header_row_index + 2
