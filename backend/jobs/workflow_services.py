@@ -7,7 +7,7 @@ from django.db import IntegrityError, transaction
 from rest_framework.exceptions import APIException
 
 from .handoffs import create_handoff_job
-from .models import Job, JobStatus
+from .models import JobStatus
 from .services import (
     IdempotencyConflict,
     calculate_upload_sha256,

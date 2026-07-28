@@ -1,9 +1,8 @@
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404 
 from django.core.cache import cache
 from django.conf import settings
 
-from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -21,7 +20,7 @@ from rest_framework import status
 
 from .serializers import JIRA_DCC_Serializer
 from .models import JIRA_DCC
-from .service.JIRAConnector import JiraConnector, split_text_by_chracter, ISO_time_to_string, parseJiraError
+from .service.JIRAConnector import JiraConnector
 from .service.MailSender import *
 from .service.reminder_rate_limit import get_reminder_wait_seconds, reserve_reminder_email_slot
 from .permissions import DCCAutomationPermission, DCCPermission, IsDCCOwner
@@ -38,12 +37,6 @@ from .parsers import safe_ecd_parse
 from .service.text_parsing import (
     check_filename,
     check_panel_text,
-    classify_dcc,
-    extract_text_from_text,
-    find_keyword_list2d,
-    make_surname_upper,
-    multiselect_to_text,
-    parse_labels,
     parse_multiselect,
 )
 from .service.effectivity import match_effectivity_options, normalize_effectivity_text

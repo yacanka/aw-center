@@ -1,24 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { usePptxStore } from '@/stores/presentations'
 import type { PresentationSlide } from '@/models/presentation'
-import { NCarousel, NButton, NUpload, useMessage } from 'naive-ui'
-import {
-  Settings24Regular,
-  ChannelAdd24Regular,
-  Add24Regular,
-  DataBarVertical24Regular,
-  Edit24Regular,
-  Delete24Regular,
-  Eye24Regular,
-  Branch24Regular,
-  DocumentArrowDown20Regular,
-  Document24Regular
-} from '@vicons/fluent'
+import { NCarousel, NButton, NUpload } from 'naive-ui'
+import { Edit24Regular, Delete24Regular } from '@vicons/fluent'
 
 const props = defineProps<{ presentationId: number; title: string }>()
 const slides = ref<PresentationSlide[]>([])
-const msg = useMessage()
 const store = usePptxStore()
 
 async function load() {

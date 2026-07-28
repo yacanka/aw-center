@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { h, ref, onMounted, onUnmounted, watch } from 'vue'
-import { NButton, NDataTable, NSpace, NTag, NSpin, NUpload } from 'naive-ui'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search24Regular } from '@vicons/fluent'
 

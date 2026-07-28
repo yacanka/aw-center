@@ -1,5 +1,5 @@
 export function toCamelCase(str: string) {
-  return str.replace(/[-_\s]+(.)?/g, (match, chr) => {
+  return str.replace(/[-_\s]+(.)?/g, (_match, chr) => {
     return chr ? chr.toUpperCase() : ''
   })
 }

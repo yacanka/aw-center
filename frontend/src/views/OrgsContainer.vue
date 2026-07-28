@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { h, ref, onMounted } from 'vue'
-import { NButton, NDataTable, NSpace, NTag, NSpin, NUpload } from 'naive-ui'
+import { ref, onMounted } from 'vue'
 
 import People from '@/views/orgs/People.vue'
 import Responsibles from '@/views/orgs/Responsibles.vue'

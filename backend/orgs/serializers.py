@@ -4,7 +4,6 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
 from .models import  Project, Panel, Responsible, People
-from .fields import RNameWSlugRelatedField
 
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:

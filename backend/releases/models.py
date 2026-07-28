@@ -1,5 +1,4 @@
 from django.db import models
-from django.contrib.auth.models import User
 from django.conf import settings
 
 class ReleaseNote(models.Model):
@@ -62,5 +61,4 @@ class ReleaseNoteSeen(models.Model):
 
     def __str__(self):
         return f"{self.user_id} saw {self.release_note_id}"
-
 

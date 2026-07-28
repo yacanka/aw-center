@@ -6,7 +6,6 @@ import {
   NUpload,
   NUploadDragger,
   NIcon,
-  NButton,
   NInput,
   UploadCustomRequestOptions
 } from 'naive-ui'

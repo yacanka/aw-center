@@ -2,7 +2,7 @@
 import { computed, h, ref, onMounted, onUnmounted } from 'vue'
 import { DataTableColumns, PaginationInfo } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
-import { IUser, IPermission } from '@/models/auth'
+import { IUser } from '@/models/auth'
 import UpdateForm from '@/components/user/UserPopup.vue'
 import Details from '@/components/user/DetailedInfo.vue'
 import Unauthorized from '@/views/Unauthorized.vue'
@@ -50,7 +50,7 @@ const onFilter = (attrib: string, filterData: any) => {
 const columns: DataTableColumns<IUser> = [
   {
     type: 'expand',
-    expandable: (row) => true,
+    expandable: () => true,
     renderExpand: (row) => {
       return h(Details, { user: row })
     },

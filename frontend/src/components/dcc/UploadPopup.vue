@@ -44,8 +44,6 @@ import { formatApiError } from '@/services/apiError'
 const showModal = ref(false)
 const url = ref('')
 
-const uploaderFormRef = ref(null) // UploadForm'a erişim için
-
 async function addViaUrl() {
   const sessionId = window.$dccStore.getSessionId
   try {

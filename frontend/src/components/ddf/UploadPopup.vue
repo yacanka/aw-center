@@ -19,32 +19,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { NModal, UploadCustomRequestOptions } from 'naive-ui'
-import axios from 'axios'
 import { useDdfStore } from '@/stores/ddf'
-import { popupStore } from '@/stores/popupStore'
 
 const showModal = ref(false)
 const store = useDdfStore()
-const uploaderFormRef = ref(null) // UploadForm'a erişim için
-const popup = popupStore()
-
-onMounted(() => {})
 
 function setActive(show: boolean) {
   showModal.value = show
-}
-
-function closeModal() {
-  showModal.value = false
 }
 
 function handleChange() {
   window.$loadingBar.start()
 }
 
-const props = defineProps({
+defineProps({
   uploadUrl: String
 })
 
@@ -59,7 +49,7 @@ function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions
 
   store
     .uploadDdf(formData)
-    .then((res) => {
+    .then(() => {
       onFinish()
       window.$loadingBar.finish()
     })

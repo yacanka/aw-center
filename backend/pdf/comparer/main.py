@@ -21,7 +21,7 @@ def run_gui():
 
 def run_cli(file1: str, file2: str, output: str = None):
     """Komut satırı modunda çalıştır"""
-    from text_comparator import PDFComparator, ComparisonOptions
+    from text_comparator import PDFComparator
     from report_generator import HTMLReportGenerator
 
     print("🔍 PDF Karşılaştırıcı Pro - CLI Modu")

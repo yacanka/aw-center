@@ -3,7 +3,7 @@ import hashlib
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from jobs.models import Job, JobStatus, WorkflowRun, WorkflowStatus
+from jobs.models import JobStatus, WorkflowRun, WorkflowStatus
 from jobs.services import set_job_state
 
 from .base import JobTestCase

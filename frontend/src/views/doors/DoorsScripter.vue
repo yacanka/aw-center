@@ -83,16 +83,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
-import { useRoute } from 'vue-router'
 import { useDoorsStore } from '@/stores/doors'
 import { useExcelStore } from '@/stores/excel'
-import { download } from 'naive-ui/es/_utils'
 import { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
 import { selectedUploadFile } from '@/utils/uploads'
 
 type OptionItem = { excel: string; doors: string; search: boolean }
-
-const route = useRoute()
 
 const columns = ref<OptionItem[]>([])
 const fileList = ref<UploadFileInfo[]>([])
@@ -108,7 +104,7 @@ function handleFileChange(options: { fileList: UploadFileInfo[] }) {
   fileList.value = options.fileList
 }
 
-function handleFileRemove(file: UploadFileInfo, fileList: Array<UploadFileInfo>, index: number) {
+function handleFileRemove() {
   columns.value = []
 }
 
@@ -158,7 +154,7 @@ function createScript() {
   })
 }
 
-function handleUploadReq({ file, onFinish, onError }: UploadCustomRequestOptions) {
+function handleUploadReq({ file, onError }: UploadCustomRequestOptions) {
   const selectedFile = selectedUploadFile([file])
   if (!selectedFile) return onError()
   window.$loadingBar.start()

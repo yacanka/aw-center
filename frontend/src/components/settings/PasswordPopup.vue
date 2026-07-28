@@ -72,7 +72,7 @@ const rules: FormRules = {
   confirm_password: [
     { required: true, trigger: 'blur' },
     {
-      validator: (rule, value) => {
+      validator: (_rule, value) => {
         if (value != passwords.value.new_password) {
           return new Error('Passwords must match')
         }

@@ -60,17 +60,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { NModal, UploadFileInfo } from 'naive-ui'
+import { ref } from 'vue'
+import { UploadFileInfo } from 'naive-ui'
 import axios from 'axios'
 import { selectedUploadFile } from '@/utils/uploads'
-import { useExcelStore } from '@/stores/excel'
-import { popupStore } from '@/stores/popupStore'
-import { Document24Regular } from '@vicons/fluent'
-
-const store = useExcelStore()
-const uploaderFormRef = ref(null) // UploadForm'a erişim için
-const popup = popupStore()
 
 const file1 = ref<UploadFileInfo[]>([])
 const file2 = ref<UploadFileInfo[]>([])
@@ -84,10 +77,6 @@ const outputOptions = [
   { value: 'excel', label: 'Excel', ext: 'xlsx' },
   { value: 'word', label: 'Word', ext: 'docx' }
 ]
-
-onMounted(() => {
-  //  uploaderFormRef.value.reset()
-})
 
 function handleFirstChange(value: { fileList: UploadFileInfo[] }) {
   file1.value = value.fileList

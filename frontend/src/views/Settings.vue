@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { h, ref, onMounted } from 'vue'
-import { NButton, NDataTable, NIcon, NSpace, NTag, NUpload } from 'naive-ui'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import Profil from '@/views/Profile.vue'
 import PasswordPopup from '@/components/settings/PasswordPopup.vue'
