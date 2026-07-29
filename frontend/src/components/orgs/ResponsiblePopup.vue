@@ -3,7 +3,6 @@
     v-model:show="showModal"
     preset="card"
     title="Responsible Information"
-    :on-after-leave="onAfterLeave"
     :style="{ width: '40%', minWidth: '400px' }"
   >
     <template #header-extra>
@@ -45,26 +44,12 @@
             placeholder="Select Title"
           />
         </n-form-item-gi>
-        <n-form-item-gi span="2" path="person_id" label="ID">
-          <n-input
-            v-model:value="person.person_id"
-            @keydown.enter.prevent
-            :readonly="popupMode == 'view'"
-          />
-        </n-form-item-gi>
-        <n-form-item-gi span="4" path="name" label="Name">
-          <n-input
-            v-model:value="person.name"
-            @keydown.enter.prevent
-            :readonly="popupMode == 'view'"
-          />
-        </n-form-item-gi>
-        <n-form-item-gi span="6" path="email" label="Email">
-          <n-input
-            type="email"
-            v-model:value="person.email"
-            @keydown.enter.prevent
-            :readonly="popupMode == 'view'"
+        <n-form-item-gi span="12" path="person_id" label="Person">
+          <n-search
+            v-model:value="personSearchText"
+            default-mod="name"
+            placeholder="Search People by ID, name, or email"
+            @select="selectDirectoryPerson"
           />
         </n-form-item-gi>
       </n-grid>
@@ -82,48 +67,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { IPanel, IProject, IResponsible, type OrganizationOption } from '@/models/orgs'
+import { ref } from 'vue'
+import {
+  IPanel,
+  IProject,
+  IResponsible,
+  type IPerson,
+  type OrganizationOption
+} from '@/models/orgs'
 import { FormRules, NModal } from 'naive-ui'
 import { Edit24Regular } from '@vicons/fluent'
 import { validateForm } from '@/composables/forms'
+import NSearch from '@/components/NSearch.vue'
 
+const requiredRule = { required: true, trigger: 'blur' } as const
 const rules = ref<FormRules>({
-  panel: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ],
-  name: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ],
-  email: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ],
-  title: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ],
-  person_id: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ]
+  panel: [requiredRule],
+  title: [requiredRule],
+  person_id: [requiredRule]
 })
 
 const formRef = ref()
 const showModal = ref(false)
 const person = ref<IResponsible>({} as IResponsible)
+const personSearchText = ref('')
 const popupMode = ref()
 const projectOptions = ref<OrganizationOption[]>([])
 const panelOptions = ref<OrganizationOption[]>([])
@@ -142,6 +109,7 @@ function openModal(value: IResponsible, mode: string) {
   popupMode.value = mode
   const dummy = JSON.parse(JSON.stringify(value))
   person.value = dummy
+  personSearchText.value = mode == 'new' ? '' : dummy.name
   showModal.value = true
   projectOptions.value = window.$orgsStore.getProjects.map((project: IProject) => {
     return { label: project.display_name, value: project.slug }
@@ -149,6 +117,10 @@ function openModal(value: IResponsible, mode: string) {
   panelOptions.value = window.$orgsStore.getPanels.map((panel: IPanel) => {
     return { label: `${panel.ata} (${panel.name})`, value: panel.ata }
   })
+}
+
+function selectDirectoryPerson(selectedPerson: IPerson | null): void {
+  person.value.person_id = selectedPerson?.person_id ?? ''
 }
 
 function closeModal() {
@@ -182,9 +154,5 @@ function setPopupMode(mode: string) {
   popupMode.value = mode
 }
 
-function onAfterLeave() {}
-
 defineExpose({ openModal })
-
-onMounted(() => {})
 </script>

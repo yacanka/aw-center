@@ -1168,3 +1168,117 @@
 7. Kept ATA responsibles and existing notification delivery semantics unchanged; archived documents are omitted from normal lists, dashboard analytics, exports, and notification scans while their tracking and audit data remain intact.
 8. Removed selected-export history N+1 queries and retained streaming dashboard aggregation with bounded supplementary queries.
 9. Verified 130 backend tests, the full frontend CI suite, strict TypeScript, Prettier, production build/bundle budget, Django checks, migration drift, fresh-database migration, and isolated browser flows at 390, 1024, and 1440 px.
+
+## 139. Read-only Compliance Document workflow projection
+
+1. Replaced the disabled workflow editor for existing documents with a newest-first timeline showing the current status, transition count, dates, and recorded reasons.
+2. Removed `status_flow` from regular frontend update payloads while retaining it for new-document initialization and read-only display.
+3. Made the backend ignore an unchanged legacy workflow projection but continue rejecting direct projection changes outside the audited transition action.
+4. Added backend and frontend regressions for compatible metadata updates, blocked direct workflow mutation, timeline rendering, and payload isolation.
+5. Verified the focused backend lifecycle tests, CompDoc frontend tests, strict TypeScript, Prettier, Django checks, production build, and bundle budget.
+
+## 140. Optional Compliance Document operation reasons
+
+1. Made change reasons optional for regular document edits, lifecycle transitions, ownership/deadline updates, archive/restore operations, and bounded bulk commands.
+2. Retained actor, timestamp, optimistic versioning, immutable transition events, and Simple History evidence when no explanation is supplied.
+3. Updated every affected form to label the explanation as optional and removed client-side minimum-length blockers.
+4. Kept review and approval request/decision notes unchanged because they are decision evidence rather than generic operation reasons.
+5. Added explanation-free API and UI regressions, corrected empty-reason activity rendering, and verified focused backend tests, CompDoc tests, strict TypeScript, Prettier, Django checks, production build, and bundle budget.
+
+## 141. Conflict-free Compliance Document row activation
+
+1. Removed single-click workspace activation from Compliance Document rows so selection controls and cell-level interactions no longer open document details as a side effect.
+2. Standardized mouse activation on double-click while retaining Enter and Space keyboard access.
+3. Added discoverable row tooltips, accessible labels, and an updated table instruction matching the new interaction.
+4. Preserved the isolated DocProof double-click action and added a regression preventing single-click workspace activation from returning.
+5. Verified CompDoc tests, Naive UI registration, strict TypeScript, Prettier, production build, and bundle budget.
+
+## 142. Persistent Compliance Document filter menus
+
+1. Moved the CompDoc table header onto Naive UI's discrete-header render path with a responsive body maximum height.
+2. Prevented empty remote-filter results from remounting the header and resetting an open filter popover to its hidden state.
+3. Kept the existing server-side filter queries, column definitions, empty-result display, and popover configuration unchanged.
+4. Added a regression for the persistent-header contract and verified CompDoc tests, table-filter tests, strict TypeScript, Prettier, production build, and bundle budget.
+
+## 143. Collapsible Compliance Document activity
+
+1. Converted the document workspace Activity area into a collapsed-by-default section that reduces initial vertical noise.
+2. Kept the transition action in the collapse header and made it expand the section automatically before showing its form.
+3. Reset collapse and transition-form state when the workspace closes so every document starts from a predictable compact state.
+4. Added a UI regression and verified CompDoc tests, Naive UI registration, strict TypeScript, Prettier, production build, and bundle budget.
+
+## 144. Task-focused Compliance Document workspace
+
+1. Increased the responsive workspace width from 560 px to `min(720px, 96vw)` to improve two-column form readability without replacing the full-details modal.
+2. Grouped the drawer into Overview, Ownership, Review & Approval, and Workflow & Activity tabs aligned with distinct operator tasks.
+3. Kept quick actions, identity, requirements, and notes together as the read-first Overview while preserving the existing focused domain components for mutations.
+4. Lazy-mounted tab content and only activated data loading for the visible operational module.
+5. Reset every newly opened workspace to Overview and retained the collapsible Activity behavior inside its workflow module.
+6. Added tab, width, and lifecycle regressions and verified CompDoc tests, Naive UI registration, strict TypeScript, Prettier, production build, bundle budget, and the 200-line component limit.
+
+## 145. Separated Compliance Document transition and activity
+
+1. Extracted Record Transition into a dedicated, permission-gated Transition tab and focused component.
+2. Reduced Activity to a read-only, directly visible audit timeline with no collapse or mutation controls.
+3. Added a dedicated Activity tab whose endpoint is loaded only while that tab is active.
+4. Extracted Overview into its own module so quick actions and document context remain independent from the workspace shell.
+5. Guarded dynamic permission changes by leaving Transition automatically when edit access is unavailable.
+6. Added separation, visibility, and endpoint regressions and verified CompDoc tests, Naive UI registration, strict TypeScript, Prettier, production build, bundle budget, and all affected component-size limits.
+
+## 146. Embedded Compliance Document tracking and dismissible full details
+
+1. Converted Tracking & Alerts from a second nested drawer into a dedicated document-workspace tab.
+2. Removed the duplicate Overview quick action and tracking visibility state so one workspace owns document navigation and context.
+3. Kept tracking data lazy-loaded only while its tab is active and preserved permission-gated tracking mutations.
+4. Enabled mask dismissal for the Full Details modal while retaining the existing discard confirmation for unsaved edits.
+5. Added regressions for the embedded panel, removed drawer flow, active-tab loading, and mask-close contract.
+6. Verified CompDoc tests, Naive UI registration, strict TypeScript, Prettier, production build, bundle budget, and affected component-size limits.
+
+## 147. Contextual Compliance Document workspace help
+
+1. Added compact question-mark help buttons to all six workspace tab labels with task-specific guidance.
+2. Added right-aligned contextual help to Overview sections, ownership, review/approval, transitions, activity, and every primary Tracking & Alerts card.
+3. Implemented click-triggered help popovers so the guidance works with mouse, keyboard, and touch interactions.
+4. Added explicit accessible labels and stopped help interactions from unintentionally changing the active tab.
+5. Reused focused help and heading components to keep wording, layout, and interaction behavior consistent.
+6. Verified 27 CompDoc tests, Naive UI registration, strict TypeScript, Prettier, production build, bundle budget, and all affected component-size limits.
+
+## 148. First-open Tracking & Alerts loading
+
+1. Fixed the lazy-mounted Tracking & Alerts panel so its data watcher runs immediately when the tab is created.
+2. Preserved lazy loading: the endpoint is still called only when Tracking & Alerts is visible.
+3. Removed the need to leave and reopen the tab before tracking data appears.
+4. Added a regression for the immediate-load contract and verified 27 CompDoc tests, strict TypeScript, production build, and bundle budget.
+
+## 149. Consolidated Compliance Document contextual help
+
+1. Removed repeated question-mark controls from tab labels, section headings, and Tracking & Alerts cards to restore a quieter visual hierarchy.
+2. Added one accessible contextual-help control to the document workspace header.
+3. Made the help content react to the active tab and present both its purpose and concise explanations for its sub-sections.
+4. Preserved guidance for Overview, Tracking & Alerts, Ownership, Review & Approval, Transition, and Activity in one consistent popover.
+5. Removed the obsolete per-label and per-section help components and their layout styles.
+6. Verified 27 CompDoc tests, Naive UI registration, strict TypeScript, Prettier, production build, bundle budget, and component-size limits.
+
+## 150. Content-aligned and transition-safe workspace help
+
+1. Moved the contextual-help button from the document header to the upper-right corner of each tab's content area.
+2. Gave each tab its own fixed help context while retaining only one visible help control at a time.
+3. Made popover visibility controlled and synchronously closed it when its tab becomes inactive or the workspace closes.
+4. Prevented the next tab's help text from rendering inside an already-open popover during tab transitions.
+5. Added placement and synchronous-close regressions and verified 27 CompDoc tests, Naive UI registration, strict TypeScript, Prettier, production build, bundle budget, and component-size limits.
+
+## 151. Aligned workspace content headings and help
+
+1. Combined each tab's first content heading and contextual-help button into one shared header row.
+2. Kept the heading left-aligned and the help control right-aligned on the same vertical axis.
+3. Removed duplicate first headings from the focused Overview, Tracking, Ownership, Review, Transition, and Activity modules.
+4. Preserved the Review & Approval request action without competing with the contextual-help position.
+5. Updated heading-ownership regressions and verified 27 CompDoc tests, strict TypeScript, Prettier, production build, bundle budget, and component-size limits.
+
+## 152. Repair-free professional CompDoc Excel dashboard
+
+1. Removed the duplicate worksheet-level AutoFilter so the Excel table is the single filter owner and exported workbooks no longer trigger repair prompts.
+2. Added an active Dashboard sheet with live document, approval, review, open-workflow, and completion KPIs plus lifecycle and panel charts.
+3. Kept `Compliance Documents` as the first sheet to preserve the existing pandas import contract and lossless export/import round trip.
+4. Improved the editable register with opaque semantic colors, Aptos typography, readable row heights, print settings, table filters, validation lists, and operator guidance.
+5. Added OOXML filter-ownership and dashboard regressions; verified 9 backend tests, 27 CompDoc UI tests, strict TypeScript, Prettier, production build, bundle budget, LibreOffice open/resave, artifact-tool formula scanning, and rendered workbook visuals.

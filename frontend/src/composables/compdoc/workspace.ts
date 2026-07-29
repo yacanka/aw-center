@@ -3,11 +3,10 @@ import { NInput } from 'naive-ui'
 import type { ICompDoc } from '@/models/compdocs'
 import type { useCompdocStore } from '@/stores/compdoc'
 
-/** Coordinate selected-row, detail, and tracking workspaces. */
+/** Coordinate the selected row and its document workspace. */
 export function useCompdocWorkspace(store: ReturnType<typeof useCompdocStore>) {
   const selectedDocument = ref<ICompDoc | null>(null)
   const workspaceVisible = ref(false)
-  const trackingVisible = ref(false)
   const activeDocument = computed(() => {
     const id = selectedDocument.value?.id
     return store.getCompdocs.find((document) => document.id === id) || selectedDocument.value
@@ -18,14 +17,8 @@ export function useCompdocWorkspace(store: ReturnType<typeof useCompdocStore>) {
     workspaceVisible.value = true
   }
 
-  function openTracking(document: ICompDoc) {
-    selectedDocument.value = document
-    trackingVisible.value = true
-  }
-
   function closeWorkspace() {
     workspaceVisible.value = false
-    trackingVisible.value = false
     selectedDocument.value = null
   }
 
@@ -33,8 +26,8 @@ export function useCompdocWorkspace(store: ReturnType<typeof useCompdocStore>) {
     return {
       class: selectedDocument.value?.id === document.id ? 'compdoc-row--selected' : '',
       tabindex: 0,
-      'aria-label': `Open document workspace for ${document.name}`,
-      onClick: () => openWorkspace(document),
+      title: `Double-click to open ${document.name}`,
+      'aria-label': `Double-click or press Enter to open document workspace for ${document.name}`,
       onDblclick: () => openWorkspace(document),
       onKeydown: (event: KeyboardEvent) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -62,19 +55,13 @@ export function useCompdocWorkspace(store: ReturnType<typeof useCompdocStore>) {
       content: () =>
         h(NInput, {
           value: reason.value,
-          placeholder: `Reason for archiving “${document.name}”`,
+          placeholder: `Reason for archiving “${document.name}” (optional)`,
           maxlength: 255,
           'onUpdate:value': (value: string) => (reason.value = value)
         }),
       positiveText: 'Archive document',
       negativeText: 'Cancel',
-      onPositiveClick: () => {
-        if (reason.value.trim().length < 3) {
-          window.$message.warning('Enter a meaningful archive reason.')
-          return false
-        }
-        return archiveDocument(document, reason.value)
-      }
+      onPositiveClick: () => archiveDocument(document, reason.value)
     })
   }
 
@@ -93,11 +80,9 @@ export function useCompdocWorkspace(store: ReturnType<typeof useCompdocStore>) {
     closeWorkspace,
     confirmDocumentDeletion,
     copyDocumentPath,
-    openTracking,
     openWorkspace,
     rowProps,
     selectedDocument,
-    trackingVisible,
     workspaceVisible
   }
 }

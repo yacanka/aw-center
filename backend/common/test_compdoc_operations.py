@@ -49,7 +49,6 @@ class CompDocOperationsTests(TestCase):
             f"/ozgur/compdocs/{self.document.pk}/archive/",
             {
                 "source_history_id": self.document.history.first().history_id,
-                "reason": "Superseded revision",
             },
             format="json",
         )
@@ -59,7 +58,6 @@ class CompDocOperationsTests(TestCase):
             f"/ozgur/compdocs/{self.document.pk}/restore/",
             {
                 "source_history_id": archived.data["source_history_id"],
-                "reason": "Document became active again",
             },
             format="json",
         )
@@ -67,6 +65,37 @@ class CompDocOperationsTests(TestCase):
         self.assertEqual(hidden.data["count"], 0)
         self.assertEqual(visible.data["count"], 1)
         self.assertEqual(restored.status_code, 200)
+
+    def test_work_assignment_allows_omitted_reason(self):
+        response = self.client.put(
+            f"/ozgur/compdocs/{self.document.pk}/work/",
+            {
+                "source_history_id": self.document.history.first().history_id,
+                "owner": self.user.pk,
+            },
+            format="json",
+        )
+        self.document.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.document.owner, self.user)
+
+    def test_bulk_operation_allows_omitted_reason(self):
+        response = self.client.post(
+            "/ozgur/compdocs/bulk/",
+            {
+                "documents": [
+                    {
+                        "id": str(self.document.pk),
+                        "source_history_id": self.document.history.first().history_id,
+                    }
+                ],
+                "action": "archive",
+            },
+            format="json",
+        )
+        self.document.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.document.is_archived)
 
     def test_work_assignment_rejects_user_without_project_access(self):
         outsider = get_user_model().objects.create_user("project-outsider")

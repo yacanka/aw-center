@@ -60,6 +60,7 @@ const emit = defineEmits<{
   'update:value': [value: string]
   change: [value: string]
   search: [query: string]
+  select: [person: IPerson | null]
 }>()
 
 const inputRef = ref<InputInst | null>(null)
@@ -97,6 +98,7 @@ const currentStatus = computed(() => {
 
 function updateValue(value: string): void {
   emit('update:value', value)
+  emit('select', null)
   currentPerson.value = undefined
   search.schedule(value)
 }
@@ -107,6 +109,7 @@ function handleSelect(key: string | number, option: PersonOption): void {
   if (!option.person) return
   clearBlurTimer()
   currentPerson.value = option.person
+  emit('select', option.person)
   isFocused.value = false
   setSelectedPersonText()
   nextTick(() => inputRef.value?.blur())

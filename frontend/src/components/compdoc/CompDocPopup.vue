@@ -5,7 +5,7 @@
     title="Document Information"
     centered
     :style="{ width: 'min(960px, 96vw)', maxHeight: '94vh', overflow: 'auto' }"
-    :mask-closable="false"
+    :mask-closable="true"
     @update:show="handleVisibilityChange"
   >
     <template #header-extra>
@@ -43,7 +43,7 @@
           :compdoc="compdoc"
           :original="originalCompdoc"
           :readonly="readonly"
-          :require-reason="popupMode === 'update'"
+          :show-change-reason="popupMode === 'update'"
         />
         <CompDocHistory :history="compdoc.history" @open="loadHistory" />
       </n-flex>

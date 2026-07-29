@@ -18,6 +18,7 @@ from common.compdoc_msg_draft import (
     build_msg_draft,
 )
 from common.compdoc_tracking_models import CompDocTrackingProfile
+from orgs.models import People
 from projects.ozgur.models import CompDoc, Panel, Responsible
 
 
@@ -111,11 +112,12 @@ class CompDocMsgDraftApiTests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
         panel = Panel.objects.create(name="Flight", discipline="Systems", ata="21-00")
+        person = People.objects.create(
+            person_id="100004", name="Dorothy Vaughan", email="dorothy@example.com"
+        )
         Responsible.objects.create(
             panel=panel,
-            person_id="100004",
-            name="Dorothy Vaughan",
-            email="dorothy@example.com",
+            person=person,
             title="CVE",
         )
         target = timezone.localdate() - timedelta(days=2)

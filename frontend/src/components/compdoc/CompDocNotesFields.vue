@@ -10,12 +10,12 @@
         :status="original.notes === compdoc.notes ? '' : 'warning'"
       />
     </n-form-item>
-    <n-form-item v-if="requireReason" path="change_reason" label="Change reason">
+    <n-form-item v-if="showChangeReason" path="change_reason" label="Change reason (optional)">
       <n-input
         v-model:value="compdoc.change_reason"
         maxlength="100"
         show-count
-        placeholder="Explain why this record is changing"
+        placeholder="Optionally explain why this record is changing"
       />
     </n-form-item>
   </n-card>
@@ -28,6 +28,6 @@ defineProps<{
   compdoc: ICompDoc
   original: ICompDoc
   readonly: boolean
-  requireReason: boolean
+  showChangeReason: boolean
 }>()
 </script>

@@ -49,7 +49,8 @@ def _history_payload(current, older):
         "type": "history",
         "occurred_at": current.history_date,
         "actor": str(current.history_user or "System"),
-        "reason": current.history_change_reason or "Document created",
+        "reason": current.history_change_reason
+        or ("Document updated" if older else "Document created"),
         "changes": _history_changes(current, older),
     }
 

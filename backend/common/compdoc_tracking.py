@@ -75,7 +75,7 @@ def candidate_contacts(model, document):
     """Return all project responsibles matching the document ATA chapter."""
 
     responsible_model = model._meta.apps.get_model(model._meta.app_label, "Responsible")
-    queryset = responsible_model.objects.select_related("panel").filter(
+    queryset = responsible_model.objects.select_related("panel", "person").filter(
         panel__ata__iexact=str(document.ata or "")
     )
     return [_contact_payload(person) for person in queryset]

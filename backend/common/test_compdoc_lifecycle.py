@@ -35,6 +35,19 @@ class CompDocLifecycleTests(TestCase):
         self.assertEqual(self.document.status, "authority_review")
         self.assertEqual(event.actor, self.user)
 
+    def test_transition_allows_omitted_reason(self):
+        response = self.client.post(
+            f"/ozgur/compdocs/{self.document.pk}/transitions/",
+            {
+                "source_history_id": self.document.history.first().history_id,
+                "status": "authority_review",
+                "effective_date": "2026-07-29",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(CompDocWorkflowEvent.objects.get().reason, "")
+
     def test_legacy_delete_archives_without_removing_history(self):
         response = self.client.delete(f"/ozgur/compdocs/{self.document.pk}/")
         self.document.refresh_from_db()
@@ -55,6 +68,54 @@ class CompDocLifecycleTests(TestCase):
         )
         self.assertEqual(response.status_code, 409)
         self.assertFalse(CompDocWorkflowEvent.objects.exists())
+
+    def test_regular_update_accepts_unchanged_workflow_projection(self):
+        self.document.status_flow = [
+            {"status": "to_be_issued", "date": "29.07.2026", "note": "Initial state"}
+        ]
+        self.document.save()
+        response = self.client.patch(
+            f"/ozgur/compdocs/{self.document.pk}/",
+            {
+                "notes": "Updated document note",
+                "status_flow": self.document.status_flow,
+                "source_history_id": self.document.history.first().history_id,
+                "change_reason": "Clarified the document note",
+            },
+            format="json",
+        )
+        self.document.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.document.notes, "Updated document note")
+        self.assertEqual(len(self.document.status_flow), 1)
+
+    def test_regular_update_allows_omitted_change_reason(self):
+        response = self.client.patch(
+            f"/ozgur/compdocs/{self.document.pk}/",
+            {
+                "notes": "Updated without an explanation",
+                "source_history_id": self.document.history.first().history_id,
+            },
+            format="json",
+        )
+        self.document.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.document.notes, "Updated without an explanation")
+
+    def test_regular_update_rejects_changed_workflow_projection(self):
+        response = self.client.patch(
+            f"/ozgur/compdocs/{self.document.pk}/",
+            {
+                "status_flow": [
+                    {"status": "authority_review", "date": "29.07.2026"}
+                ],
+                "source_history_id": self.document.history.first().history_id,
+                "change_reason": "Attempted direct workflow update",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("status_flow", response.data["errors"])
 
     def test_activity_combines_workflow_and_masks_reference_path_values(self):
         version = self.document.history.first().history_id

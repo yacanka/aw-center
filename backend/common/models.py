@@ -51,10 +51,10 @@ class CompDocBase(models.Model):
         editable=False,
     )
     cover_page_no = models.CharField(max_length=32)
-    cover_page_issue = models.CharField(null=True, blank=True)
+    cover_page_issue = models.CharField(max_length=255, null=True, blank=True)
     tech_doc_no = models.CharField(max_length=64, null=True, blank=True)
-    tech_doc_issue = models.CharField(null=True, blank=True)
-    delivered_tech_doc_issue = models.CharField(null=True, blank=True)
+    tech_doc_issue = models.CharField(max_length=255, null=True, blank=True)
+    delivered_tech_doc_issue = models.CharField(max_length=255, null=True, blank=True)
 
     responsible = models.CharField(max_length=64, null=True, blank=True)
     cat = models.CharField(max_length=12, null=True, blank=True, choices=LOI_CHOICES)
@@ -148,8 +148,8 @@ class PanelBase(models.Model):
         abstract = True
         ordering = ["ata", "name"]
 
-    name = models.CharField()
-    discipline = models.CharField()
+    name = models.CharField(max_length=255)
+    discipline = models.CharField(max_length=255)
     ata = models.CharField(
         max_length=5,
         unique=True,
@@ -173,12 +173,24 @@ class Titles(models.TextChoices):
 class ResponsibleBase(models.Model):
     class Meta:
         abstract = True
-        ordering = ["name", "person_id"]
+        ordering = ["person__name", "person__person_id"]
 
-    person_id = models.CharField(max_length=6)
-    name = models.CharField()
-    email = models.EmailField()
-    title = models.CharField(choices=Titles.choices)
+    person = models.ForeignKey(
+        "orgs.People",
+        on_delete=models.PROTECT,
+        related_name="%(app_label)s_responsible_assignments",
+    )
+    title = models.CharField(max_length=32, choices=Titles.choices)
+
+    @property
+    def name(self):
+        """Return the current directory name."""
+        return self.person.name
+
+    @property
+    def email(self):
+        """Return the current directory email."""
+        return self.person.email
 
     def __str__(self):
         return self.name

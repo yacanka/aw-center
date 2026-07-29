@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import UpdateForm from '@/components/compdoc/CompDocPopup.vue'
 import CompDocWorkspace from '@/components/compdoc/CompDocWorkspace.vue'
-import CompDocTrackingDrawer from '@/components/compdoc/CompDocTrackingDrawer.vue'
 import UploadPopup from '@/components/compdoc/UploadPopup.vue'
 import CompDocColumnSettings from '@/components/compdoc/CompDocColumnSettings.vue'
 import CompDocTableToolbar from '@/components/compdoc/CompDocTableToolbar.vue'
@@ -43,9 +42,7 @@ const {
   closeWorkspace,
   confirmDocumentDeletion,
   copyDocumentPath,
-  openTracking,
   rowProps,
-  trackingVisible,
   workspaceVisible
 } = workspace
 const overrides = useCompdocColumnOverrides()
@@ -140,6 +137,7 @@ async function completeBulkAction() {
       striped
       remote
       size="medium"
+      max-height="max(320px, calc(100vh - 300px))"
       :columns="displayColumns"
       :data="store.getCompdocs"
       :pagination="table.pagination.value"
@@ -154,7 +152,7 @@ async function completeBulkAction() {
       @update:checked-row-keys="checkedRowKeys = $event"
     />
     <n-text depth="3" class="compdoc-table-hint">
-      Select a document row to open its workspace. Press Enter or Space when a row is focused.
+      Double-click a document row to open its workspace. Press Enter or Space when a row is focused.
     </n-text>
 
     <UpdateForm ref="popup" :can-edit="canChange" />
@@ -168,15 +166,8 @@ async function completeBulkAction() {
       @edit="popup?.openModal($event, 'update')"
       @export="download?.openModal('Compliance Document Register')"
       @copy="copyDocumentPath"
-      @tracking="openTracking"
       @delete="confirmDocumentDeletion"
       @changed="table.initialize(project, true)"
-    />
-    <CompDocTrackingDrawer
-      v-model:show="trackingVisible"
-      :document="activeDocument"
-      :project="project"
-      :can-edit="canChange"
     />
     <UploadPopup v-if="canImport" ref="upload" :upload-url="store.getUploadUrl" />
     <GraphComponent ref="graph" />

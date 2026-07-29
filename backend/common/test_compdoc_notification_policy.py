@@ -22,6 +22,7 @@ from common.compdoc_tracking_models import (
     CompDocNotificationPolicy,
     CompDocTrackingProfile,
 )
+from orgs.models import People
 from projects.registry import get_enabled_project_definitions
 from projects.ozgur.models import CompDoc, Panel, Responsible
 
@@ -131,9 +132,8 @@ class CompDocNotificationPolicyDeliveryTests(TestCase):
             ("200001", "Primary", "primary@example.com", "CVE"),
             ("200002", "Escalation", "escalation@example.com", "AS"),
         ):
-            Responsible.objects.create(
-                panel=panel, person_id=person_id, name=name, email=email, title=title
-            )
+            person = People.objects.create(person_id=person_id, name=name, email=email)
+            Responsible.objects.create(panel=panel, person=person, title=title)
         target = timezone.localdate() - timedelta(days=3)
         self.document = CompDoc.objects.create(
             name="Controlled Manual",

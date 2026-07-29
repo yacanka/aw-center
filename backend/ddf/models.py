@@ -6,15 +6,15 @@ class DDF(models.Model):
     class Meta:
         ordering = ["-created_time", "doc_no", "id"]
 
-    project = models.CharField()
-    doc_name = models.CharField()
-    doc_no = models.CharField()
-    doc_issue = models.CharField()
-    date = models.CharField()
-    commentor = models.CharField()
+    project = models.CharField(max_length=255)
+    doc_name = models.CharField(max_length=255)
+    doc_no = models.CharField(max_length=255)
+    doc_issue = models.CharField(max_length=255)
+    date = models.CharField(max_length=255)
+    commentor = models.CharField(max_length=255)
     comments = models.JSONField(default=list)
     comment_types = models.JSONField(default=list)
-    path = models.CharField(null=True, blank=True)
+    path = models.CharField(max_length=512, null=True, blank=True)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="ddf")
     created_time = models.DateTimeField(default=timezone.now, editable=False)
 

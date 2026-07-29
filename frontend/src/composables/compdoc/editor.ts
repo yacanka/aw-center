@@ -4,6 +4,7 @@ import type { ICompDoc, IHistory } from '@/models/compdocs'
 import { validateForm } from '@/composables/forms'
 import { RequestError } from '@/composables/promise'
 import { shouldLoadCompdocHistory } from '@/services/compdocHistory'
+import { buildCompdocUpdatePayload } from '@/services/compdocPayload'
 import { isoToTurkishDateTime } from '@/utils/time'
 
 const rules: FormRules = {
@@ -63,17 +64,13 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   }
 
   async function update(): Promise<void> {
-    if (!compdoc.value.change_reason?.trim()) {
-      window.$message.warning('Explain why this record is changing.')
-      return
-    }
     const documentId = compdoc.value.id
     if (!documentId) {
       window.$message.error('Document identifier is missing.')
       return
     }
     try {
-      await window.$compdocStore.updateCompdoc(documentId, compdoc.value)
+      await window.$compdocStore.updateCompdoc(documentId, buildCompdocUpdatePayload(compdoc.value))
       closeModal()
     } catch (error) {
       handleUpdateError(error, documentId)

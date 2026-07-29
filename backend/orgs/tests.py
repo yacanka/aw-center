@@ -105,18 +105,20 @@ class ProjectOrganizationApiTests(TestCase):
         self.client.force_authenticate(user=user)
         first_panel = Panel.objects.create(name="Avionics", discipline="System", ata="21-00")
         second_panel = Panel.objects.create(name="Propulsion", discipline="System", ata="72-00")
+        first_person = People.objects.create(
+            person_id="100001", name="Ada Engineer", email="ada@example.com"
+        )
+        second_person = People.objects.create(
+            person_id="100002", name="Grace Engineer", email="grace@example.com"
+        )
         Responsible.objects.create(
             panel=first_panel,
-            person_id="100001",
-            name="Ada Engineer",
-            email="ada@example.com",
+            person=first_person,
             title="AS",
         )
         Responsible.objects.create(
             panel=second_panel,
-            person_id="100002",
-            name="Grace Engineer",
-            email="grace@example.com",
+            person=second_person,
             title="CVE",
         )
 
@@ -127,6 +129,59 @@ class ProjectOrganizationApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["person_id"], "100001")
+
+    def test_people_changes_are_reflected_by_responsible(self):
+        """Responsible identity fields always reflect the related directory row."""
+        person = People.objects.create(
+            person_id="100003", name="Directory Name", email="directory@example.com"
+        )
+        response = self.client.post(
+            "/ozgur/orgs/responsibles/",
+            self._responsible_payload("100003"),
+        )
+        changed = self.client.put(
+            f"/orgs/people/{person.pk}/",
+            {
+                "person_id": "100099",
+                "name": "Updated Directory Name",
+                "email": "updated@example.com",
+            },
+            format="json",
+        )
+        updated = self.client.get(f"/ozgur/orgs/responsibles/{response.data['id']}/")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(updated.data["person_id"], "100099")
+        self.assertEqual(updated.data["name"], "Updated Directory Name")
+        self.assertEqual(updated.data["email"], "updated@example.com")
+
+    def test_responsible_creation_rejects_unknown_person(self):
+        """New responsibles must reference an existing directory person."""
+        response = self.client.post(
+            "/ozgur/orgs/responsibles/",
+            self._responsible_payload("999999"),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("person_id", response.data["errors"])
+
+    def test_assigned_person_cannot_be_deleted(self):
+        """Directory rows remain protected while responsible assignments reference them."""
+        person = People.objects.get(person_id="100001")
+
+        response = self.client.delete(f"/orgs/people/{person.pk}/")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(People.objects.filter(pk=person.pk).exists())
+
+    @staticmethod
+    def _responsible_payload(person_id):
+        return {
+            "panel": "21-00",
+            "person_id": person_id,
+            "title": "AS",
+        }
 
 
 class PeopleApiTests(TestCase):

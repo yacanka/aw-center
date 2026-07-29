@@ -1,4 +1,5 @@
 from io import BytesIO
+from zipfile import ZipFile
 
 import pandas as pd
 from django.apps import apps
@@ -53,19 +54,44 @@ class CompDocExcelExportTests(SimpleTestCase):
         """The canonical data sheet includes operator guidance and validation."""
 
         dataframe = pd.DataFrame(
-            [{"Name": "Manual", "Status": "to_be_issued", "Cat": "1", "Moc": "0"}]
+            [
+                {
+                    "Name": "Manual",
+                    "Panel": "Flight",
+                    "Status": "to_be_issued",
+                    "Cat": "1",
+                    "Moc": "0",
+                }
+            ]
         )
         workbook = load_workbook(BytesIO(write_workbook(dataframe).getvalue()))
         worksheet = workbook["Compliance Documents"]
 
-        self.assertEqual(workbook.sheetnames, ["Compliance Documents"])
+        self.assertEqual(workbook.sheetnames, ["Compliance Documents", "Dashboard"])
+        self.assertEqual(workbook.active.title, "Dashboard")
         self.assertEqual(worksheet.freeze_panes, "A2")
-        self.assertEqual(worksheet.auto_filter.ref, "A1:D2")
+        self.assertIsNone(worksheet.auto_filter.ref)
         self.assertIn("ComplianceDocumentsTable", worksheet.tables)
         self.assertEqual(len(worksheet.data_validations.dataValidation), 3)
+        dashboard = workbook["Dashboard"]
+        self.assertTrue(dashboard["A6"].value.startswith("=COUNTA("))
+        self.assertEqual(dashboard["M6"].number_format, "0%")
+        self.assertEqual(len(dashboard._charts), 2)
         for validation in worksheet.data_validations.dataValidation:
             self.assertTrue(validation.formula1.startswith('"'))
             self.assertNotIn("!", validation.formula1)
+
+    def test_table_owns_the_only_filter_definition(self):
+        """Avoid Excel repairs caused by overlapping worksheet and table filters."""
+
+        content = write_workbook(pd.DataFrame([{"Name": "Manual", "Status": "unknown"}])).getvalue()
+
+        with ZipFile(BytesIO(content)) as package:
+            worksheet_xml = package.read("xl/worksheets/sheet1.xml")
+            table_xml = package.read("xl/tables/table1.xml")
+
+        self.assertNotIn(b"<autoFilter", worksheet_xml)
+        self.assertEqual(table_xml.count(b"<autoFilter"), 1)
 
     def test_every_project_exports_one_fully_importable_sheet(self):
         """Even empty project exports expose only headers accepted by their importer."""
@@ -82,7 +108,7 @@ class CompDocExcelExportTests(SimpleTestCase):
                 importable = get_mappable_import_fields(model)
                 mapping = map_headers(loaded.columns, importable)
 
-                self.assertEqual(workbook.sheetnames, ["Compliance Documents"])
+                self.assertEqual(workbook.sheetnames, ["Compliance Documents", "Dashboard"])
                 self.assertEqual(set(mapping), set(loaded.columns))
                 self.assertEqual(get_missing_required_fields(mapping.values(), importable), [])
 
@@ -146,7 +172,8 @@ class CompDocExcelExportTests(SimpleTestCase):
         """Exported user text cannot become an active spreadsheet formula."""
 
         dataframe = pd.DataFrame([{"Name": '=HYPERLINK("https://invalid","open")'}])
-        worksheet = load_workbook(BytesIO(write_workbook(dataframe).getvalue())).active
+        workbook = load_workbook(BytesIO(write_workbook(dataframe).getvalue()))
+        worksheet = workbook["Compliance Documents"]
 
         self.assertEqual(worksheet["A2"].data_type, "s")
         self.assertTrue(worksheet["A2"].value.startswith("="))

@@ -25,7 +25,9 @@ class TransitionSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=sorted(WORKFLOW_STATUSES))
     effective_date = serializers.DateField()
     next_action_due_date = serializers.DateField(required=False, allow_null=True)
-    reason = serializers.CharField(min_length=3, max_length=255, trim_whitespace=True)
+    reason = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255, trim_whitespace=True
+    )
 
 
 class WorkSerializer(serializers.Serializer):
@@ -39,7 +41,9 @@ class WorkSerializer(serializers.Serializer):
         queryset=Group.objects.all(), allow_null=True, required=False
     )
     next_action_due_date = serializers.DateField(required=False, allow_null=True)
-    reason = serializers.CharField(min_length=3, max_length=255)
+    reason = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255, trim_whitespace=True
+    )
 
     def validate(self, attributes):
         if not {"owner", "owner_group", "next_action_due_date"} & attributes.keys():
@@ -49,7 +53,9 @@ class WorkSerializer(serializers.Serializer):
 
 class ArchiveSerializer(serializers.Serializer):
     source_history_id = serializers.IntegerField(min_value=1)
-    reason = serializers.CharField(min_length=3, max_length=255)
+    reason = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255, trim_whitespace=True
+    )
 
 
 def transition_view_factory(model):

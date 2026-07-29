@@ -103,11 +103,8 @@ async function decide(task: CompdocReview, status: 'approved' | 'changes_request
 
 <template>
   <section class="workspace-section">
-    <n-flex justify="space-between">
-      <n-text strong>Review & approval</n-text>
-      <n-button v-if="canEdit" size="small" @click="formVisible = !formVisible">
-        Request decision
-      </n-button>
+    <n-flex v-if="canEdit" justify="flex-end">
+      <n-button size="small" @click="formVisible = !formVisible">Request decision</n-button>
     </n-flex>
     <n-card v-if="formVisible" size="small" embedded>
       <n-space vertical>
