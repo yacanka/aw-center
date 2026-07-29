@@ -15,8 +15,8 @@
         <n-select
           v-model:value="compdoc.ata"
           placeholder="XX-XX"
-          :options="orgs.getAtaOptions"
-          :disabled="readonly"
+          :options="ataOptions"
+          :disabled="readonly || !compdoc.panel"
           :status="changed('ata')"
           @update:value="syncPanelFromAta"
         />
@@ -77,18 +77,28 @@ const orgs = useOrgsStore()
 const arrayChanged = computed(
   () => !checkArrayEquals(props.original.signature_panel, props.compdoc.signature_panel)
 )
+const ataOptions = computed(() => optionsForPanel(props.compdoc.panel))
 
 function changed(field: keyof ICompDoc): '' | 'warning' {
   return props.original[field] === props.compdoc[field] ? '' : 'warning'
 }
 
 function syncAtaFromPanel(panelName: string | null): void {
-  const panel = orgs.getPanels.find((item) => item.name === panelName)
-  if (panel) props.compdoc.ata = panel.ata
+  const options = optionsForPanel(panelName)
+  if (options.some((option) => option.value === props.compdoc.ata)) return
+  props.compdoc.ata = options.length === 1 ? options[0].value : ''
 }
 
 function syncPanelFromAta(ata: string | null): void {
   const panel = orgs.getPanels.find((item) => item.ata === ata)
   if (panel) props.compdoc.panel = panel.name
+}
+
+function optionsForPanel(panelName: string | null) {
+  if (!panelName) return []
+  return orgs.getPanels
+    .filter((panel) => panel.name === panelName)
+    .sort((left, right) => left.ata.localeCompare(right.ata))
+    .map((panel) => ({ label: panel.ata, value: panel.ata }))
 }
 </script>

@@ -27,7 +27,7 @@ class CompDocExcelRoundTripTests(TestCase):
         )
 
     def test_generated_export_confirms_without_changing_the_document(self):
-        """The exact single-sheet export is accepted as an unchanged import."""
+        """The dashboard export is accepted as an unchanged first-sheet import."""
 
         content = build_excel_response(CompDoc, CompDocSerializer).content
         preview = self.preview(content)

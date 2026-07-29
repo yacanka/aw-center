@@ -48,10 +48,7 @@ async function load() {
 }
 
 async function save() {
-  if (!props.document.id || !work.value || reason.value.trim().length < 3) {
-    window.$message.warning('Enter a meaningful assignment reason.')
-    return
-  }
+  if (!props.document.id || !work.value) return
   loading.value = true
   try {
     work.value = await updateCompdocWork(props.project, props.document.id, {
@@ -74,7 +71,6 @@ async function save() {
 
 <template>
   <section class="workspace-section">
-    <n-text strong>Ownership & next action</n-text>
     <n-spin :show="loading">
       <n-grid v-if="work" responsive="screen" cols="1 s:2" :x-gap="12">
         <n-form-item-gi label="AW Center owner">
@@ -101,8 +97,13 @@ async function save() {
             clearable
           />
         </n-form-item-gi>
-        <n-form-item-gi v-if="canEdit" label="Change reason">
-          <n-input v-model:value="reason" maxlength="255" show-count />
+        <n-form-item-gi v-if="canEdit" label="Change reason (optional)">
+          <n-input
+            v-model:value="reason"
+            maxlength="255"
+            show-count
+            placeholder="Optional ownership explanation"
+          />
         </n-form-item-gi>
       </n-grid>
       <n-button v-if="canEdit && work" size="small" type="primary" @click="save">

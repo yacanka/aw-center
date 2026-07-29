@@ -15,15 +15,16 @@
         Building a styled, editable workbook from the complete project register.
       </n-text>
       <n-text v-else-if="popup.status == 'success'">
-        Your single-sheet workbook can be edited and imported directly back into AW Center.
+        Your dashboard workbook can be edited and imported directly back into AW Center.
       </n-text>
       <n-text v-else>{{ popup.error }}</n-text>
     </n-alert>
     <n-card size="small" embedded style="margin-top: 16px">
       <n-space vertical>
-        <n-text>✓ Frozen headers, filters, status colors, and editable dropdowns</n-text>
+        <n-text>✓ Professional dashboard with live KPIs and charts</n-text>
+        <n-text>✓ Frozen headers, table filters, status colors, and editable dropdowns</n-text>
         <n-text>✓ Every exported column is recognized by the current import contract</n-text>
-        <n-text>✓ One worksheet with lossless multiline status history</n-text>
+        <n-text>✓ Dedicated editable register with lossless multiline status history</n-text>
       </n-space>
     </n-card>
     <n-flex justify="center" style="margin-top: 24px">

@@ -7,6 +7,7 @@ import {
   IHistory
 } from '@/models/compdocs'
 import { withCompdocDisplayStatus } from '@/services/compdocStatus'
+import type { CompDocUpdatePayload } from '@/services/compdocPayload'
 import { handleRequest } from '@/composables/promise'
 import { API_BASE_URL } from '@/services/http'
 import { notifyError, notifySuccess } from '@/services/notify'
@@ -112,7 +113,7 @@ export const useCompdocStore = defineStore('compdoc', {
         () => (this.loading = false)
       )
     },
-    async updateCompdoc(compDocId: string, updatedData: ICompDoc) {
+    async updateCompdoc(compDocId: string, updatedData: CompDocUpdatePayload) {
       this.loading = true
       await handleRequest<ICompDoc>(
         axios.put(`${this.projectName}/${COMP_DOCS_PATH}/${compDocId}/`, updatedData), // PUT with ID

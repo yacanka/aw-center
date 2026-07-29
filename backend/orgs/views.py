@@ -1,4 +1,5 @@
 from django.forms import Form, FileField
+from django.db.models.deletion import ProtectedError
 from awcenter.file_security import EXCEL_POLICY, validate_request_upload
 
 from rest_framework.viewsets import ModelViewSet
@@ -33,7 +34,7 @@ class ResponsibleViewSet(ModelViewSet):
     queryset = Responsible.objects.all()
 
     def get_queryset(self):
-        qs = Responsible.objects.select_related("project", "panel")
+        qs = Responsible.objects.select_related("project", "panel", "person")
         project = self.request.query_params.get("project")
         if project:
             qs = qs.filter(project__name__iexact=project)
@@ -78,6 +79,15 @@ class PeopleViewSet(ModelViewSet):
             qs = qs.filter(email__icontains=email)
 
         return qs
+
+    def perform_destroy(self, instance):
+        """Reject deletion while project responsible assignments reference a person."""
+        try:
+            instance.delete()
+        except ProtectedError as error:
+            raise ValidationError(
+                {"person": "Remove this person's responsible assignments before deleting them."}
+            ) from error
 
 reference_list = [
     "Person ID",

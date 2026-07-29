@@ -6,6 +6,7 @@ const componentUrl = new URL('../src/components/NSearch.vue', import.meta.url)
 const composableUrl = new URL('../src/composables/usePeopleSearch.ts', import.meta.url)
 const peopleStoreUrl = new URL('../src/stores/organizationPeople.ts', import.meta.url)
 const peopleViewUrl = new URL('../src/views/orgs/People.vue', import.meta.url)
+const responsiblePopupUrl = new URL('../src/components/orgs/ResponsiblePopup.vue', import.meta.url)
 
 test('NSearch delegates lookup to a server-paginated search controller', async () => {
   const component = await readFile(componentUrl, 'utf8')
@@ -38,6 +39,18 @@ test('NSearch exposes bounded loading, empty, retry, and minimum-input states', 
   assert.match(component, /No matching person found/)
   assert.match(component, /People search failed/)
   assert.match(component, /retry-search/)
+})
+
+test('Responsible creation selects a related person without copying identity fields', async () => {
+  const component = await readFile(componentUrl, 'utf8')
+  const popup = await readFile(responsiblePopupUrl, 'utf8')
+
+  assert.match(component, /select: \[person: IPerson \\| null\]/)
+  assert.match(component, /emit\('select', option\.person\)/)
+  assert.match(component, /emit\('select', null\)/)
+  assert.match(popup, /@select="selectDirectoryPerson"/)
+  assert.match(popup, /person\.value\.person_id = selectedPerson\?\.person_id/)
+  assert.doesNotMatch(popup, /person\.value\.(name|email) = selectedPerson/)
 })
 
 test('people store keeps DRF page metadata and sends the requested page', async () => {

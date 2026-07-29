@@ -35,7 +35,9 @@ class BulkRequestSerializer(serializers.Serializer):
 
     documents = BulkDocumentSerializer(many=True, min_length=1, max_length=100)
     action = serializers.ChoiceField(choices=["work", "transition", "archive", "restore"])
-    reason = serializers.CharField(min_length=3, max_length=255)
+    reason = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=255, trim_whitespace=True
+    )
     values = serializers.JSONField(required=False, default=dict)
 
     def validate_documents(self, documents):

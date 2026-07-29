@@ -57,6 +57,13 @@ class ResponsibleSerializer(serializers.ModelSerializer):
     project = serializers.SlugRelatedField(slug_field="name", queryset=Project.objects.all())
     panel = serializers.SlugRelatedField(slug_field="ata", queryset=Panel.objects.all())
     panel_name = serializers.CharField(source="panel.name", read_only=True)
+    person_id = serializers.SlugRelatedField(
+        source="person",
+        slug_field="person_id",
+        queryset=People.objects.all(),
+    )
+    name = serializers.CharField(source="person.name", read_only=True)
+    email = serializers.EmailField(source="person.email", read_only=True)
 
     class Meta:
         model = Responsible

@@ -60,7 +60,7 @@ def responsible_view_set_factory(model, view_serializer_class, view_permission_c
         queryset = model.objects.all()
 
         def get_queryset(self):
-            qs = model.objects.select_related("panel")
+            qs = model.objects.select_related("panel", "person")
 
             panel = self.request.query_params.get("panel")
             if panel:

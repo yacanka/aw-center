@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from .builder_common import open_module, attribute_fragments
 
 CHECK_TEMPLATE = r'''

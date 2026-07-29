@@ -3,7 +3,7 @@ from django.db import models
 from django.core.validators import RegexValidator
 
 class Project(models.Model):
-    name = models.CharField()
+    name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True)
 
     class Meta:
@@ -21,7 +21,7 @@ class Role(models.TextChoices):
     AF = "Air Force", "Air Force"
 
 class Panel(models.Model):
-    name = models.CharField()
+    name = models.CharField(max_length=255)
     slug = models.SlugField()
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="panels")
     ata = models.CharField(
@@ -43,15 +43,27 @@ class Panel(models.Model):
 
 class Responsible(models.Model):
     class Meta:
-        ordering = ["project__name", "name", "person_id", "id"]
+        ordering = ["project__name", "person__name", "person__person_id", "id"]
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="people")
     panel = models.ForeignKey(Panel, on_delete=models.CASCADE, related_name="people", null=True, blank=True)
 
-    person_id = models.CharField(max_length=6)
-    name = models.CharField()
-    email = models.EmailField()
-    title = models.CharField(choices=Role.choices)
+    person = models.ForeignKey(
+        "People",
+        on_delete=models.PROTECT,
+        related_name="legacy_responsible_assignments",
+    )
+    title = models.CharField(max_length=32, choices=Role.choices)
+
+    @property
+    def name(self):
+        """Return the current directory name."""
+        return self.person.name
+
+    @property
+    def email(self):
+        """Return the current directory email."""
+        return self.person.email
 
     def __str__(self):
         return self.name
@@ -61,7 +73,7 @@ class People(models.Model):
         ordering = ["name", "person_id"]
 
     person_id = models.CharField(unique=True, max_length=6, db_index=True)
-    name = models.CharField(db_index=True)
+    name = models.CharField(max_length=255, db_index=True)
     email = models.EmailField(db_index=True)
 
     def __str__(self):

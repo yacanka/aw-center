@@ -1,23 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import {
-  Alert24Regular,
-  ArrowDownload24Regular,
-  Clipboard24Regular,
-  Delete24Regular,
-  Edit24Regular,
-  Eye24Regular
-} from '@vicons/fluent'
+import { computed, ref, watch } from 'vue'
+import { Delete24Regular } from '@vicons/fluent'
 import type { ICompDoc } from '@/models/compdocs'
 import CompDocActivity from '@/components/compdoc/CompDocActivity.vue'
+import CompDocContextHelp from '@/components/compdoc/CompDocContextHelp.vue'
+import CompDocOverview from '@/components/compdoc/CompDocOverview.vue'
 import CompDocReviewPanel from '@/components/compdoc/CompDocReviewPanel.vue'
+import CompDocTrackingPanel from '@/components/compdoc/CompDocTrackingPanel.vue'
+import CompDocTransitionPanel from '@/components/compdoc/CompDocTransitionPanel.vue'
 import CompDocWorkPanel from '@/components/compdoc/CompDocWorkPanel.vue'
 import { statusColors } from '@/services/compdocCatalog'
-import {
-  getCompdocReference,
-  humanizeCompdocStatus,
-  joinCompdocValues
-} from '@/services/compdocWorkspace'
+import { getCompdocReference, humanizeCompdocStatus } from '@/services/compdocWorkspace'
 import './CompDocWorkspace.css'
 
 const props = defineProps<{
@@ -33,7 +26,6 @@ const emit = defineEmits<{
   edit: [document: ICompDoc]
   export: []
   copy: [document: ICompDoc]
-  tracking: [document: ICompDoc]
   delete: [document: ICompDoc]
   changed: []
 }>()
@@ -41,12 +33,30 @@ const emit = defineEmits<{
 const statusLabel = computed(() => humanizeCompdocStatus(props.document?.status))
 const reference = computed(() => (props.document ? getCompdocReference(props.document) : ''))
 const statusColor = computed(() => statusColors[String(props.document?.status || '')])
+const activeTab = ref('overview')
+
+watch(
+  () => props.document?.id,
+  () => (activeTab.value = 'overview')
+)
+watch(
+  () => props.show,
+  (show) => {
+    if (!show) activeTab.value = 'overview'
+  }
+)
+watch(
+  () => props.canEdit,
+  (canEdit) => {
+    if (!canEdit && activeTab.value === 'transition') activeTab.value = 'overview'
+  }
+)
 </script>
 
 <template>
   <n-drawer
     :show="show"
-    width="min(560px, 94vw)"
+    width="min(720px, 96vw)"
     placement="right"
     :trap-focus="true"
     @update:show="emit('update:show', $event)"
@@ -75,95 +85,83 @@ const statusColor = computed(() => statusColors[String(props.document?.status ||
         </n-space>
       </template>
 
-      <section class="workspace-section">
-        <n-text strong>Quick actions</n-text>
-        <n-flex class="workspace-actions">
-          <n-button type="primary" @click="emit('view', document)">
-            <template #icon><Eye24Regular /></template>
-            Full details
-          </n-button>
-          <n-button v-if="canEdit" @click="emit('edit', document)">
-            <template #icon><Edit24Regular /></template>
-            Edit
-          </n-button>
-          <n-button @click="emit('tracking', document)">
-            <template #icon><Alert24Regular /></template>
-            Tracking & alerts
-          </n-button>
-          <n-button @click="emit('export')">
-            <template #icon><ArrowDownload24Regular /></template>
-            Export register
-          </n-button>
-          <n-button v-if="document.path" @click="emit('copy', document)">
-            <template #icon><Clipboard24Regular /></template>
-            Copy path
-          </n-button>
-        </n-flex>
-      </section>
-
-      <section class="workspace-section">
-        <n-text strong>Document identity</n-text>
-        <n-descriptions label-placement="top" :column="2" bordered size="small">
-          <n-descriptions-item label="Panel">{{
-            document.panel || 'Not assigned'
-          }}</n-descriptions-item>
-          <n-descriptions-item label="ATA">{{
-            document.ata || 'Not assigned'
-          }}</n-descriptions-item>
-          <n-descriptions-item label="Cover page">
-            {{ joinCompdocValues([document.cover_page_no, document.cover_page_issue]) }}
-          </n-descriptions-item>
-          <n-descriptions-item label="Technical document">
-            {{ joinCompdocValues([document.tech_doc_no, document.tech_doc_issue]) }}
-          </n-descriptions-item>
-          <n-descriptions-item label="Delivered issue">
-            {{ document.delivered_tech_doc_issue || 'Not delivered' }}
-          </n-descriptions-item>
-          <n-descriptions-item label="Responsible">
-            {{ document.responsible || 'Not assigned' }}
-          </n-descriptions-item>
-          <n-descriptions-item label="Signature panels" :span="2">
-            {{ joinCompdocValues(document.signature_panel) }}
-          </n-descriptions-item>
-        </n-descriptions>
-      </section>
-
-      <section class="workspace-section">
-        <n-text strong>Requirements</n-text>
-        <n-flex v-if="document.requirements.length" class="workspace-tags">
-          <n-tag v-for="requirement in document.requirements" :key="requirement" size="small">
-            {{ requirement }}
-          </n-tag>
-        </n-flex>
-        <n-text v-else depth="3">No linked requirements.</n-text>
-      </section>
-
-      <section v-if="document.notes" class="workspace-section">
-        <n-text strong>Notes</n-text>
-        <n-card size="small" embedded>{{ document.notes }}</n-card>
-      </section>
-
-      <CompDocWorkPanel
-        :show="show"
-        :project="project"
-        :document="document"
-        :can-edit="canEdit"
-        @changed="emit('changed')"
-      />
-      <CompDocReviewPanel
-        :show="show"
-        :project="project"
-        :document="document"
-        :can-edit="canEdit"
-        @changed="emit('changed')"
-      />
-      <CompDocActivity
-        :show="show"
-        :project="project"
-        :document="document"
-        :can-edit="canEdit"
-        @changed="emit('changed')"
-      />
+      <n-tabs v-model:value="activeTab" type="line" animated class="workspace-tabs">
+        <n-tab-pane name="overview" tab="Overview" display-directive="show:lazy">
+          <div class="workspace-pane-heading">
+            <n-text strong>Quick actions</n-text>
+            <CompDocContextHelp tab="overview" :active="show && activeTab === 'overview'" />
+          </div>
+          <CompDocOverview
+            :document="document"
+            :can-edit="canEdit"
+            @view="emit('view', document)"
+            @edit="emit('edit', document)"
+            @export="emit('export')"
+            @copy="emit('copy', document)"
+          />
+        </n-tab-pane>
+        <n-tab-pane name="tracking" tab="Tracking & Alerts" display-directive="show:lazy">
+          <div class="workspace-pane-heading">
+            <n-text strong>Tracking & alerts</n-text>
+            <CompDocContextHelp tab="tracking" :active="show && activeTab === 'tracking'" />
+          </div>
+          <CompDocTrackingPanel
+            :show="show && activeTab === 'tracking'"
+            :document="document"
+            :project="project"
+            :can-edit="canEdit"
+          />
+        </n-tab-pane>
+        <n-tab-pane name="ownership" tab="Ownership" display-directive="show:lazy">
+          <div class="workspace-pane-heading">
+            <n-text strong>Ownership & next action</n-text>
+            <CompDocContextHelp tab="ownership" :active="show && activeTab === 'ownership'" />
+          </div>
+          <CompDocWorkPanel
+            :show="show && activeTab === 'ownership'"
+            :project="project"
+            :document="document"
+            :can-edit="canEdit"
+            @changed="emit('changed')"
+          />
+        </n-tab-pane>
+        <n-tab-pane name="reviews" tab="Review & Approval" display-directive="show:lazy">
+          <div class="workspace-pane-heading">
+            <n-text strong>Review & approval</n-text>
+            <CompDocContextHelp tab="reviews" :active="show && activeTab === 'reviews'" />
+          </div>
+          <CompDocReviewPanel
+            :show="show && activeTab === 'reviews'"
+            :project="project"
+            :document="document"
+            :can-edit="canEdit"
+            @changed="emit('changed')"
+          />
+        </n-tab-pane>
+        <n-tab-pane v-if="canEdit" name="transition" tab="Transition" display-directive="show:lazy">
+          <div class="workspace-pane-heading">
+            <n-text strong>Record transition</n-text>
+            <CompDocContextHelp tab="transition" :active="show && activeTab === 'transition'" />
+          </div>
+          <CompDocTransitionPanel
+            :show="show && activeTab === 'transition'"
+            :project="project"
+            :document="document"
+            @changed="emit('changed')"
+          />
+        </n-tab-pane>
+        <n-tab-pane name="activity" tab="Activity" display-directive="show:lazy">
+          <div class="workspace-pane-heading">
+            <n-text strong>Activity</n-text>
+            <CompDocContextHelp tab="activity" :active="show && activeTab === 'activity'" />
+          </div>
+          <CompDocActivity
+            :show="show && activeTab === 'activity'"
+            :project="project"
+            :document="document"
+          />
+        </n-tab-pane>
+      </n-tabs>
 
       <template #footer>
         <n-flex justify="space-between" align="center" class="workspace-footer">

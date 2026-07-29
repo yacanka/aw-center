@@ -33,7 +33,11 @@ def versioned_serializer_factory(model_class):
     class DynamicVersionedSerializer(ModelSerializer):
         source_history_id = serializers.IntegerField(read_only=True)
         change_reason = serializers.CharField(
-            write_only=True, required=False, max_length=100, trim_whitespace=True
+            write_only=True,
+            required=False,
+            allow_blank=True,
+            max_length=100,
+            trim_whitespace=True,
         )
 
         def validate(self, attributes):
@@ -49,19 +53,7 @@ def versioned_serializer_factory(model_class):
             attributes["name"] = name
             if not name:
                 raise serializers.ValidationError({"name": "This field may not be blank."})
-            if self.instance is not None and self.context.get("require_change_reason"):
-                if not attributes.get("change_reason"):
-                    raise serializers.ValidationError(
-                        {"change_reason": "Explain why this record changed."}
-                    )
-            if (
-                self.instance is not None
-                and self.context.get("require_change_reason")
-                and "status_flow" in attributes
-            ):
-                raise serializers.ValidationError(
-                    {"status_flow": "Use the workflow transition action to change status."}
-                )
+            self._protect_workflow_history(attributes)
             attributes.pop("change_reason", None)
             self._validate_bounded_text(attributes)
             self._validate_workflow(attributes)
@@ -75,6 +67,17 @@ def versioned_serializer_factory(model_class):
                     {"name": "This compliance document already exists on the cover page."}
                 )
             return attributes
+
+        def _protect_workflow_history(self, attributes):
+            """Ignore unchanged projections and reject direct workflow mutations."""
+
+            if self.instance is None or "status_flow" not in attributes:
+                return
+            if attributes["status_flow"] != self.instance.status_flow:
+                raise serializers.ValidationError(
+                    {"status_flow": "Use the workflow transition action to change status."}
+                )
+            attributes.pop("status_flow")
 
         def _validate_panel_ata(self, attributes):
             panel = attributes.get("panel", getattr(self.instance, "panel", None))

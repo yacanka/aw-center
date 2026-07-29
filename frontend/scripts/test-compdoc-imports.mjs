@@ -6,6 +6,7 @@ import axios from 'axios'
 const { confirmCompdocImport, previewCompdocImport } =
   await import('../src/services/compdocImports.ts')
 const { shouldLoadCompdocHistory } = await import('../src/services/compdocHistory.ts')
+const { buildCompdocUpdatePayload } = await import('../src/services/compdocPayload.ts')
 const { fetchCompdocDashboard } = await import('../src/services/compdocDashboard.ts')
 const { getCompdocReference, humanizeCompdocStatus, joinCompdocValues } =
   await import('../src/services/compdocWorkspace.ts')
@@ -30,6 +31,39 @@ const [tableSource, workspaceSource, workspaceController, overridesSource, issue
     readFile(new URL('../src/composables/compdoc/columnOverrides.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/composables/compdoc/issueColumns.ts', import.meta.url), 'utf8')
   ])
+const identityFieldsSource = await readFile(
+  new URL('../src/components/compdoc/CompDocIdentityFields.vue', import.meta.url),
+  'utf8'
+)
+const workflowFieldsSource = await readFile(
+  new URL('../src/components/compdoc/CompDocWorkflowFields.vue', import.meta.url),
+  'utf8'
+)
+const overviewSource = await readFile(
+  new URL('../src/components/compdoc/CompDocOverview.vue', import.meta.url),
+  'utf8'
+)
+const popupSource = await readFile(
+  new URL('../src/components/compdoc/CompDocPopup.vue', import.meta.url),
+  'utf8'
+)
+const trackingPanelSource = await readFile(
+  new URL('../src/components/compdoc/CompDocTrackingPanel.vue', import.meta.url),
+  'utf8'
+)
+const optionalReasonSources = await Promise.all(
+  [
+    '../src/composables/compdoc/editor.ts',
+    '../src/composables/compdoc/workspace.ts',
+    '../src/components/compdoc/CompDocActivity.vue',
+    '../src/components/compdoc/CompDocTransitionPanel.vue',
+    '../src/components/compdoc/CompDocBulkActions.vue',
+    '../src/components/compdoc/CompDocNotesFields.vue',
+    '../src/components/compdoc/CompDocWorkPanel.vue'
+  ].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))
+)
+const activitySource = optionalReasonSources[2]
+const transitionSource = optionalReasonSources[3]
 
 test('builds safe operator-facing compliance document labels', () => {
   assert.equal(humanizeCompdocStatus('authority_approved'), 'Authority approved')
@@ -44,14 +78,116 @@ test('builds safe operator-facing compliance document labels', () => {
 test('opens row workspaces without restoring an actions column', () => {
   assert.match(tableSource, /:row-props="rowProps"/)
   assert.match(workspaceController, /onDblclick: \(\) => openWorkspace\(document\)/)
+  assert.doesNotMatch(workspaceController, /onClick: \(\) => openWorkspace\(document\)/)
+  assert.match(tableSource, /Double-click a document row/)
   assert.match(workspaceController, /event\.key === 'Enter'/)
   assert.match(tableSource, /<CompDocWorkspace/)
   assert.match(workspaceSource, /Quick actions/)
-  assert.match(workspaceSource, /v-if="canEdit"/)
+  assert.match(overviewSource, /v-if="canEdit"/)
   assert.match(workspaceSource, /v-if="canDelete"/)
-  assert.match(workspaceSource, /Tracking & alerts/)
+  assert.doesNotMatch(overviewSource, /Tracking & alerts/)
+  assert.doesNotMatch(tableSource, /CompDocTrackingDrawer|trackingVisible|openTracking/)
   assert.doesNotMatch(overridesSource, /key: 'actions'/)
   assert.match(issueColumnsSource, /event\.stopPropagation\(\)/)
+})
+
+test('keeps the CompDoc filter header mounted for empty results', () => {
+  assert.match(tableSource, /max-height="max\(320px, calc\(100vh - 300px\)\)"/)
+  assert.match(tableSource, /:filter-icon-popover-props="table\.filterIconPopover"/)
+})
+
+test('separates the transition form from the always-visible Activity module', () => {
+  assert.match(activitySource, /<n-timeline/)
+  assert.doesNotMatch(activitySource, /n-collapse|Record transition|transitionCompdoc/)
+  assert.match(workspaceSource, /Record transition/)
+  assert.match(transitionSource, /transitionCompdoc/)
+  assert.match(transitionSource, /Save transition/)
+})
+
+test('groups the wider document workspace into task-focused tabs', () => {
+  assert.match(workspaceSource, /width="min\(720px, 96vw\)"/)
+  assert.match(workspaceSource, /name="overview" tab="Overview"/)
+  assert.match(workspaceSource, /name="tracking" tab="Tracking & Alerts"/)
+  assert.match(workspaceSource, /name="ownership" tab="Ownership"/)
+  assert.match(workspaceSource, /name="reviews" tab="Review & Approval"/)
+  assert.match(workspaceSource, /name="transition"/)
+  assert.match(workspaceSource, /tab="Transition"/)
+  assert.match(workspaceSource, /name="activity" tab="Activity"/)
+  assert.match(workspaceSource, /display-directive="show:lazy"/)
+  assert.match(workspaceSource, /:show="show && activeTab === 'transition'"/)
+  assert.match(workspaceSource, /:show="show && activeTab === 'tracking'"/)
+  assert.match(workspaceSource, /:show="show && activeTab === 'activity'"/)
+  assert.match(workspaceSource, /v-if="canEdit"[\s\S]*name="transition"/)
+  assert.match(workspaceSource, /CompDocTrackingPanel/)
+  assert.match(workspaceSource, /Tracking & alerts/)
+  assert.doesNotMatch(trackingPanelSource, /<n-drawer/)
+  assert.match(trackingPanelSource, /\{ immediate: true \}/)
+})
+
+test('full details closes from its mask while retaining editor close guards', () => {
+  assert.match(popupSource, /:mask-closable="true"/)
+  assert.match(popupSource, /@update:show="handleVisibilityChange"/)
+})
+
+test('consolidates tab and section guidance into one contextual help control', async () => {
+  const contextHelp = await readFile(
+    new URL('../src/components/compdoc/CompDocContextHelp.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.equal(workspaceSource.match(/<CompDocContextHelp/g)?.length, 6)
+  assert.equal(workspaceSource.match(/class="workspace-pane-heading"/g)?.length, 6)
+  assert.match(workspaceSource, /<n-text strong>Tracking & alerts<\/n-text>/)
+  assert.match(workspaceSource, /<n-text strong>Review & approval<\/n-text>/)
+  assert.match(workspaceSource, /tab="overview"/)
+  assert.match(workspaceSource, /tab="tracking"/)
+  assert.match(workspaceSource, /:active="show && activeTab === 'tracking'"/)
+  assert.doesNotMatch(workspaceSource, /CompDocTabLabel|CompDocHelpButton/)
+  assert.match(contextHelp, /QuestionCircle20Regular/)
+  assert.match(contextHelp, /:show="show"/)
+  assert.match(contextHelp, /@update:show="show = \$event"/)
+  assert.match(contextHelp, /aria-label="Help for current workspace tab"/)
+  assert.match(contextHelp, /HELP_BY_TAB\[props\.tab\]/)
+  assert.match(contextHelp, /if \(!active\) show\.value = false/)
+  assert.match(contextHelp, /\{ flush: 'sync' \}/)
+  assert.match(contextHelp, /overview:[\s\S]*tracking:[\s\S]*ownership:/)
+  assert.match(contextHelp, /reviews:[\s\S]*transition:[\s\S]*activity:/)
+  assert.match(contextHelp, /Document identity/)
+  assert.match(contextHelp, /Responsible team/)
+  assert.match(contextHelp, /Notification delivery/)
+  assert.match(contextHelp, /Pending tasks/)
+  assert.match(contextHelp, /Timeline/)
+})
+
+test('CompDoc ATA options are restricted to the selected panel', () => {
+  assert.match(identityFieldsSource, /:options="ataOptions"/)
+  assert.match(identityFieldsSource, /:disabled="readonly \|\| !compdoc\.panel"/)
+  assert.match(identityFieldsSource, /\.filter\(\(panel\) => panel\.name === panelName\)/)
+  assert.match(identityFieldsSource, /options\.length === 1 \? options\[0\]\.value : ''/)
+  assert.doesNotMatch(identityFieldsSource, /:options="orgs\.getAtaOptions"/)
+})
+
+test('regular document updates exclude the workflow projection', () => {
+  const payload = buildCompdocUpdatePayload({
+    id: 'document-id',
+    name: 'Document',
+    status_flow: [{ status: 'authority_review', date: '29.07.2026' }]
+  })
+
+  assert.equal(payload.id, 'document-id')
+  assert.equal('status_flow' in payload, false)
+  assert.match(workflowFieldsSource, /<n-timeline/)
+  assert.match(workflowFieldsSource, /Current status/)
+  assert.match(workflowFieldsSource, /audit-controlled/)
+})
+
+test('document operation reasons are optional in the UI', () => {
+  const combinedSource = optionalReasonSources.join('\n')
+
+  assert.doesNotMatch(combinedSource, /meaningful .*reason/i)
+  assert.doesNotMatch(combinedSource, /Required reason/)
+  assert.match(combinedSource, /Reason \(optional\)/)
+  assert.match(combinedSource, /Change reason \(optional\)/)
 })
 
 test('uses project-scoped tracking, DocProof, and notification endpoints', async () => {
@@ -105,9 +241,9 @@ test('downloads a template-backed Outlook notification draft', async () => {
 })
 
 test('presents automatic and editable Outlook notification choices together', async () => {
-  const [drawer, actions] = await Promise.all([
+  const [panel, actions] = await Promise.all([
     readFile(
-      new URL('../src/components/compdoc/CompDocTrackingDrawer.vue', import.meta.url),
+      new URL('../src/components/compdoc/CompDocTrackingPanel.vue', import.meta.url),
       'utf8'
     ),
     readFile(
@@ -116,9 +252,9 @@ test('presents automatic and editable Outlook notification choices together', as
     )
   ])
 
-  assert.match(drawer, /CompDocNotificationActions/)
-  assert.match(drawer, /refreshPolicyProjection/)
-  assert.match(drawer, /@policy-saved="refreshPolicyProjection"/)
+  assert.match(panel, /CompDocNotificationActions/)
+  assert.match(panel, /refreshPolicyProjection/)
+  assert.match(panel, /@policy-saved="refreshPolicyProjection"/)
   assert.match(actions, /downloadCompDocNotificationDraft/)
   assert.match(actions, /saveBlobAsFile/)
   assert.match(actions, /Send automatically/)
@@ -190,7 +326,8 @@ test('explains the editable round-trip workbook and cleans download resources', 
     'utf8'
   )
 
-  assert.match(downloader, /single-sheet workbook can be edited and imported directly back/)
+  assert.match(downloader, /dashboard workbook can be edited and imported directly back/)
+  assert.match(downloader, /Professional dashboard with live KPIs and charts/)
   assert.match(downloader, /Every exported column is recognized by the current import contract/)
   assert.match(downloader, /encodeURIComponent\(String\(route\.params\.project/)
   assert.match(downloader, /URL\.revokeObjectURL\(urlObject\)/)
@@ -347,12 +484,16 @@ test('CompDoc charts use responsive modern Chart.js rendering paths', async () =
 })
 
 test('exposes lifecycle, ownership, review, activity, and bounded bulk workflows', async () => {
-  const [service, workspace, table, bulk, activity] = await Promise.all([
+  const [service, workspace, table, bulk, activity, transition] = await Promise.all([
     readFile(new URL('../src/services/compdocLifecycle.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/compdoc/CompDocWorkspace.vue', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/CompDocTable.vue', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/compdoc/CompDocBulkActions.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/compdoc/CompDocActivity.vue', import.meta.url), 'utf8')
+    readFile(new URL('../src/components/compdoc/CompDocActivity.vue', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../src/components/compdoc/CompDocTransitionPanel.vue', import.meta.url),
+      'utf8'
+    )
   ])
 
   assert.match(service, /\/activity\//)
@@ -365,7 +506,9 @@ test('exposes lifecycle, ownership, review, activity, and bounded bulk workflows
   assert.match(workspace, /CompDocActivity/)
   assert.match(table, /type: 'selection'/)
   assert.match(bulk, /versioned/)
-  assert.match(activity, /Record transition/)
+  assert.match(activity, /fetchCompdocActivity/)
+  assert.doesNotMatch(activity, /Record transition/)
+  assert.match(workspace, /Record transition/)
 })
 
 async function captureRequest(callback, responseData) {

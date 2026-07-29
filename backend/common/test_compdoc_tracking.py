@@ -14,6 +14,7 @@ from common.compdoc_tracking_models import (
     CompDocNotificationLog,
     CompDocTrackingProfile,
 )
+from orgs.models import People
 from projects.ozgur.models import CompDoc, Panel, Responsible
 
 
@@ -28,18 +29,20 @@ class CompDocTrackingApiTests(TestCase):
         self.client.force_authenticate(self.user)
         self.panel = Panel.objects.create(name="Flight", discipline="Systems", ata="21-00")
         other_panel = Panel.objects.create(name="Power", discipline="Systems", ata="24-00")
+        first_person = People.objects.create(
+            person_id="100001", name="Ada Lovelace", email="ada@example.com"
+        )
+        second_person = People.objects.create(
+            person_id="100002", name="Grace Hopper", email="grace@example.com"
+        )
         self.responsible = Responsible.objects.create(
             panel=self.panel,
-            person_id="100001",
-            name="Ada Lovelace",
-            email="ada@example.com",
+            person=first_person,
             title="CVE",
         )
         Responsible.objects.create(
             panel=other_panel,
-            person_id="100002",
-            name="Grace Hopper",
-            email="grace@example.com",
+            person=second_person,
             title="CVE",
         )
         self.document = CompDoc.objects.create(
@@ -149,11 +152,12 @@ class CompDocNotificationTests(TestCase):
         """Create an overdue document with one automatic recipient."""
 
         panel = Panel.objects.create(name="Flight", discipline="Systems", ata="21-00")
+        person = People.objects.create(
+            person_id="100003", name="Katherine Johnson", email="katherine@example.com"
+        )
         Responsible.objects.create(
             panel=panel,
-            person_id="100003",
-            name="Katherine Johnson",
-            email="katherine@example.com",
+            person=person,
             title="AS",
         )
         target = timezone.localdate() - timedelta(days=2)

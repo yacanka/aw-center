@@ -50,10 +50,6 @@ async function loadAssignees() {
 }
 
 async function apply() {
-  if (action.value !== 'export' && reason.value.trim().length < 3) {
-    window.$message.warning('Enter a meaningful bulk change reason.')
-    return
-  }
   loading.value = true
   try {
     if (action.value === 'export') await downloadSelection()
@@ -150,7 +146,7 @@ async function downloadSelection() {
       <n-input
         v-if="action !== 'export'"
         v-model:value="reason"
-        placeholder="Required reason"
+        placeholder="Reason (optional)"
         maxlength="255"
         style="min-width: 220px; flex: 1"
       />
