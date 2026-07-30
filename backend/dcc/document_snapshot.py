@@ -7,6 +7,7 @@ from .document_fields import field, main_issue_fields, panel_fields
 from .service.JIRAConnector import JiraConnector
 from .service.text_parsing import classify_dcc
 from .services.project_resolver import resolve_project_from_jira_components
+from .services.subtask_controls import apply_project_subtask_control
 
 ISSUE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]*-\d+\b")
 MAX_SUBTASKS = 200
@@ -70,9 +71,14 @@ def build_snapshot(connector, issue, issue_key, project):
     """Build the versioned, JSON-serializable DCC rendering contract."""
 
     placeholders = main_issue_fields(issue.fields)
+    panels = fetch_panels(connector, issue)
+    controlled = apply_project_subtask_control(project.slug, panels)
+    if controlled.render_context:
+        placeholders["Project_Subtasks"] = dict(controlled.render_context)
     classifications, responsible_values, panel_titles = append_panels(
-        connector, issue, project, placeholders
+        controlled.subtasks, project, placeholders
     )
+    placeholders.update(controlled.placeholder_overrides)
     apply_classification(placeholders, classifications)
     apply_responsible(placeholders, classifications, responsible_values)
     form_number = placeholders.get("DCC_Form_Number", issue_key)
@@ -82,18 +88,26 @@ def build_snapshot(connector, issue, issue_key, project):
         "project_slug": project.slug,
         "project_label": project.display_name or project.jira_component,
         "output_name": safe_output_name(form_number),
-        "panel_count": len(field(issue.fields, "subtasks") or []),
+        "panel_count": len(controlled.subtasks),
         "panel_titles": panel_titles,
         "placeholders": placeholders,
     }
 
 
-def append_panels(connector, issue, project, placeholders):
-    """Fetch subtask snapshots and merge their template fields."""
+def fetch_panels(connector, issue):
+    """Fetch each bounded JIRA subtask once for project processing."""
+
+    return tuple(
+        connector.get_client().issue(subtask.key)
+        for subtask in field(issue.fields, "subtasks") or []
+    )
+
+
+def append_panels(panels, project, placeholders):
+    """Merge controlled subtask fields into the template placeholders."""
 
     classifications, responsible_values, panel_titles = [], set(), []
-    for index, subtask in enumerate(field(issue.fields, "subtasks") or []):
-        panel = connector.get_client().issue(subtask.key)
+    for index, panel in enumerate(panels):
         values, classification, responsible = panel_fields(
             panel.fields, index, project.slug == "gokbey"
         )
