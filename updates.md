@@ -1282,3 +1282,11 @@
 3. Kept `Compliance Documents` as the first sheet to preserve the existing pandas import contract and lossless export/import round trip.
 4. Improved the editable register with opaque semantic colors, Aptos typography, readable row heights, print settings, table filters, validation lists, and operator guidance.
 5. Added OOXML filter-ownership and dashboard regressions; verified 9 backend tests, 27 CompDoc UI tests, strict TypeScript, Prettier, production build, bundle budget, LibreOffice open/resave, artifact-tool formula scanning, and rendered workbook visuals.
+
+## 153. Project-specific DCC subtask controls
+
+1. Added an opt-in project control boundary before DCC panel placeholders are generated.
+2. Kept projects without a registered algorithm byte-for-byte compatible at the field level.
+3. Allowed project handlers to merge, ignore, or rewrite fetched subtasks and provide a separate `Project_Subtasks` template dictionary.
+4. Added regressions for default behavior, project transformation, separate render context, and malformed handler rejection.
+5. Registered a concrete Gokbey Jandarma example that restores mandatory Flight, Human Factor, and Electrical Systems/E3 responsibles while preserving each JIRA assignee.
