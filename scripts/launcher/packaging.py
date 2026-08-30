@@ -3,25 +3,47 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 import zipfile
 from datetime import datetime
 from pathlib import Path
 
 from .dependencies import require_files
 from .model import LauncherError, Project, Scope
+from .offline_manifest import verify_offline_manifest
 
 EXCLUDED_NAMES = {".env", ".env.local", ".DS_Store", "db.sqlite3"}
-EXCLUDED_PARTS = {".git", ".venv", ".runtime", "node_modules", "dist", "media", "staticfiles"}
+EXCLUDED_PARTS = {
+    ".git",
+    ".venv",
+    ".runtime",
+    "backup",
+    "backups",
+    "node_modules",
+    "dist",
+    "media",
+    "staticfiles",
+}
 EXCLUDED_SUFFIXES = {
+    ".7z",
+    ".bak",
     ".db",
+    ".dump",
+    ".gz",
     ".key",
     ".log",
     ".p12",
     ".pem",
     ".pfx",
+    ".pgdump",
     ".pyc",
+    ".rar",
+    ".sql",
     ".sqlite",
     ".sqlite3",
+    ".tar",
+    ".tgz",
+    ".zip",
 }
 
 
@@ -36,9 +58,11 @@ def package_offline(
     """Package tracked source and prepared dependencies for offline transfer."""
     scope.require_any()
     source_files = tracked_source_files(project, scope)
+    if include_packages:
+        verify_offline_manifest(project, scope, offline_dir)
     dependencies = offline_dependency_entries(scope, offline_dir, include_packages)
     entries = [(path, path.relative_to(project.root)) for path in source_files]
-    write_zip(output, entries + dependencies)
+    write_zip(output, entries + dependencies, allowed_roots=(project.root, offline_dir))
     print(f"[ok] offline package created: {output}")
 
 
@@ -70,7 +94,11 @@ def package_changes(project: Project, output: Path | None) -> Path | None:
         print("[ok] no packageable Git changes found")
         return None
     target = output or default_changes_zip(project.root)
-    write_zip(target, [(path, path.relative_to(project.root)) for path in files])
+    write_zip(
+        target,
+        [(path, path.relative_to(project.root)) for path in files],
+        allowed_roots=(project.root,),
+    )
     print(f"[ok] change package created: {target}")
     return target
 
@@ -130,16 +158,61 @@ def mapped_tree(source: Path, destination: Path) -> list[tuple[Path, Path]]:
     ]
 
 
-def write_zip(output: Path, entries: list[tuple[Path, Path]]) -> None:
+def write_zip(
+    output: Path,
+    entries: list[tuple[Path, Path]],
+    *,
+    allowed_roots: tuple[Path, ...],
+) -> None:
     """Write unique files to a ZIP using deterministic path ordering."""
     output = output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    unique = {archive.as_posix(): source for source, archive in entries if source.resolve() != output}
+    roots = tuple(root.expanduser().absolute() for root in allowed_roots)
+    unique = {}
+    for source, archive_path in entries:
+        archive_name = safe_archive_name(archive_path)
+        resolved_source = safe_source_file(source, roots)
+        if resolved_source == output:
+            continue
+        if archive_name in unique and unique[archive_name] != resolved_source:
+            raise LauncherError(f"duplicate archive path: {archive_name}")
+        unique[archive_name] = resolved_source
     if not unique:
         raise LauncherError("no files were selected for packaging")
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for archive_name, source in sorted(unique.items()):
-            archive.write(source, archive_name)
+            info = zipfile.ZipInfo(archive_name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            with source.open("rb") as input_file, archive.open(info, "w") as output_file:
+                shutil.copyfileobj(input_file, output_file, length=1024 * 1024)
+
+
+def safe_archive_name(path: Path) -> str:
+    if path.is_absolute() or not path.parts or ".." in path.parts:
+        raise LauncherError("archive entries must use safe relative paths")
+    return path.as_posix()
+
+
+def safe_source_file(path: Path, roots: tuple[Path, ...]) -> Path:
+    """Reject symlinks and files resolving outside their declared source roots."""
+
+    lexical = path.expanduser().absolute()
+    matching_root = next((root for root in roots if lexical.is_relative_to(root)), None)
+    if matching_root is None:
+        raise LauncherError("archive source is outside the allowed roots")
+    current = matching_root
+    for part in lexical.relative_to(matching_root).parts:
+        current = current / part
+        if current.is_symlink():
+            raise LauncherError("symbolic links are not allowed in packages")
+    try:
+        resolved = lexical.resolve(strict=True)
+    except OSError as error:
+        raise LauncherError("archive source is unavailable") from error
+    if not resolved.is_relative_to(matching_root.resolve()) or not resolved.is_file():
+        raise LauncherError("archive source escaped its allowed root")
+    return resolved
 
 
 def default_changes_zip(root: Path) -> Path:

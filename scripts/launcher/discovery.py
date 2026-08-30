@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from .model import LauncherError, Project
@@ -96,14 +95,3 @@ def bounded_matches(root: Path, name: str) -> list[Path]:
             continue
         matches.append(path)
     return sorted(matches)
-
-
-def infer_wsgi_application(project: Project) -> str:
-    """Infer the WSGI import path from manage.py's settings module."""
-    content = project.manage_py.read_text(encoding="utf-8")
-    match = re.search(r"DJANGO_SETTINGS_MODULE['\"],\s*['\"]([^'\"]+)", content)
-    if not match:
-        raise LauncherError("could not infer DJANGO_SETTINGS_MODULE from manage.py")
-    settings_module = match.group(1)
-    package = settings_module.removesuffix(".settings")
-    return f"{package}.wsgi:application"

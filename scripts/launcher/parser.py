@@ -25,7 +25,6 @@ def build_parser() -> argparse.ArgumentParser:
     add_setup(commands)
     add_check_and_test(commands)
     add_development(commands)
-    add_production(commands)
     add_offline_commands(commands)
     return parser
 
@@ -53,20 +52,6 @@ def add_development(commands: Subparsers) -> None:
     add_server_options(development, frontend=True)
     development.add_argument("--no-backend-reload", action="store_true")
     development.add_argument("--migrate", action="store_true", help="Apply migrations before startup.")
-
-
-def add_production(commands: Subparsers) -> None:
-    """Register production validation and server arguments."""
-    production = commands.add_parser("prod", help="Build and run the production WSGI service.")
-    add_server_options(production, frontend=False)
-    production.add_argument("--migrate", action="store_true", help="Apply migrations explicitly.")
-    production.add_argument("--no-build", action="store_true", help="Skip the Vue build.")
-    production.add_argument("--no-collectstatic", action="store_true")
-    production.add_argument("--skip-checks", action="store_true")
-    production.add_argument(
-        "--production-command",
-        help="Server argv with optional {python}, {wsgi}, {host}, and {port} placeholders.",
-    )
 
 
 def add_offline_commands(commands: Subparsers) -> None:
