@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from .model import LauncherError, Project, Scope
+from .offline_manifest import ensure_wheels_only, write_offline_manifest
 from .process import required_tool, run
 
 MINIMUM_PYTHON = (3, 11)
@@ -85,13 +86,25 @@ def prepare_offline(project: Project, scope: Scope, offline_dir: Path) -> None:
         wheels = offline_dir / "wheels"
         wheels.mkdir(parents=True, exist_ok=True)
         run(
-            [sys.executable, "-m", "pip", "download", "--prefer-binary", "-r", project.requirements, "-d", wheels],
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "--only-binary=:all:",
+                "-r",
+                project.requirements,
+                "-d",
+                wheels,
+            ],
             project.root,
         )
+        ensure_wheels_only(wheels)
     if scope.frontend:
         cache = offline_dir / "npm-cache"
         cache.mkdir(parents=True, exist_ok=True)
         populate_npm_cache(project, cache)
+    write_offline_manifest(project, scope, offline_dir)
     print(f"[ok] offline dependencies prepared at {offline_dir}")
 
 

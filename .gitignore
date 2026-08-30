@@ -62,6 +62,13 @@ backend/static/
 backend/staticfiles/
 backend/templates/index.html
 backend/core/assets/
+backup/
+backups/
+*.dump
+*.pgdump
+*.sql
+*.sql.gz
+*.private-artifacts.tar*
 
 # Local environment and secrets
 .env
@@ -114,6 +121,8 @@ pnpm-debug.log*
 frontend/dist/
 frontend/.vite/
 frontend/.vite-inspect/
+frontend/playwright-report/
+frontend/test-results/
 .vite/
 .vite-inspect/
 
@@ -125,6 +134,9 @@ yarn.lock
 # Docker / local tooling
 # ========================
 .docker/
+release-metadata/
+image-build-metadata.json
+image-frontend-dist/
 
 # ========================
 # Editors / OS

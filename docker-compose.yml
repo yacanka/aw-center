@@ -1,153 +1,298 @@
+x-awcenter-core-environment: &awcenter-core-environment
+  AWCENTER_RELEASE: "${AWCENTER_RELEASE:?Set the immutable AWCENTER_RELEASE identifier}"
+  SECRET_KEY: "${SECRET_KEY:?Set SECRET_KEY in the deployment environment}"
+  DEBUG: "False"
+  LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+  IPV4_ADDRESS: 0.0.0.0
+  PORT: 8000
+  ALLOWED_HOSTS: "${AWCENTER_HOST:?Set AWCENTER_HOST},backend,worker,notification-worker,cleanup-worker"
+  DATABASE_URL: "${DATABASE_URL:?Set the PostgreSQL DATABASE_URL}"
+  DATABASE_CONN_MAX_AGE: "${DATABASE_CONN_MAX_AGE:-60}"
+  CACHE_URL: "redis://:${REDIS_PASSWORD:?Set a URL-safe REDIS_PASSWORD}@redis:6379/1"
+  PRIVATE_MEDIA_ROOT: /app/private_media
+  FRONTEND_RESET_URL: "https://${AWCENTER_HOST}/app/login"
+  FRONTEND_INVITATION_URL: "https://${AWCENTER_HOST}/app/invite"
+  SESSION_COOKIE_SECURE: "True"
+  SESSION_COOKIE_SAMESITE: Lax
+  CSRF_COOKIE_SECURE: "True"
+  CSRF_COOKIE_SAMESITE: Lax
+  CSRF_TRUSTED_ORIGINS: "https://${AWCENTER_HOST}"
+  SECURE_SSL_REDIRECT: "True"
+  TRUST_PROXY_HEADERS: "True"
+  TRUSTED_PROXY_COUNT: "1"
+
+x-awcenter-backend-integrations: &awcenter-backend-integrations
+  JIRA_ENABLED: "${JIRA_ENABLED:-false}"
+  JIRA_URL: "${JIRA_URL:-}"
+  JIRA_DEFAULT_PROJECT_KEY: "${JIRA_DEFAULT_PROJECT_KEY:-CHN}"
+  JIRA_SESSION_ENCRYPTION_KEY: "${JIRA_SESSION_ENCRYPTION_KEY:-}"
+  DOCPROOF_ENABLED: "${DOCPROOF_ENABLED:-false}"
+  DOCPROOF_URL: "${DOCPROOF_URL:-}"
+  DOCPROOF_USERNAME: "${DOCPROOF_USERNAME:-}"
+  DOCPROOF_PASSWORD: "${DOCPROOF_PASSWORD:-}"
+  TEAMCENTER_ENABLED: "${TEAMCENTER_ENABLED:-false}"
+  TEAMCENTER_BASE_URL: "${TEAMCENTER_BASE_URL:-}"
+  TEAMCENTER_SERVICE_ROOT: "${TEAMCENTER_SERVICE_ROOT:-RestServices}"
+  TEAMCENTER_AUTH_MODE: "${TEAMCENTER_AUTH_MODE:-password}"
+  TEAMCENTER_USERNAME: "${TEAMCENTER_USERNAME:-}"
+  TEAMCENTER_PASSWORD: "${TEAMCENTER_PASSWORD:-}"
+  TEAMCENTER_VERIFY_SSL: "True"
+  DOORS_ENABLED: "${DOORS_ENABLED:-false}"
+  ASSESSMENT_API_URL: "${ASSESSMENT_API_URL:-}"
+  ASSESSMENT_API_ALLOWED_HOSTS: "${ASSESSMENT_API_ALLOWED_HOSTS:-}"
+  WINDOWS_BRIDGE_ENABLED: "${WINDOWS_BRIDGE_ENABLED:-false}"
+  WINDOWS_BRIDGE_TRUST_PROXY_HEADERS: "${WINDOWS_BRIDGE_TRUST_PROXY_HEADERS:-false}"
+  WINDOWS_BRIDGE_TRUSTED_PROXY_IPS: "172.30.250.2"
+  WINDOWS_BRIDGE_CLIENT_FINGERPRINTS: "${WINDOWS_BRIDGE_CLIENT_FINGERPRINTS:-}"
+  WINDOWS_BRIDGE_CLIENT_SUBJECTS: "${WINDOWS_BRIDGE_CLIENT_SUBJECTS:-}"
+
+x-awcenter-worker-integrations: &awcenter-worker-integrations
+  JIRA_ENABLED: "${JIRA_ENABLED:-false}"
+  JIRA_URL: "${JIRA_URL:-}"
+  JIRA_DEFAULT_PROJECT_KEY: "${JIRA_DEFAULT_PROJECT_KEY:-CHN}"
+  JIRA_SESSION_ENCRYPTION_KEY: "${JIRA_SESSION_ENCRYPTION_KEY:-}"
+  TEAMCENTER_ENABLED: "${TEAMCENTER_ENABLED:-false}"
+  TEAMCENTER_BASE_URL: "${TEAMCENTER_BASE_URL:-}"
+  TEAMCENTER_SERVICE_ROOT: "${TEAMCENTER_SERVICE_ROOT:-RestServices}"
+  TEAMCENTER_AUTH_MODE: "${TEAMCENTER_AUTH_MODE:-password}"
+  TEAMCENTER_USERNAME: "${TEAMCENTER_USERNAME:-}"
+  TEAMCENTER_PASSWORD: "${TEAMCENTER_PASSWORD:-}"
+  TEAMCENTER_VERIFY_SSL: "True"
+
+x-awcenter-model-environment: &awcenter-model-environment
+  MODEL_RUNTIME_DIR: /app/models
+  CUSTOM_TEMPLATE_DIR: /app/models/templates
+  COVER_PAGE_TEMPLATE_PATH: /app/models/templates/cover_page_template.docx
+  WORD_TRANSLATION_TR_EN_MODEL: /app/models/opus-mt-tr-en
+  WORD_TRANSLATION_EN_TR_MODEL: /app/models/opus-mt-en-tr
+  WORD_ANALYZER_BI_MODEL: /app/models/paraphrase-multilingual
+  WORD_ANALYZER_CROSS_MODEL: /app/models/ms-marco-cross-encoder
+
+x-awcenter-mail-environment: &awcenter-mail-environment
+  AWCENTER_MAIL_TRANSPORT: "${AWCENTER_MAIL_TRANSPORT:-disabled}"
+  EMAIL_HOST: "${EMAIL_HOST:-localhost}"
+  EMAIL_PORT: "${EMAIL_PORT:-25}"
+  EMAIL_HOST_USER: "${EMAIL_HOST_USER:-}"
+  EMAIL_HOST_PASSWORD: "${EMAIL_HOST_PASSWORD:-}"
+  EMAIL_USE_TLS: "${EMAIL_USE_TLS:-false}"
+  EMAIL_USE_SSL: "${EMAIL_USE_SSL:-false}"
+  DEFAULT_FROM_EMAIL: "${DEFAULT_FROM_EMAIL:-awcenter@localhost}"
+
+x-awcenter-runtime: &awcenter-runtime
+  image: "${AWCENTER_IMAGE:?Set AWCENTER_IMAGE to an immutable digest reference}"
+  user: "10001:10001"
+  init: true
+  restart: unless-stopped
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  depends_on:
+    database:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      args:
-        VITE_API_URL: /
-        VITE_VERSION: local-compose
-        VITE_APP_TITLE: AW Center
+  ingress:
+    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    restart: unless-stopped
     environment:
-      SECRET_KEY: local-compose-development-secret-key-change-before-production-2026
-      DEBUG: "False"
-      IPV4_ADDRESS: 0.0.0.0
-      PORT: 8000
-      ALLOWED_HOSTS: 127.0.0.1,localhost,backend
-      CORS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
-      CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
-      FRONTEND_RESET_URL: http://localhost:8080/app/login
-      FRONTEND_INVITATION_URL: http://localhost:8080/app/invite
-      DATABASE_URL: postgres://awcenter:change-me-local-only@database:5432/awcenter
-      CACHE_URL: redis://redis:6379/1
-      AUTH_COOKIE_SECURE: "False"
-      AUTH_COOKIE_SAMESITE: Lax
-      SECURE_SSL_REDIRECT: "False"
-      DOCPROOF_URL: http://docproof.local
-      DOORS_EXECUTABLE: /usr/bin/false
-      TEAMCENTER_BASE_URL: ${TEAMCENTER_BASE_URL:-}
-      TEAMCENTER_SERVICE_ROOT: ${TEAMCENTER_SERVICE_ROOT:-RestServices}
-      TEAMCENTER_AUTH_MODE: ${TEAMCENTER_AUTH_MODE:-password}
-      TEAMCENTER_USERNAME: ${TEAMCENTER_USERNAME:-}
-      TEAMCENTER_PASSWORD: ${TEAMCENTER_PASSWORD:-}
-      TEAMCENTER_VERIFY_SSL: ${TEAMCENTER_VERIFY_SSL:-true}
-      TEAMCENTER_JSESSIONID: ${TEAMCENTER_JSESSIONID:-}
-      TEAMCENTER_XSRF_TOKEN: ${TEAMCENTER_XSRF_TOKEN:-}
-      JIRA_URL: http://jira-btb.local
-    volumes:
-      - backend-media:/app/media
-      - backend-models:/app/models
-      - backend-private:/app/private_media
+      AWCENTER_HOST: "${AWCENTER_HOST:?Set AWCENTER_HOST}"
     ports:
-      - "8080:8000"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/awcenter.conf:/etc/nginx/templates/default.conf.template:ro
+      - "${TLS_CERTIFICATE_FILE:?Set TLS_CERTIFICATE_FILE}:/etc/nginx/tls/tls.crt:ro"
+      - "${TLS_PRIVATE_KEY_FILE:?Set TLS_PRIVATE_KEY_FILE}:/etc/nginx/tls/tls.key:ro"
     depends_on:
-      database:
-        condition: service_healthy
-      redis:
+      backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health/ready/ || exit 1"]
+      test:
+        - CMD-SHELL
+        - "wget -q -O /dev/null http://127.0.0.1:8080/nginx-ready || exit 1"
       interval: 30s
       timeout: 5s
       retries: 5
 
-  worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      args:
-        VITE_API_URL: /
-        VITE_VERSION: local-compose
-        VITE_APP_TITLE: AW Center
-    command: ["python", "manage.py", "run_job_worker", "--poll-interval", "1"]
+  windows-bridge-ingress:
+    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    profiles: ["windows-bridge"]
+    restart: unless-stopped
     environment:
-      SECRET_KEY: local-compose-development-secret-key-change-before-production-2026
-      DEBUG: "False"
-      IPV4_ADDRESS: 0.0.0.0
-      PORT: 8000
-      ALLOWED_HOSTS: 127.0.0.1,localhost,worker
-      CORS_ALLOWED_ORIGINS: http://localhost:8080
-      DATABASE_URL: postgres://awcenter:change-me-local-only@database:5432/awcenter
-      CACHE_URL: redis://redis:6379/1
-      DOCPROOF_URL: http://docproof.local
-      DOORS_EXECUTABLE: /usr/bin/false
-      JIRA_URL: http://jira-btb.local
+      AWCENTER_BRIDGE_HOST: "${AWCENTER_BRIDGE_HOST:-bridge.invalid}"
+      WINDOWS_BRIDGE_ENABLED: "${WINDOWS_BRIDGE_ENABLED:-false}"
+    ports:
+      - "${WINDOWS_BRIDGE_PORT:-8443}:8443"
     volumes:
-      - backend-media:/app/media
-      - backend-models:/app/models
-      - backend-private:/app/private_media
+      - ./deploy/nginx/windows-bridge.conf:/etc/nginx/templates/default.conf.template:ro
+      - "${TLS_CERTIFICATE_FILE}:/etc/nginx/tls/tls.crt:ro"
+      - "${TLS_PRIVATE_KEY_FILE}:/etc/nginx/tls/tls.key:ro"
+      - "${WINDOWS_BRIDGE_CA_FILE:-/dev/null}:/etc/nginx/tls/bridge-ca.crt:ro"
+    networks:
+      windows-bridge:
+        ipv4_address: 172.30.250.2
     depends_on:
-      database:
+      backend:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        test "$${WINDOWS_BRIDGE_ENABLED}" = "true";
+        test "$${AWCENTER_BRIDGE_HOST}" != "bridge.invalid";
+        test -s /etc/nginx/tls/bridge-ca.crt;
+        exec nginx -g 'daemon off;'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -q -O /dev/null http://127.0.0.1:8080/nginx-ready || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    <<: *awcenter-runtime
+    environment:
+      <<: [*awcenter-core-environment, *awcenter-backend-integrations, *awcenter-model-environment]
+    volumes:
+      - private-artifacts:/app/private_media
+      - "${MODEL_DIRECTORY:?Set MODEL_DIRECTORY}:/app/models:ro"
+    expose:
+      - "8000"
+    networks:
+      default: {}
+      windows-bridge:
+        ipv4_address: 172.30.250.3
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -fsS -H 'Host: backend' -H 'X-Forwarded-Proto: https' http://127.0.0.1:8000/health/ready/ || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *awcenter-runtime
+    environment:
+      <<: [*awcenter-core-environment, *awcenter-worker-integrations, *awcenter-model-environment]
+    volumes:
+      - private-artifacts:/app/private_media
+      - "${MODEL_DIRECTORY:?Set MODEL_DIRECTORY}:/app/models:ro"
+    command:
+      - python
+      - manage.py
+      - run_job_worker
+      - --poll-interval
+      - "1"
+      - --heartbeat-file
+      - /tmp/awcenter-job-worker.id
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "check_job_worker_health", "--worker-id-file", "/tmp/awcenter-job-worker.id"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   notification-worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      args:
-        VITE_API_URL: /
-        VITE_VERSION: local-compose
-        VITE_APP_TITLE: AW Center
-    command: ["python", "manage.py", "run_compdoc_notification_worker"]
+    <<: *awcenter-runtime
     environment:
-      SECRET_KEY: local-compose-development-secret-key-change-before-production-2026
-      DEBUG: "False"
-      IPV4_ADDRESS: 0.0.0.0
-      PORT: 8000
-      ALLOWED_HOSTS: 127.0.0.1,localhost,notification-worker
-      CORS_ALLOWED_ORIGINS: http://localhost:8080
-      DATABASE_URL: postgres://awcenter:change-me-local-only@database:5432/awcenter
-      CACHE_URL: redis://redis:6379/1
-      DOCPROOF_URL: ${DOCPROOF_URL:-http://docproof.local}
-      AW_USERNAME: ${AW_USERNAME:-}
-      AW_PASSWORD: ${AW_PASSWORD:-}
-      DOORS_EXECUTABLE: /usr/bin/false
-      JIRA_URL: http://jira-btb.local
-      AWCENTER_MAIL_TRANSPORT: ${AWCENTER_MAIL_TRANSPORT:-disabled}
-      EMAIL_HOST: ${EMAIL_HOST:-localhost}
-      EMAIL_PORT: ${EMAIL_PORT:-25}
-      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
-      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
-      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
-      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
-      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-awcenter@localhost}
-    depends_on:
-      database:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      <<: [*awcenter-core-environment, *awcenter-mail-environment]
+    volumes: []
+    command:
+      - python
+      - manage.py
+      - run_compdoc_notification_worker
+      - --heartbeat-file
+      - /tmp/awcenter-notification-worker.heartbeat
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "test -f /tmp/awcenter-notification-worker.heartbeat && test $$(($$(date +%s)-$$(stat -c %Y /tmp/awcenter-notification-worker.heartbeat))) -lt 600"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  cleanup-worker:
+    <<: *awcenter-runtime
+    environment:
+      <<: *awcenter-core-environment
+      JOB_ARTIFACT_RETENTION_DAYS: "${JOB_ARTIFACT_RETENTION_DAYS:-30}"
+    volumes:
+      - private-artifacts:/app/private_media
+    command:
+      - python
+      - manage.py
+      - run_job_cleanup_worker
+      - --poll-interval
+      - "300"
+      - --heartbeat-file
+      - /tmp/awcenter-cleanup-worker.heartbeat
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "test -f /tmp/awcenter-cleanup-worker.heartbeat && test $$(($$(date +%s)-$$(stat -c %Y /tmp/awcenter-cleanup-worker.heartbeat))) -lt 600"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   database:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: awcenter
-      POSTGRES_USER: awcenter
-      POSTGRES_PASSWORD: change-me-local-only
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U awcenter -d awcenter"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      POSTGRES_DB: "${POSTGRES_DB:-awcenter}"
+      POSTGRES_USER: "${POSTGRES_USER:-awcenter}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER:-awcenter} -d $${POSTGRES_DB:-awcenter}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 60s
+
+  redis:
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"
+    user: redis
+    command:
+      - sh
+      - -ec
+      - >-
+        umask 077;
+        printf 'appendonly yes\nrequirepass %s\n' "$${REDIS_PASSWORD}" > /tmp/redis.conf;
+        unset REDIS_PASSWORD;
+        exec redis-server /tmp/redis.conf
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD} redis-cli ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
 volumes:
-  backend-media:
-  backend-models:
-  backend-private:
+  private-artifacts:
   postgres-data:
   redis-data:
+
+networks:
+  windows-bridge:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.250.0/29

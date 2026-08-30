@@ -1,19 +1,16 @@
-"""Development, production, check, and test workflows."""
+"""Local development, check, and test workflows."""
 
 from __future__ import annotations
 
-import os
-import shlex
 import socket
 import subprocess
 from pathlib import Path
 
 from .dependencies import ensure_virtual_environment
-from .discovery import infer_wsgi_application
 from .job_worker import start_job_workers
 from .model import LauncherError, Project, Scope
-from .process import required_tool, start, supervise
-from .quality import django, run_first_script, run_script, select_script
+from .process import required_tool, run, start, supervise
+from .quality import django, run_first_script, select_script
 
 
 def check(project: Project, scope: Scope) -> None:
@@ -22,8 +19,13 @@ def check(project: Project, scope: Scope) -> None:
     if scope.backend:
         ensure_virtual_environment(project, create=False)
         django(project, ["check"])
-        django(project, ["makemigrations", "--check", "--dry-run"])
-        django(project, ["migrate", "--check"])
+        isolated_database = {"DATABASE_URL": "sqlite:///:memory:"}
+        django(
+            project,
+            ["makemigrations", "--check", "--dry-run"],
+            isolated_database,
+        )
+        django(project, ["migrate", "--plan"], isolated_database)
     if scope.frontend:
         for candidates in (("format:check",), ("typecheck", "type-check")):
             run_first_script(project, candidates)
@@ -36,6 +38,17 @@ def test(project: Project, scope: Scope) -> None:
     if scope.backend:
         ensure_virtual_environment(project, create=False)
         django(project, ["test"])
+        run(
+            [
+                project.python,
+                "-m",
+                "unittest",
+                "scripts.test_launcher",
+                "scripts.test_launcher_jobs",
+                "scripts.test_release_metadata",
+            ],
+            project.root,
+        )
     if scope.frontend:
         run_first_script(project, ("test:ci", "test", "unit"))
     print("[ok] tests completed")
@@ -89,80 +102,12 @@ def start_frontend(
     return start(command, project.frontend, extra_env=frontend_env(public_url(host, backend_port)))
 
 
-def prod(
-    project: Project,
-    *,
-    host: str,
-    port: int,
-    migrate: bool,
-    build: bool,
-    collect_static: bool,
-    checks: bool,
-    production_command: str | None,
-) -> None:
-    """Build, validate, and run one production WSGI process."""
-    require_port(host, port)
-    ensure_virtual_environment(project, create=False)
-    extra_env = production_env(project, host, port)
-    prepare_production(project, extra_env, migrate, build, collect_static, checks)
-    command = production_argv(project, host, port, production_command)
-    print(f"Production endpoint: {public_url(host, port)}")
-    supervise([start(command, project.backend, extra_env=extra_env), *start_job_workers(project, extra_env)])
-
-
-def prepare_production(
-    project: Project,
-    extra_env: dict[str, str],
-    migrate: bool,
-    build: bool,
-    collect_static: bool,
-    checks: bool,
-) -> None:
-    """Run the explicit pre-start production gates."""
-    if build:
-        run_script(project, "build")
-    if checks:
-        django(project, ["check", "--deploy", "--fail-level", "WARNING"], extra_env)
-    if migrate:
-        django(project, ["migrate", "--noinput"], extra_env)
-    if checks:
-        django(project, ["migrate", "--check"], extra_env)
-    if collect_static:
-        django(project, ["collectstatic", "--noinput"], extra_env)
-
-
-def production_argv(project: Project, host: str, port: int, configured: str | None) -> list[str]:
-    """Resolve an explicit server command or infer a Gunicorn command."""
-    wsgi = infer_wsgi_application(project)
-    if configured:
-        values = {"host": host, "port": str(port), "wsgi": wsgi, "python": str(project.python)}
-        try:
-            return [part.format_map(values) for part in shlex.split(configured)]
-        except KeyError as error:
-            raise LauncherError(f"unknown production command placeholder: {error}") from error
-    if os.name == "nt":
-        cheroot = project.backend / "run_cheroot.py"
-        if cheroot.is_file():
-            return [str(project.python), cheroot.name]
-        raise LauncherError("Windows production requires --production-command")
-    return [str(project.python), "-m", "gunicorn", wsgi, "--bind", f"{host}:{port}"]
-
-
 def runtime_env(host: str, backend_port: int, frontend_port: int | None) -> dict[str, str]:
     """Return ephemeral runtime overrides without reading or writing env files."""
     values = {"IPV4_ADDRESS": host, "PORT": str(backend_port)}
     if frontend_port is not None:
         values["DEV_FRONTEND_PORT"] = str(frontend_port)
         values["DEV_BACKEND_PORT"] = str(backend_port)
-    return values
-
-
-def production_env(project: Project, host: str, port: int) -> dict[str, str]:
-    """Select the repository production profile when it is available."""
-    values = runtime_env(host, port, None)
-    production_profile = project.backend / ".env.production"
-    if production_profile.is_file():
-        values["AWCENTER_ENV_FILE"] = production_profile.name
     return values
 
 

@@ -11,7 +11,7 @@ from .discovery import discover_project
 from .model import LauncherError, Project, Scope
 from .packaging import package_changes, package_offline
 from .parser import build_parser
-from .runtime import check, dev, prod, test
+from .runtime import check, dev, test
 
 
 def main(arguments: list[str] | None = None) -> int:
@@ -38,8 +38,6 @@ def dispatch(project: Project, args: argparse.Namespace) -> None:
         test(project, scope)
     elif args.command == "dev":
         dev_command(project, scope, args)
-    elif args.command == "prod":
-        prod_command(project, args)
     elif args.command == "prepare-offline":
         prepare_offline(project, scope, project_path(project, args.offline_dir))
     elif args.command == "package-offline":
@@ -59,20 +57,6 @@ def dev_command(project: Project, scope: Scope, args: argparse.Namespace) -> Non
         frontend_port=args.frontend_port,
         no_backend_reload=args.no_backend_reload,
         migrate=args.migrate,
-    )
-
-
-def prod_command(project: Project, args: argparse.Namespace) -> None:
-    """Adapt production CLI arguments to the runtime workflow."""
-    prod(
-        project,
-        host=args.host,
-        port=args.backend_port,
-        migrate=args.migrate,
-        build=not args.no_build,
-        collect_static=not args.no_collectstatic,
-        checks=not args.skip_checks,
-        production_command=args.production_command,
     )
 
 

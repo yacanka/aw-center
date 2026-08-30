@@ -9,8 +9,9 @@ from .process import start
 
 WORKER_COMMAND_PATH = "jobs/management/commands/run_job_worker.py"
 NOTIFICATION_COMMAND_PATH = (
-    "common/management/commands/run_compdoc_notification_worker.py"
+    "compliance/management/commands/run_compdoc_notification_worker.py"
 )
+CLEANUP_COMMAND_PATH = "jobs/management/commands/run_job_cleanup_worker.py"
 
 
 def start_job_workers(
@@ -24,5 +25,14 @@ def start_job_workers(
         workers.append(start(command, project.backend, extra_env=extra_env))
     if (project.backend / NOTIFICATION_COMMAND_PATH).is_file():
         command = [project.python, "manage.py", "run_compdoc_notification_worker"]
+        workers.append(start(command, project.backend, extra_env=extra_env))
+    if (project.backend / CLEANUP_COMMAND_PATH).is_file():
+        command = [
+            project.python,
+            "manage.py",
+            "run_job_cleanup_worker",
+            "--poll-interval",
+            "300",
+        ]
         workers.append(start(command, project.backend, extra_env=extra_env))
     return workers

@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 import json
+import io
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
 
 from scripts.launcher.cli import build_parser, project_path
 from scripts.launcher.dependencies import install_backend
-from scripts.launcher.discovery import discover_project, infer_wsgi_application
+from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError, Project, Scope
-from scripts.launcher.packaging import package_offline
+from scripts.launcher.offline_manifest import verify_offline_manifest, write_offline_manifest
+from scripts.launcher.packaging import package_offline, write_zip
 from scripts.launcher.runtime import (
     dev,
     frontend_env,
-    production_argv,
-    production_env,
-    prepare_production,
     runtime_env,
+    test as run_repository_tests,
 )
 
 
@@ -46,6 +47,9 @@ def create_sensitive_runtime_files(project: Project) -> None:
     runtime_file = project.root / ".runtime/state.txt"
     runtime_file.parent.mkdir()
     runtime_file.write_text("state", encoding="utf-8")
+    backup_file = project.root / "backups/production.dump"
+    backup_file.parent.mkdir()
+    backup_file.write_text("database-secret", encoding="utf-8")
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -58,13 +62,6 @@ class DiscoveryTests(unittest.TestCase):
             actual = discover_project(expected.root)
         self.assertEqual(actual.manage_py.name, "manage.py")
         self.assertEqual(actual.package_json.parent.name, "frontend")
-
-    def test_wsgi_application_is_inferred_from_manage_py(self) -> None:
-        """Production should derive its WSGI import instead of hard-coding a project."""
-        with tempfile.TemporaryDirectory() as temporary:
-            project = create_project(Path(temporary))
-            self.assertEqual(infer_wsgi_application(project), "demo.wsgi:application")
-
 
 class DependencyTests(unittest.TestCase):
     """Validate explicit online and offline dependency behavior."""
@@ -114,27 +111,6 @@ class RuntimeTests(unittest.TestCase):
             "VITE_API_URL": "http://127.0.0.1:8000"
         })
 
-    def test_production_selects_repository_profile_when_available(self) -> None:
-        """Production must not inherit development values from backend/.env."""
-        with tempfile.TemporaryDirectory() as temporary:
-            project = create_project(Path(temporary))
-            (project.backend / ".env.production").write_text("DEBUG=False\n", encoding="utf-8")
-            values = production_env(project, "127.0.0.1", 8000)
-        self.assertEqual(values["AWCENTER_ENV_FILE"], ".env.production")
-
-    @mock.patch("scripts.launcher.runtime.run_script")
-    @mock.patch("scripts.launcher.runtime.django")
-    def test_production_migrates_before_final_schema_check(
-        self, django_mock: mock.Mock, _: mock.Mock
-    ) -> None:
-        """An explicit migration must run before the clean-schema gate."""
-        with tempfile.TemporaryDirectory() as temporary:
-            project = create_project(Path(temporary))
-            prepare_production(project, {}, True, False, False, True)
-        commands = [call.args[1] for call in django_mock.call_args_list]
-        self.assertEqual(commands[1], ["migrate", "--noinput"])
-        self.assertEqual(commands[2], ["migrate", "--check"])
-
     @mock.patch("scripts.launcher.runtime.supervise")
     @mock.patch("scripts.launcher.runtime.start")
     @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
@@ -155,19 +131,23 @@ class RuntimeTests(unittest.TestCase):
                 frontend_port=5173, no_backend_reload=False, migrate=False)
         django_mock.assert_not_called()
 
-    def test_custom_production_command_expands_safe_placeholders(self) -> None:
-        """A configured server command should be tokenized without a shell."""
+    @mock.patch("scripts.launcher.runtime.run")
+    @mock.patch("scripts.launcher.runtime.django")
+    @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
+    def test_backend_gate_includes_launcher_regressions(
+        self, _environment: mock.Mock, django_mock: mock.Mock, run_mock: mock.Mock
+    ) -> None:
+        """The public test command must validate its own orchestration layer."""
+
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary))
-            command = production_argv(
-                project,
-                "0.0.0.0",
-                9000,
-                "{python} -m waitress --call {wsgi} --port {port}",
-            )
-        self.assertEqual(command[0], str(project.python))
-        self.assertIn("demo.wsgi:application", command)
-        self.assertIn("9000", command)
+            run_repository_tests(project, Scope(frontend=False))
+
+        django_mock.assert_called_once_with(project, ["test"])
+        command, cwd = run_mock.call_args.args
+        self.assertEqual(command[:3], [project.python, "-m", "unittest"])
+        self.assertIn("scripts.test_launcher_jobs", command)
+        self.assertEqual(cwd, project.root)
 
 
 class PackagingTests(unittest.TestCase):
@@ -179,8 +159,14 @@ class PackagingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary))
             create_sensitive_runtime_files(project)
-            names_to_track = ("requirements.txt", "backend/manage.py", "frontend/package.json",
-                              ".env", ".runtime/state.txt")
+            names_to_track = (
+                "requirements.txt",
+                "backend/manage.py",
+                "frontend/package.json",
+                ".env",
+                ".runtime/state.txt",
+                "backups/production.dump",
+            )
             git_mock.return_value = [Path(name) for name in names_to_track]
             output = project.root / "bundle.zip"
             package_offline(project, Scope(), project.root / "offline", output, include_packages=False)
@@ -189,23 +175,74 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("backend/manage.py", names)
         self.assertNotIn(".env", names)
         self.assertNotIn(".runtime/state.txt", names)
+        self.assertNotIn("backups/production.dump", names)
+
+    def test_zip_rejects_symlink_sources(self) -> None:
+        """An untracked symlink cannot exfiltrate a file outside the repository."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            outside = root.parent / f"{root.name}-sensitive.txt"
+            outside.write_text("sensitive", encoding="utf-8")
+            link = root / "leak.txt"
+            link.symlink_to(outside)
+            try:
+                with self.assertRaises(LauncherError):
+                    write_zip(
+                        root / "bundle.zip",
+                        [(link, Path("leak.txt"))],
+                        allowed_roots=(root,),
+                    )
+            finally:
+                outside.unlink(missing_ok=True)
+
+    def test_zip_rejects_archive_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "safe.txt"
+            source.write_text("safe", encoding="utf-8")
+            with self.assertRaises(LauncherError):
+                write_zip(
+                    root / "bundle.zip",
+                    [(source, Path("../escape.txt"))],
+                    allowed_roots=(root,),
+                )
+
+    @mock.patch("scripts.launcher.offline_manifest.git_commit", return_value="abc123")
+    def test_offline_manifest_detects_artifact_tampering(self, _commit: mock.Mock) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            (project.frontend / "package-lock.json").write_text("{}", encoding="utf-8")
+            wheels = project.root / "offline/wheels"
+            wheels.mkdir(parents=True)
+            wheel = wheels / "demo-1-py3-none-any.whl"
+            wheel.write_bytes(b"wheel")
+            write_offline_manifest(project, Scope(), project.root / "offline")
+            verify_offline_manifest(project, Scope(), project.root / "offline")
+            wheel.write_bytes(b"tampered")
+            with self.assertRaises(LauncherError):
+                verify_offline_manifest(project, Scope(), project.root / "offline")
 
 
 class CliTests(unittest.TestCase):
     """Validate the focused public command surface."""
 
     def test_required_commands_and_runtime_parameters_remain_available(self) -> None:
-        """Dev, prod, packaging, and offline preparation must keep their parameters."""
+        """Local, packaging, and offline workflows keep their focused parameters."""
         parser = build_parser()
         development = parser.parse_args(["dev", "--backend-port", "8010", "--migrate"])
-        production = parser.parse_args(["prod", "--no-build", "--backend-port", "9000"])
         package = parser.parse_args(["package-offline", "--ignore-packages"])
         prepare = parser.parse_args(["prepare-offline", "--skip-frontend"])
         self.assertEqual(development.backend_port, 8010)
         self.assertTrue(development.migrate)
-        self.assertTrue(production.no_build)
         self.assertTrue(package.ignore_packages)
         self.assertTrue(prepare.skip_frontend)
+
+    def test_launcher_does_not_supervise_production(self) -> None:
+        """Production lifecycle belongs to the deployment orchestrator."""
+
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            build_parser().parse_args(["prod"])
 
     def test_relative_paths_resolve_from_project_root(self) -> None:
         """Outputs should not depend on the shell's current working directory."""
