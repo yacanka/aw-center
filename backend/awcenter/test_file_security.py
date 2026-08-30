@@ -4,6 +4,7 @@ from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadhandler import StopUpload
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
@@ -14,6 +15,7 @@ from awcenter.file_security import (
     UploadSecurityError,
     validate_uploaded_file,
 )
+from awcenter.upload_handlers import AbsoluteUploadLimitHandler
 
 
 def create_zip_upload(filename: str, entries: dict[str, bytes]) -> SimpleUploadedFile:
@@ -125,6 +127,21 @@ class UploadPolicyTests(SimpleTestCase):
 
         self.assertEqual(raised.exception.get_codes(), "UPLOAD_EMPTY")
 
+    @override_settings(AWCENTER_ABSOLUTE_MAX_UPLOAD_BYTES=6)
+    def test_absolute_handler_counts_all_files_in_one_request(self):
+        """Multiple individually small files cannot bypass the aggregate ceiling."""
+
+        request = type("Request", (), {})()
+        handler = AbsoluteUploadLimitHandler(request)
+        handler.new_file("file", "a.bin", "application/octet-stream", 4)
+        handler.receive_data_chunk(b"1234", 0)
+        handler.new_file("file", "b.bin", "application/octet-stream", 4)
+
+        with self.assertRaises(StopUpload):
+            handler.receive_data_chunk(b"5678", 0)
+
+        self.assertTrue(request.upload_limit_exceeded)
+
 
 class UploadEndpointSecurityTests(TestCase):
     """Prove high-risk upload endpoints invoke the shared validator."""
@@ -140,22 +157,34 @@ class UploadEndpointSecurityTests(TestCase):
         """Every major document bridge rejects spoofed content consistently."""
 
         endpoints = [
-            ("/pdf/split_pdf_zip/", "payload.pdf", "application/pdf"),
-            ("/excel/get_excel_columns/", "payload.xlsx", "application/zip"),
-            ("/word/jobs/analyze/", "payload.docx", "application/zip"),
-            ("/outlook/msg/parse/", "payload.msg", "application/vnd.ms-outlook"),
-            ("/pptxgallery/presentations/upload/", "payload.pptx", "application/zip"),
-            ("/ddf/upload/", "payload.docx", "application/zip"),
-            ("/dcc/upload/", "payload.pdf", "application/pdf"),
-            ("/ozgur/compdocs/upload/", "payload.xlsx", "application/zip"),
-            ("/orgs/upload_people/", "payload.xlsx", "application/zip"),
-            ("/doors/script/", "payload.xlsx", "application/zip"),
-            ("/media-tools/preview/", "payload.mp4", "video/mp4"),
+            ("/api/tools/pdf/split_pdf_zip/", "payload.pdf", "application/pdf"),
+            ("/api/tools/excel/get_excel_columns/", "payload.xlsx", "application/zip"),
+            ("/api/tools/word/jobs/analyze/", "payload.docx", "application/zip"),
+            ("/api/tools/outlook/msg/parse/", "payload.msg", "application/vnd.ms-outlook"),
+            ("/api/tools/presentations/presentations/upload/", "payload.pptx", "application/zip"),
+            ("/api/tools/ddf/upload/", "payload.docx", "application/zip"),
+            (
+                "/api/projects/ozgur/compliance-documents/imports/preview/",
+                "payload.xlsx",
+                "application/zip",
+            ),
+            (
+                "/api/projects/ozgur/organization/people/import/",
+                "payload.xlsx",
+                "application/zip",
+            ),
+            ("/api/integrations/doors/script/", "payload.xlsx", "application/zip"),
+            ("/api/tools/media/preview/", "payload.mp4", "video/mp4"),
         ]
         for path, filename, content_type in endpoints:
             with self.subTest(path=path):
                 upload = SimpleUploadedFile(filename, b"spoofed", content_type=content_type)
-                response = self.client.post(path, {"file": upload}, format="multipart")
+                response = self.client.post(
+                    path,
+                    {"file": upload},
+                    format="multipart",
+                    HTTP_IDEMPOTENCY_KEY=f"invalid-upload-{filename}",
+                )
                 self.assertEqual(response.status_code, 400)
                 self.assertIn(response.json()["code"], self._content_error_codes())
                 self.assertIn("request_id", response.json())
@@ -163,7 +192,7 @@ class UploadEndpointSecurityTests(TestCase):
     def test_missing_upload_has_machine_readable_error(self):
         """Missing multipart fields use the same supportable error contract."""
 
-        response = self.client.post("/pdf/split_pdf_zip/", {}, format="multipart")
+        response = self.client.post("/api/tools/pdf/split_pdf_zip/", {}, format="multipart")
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "UPLOAD_REQUIRED")
@@ -173,7 +202,9 @@ class UploadEndpointSecurityTests(TestCase):
         """The multipart stream is stopped before an oversized body reaches a parser."""
 
         upload = SimpleUploadedFile("report.pdf", b"%PDF-1.7", content_type="application/pdf")
-        response = self.client.post("/pdf/split_pdf_zip/", {"file": upload}, format="multipart")
+        response = self.client.post(
+            "/api/tools/pdf/split_pdf_zip/", {"file": upload}, format="multipart"
+        )
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "UPLOAD_TOO_LARGE")

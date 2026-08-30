@@ -6,14 +6,14 @@ import unicodedata
 
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
-from .models import People
+from .models import Person
 
 
 MAX_QUERY_LENGTH = 100
 MAX_CANDIDATES = 500
 
 
-def rank_people(queryset: QuerySet[People], search_text: str) -> QuerySet[People] | list[People]:
+def rank_people(queryset: QuerySet[Person], search_text: str) -> QuerySet[Person] | list[Person]:
     """Return relevant people ordered by deterministic similarity."""
     query = search_text.strip()
     direct = queryset.filter(_field_filter(query))
@@ -26,7 +26,7 @@ def rank_people(queryset: QuerySet[People], search_text: str) -> QuerySet[People
     return [person for person, _ in accepted]
 
 
-def _rank_direct_matches(queryset: QuerySet[People], query: str) -> QuerySet[People]:
+def _rank_direct_matches(queryset: QuerySet[Person], query: str) -> QuerySet[Person]:
     ranking = Case(
         When(name__iexact=query, then=Value(1040)),
         When(person_id__iexact=query, then=Value(1020)),
@@ -63,7 +63,7 @@ def _candidate_fragments(value: str) -> list[str]:
     return list(dict.fromkeys(fragment for fragment in fragments if len(fragment) >= 2))[:16]
 
 
-def _person_score(person: People, query: str) -> int:
+def _person_score(person: Person, query: str) -> int:
     normalized_query = _normalize(query)
     scores = [
         _field_score(_normalize(person.name), normalized_query, 40),
@@ -98,6 +98,6 @@ def _normalize(value: str) -> str:
     return " ".join("".join(char for char in decomposed if not unicodedata.combining(char)).split())
 
 
-def _result_sort_key(item: tuple[People, int]) -> tuple[int, str, str]:
+def _result_sort_key(item: tuple[Person, int]) -> tuple[int, str, str]:
     person, score = item
     return -score, _normalize(person.name), person.person_id

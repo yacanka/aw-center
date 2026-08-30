@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from awcenter.file_security import OOXML_WORKBOOK_POLICY, validate_request_upload
 from jobs.api import job_creation_response
-from jobs.services import create_job
+from jobs.services import create_job, require_idempotency_key
 from .cover_pages import inspect_workbook_columns
 
 
@@ -13,6 +13,9 @@ from .cover_pages import inspect_workbook_columns
 def create_cover_page_job(request):
     """Validate and enqueue durable cover-page generation."""
 
+    idempotency_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key", "")
+    )
     uploaded_file = validate_request_upload(request, "file", OOXML_WORKBOOK_POLICY)
     _columns, missing = inspect_workbook_columns(uploaded_file)
     if missing:
@@ -23,7 +26,7 @@ def create_cover_page_job(request):
         title=f"Create cover pages from {uploaded_file.name}",
         parameters={},
         uploaded_file=uploaded_file,
-        idempotency_key=request.headers.get("Idempotency-Key", ""),
+        idempotency_key=idempotency_key,
         request_id=getattr(request, "request_id", ""),
     )
     return job_creation_response(job, created)

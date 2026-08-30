@@ -9,7 +9,7 @@ from jobs.services import set_job_state
 from .base import JobTestCase
 from .test_document_jobs import word_upload
 
-WORKFLOW_URL = "/jobs/workflows/"
+WORKFLOW_URL = "/api/workflows/"
 RECIPE = "analyze-outlook-word-attachment"
 OLE_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 

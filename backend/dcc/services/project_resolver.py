@@ -22,8 +22,19 @@ class DccCapabilityMissingError(DccProjectResolutionError):
 
 
 def resolve_project_from_jira_components(components: Iterable[Any]) -> ProjectDefinition:
-    """Return the DCC-capable project definition matching JIRA components."""
+    """Return the first DCC-capable project definition matching JIRA components."""
+
+    return resolve_projects_from_jira_components(components)[0]
+
+
+def resolve_projects_from_jira_components(
+    components: Iterable[Any],
+) -> tuple[ProjectDefinition, ...]:
+    """Return every distinct DCC-capable project represented by JIRA components."""
+
     component_names = tuple(_extract_component_names(components))
+    projects = []
+    seen_slugs = set()
     for component_name in component_names:
         project_definition = find_project_by_jira_component(component_name)
         if project_definition is None:
@@ -32,7 +43,11 @@ def resolve_project_from_jira_components(components: Iterable[Any]) -> ProjectDe
             raise DccCapabilityMissingError(
                 f"Project {project_definition.slug!r} does not support DCC workflows."
             )
-        return project_definition
+        if project_definition.slug not in seen_slugs:
+            seen_slugs.add(project_definition.slug)
+            projects.append(project_definition)
+    if projects:
+        return tuple(projects)
     raise UnknownDccProjectComponentError(
         f"No DCC project is registered for JIRA components: {component_names!r}"
     )

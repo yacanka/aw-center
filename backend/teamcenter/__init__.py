@@ -1,1 +1,0 @@
-"""Teamcenter integration application."""

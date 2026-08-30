@@ -15,17 +15,20 @@ class DocumentAnalysisChecklistApiTests(JobTestCase):
 
         self.client.force_authenticate(user=None)
 
-        self.assertEqual(self.client.get("/word/analysis-checks/").status_code, 401)
+        self.assertEqual(self.client.get("/api/tools/word/analysis-checks/").status_code, 403)
         self.assertEqual(
-            self.client.post("/word/analysis-checks/", {"question": "Private?"}).status_code,
-            401,
+            self.client.post(
+                "/api/tools/word/analysis-checks/", {"question": "Private?"}
+            ).status_code,
+            403,
         )
 
     def test_saved_questions_are_profile_scoped_and_deletable(self):
         """Only the owner can list or delete a profile checklist entry."""
 
         created = self.client.post(
-            "/word/analysis-checks/", {"question": "  Is the hazard log referenced?  "}
+            "/api/tools/word/analysis-checks/",
+            {"question": "  Is the hazard log referenced?  "},
         )
         identifier = created.data["id"]
         self.assertEqual(created.status_code, 201)
@@ -44,11 +47,13 @@ class DocumentAnalysisChecklistApiTests(JobTestCase):
         """Invalid profile data is rejected without replacing saved entries."""
 
         first = self.client.post(
-            "/word/analysis-checks/", {"question": "Is the source identified?"}
+            "/api/tools/word/analysis-checks/", {"question": "Is the source identified?"}
         )
-        blank = self.client.post("/word/analysis-checks/", {"question": "   "})
+        blank = self.client.post(
+            "/api/tools/word/analysis-checks/", {"question": "   "}
+        )
         duplicate = self.client.post(
-            "/word/analysis-checks/", {"question": "is the source identified?"}
+            "/api/tools/word/analysis-checks/", {"question": "is the source identified?"}
         )
 
         self.assertEqual(first.status_code, 201)
@@ -61,7 +66,7 @@ class DocumentAnalysisChecklistApiTests(JobTestCase):
 
         self.save_question("Is the source identified?")
 
-        response = self.client.post("/auth/preferences/reset/")
+        response = self.client.post("/api/users/preferences/reset/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.checklist(), [])
@@ -70,7 +75,8 @@ class DocumentAnalysisChecklistApiTests(JobTestCase):
         """Profile checklist limits bound storage and analyzer work."""
 
         oversized = self.client.post(
-            "/word/analysis-checks/", {"question": "x" * (MAX_QUESTION_LENGTH + 1)}
+            "/api/tools/word/analysis-checks/",
+            {"question": "x" * (MAX_QUESTION_LENGTH + 1)},
         )
         for index in range(MAX_CUSTOM_CHECKS):
             self.assertEqual(self.save_response(f"Question {index}?").status_code, 201)
@@ -108,7 +114,7 @@ class DocumentAnalysisChecklistApiTests(JobTestCase):
     def checklist(self):
         """Return the current authenticated user's checklist payload."""
 
-        return self.client.get("/word/analysis-checks/").data["results"]
+        return self.client.get("/api/tools/word/analysis-checks/").data["results"]
 
     def save_question(self, question):
         """Create one saved question and return its response payload."""
@@ -118,19 +124,22 @@ class DocumentAnalysisChecklistApiTests(JobTestCase):
     def save_response(self, question):
         """Create one saved question and return the full API response."""
 
-        return self.client.post("/word/analysis-checks/", {"question": question})
+        return self.client.post(
+            "/api/tools/word/analysis-checks/", {"question": question}
+        )
 
     def enqueue(self, check_ids):
         """Queue analysis with the supplied checklist identifiers."""
 
         return self.client.post(
-            "/word/jobs/analyze/",
+            "/api/tools/word/jobs/analyze/",
             {"file": word_upload(), "check_ids": json.dumps(check_ids)},
             format="multipart",
+            HTTP_IDEMPOTENCY_KEY="analysis-custom-" + "-".join(check_ids),
         )
 
     @staticmethod
     def detail_url(identifier):
         """Return the owner-scoped custom check detail endpoint."""
 
-        return f"/word/analysis-checks/{identifier}/"
+        return f"/api/tools/word/analysis-checks/{identifier}/"

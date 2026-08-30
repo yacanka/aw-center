@@ -20,7 +20,7 @@ class WorkflowRecoveryTests(JobTestCase):
 
         for index in range(5):
             self.client.post(
-                "/jobs/workflows/",
+                "/api/workflows/",
                 {"recipe": RECIPE, "translate_type": "tr2en", "file": word_upload()},
                 format="multipart", HTTP_IDEMPOTENCY_KEY=f"workflow-query-{index}",
             )

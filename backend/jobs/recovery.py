@@ -1,4 +1,5 @@
 RECOVERY_HINTS = {
+    "RECONCILIATION_REQUIRED": "Verify the external system before deciding whether to submit a new write.",
     "WORD_MODEL_UNAVAILABLE": "Ask an administrator to deploy the configured local translation model, then retry.",
     "WORD_ANALYZER_MODEL_UNAVAILABLE": "Ask an administrator to deploy both configured analyzer models, then retry.",
     "WORD_ANALYZER_EXECUTION_FAILED": "Verify the local analyzer runtime and model health, then retry.",

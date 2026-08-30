@@ -1,162 +1,44 @@
-"""Tests for the project registry metadata."""
+"""Tests for the technical project capability catalog."""
 
-from importlib import import_module
 from types import MappingProxyType
 from unittest import TestCase
 
 from .registry import (
+    GOKBEY_DCC_CONTROLLER,
     PROJECT_DEFINITIONS,
     UnknownProjectDefinitionError,
     find_project_by_jira_component,
-    get_enabled_project_definitions,
     get_project_definition,
     get_project_definitions_by_capability,
 )
 
 
 class ProjectRegistryTests(TestCase):
-    """Validate required project registry invariants."""
-
-    def test_registry_contains_expected_project_definitions(self):
-        """Registry includes the known project applications."""
-        expected_slugs = {
-            "ozgur",
-            "piku",
-            "aesa",
-            "havasoj",
-            "hys",
-            "blok30",
-            "blok4050",
-            "gokbey",
-        }
-
-        self.assertEqual(set(PROJECT_DEFINITIONS), expected_slugs)
-
-    def test_registry_is_read_only(self):
-        """Registry mapping cannot be modified at runtime."""
+    def test_catalog_contains_exact_first_production_projects(self):
+        self.assertEqual(
+            set(PROJECT_DEFINITIONS),
+            {"ozgur", "piku", "aesa", "havasoj", "hys", "blok30", "blok4050", "gokbey"},
+        )
         self.assertIsInstance(PROJECT_DEFINITIONS, MappingProxyType)
 
-        with self.assertRaises(TypeError):
-            PROJECT_DEFINITIONS["temporary"] = PROJECT_DEFINITIONS["ozgur"]
+    def test_catalog_exposes_only_technical_metadata(self):
+        forbidden = {"display_name", "enabled", "app_label", "url_prefix", "tags"}
+        for definition in PROJECT_DEFINITIONS.values():
+            self.assertTrue(definition.capabilities)
+            self.assertTrue(definition.jira_component)
+            self.assertTrue(forbidden.isdisjoint(vars(definition)))
 
-    def test_registry_definitions_have_required_metadata(self):
-        """Every project definition includes required metadata."""
-        for slug, definition in PROJECT_DEFINITIONS.items():
-            with self.subTest(slug=slug):
-                self.assertEqual(definition.slug, slug)
-                self.assertTrue(definition.display_name)
-                self.assertTrue(definition.app_label)
-                self.assertTrue(definition.url_prefix)
-                self.assertTrue(definition.capabilities)
-                self.assertTrue(definition.tags)
-
-    def test_dcc_project_definitions_have_dcc_metadata(self):
-        """Every DCC-capable project includes DCC-safe identifiers."""
-        for slug, definition in PROJECT_DEFINITIONS.items():
-            with self.subTest(slug=slug):
-                self.assertIn("dcc", definition.capabilities)
-                self.assertTrue(definition.jira_component)
-                self.assertTrue(definition.dcc_label)
-                self.assertTrue(definition.dcc_template_name)
-                self.assertTrue(definition.mail_template_name)
-
-    def test_inactive_projects_are_disabled(self):
-        """Inactive project applications stay disabled in the registry."""
-        self.assertFalse(PROJECT_DEFINITIONS["blok4050"].enabled)
-        self.assertFalse(PROJECT_DEFINITIONS["gokbey"].enabled)
-
-    def test_get_project_definition_returns_registered_definition(self):
-        """Slug lookup is case-insensitive and ignores surrounding whitespace."""
-        definition = get_project_definition(" OZGUR ")
-
-        self.assertEqual(definition.slug, "ozgur")
-
-    def test_get_project_definition_raises_for_unknown_slug(self):
-        """Unknown required project slugs fail with a controlled exception."""
+    def test_lookup_and_capability_filter_are_explicit(self):
+        self.assertEqual(get_project_definition(" OZGUR ").slug, "ozgur")
         with self.assertRaises(UnknownProjectDefinitionError):
             get_project_definition("unknown")
-
-    def test_get_enabled_project_definitions_excludes_disabled_projects(self):
-        """Enabled project lookup returns only active registry entries."""
-        enabled_slugs = {
-            definition.slug for definition in get_enabled_project_definitions()
-        }
-
-        self.assertIn("ozgur", enabled_slugs)
-        self.assertNotIn("blok4050", enabled_slugs)
-        self.assertNotIn("gokbey", enabled_slugs)
-
-    def test_get_project_definitions_by_capability_returns_enabled_matches(self):
-        """Capability lookup returns enabled projects only."""
-        dcc_slugs = {
-            definition.slug
-            for definition in get_project_definitions_by_capability(" DCC ")
-        }
-
-        self.assertIn("piku", dcc_slugs)
-        self.assertNotIn("gokbey", dcc_slugs)
-
-    def test_find_project_by_jira_component_returns_enabled_match(self):
-        """JIRA component lookup is case-insensitive and enabled-only."""
-        definition = find_project_by_jira_component(" aesa ")
-
-        self.assertIsNotNone(definition)
-        self.assertEqual(definition.slug, "aesa")
-
-    def test_find_project_by_jira_component_returns_none_for_unknown_component(self):
-        """Unknown or disabled JIRA components use an explicit None strategy."""
+        self.assertEqual(
+            {item.slug for item in get_project_definitions_by_capability(" DCC ")},
+            set(PROJECT_DEFINITIONS),
+        )
+        self.assertEqual(find_project_by_jira_component(" aesa ").slug, "aesa")
         self.assertIsNone(find_project_by_jira_component("unknown"))
-        self.assertIsNone(find_project_by_jira_component("GOKBEY"))
-
-    def test_registry_app_labels_expose_importable_url_modules(self):
-        """Enabled project app labels resolve to URL modules during routing setup."""
-        for definition in get_enabled_project_definitions():
-            with self.subTest(slug=definition.slug):
-                import_module(f"{definition.app_label}.urls")
-
-    def test_get_project_urlpatterns_excludes_disabled_projects(self):
-        """Project route helper emits URL patterns only for enabled projects."""
-        from .routing import get_project_urlpatterns
-
-        route_names = {str(pattern.pattern) for pattern in get_project_urlpatterns()}
-
-        self.assertIn("ozgur/", route_names)
-        self.assertIn("blok30/", route_names)
-        self.assertNotIn("blok4050/", route_names)
-        self.assertNotIn("gokbey/", route_names)
-
-    def test_root_urlpatterns_include_enabled_project_prefixes(self):
-        """Root routing preserves active project URL prefixes from the registry."""
-        from awcenter.urls import urlpatterns
-
-        route_names = {str(pattern.pattern) for pattern in urlpatterns}
-        enabled_routes = {
-            f"{definition.url_prefix}/"
-            for definition in get_enabled_project_definitions()
-        }
-
-        self.assertTrue(enabled_routes.issubset(route_names))
-
-    def test_root_urlpatterns_exclude_disabled_project_prefixes(self):
-        """Disabled registry projects are not exposed through the root router."""
-        from awcenter.urls import urlpatterns
-
-        route_names = {str(pattern.pattern) for pattern in urlpatterns}
-        disabled_routes = {
-            f"{definition.url_prefix}/"
-            for definition in PROJECT_DEFINITIONS.values()
-            if not definition.enabled
-        }
-
-        self.assertTrue(disabled_routes.isdisjoint(route_names))
-
-    def test_root_urlpatterns_keep_non_project_routes(self):
-        """Registry routing does not change non-project application URL prefixes."""
-        from awcenter.urls import urlpatterns
-
-        route_names = {str(pattern.pattern) for pattern in urlpatterns}
-
-        self.assertIn("dcc/", route_names)
-        self.assertIn("auth/", route_names)
-        self.assertIn("orgs/", route_names)
-        self.assertIn("doors/", route_names)
+        self.assertEqual(
+            PROJECT_DEFINITIONS["gokbey"].dcc_controller,
+            GOKBEY_DCC_CONTROLLER,
+        )

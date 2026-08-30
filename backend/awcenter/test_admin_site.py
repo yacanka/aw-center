@@ -1,53 +1,57 @@
-"""Tests for AW Center Django admin site behavior."""
+"""Tests for the canonical AW Center Django admin surface."""
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, SimpleTestCase
 from django.urls import reverse
 
-from awcenter.admin import PROJECTS_ADMIN_APP_LABEL
+
+LEGACY_PROJECT_APP_LABELS = {
+    "aesa",
+    "blok30",
+    "blok4050",
+    "gokbey",
+    "hys",
+    "ozgur",
+    "piku",
+    "tb2",
+}
 
 
-class ProjectAdminGroupingTests(SimpleTestCase):
-    """Verify project models are displayed under one admin section."""
+class CanonicalAdminTests(SimpleTestCase):
+    """Keep project data and compliance documents in their canonical apps."""
 
     def setUp(self):
-        """Create a staff superuser request for admin app-list checks."""
         user_model = get_user_model()
-        self.request = RequestFactory().get('/admin/')
+        self.request = RequestFactory().get("/admin/")
         self.request.user = user_model(is_staff=True, is_superuser=True)
 
-    def test_project_apps_are_grouped_under_projects(self):
-        """Project-specific apps are hidden behind one Projects section."""
+    def test_admin_uses_canonical_organization_and_compliance_apps(self):
         app_list = admin.site.get_app_list(self.request)
-        app_labels = {app['app_label'] for app in app_list}
-        projects_app = self._get_projects_app(app_list)
-        model_names = {model['name'] for model in projects_app['models']}
+        app_labels = {app["app_label"] for app in app_list}
 
-        self.assertIn(PROJECTS_ADMIN_APP_LABEL, app_labels)
-        self.assertNotIn('aesa', app_labels)
-        self.assertNotIn('ozgur', app_labels)
-        self.assertIn('Aesa Comp docs', model_names)
-        self.assertIn('Ozgur Comp docs', model_names)
+        self.assertIn("orgs", app_labels)
+        self.assertIn("compliance", app_labels)
+        self.assertTrue(LEGACY_PROJECT_APP_LABELS.isdisjoint(app_labels))
 
-    def test_projects_app_index_returns_only_projects_section(self):
-        """Synthetic Projects admin index returns grouped project models only."""
-        projects_app_list = admin.site.get_app_list(
-            self.request, app_label=PROJECTS_ADMIN_APP_LABEL
-        )
+    def test_project_and_role_management_are_exposed_by_orgs(self):
+        orgs_app = self._get_app("orgs")
+        object_names = {model["object_name"] for model in orgs_app["models"]}
 
-        self.assertEqual(len(projects_app_list), 1)
-        self.assertEqual(projects_app_list[0]['app_label'], PROJECTS_ADMIN_APP_LABEL)
-        self.assertTrue(projects_app_list[0]['models'])
+        self.assertIn("Project", object_names)
+        self.assertIn("ProjectRoleAssignment", object_names)
+        self.assertEqual(orgs_app["app_url"], reverse("admin:app_list", args=("orgs",)))
 
-    def test_projects_app_url_is_reversible(self):
-        """Projects admin section has a dedicated synthetic app URL."""
-        projects_app = self._get_projects_app(admin.site.get_app_list(self.request))
+    def test_compliance_documents_are_exposed_by_compliance(self):
+        compliance_app = self._get_app("compliance")
+        object_names = {model["object_name"] for model in compliance_app["models"]}
 
-        self.assertEqual(projects_app['app_url'], reverse('admin:projects_app_list'))
+        self.assertIn("ComplianceDocument", object_names)
+        self.assertIn("WorkflowEvent", object_names)
 
-    def _get_projects_app(self, app_list):
-        """Return the synthetic Projects app from an admin app list."""
+    def _get_app(self, app_label):
         return next(
-            app for app in app_list if app['app_label'] == PROJECTS_ADMIN_APP_LABEL
+            app
+            for app in admin.site.get_app_list(self.request)
+            if app["app_label"] == app_label
         )

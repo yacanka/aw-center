@@ -1,92 +1,30 @@
-import hashlib
-import re
+import logging
 
-from django.core.files import File
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import ValidationError
 
-from .models import Job, JobEvent, JobStatus
+from .models import Job, JobStatus
+from .persistence import (
+    IdempotencyConflict,
+    calculate_upload_sha256,
+    create_job,
+    create_job_record,
+    find_idempotent_job,
+    persist_job,
+    record_event,
+    require_idempotency_key,
+    validate_idempotency_key,
+    verify_idempotent_request,
+)
 
-IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
-TERMINAL_STATUSES = {JobStatus.CANCELLED, JobStatus.SUCCEEDED, JobStatus.FAILED}
-
-
-class IdempotencyConflict(APIException):
-    """Reject reuse of one idempotency key for a different operation."""
-
-    status_code = 409
-    default_code = "IDEMPOTENCY_CONFLICT"
-    default_detail = "The idempotency key was already used with different input."
-
-
-def create_job(
-    owner, kind, title, parameters, uploaded_file, idempotency_key="", request_id="",
-    source_job=None, workflow_run=None, workflow_step=None,
-):
-    """Create an owned durable job and persist its validated input."""
-
-    normalized_key = validate_idempotency_key(idempotency_key)
-    digest = calculate_upload_sha256(uploaded_file)
-    existing = find_idempotent_job(owner, kind, normalized_key)
-    if existing:
-        verify_idempotent_request(existing, digest, parameters)
-        return existing, False
-    job, created = persist_job(
-        owner, kind, title, parameters, uploaded_file, digest, normalized_key, request_id,
-        source_job, workflow_run, workflow_step,
-    )
-    if not created:
-        verify_idempotent_request(job, digest, parameters)
-        return job, False
-    record_event(job, "Job queued.")
-    return job, True
-
-
-def persist_job(
-    owner, kind, title, parameters, upload, digest, key, request_id,
-    source_job=None, workflow_run=None, workflow_step=None,
-):
-    """Persist job metadata and its input artifact."""
-
-    job = None
-    try:
-        with transaction.atomic():
-            job = create_job_record(
-                owner, kind, title, parameters, upload.name, digest, key, request_id,
-                source_job, workflow_run, workflow_step,
-            )
-            job.input_file.save(upload.name, upload, save=True)
-        return job, True
-    except IntegrityError:
-        if not key:
-            raise
-        return Job.objects.get(owner=owner, kind=kind, idempotency_key=key), False
-    except Exception:
-        if job and job.input_file.name:
-            job.input_file.storage.delete(job.input_file.name)
-        raise
-
-
-def create_job_record(
-    owner, kind, title, parameters, input_name, digest, key, request_id,
-    source_job=None, workflow_run=None, workflow_step=None,
-):
-    """Create one job metadata row before its input artifact is committed."""
-
-    return Job.objects.create(
-        owner=owner,
-        kind=kind,
-        title=title,
-        parameters=parameters,
-        input_name=input_name,
-        input_sha256=digest,
-        idempotency_key=key,
-        request_id=request_id,
-        source_job=source_job,
-        workflow_run=workflow_run,
-        workflow_step=workflow_step,
-    )
+TERMINAL_STATUSES = {
+    JobStatus.CANCELLED,
+    JobStatus.SUCCEEDED,
+    JobStatus.FAILED,
+    JobStatus.RECONCILIATION_REQUIRED,
+}
+logger = logging.getLogger(__name__)
 
 
 def request_cancellation(job):
@@ -106,68 +44,47 @@ def request_cancellation(job):
         return locked
 
 
-def retry_job(job):
-    """Create or replay the single direct retry of one failed attempt."""
-
-    with transaction.atomic():
-        locked = Job.objects.select_for_update().get(pk=job.pk)
-        existing = locked.retry_attempts.order_by("created_at").first()
-        if existing:
-            return existing, False
-        validate_retry(locked)
-        locked.retryable = False
-        locked.save(update_fields=["retryable", "updated_at"])
-        retried = clone_job(locked)
-    record_event(retried, f"Retry queued from attempt {locked.attempt}.")
-    notify_workflow(retried)
-    return retried, True
-
-
-def validate_retry(job):
-    """Reject a retry that violates terminal state or attempt policy."""
-
-    if job.status not in {JobStatus.FAILED, JobStatus.CANCELLED}:
-        raise ValidationError({"status": "Only failed or cancelled jobs can be retried."})
-    if not job.retryable:
-        raise ValidationError({"status": "This failure requires corrected input instead of retry."})
-    if job.attempt >= job.max_attempts:
-        raise ValidationError({"attempt": "Maximum retry count has been reached."})
-
-
-def clone_job(job):
-    """Copy retry-safe metadata and stream the original input into a new job."""
-
-    clone = Job.objects.create(
-        owner=job.owner, kind=job.kind, title=job.title, parameters=job.parameters,
-        input_name=job.input_name, input_sha256=job.input_sha256,
-        result_summary={},
-        retryable=True,
-        attempt=job.attempt + 1, max_attempts=job.max_attempts,
-        retry_of=job, source_job=job.source_job, request_id=job.request_id,
-        workflow_run=job.workflow_run, workflow_step=job.workflow_step,
-    )
-    try:
-        with job.input_file.open("rb") as source:
-            clone.input_file.save(job.input_name, File(source), save=True)
-    except Exception:
-        clone.delete()
-        raise
-    return clone
-
-
 def set_job_state(job, status, progress, message, code=""):
     """Persist a bounded job state and append its audit event."""
 
+    worker_id = job.worker_id
+    execution_id = str(job.execution_token or "")
     job.status = status
     job.progress = max(0, min(100, int(progress)))
     job.message = str(message)[:500]
     job.error_code = str(code)[:64]
+    if status not in {JobStatus.RUNNING, JobStatus.CANCEL_REQUESTED}:
+        job.execution_token = None
+    if status in {JobStatus.AWAITING_CONFIRMATION, JobStatus.QUEUED}:
+        job.lease_expires_at = None
+        job.worker_id = ""
     if status in TERMINAL_STATUSES:
         job.completed_at = timezone.now()
         job.lease_expires_at = None
         job.worker_id = ""
     job.save()
     record_event(job, job.message, code)
+    if status in TERMINAL_STATUSES:
+        duration_ms = None
+        if job.started_at and job.completed_at:
+            duration_ms = max(
+                0,
+                round((job.completed_at - job.started_at).total_seconds() * 1000),
+            )
+        logger.info(
+            "Job reached a terminal state",
+            extra={
+                "event": "job_terminal",
+                "job_id": str(job.id),
+                "job_kind": job.kind,
+                "attempt": job.attempt,
+                "terminal_code": job.error_code or status,
+                "worker_id": worker_id,
+                "execution_id": execution_id,
+                "duration_ms": duration_ms,
+                "request_id": job.request_id or "-",
+            },
+        )
     notify_workflow(job)
 
 
@@ -179,46 +96,3 @@ def notify_workflow(job):
     from .workflow_services import synchronize_workflow_job
 
     synchronize_workflow_job(job)
-
-
-def record_event(job, message, code="", details=None):
-    """Append one sanitized immutable event for a job."""
-
-    return JobEvent.objects.create(
-        job=job, status=job.status, progress=job.progress,
-        message=str(message)[:500], code=str(code)[:64], details=details or {},
-    )
-
-
-def calculate_upload_sha256(uploaded_file):
-    """Calculate a streaming SHA-256 digest without retaining upload bytes."""
-
-    digest = hashlib.sha256()
-    for chunk in uploaded_file.chunks():
-        digest.update(chunk)
-    uploaded_file.seek(0)
-    return digest.hexdigest()
-
-
-def validate_idempotency_key(value):
-    """Validate an optional caller-provided idempotency key."""
-
-    normalized = str(value or "").strip()
-    if normalized and not IDEMPOTENCY_PATTERN.fullmatch(normalized):
-        raise ValidationError({"idempotency_key": "Use 8-128 safe ASCII characters."})
-    return normalized
-
-
-def find_idempotent_job(owner, kind, key):
-    """Return an existing idempotent request when one is available."""
-
-    if not key:
-        return None
-    return Job.objects.filter(owner=owner, kind=kind, idempotency_key=key).first()
-
-
-def verify_idempotent_request(job, digest, parameters):
-    """Ensure an idempotency replay represents exactly the original request."""
-
-    if job.input_sha256 != digest or job.parameters != parameters:
-        raise IdempotencyConflict()

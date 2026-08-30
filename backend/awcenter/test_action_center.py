@@ -6,9 +6,10 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from common.models import CompDocImportAudit
+from compliance.models import ImportAudit
 from dcc.issue_draft_models import JiraIssueDraft, JiraIssueDraftStatus
 from jobs.models import Job, JobStatus
+from orgs.models import Project, ProjectRoleAssignment
 from users.models import UserInvitation
 
 User = get_user_model()
@@ -33,24 +34,27 @@ class ActionCenterTests(TestCase):
         retried = create_failed_job(self.user, "Already retried")
         create_job(self.user, "Retry attempt", JobStatus.SUCCEEDED, retry_of=retried)
 
-        response = self.client.get("/action-center/")
+        response = self.client.get("/api/attention/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["summary"], {"total": 1, "critical": 1, "warning": 0})
         self.assertEqual(response.data["items"][0]["id"], f"job:{visible.pk}")
         self.assertNotIn("input_file", str(response.data))
 
-    def test_imports_require_permission_and_critical_items_rank_first(self):
-        """Audit signals obey model permission and deterministic severity ranking."""
+    def test_imports_require_project_role_and_critical_items_rank_first(self):
+        """Audit signals obey project roles and deterministic severity ranking."""
 
         create_failed_job(self.user, "Critical job")
         audit = create_partial_audit()
-        denied = self.client.get("/action-center/")
-        self.user.user_permissions.add(
-            Permission.objects.get(codename="view_compdocimportaudit")
+        denied = self.client.get("/api/attention/")
+        grant_project_role(
+            self.user,
+            audit.project,
+            ProjectRoleAssignment.Domain.COMPLIANCE,
+            ProjectRoleAssignment.Role.VIEWER,
         )
         self.reload_authenticated_user()
-        allowed = self.client.get("/action-center/")
+        allowed = self.client.get("/api/attention/")
 
         self.assertEqual([item["kind"] for item in denied.data["items"]], ["job"])
         self.assertEqual([item["kind"] for item in allowed.data["items"]], ["job", "import"])
@@ -61,12 +65,12 @@ class ActionCenterTests(TestCase):
         """Invitation warnings mirror the staff and add-user permission boundary."""
 
         invitation = create_expiring_invitation(self.user)
-        denied = self.client.get("/action-center/")
+        denied = self.client.get("/api/attention/")
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
         self.user.user_permissions.add(Permission.objects.get(codename="add_user"))
         self.reload_authenticated_user()
-        allowed = self.client.get("/action-center/")
+        allowed = self.client.get("/api/attention/")
 
         self.assertEqual(denied.data["summary"]["total"], 0)
         self.assertEqual(allowed.data["items"][0]["id"], f"invitation:{invitation.pk}")
@@ -78,10 +82,16 @@ class ActionCenterTests(TestCase):
 
         source = create_job(self.user, "Analysis", JobStatus.SUCCEEDED)
         draft = create_jira_draft(self.user, source, JiraIssueDraftStatus.FAILED)
+        grant_project_role(
+            self.user,
+            draft.projects.get(),
+            ProjectRoleAssignment.Domain.DCC,
+            ProjectRoleAssignment.Role.VIEWER,
+        )
         other_source = create_job(self.other, "Private analysis", JobStatus.SUCCEEDED)
         create_jira_draft(self.other, other_source, JiraIssueDraftStatus.APPROVED)
 
-        response = self.client.get("/action-center/")
+        response = self.client.get("/api/attention/")
 
         self.assertEqual(response.data["summary"], {"total": 1, "critical": 1, "warning": 0})
         self.assertEqual(response.data["items"][0]["id"], f"jira-draft:{draft.pk}")
@@ -98,8 +108,8 @@ class ActionCenterTests(TestCase):
         create_partial_audit()
         create_expiring_invitation(self.user)
 
-        with self.assertNumQueries(14):
-            response = self.client.get("/action-center/")
+        with self.assertNumQueries(9):
+            response = self.client.get("/api/attention/")
 
         self.assertEqual(response.data["summary"]["total"], 3)
 
@@ -134,15 +144,15 @@ def create_job(owner, title, status, **values):
 def create_partial_audit():
     """Create one recent import audit requiring review."""
 
-    return CompDocImportAudit.objects.create(
-        project_slug="ozgur",
+    return ImportAudit.objects.create(
+        project=Project.objects.get(slug="ozgur"),
         source_filename="compdocs.xlsx",
+        source_size=1024,
         source_sha256="b" * 64,
-        imported_by_username="importer",
         total_rows=4,
         created_count=3,
         rejected_count=1,
-        status=CompDocImportAudit.Status.PARTIAL,
+        status=ImportAudit.Status.PARTIAL,
     )
 
 
@@ -160,8 +170,21 @@ def create_expiring_invitation(creator):
 def create_jira_draft(owner, source_job, status):
     """Create one minimal unresolved bridge draft without private report content."""
 
-    return JiraIssueDraft.objects.create(
+    draft = JiraIssueDraft.objects.create(
         owner=owner, source_job=source_job, project_key="CHN", summary="Review analysis",
         description="Private findings", status=status, marker_label=f"aw-center-{source_job.pk.hex}",
         approved_at=timezone.now(), last_error_code="JIRA_DRAFT_PUBLISH_FAILED",
+    )
+    draft.projects.add(Project.objects.get(slug="ozgur"))
+    return draft
+
+
+def grant_project_role(user, project, domain, role):
+    """Grant one explicit project role used by attention authorization tests."""
+
+    return ProjectRoleAssignment.objects.create(
+        user=user,
+        project=project,
+        domain=domain,
+        role=role,
     )

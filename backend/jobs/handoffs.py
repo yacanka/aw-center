@@ -1,18 +1,15 @@
-"""Allowlisted server-side handoffs between compatible durable jobs."""
+"""Generic, persisted workflow artifact transitions for the durable job kernel."""
 
 import secrets
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 from django.core.files import File
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException, ValidationError
 
-from awcenter.file_security import UploadPolicy, WORD_DOCUMENT_POLICY, validate_uploaded_file
-from word.analysis_contracts import ANALYSIS_CHECKS
+from awcenter.file_security import UploadPolicy, validate_uploaded_file
 
 from .models import JobStatus
-from .services import calculate_upload_sha256, create_job, record_event
+from .persistence import calculate_upload_sha256, create_job, record_event
 
 
 class JobOutputIntegrityError(APIException):
@@ -23,101 +20,120 @@ class JobOutputIntegrityError(APIException):
     default_detail = "The completed output failed its integrity check and cannot be reused."
 
 
-@dataclass(frozen=True)
-class JobHandoffDefinition:
-    """Describe one safe source-to-target job transition."""
+def create_handoff_job(
+    source_job,
+    definition,
+    request_id="",
+    workflow_run=None,
+    workflow_step=None,
+):
+    """Verify and reuse output according to a server-persisted workflow definition."""
 
-    identifier: str
-    source_kind: str
-    target_kind: str
-    label: str
-    description: str
-    extensions: frozenset[str]
-    upload_policy: UploadPolicy
-    parameters: Callable[[], dict]
-
-
-def analysis_parameters():
-    """Return a fresh default explainable-analysis checklist."""
-
-    return {"check_ids": list(ANALYSIS_CHECKS)}
-
-
-ANALYZE_TRANSLATION = JobHandoffDefinition(
-    identifier="analyze-translated-document",
-    source_kind="word.translate",
-    target_kind="word.analyze",
-    label="Analyze translated document",
-    description="Reuse this private Word output for explainable compliance checks.",
-    extensions=frozenset({".docx"}),
-    upload_policy=WORD_DOCUMENT_POLICY,
-    parameters=analysis_parameters,
-)
-ANALYZE_OUTLOOK_ATTACHMENT = JobHandoffDefinition(
-    identifier="analyze-outlook-word-attachment",
-    source_kind="outlook.extract_word_attachment",
-    target_kind="word.analyze",
-    label="Analyze extracted Word attachment",
-    description="Run explainable checks on the verified private Outlook attachment.",
-    extensions=frozenset({".docx"}),
-    upload_policy=WORD_DOCUMENT_POLICY,
-    parameters=analysis_parameters,
-)
-HANDOFFS = {
-    definition.identifier: definition
-    for definition in (ANALYZE_TRANSLATION, ANALYZE_OUTLOOK_ATTACHMENT)
-}
+    normalized = validate_handoff_definition(definition)
+    if not handoff_applies(normalized, source_job):
+        raise ValidationError({"workflow": "The next workflow step is invalid."})
+    with source_job.output_file.open("rb") as output:
+        artifact = File(output, name=source_job.output_name)
+        verify_artifact_integrity(artifact, source_job.output_sha256)
+        validate_uploaded_file(artifact, upload_policy(normalized))
+        artifact.seek(0)
+        target_job, created = create_job(
+            owner=source_job.owner,
+            kind=normalized["target_kind"],
+            title=f"{normalized['label']}: {source_job.output_name}"[:160],
+            parameters=normalized["parameters"],
+            uploaded_file=artifact,
+            idempotency_key=(
+                f"workflow:{workflow_run.id}:step:{workflow_step}"
+                if workflow_run is not None
+                else f"handoff:{source_job.id}:{normalized['id']}"
+            ),
+            request_id=request_id,
+            source_job=source_job,
+            workflow_run=workflow_run,
+            workflow_step=workflow_step,
+        )
+    if created:
+        record_handoff_events(source_job, target_job, normalized)
+    return target_job, created
 
 
-def available_handoffs(job):
-    """Return safe next actions available for one completed job."""
+def validate_handoff_definition(definition):
+    """Accept only the bounded data shape persisted by automation recipe creation."""
 
-    return [handoff_payload(item) for item in HANDOFFS.values() if handoff_applies(item, job)]
-
-
-def handoff_payload(definition):
-    """Serialize a handoff definition without internal implementation data."""
-
-    return {
-        "id": definition.identifier,
-        "label": definition.label,
-        "description": definition.description,
-        "target_kind": definition.target_kind,
+    if not isinstance(definition, dict):
+        raise ValidationError({"workflow": "The next workflow step is invalid."})
+    normalized = {
+        "id": bounded_identifier(definition.get("id")),
+        "source_kind": bounded_identifier(definition.get("source_kind")),
+        "target_kind": bounded_identifier(definition.get("target_kind")),
+        "label": str(definition.get("label") or "")[:160],
+        "extensions": normalized_extensions(definition.get("extensions")),
+        "limit_setting": bounded_identifier(definition.get("limit_setting")),
+        "default_limit": definition.get("default_limit"),
+        "parameters": definition.get("parameters"),
     }
+    valid = (
+        all(normalized[key] for key in ("id", "source_kind", "target_kind", "label"))
+        and normalized["extensions"]
+        and normalized["limit_setting"].startswith("AWCENTER_")
+        and isinstance(normalized["parameters"], dict)
+        and isinstance(normalized["default_limit"], int)
+        and not isinstance(normalized["default_limit"], bool)
+        and 0 < normalized["default_limit"] <= 600 * 1024 * 1024
+    )
+    if not valid:
+        raise ValidationError({"workflow": "The next workflow step is invalid."})
+    return normalized
+
+
+def bounded_identifier(value):
+    """Normalize a non-secret persisted identifier without accepting path syntax."""
+
+    normalized = str(value or "")
+    if not normalized or len(normalized) > 128:
+        return ""
+    if not all(character.isalnum() or character in "._-" for character in normalized):
+        return ""
+    return normalized
+
+
+def normalized_extensions(value):
+    """Return a bounded set of lowercase dot-prefixed extensions."""
+
+    if not isinstance(value, list) or not 1 <= len(value) <= 10:
+        return frozenset()
+    extensions = frozenset(str(item).lower() for item in value)
+    if any(
+        not item.startswith(".")
+        or len(item) > 12
+        or not item[1:].isalnum()
+        for item in extensions
+    ):
+        return frozenset()
+    return extensions
+
+
+def upload_policy(definition):
+    """Rebuild only the upload policy data fixed by the selected server recipe."""
+
+    return UploadPolicy(
+        definition["extensions"],
+        definition["limit_setting"],
+        definition["default_limit"],
+    )
 
 
 def handoff_applies(definition, job):
-    """Return whether immutable output metadata satisfies a handoff contract."""
+    """Return whether immutable output metadata satisfies a workflow transition."""
 
-    extension = Path(job.output_name).suffix.lower()
     return (
         job.status == JobStatus.SUCCEEDED
         and bool(job.output_file)
         and bool(job.output_sha256)
-        and job.kind == definition.source_kind
-        and extension in definition.extensions
+        and job.kind == definition["source_kind"]
+        and Path(job.output_name).suffix.lower() in definition["extensions"]
     )
-
-
-def create_handoff_job(
-    source_job, handoff_id, request_id="", workflow_run=None, workflow_step=None
-):
-    """Verify and reuse one owned output as a new durable job input."""
-
-    definition = HANDOFFS.get(handoff_id)
-    if not definition or not handoff_applies(definition, source_job):
-        raise NotFound("This next action is not available for the selected job.")
-    with source_job.output_file.open("rb") as output:
-        artifact = File(output, name=source_job.output_name)
-        verify_artifact_integrity(artifact, source_job.output_sha256)
-        validate_uploaded_file(artifact, definition.upload_policy)
-        artifact.seek(0)
-        target_job, created = create_target_job(
-            source_job, definition, artifact, request_id, workflow_run, workflow_step
-        )
-    if created:
-        record_handoff_events(source_job, target_job, definition)
-    return target_job, created
 
 
 def verify_artifact_integrity(artifact, expected_digest):
@@ -128,32 +144,13 @@ def verify_artifact_integrity(artifact, expected_digest):
         raise JobOutputIntegrityError()
 
 
-def create_target_job(
-    source_job, definition, artifact, request_id, workflow_run=None, workflow_step=None
-):
-    """Create an idempotent target job from a verified source artifact."""
-
-    return create_job(
-        owner=source_job.owner,
-        kind=definition.target_kind,
-        title=f"{definition.label}: {source_job.output_name}"[:160],
-        parameters=definition.parameters(),
-        uploaded_file=artifact,
-        idempotency_key=f"handoff:{source_job.id}:{definition.identifier}",
-        request_id=request_id,
-        source_job=source_job,
-        workflow_run=workflow_run,
-        workflow_step=workflow_step,
-    )
-
-
 def record_handoff_events(source_job, target_job, definition):
-    """Append sanitized provenance events to both sides of a handoff."""
+    """Append sanitized provenance events to both sides of an internal transition."""
 
-    details = {"handoff_id": definition.identifier, "target_job_id": str(target_job.id)}
-    record_event(source_job, f"Output handed off to {definition.label}.", details=details)
+    details = {"transition_id": definition["id"], "target_job_id": str(target_job.id)}
+    record_event(source_job, f"Output advanced to {definition['label']}.", details=details)
     record_event(
         target_job,
-        "Input reused from a verified completed job.",
-        details={"source_job_id": str(source_job.id), "handoff_id": definition.identifier},
+        "Input reused from a verified completed workflow step.",
+        details={"source_job_id": str(source_job.id), "transition_id": definition["id"]},
     )

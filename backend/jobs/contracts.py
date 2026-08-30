@@ -6,6 +6,10 @@ class JobCancelled(Exception):
     """Signal cooperative cancellation without exposing internal errors."""
 
 
+class JobLeaseLost(Exception):
+    """Stop an executor whose claim is no longer allowed to publish state."""
+
+
 class JobExecutionFailure(Exception):
     """Represent a sanitized worker failure with a stable code."""
 
@@ -13,6 +17,14 @@ class JobExecutionFailure(Exception):
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+
+
+class JobExecutionUncertain(Exception):
+    """Stop automatic retries when an external write may have been committed."""
+
+    def __init__(self, message="Confirm the external system state before continuing."):
+        super().__init__(message)
+        self.code = "RECONCILIATION_REQUIRED"
 
 
 @dataclass(frozen=True)

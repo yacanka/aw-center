@@ -1,25 +1,28 @@
 from django import forms
 from django.shortcuts import get_object_or_404
 
+import logging
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from common.views import paginated_response
+from awcenter.api_errors import ErrorCodes, error_response
+from awcenter.pagination import paginated_response
 from ddf.models import DDF
 from ddf.permissions import DDFPermission, IsDDFOwner
 from ddf.serializers import DDFSerializer
+from integrations.assessment import AssessmentServiceError, request_assessment
 
 from docx import Document
 from collections import OrderedDict
-import json
-import requests
 from awcenter.file_security import WORD_POLICY, validate_request_upload
 
 
 PUBLIC_ENDPOINTS = {}
+LOGGER = logging.getLogger(__name__)
 
 
 class DDFView(APIView):
@@ -114,15 +117,31 @@ def upload_ddf(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, DDFPermission])
 def ddf_assessment(request):
+    ddf_data = request.data
+    ddf = get_object_or_404(DDF, id=ddf_data.get("id"))
+    if ddf.created_by_id != request.user.id:
+        return error_response(
+            "You do not have permission to access this DDF.",
+            code=ErrorCodes.FORBIDDEN,
+            response_status=403,
+        )
+    comments = ddf_data.get("comments")
+    if not isinstance(comments, list) or any(
+        not isinstance(comment, (list, tuple)) or len(comment) < 3
+        for comment in comments
+    ):
+        return error_response(
+            "Invalid DDF assessment request.",
+            code=ErrorCodes.VALIDATION_ERROR,
+            response_status=400,
+        )
+
+    authority_comments = [
+        f"\n{index + 1}) {comment[2]}\n"
+        for index, comment in enumerate(comments)
+    ]
+
     try:
-        ddf_data = json.loads(request.body)
-
-        ddf = get_object_or_404(DDF, id=ddf_data['id'])
-        if ddf.created_by_id != request.user.id:
-            return Response({"detail": "You do not have permission to access this DDF."}, 403)
-
-        authority_comments = [f"\n{i+1}) {comment[2]}\n" for i, comment in enumerate(ddf_data['comments'])]
-
         prompt = f"""Doküman Değerlendirme Formu (DDF), Tusaş bağlamında, uçuşa elverişlilik ve sertifikasyon ekipleri tarafından kullanılan, dokümanların içeriğini ve niteliğini objektif bir şekilde değerlendirmek için tasarlanmış bir araçtır.
         Değerlendirmeler, 4 farklı görüş kapsamında verilir:
         1. Teknik Görüş: Format, veri yapılandırması, prosedür ve standartlar, teknik uyumluluk gibi teknik açıdan değerlendirmeyi kapsar.
@@ -134,8 +153,7 @@ def ddf_assessment(request):
         Görüşler aşağıdaki şekilde numara numara eklenmiştir:
         {authority_comments}"""
 
-        url = "http://172.27.160.138:5100/ask"
-        data = {
+        payload = {
             "question": prompt,
             "context_messages": [
                 {
@@ -152,27 +170,38 @@ def ddf_assessment(request):
             "stream": True
         }
 
-        headers = {'Content-Type': 'application/json; charset=utf-8', 'Accept': '*/*'}
         review_types = []
-        with requests.post(url, json=data, headers=headers) as response:
-            if response.status_code != 200:
-                print(f"Error: API request failed with status code {response.status_code}")
-                return Response(f"Error: API request failed with status code {response.status_code}", 400)
+        for text in request_assessment(payload):
+            review_types = [review_type.strip() for review_type in text.split(",")]
+        if len(review_types) != len(comments):
+            raise AssessmentServiceError(
+                "The assessment service returned an invalid response.",
+                "ASSESSMENT_RESPONSE_INVALID",
+                502,
+            )
 
-            for line in response.iter_lines(decode_unicode=False):
-                if line:
-                    text = line.decode("utf-8", errors="replace")
-                    review_types = text.split(",")
-                    review_types = [review_type.strip() for review_type in review_types]
-
-        print(review_types)
-        result = []
-        for i, review in enumerate(review_types):
-            result.append(f"[{review}] {ddf_data['comments'][i][2]}")
+        result = [
+            f"[{review}] {comments[index][2]}"
+            for index, review in enumerate(review_types)
+        ]
 
         ddf.comment_types = review_types
         ddf.save(update_fields=["comment_types"])
 
         return Response(result)
-    except Exception as e:
-        return Response(f"Something went wrong: {e}", 400)
+    except AssessmentServiceError as error:
+        return error_response(
+            error.detail,
+            code=error.code,
+            response_status=error.response_status,
+        )
+    except Exception as error:
+        LOGGER.warning(
+            "DDF assessment failed failure_type=%s",
+            error.__class__.__name__,
+        )
+        return error_response(
+            "The DDF assessment could not be completed.",
+            code="DDF_ASSESSMENT_FAILED",
+            response_status=500,
+        )

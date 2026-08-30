@@ -31,7 +31,7 @@ class InvitationManagementTests(TestCase):
 
         self._create("alpha@example.com")
         self._create("beta@example.com")
-        response = self.client.get("/auth/invitations/?search=alpha&page_size=1")
+        response = self.client.get("/api/users/invitations/?search=alpha&page_size=1")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
@@ -59,10 +59,10 @@ class InvitationManagementTests(TestCase):
         """Revocation invalidates the link and repeated requests stay successful."""
 
         invitation, token = self._create_with_token("recipient@example.com")
-        first = self.client.delete(f"/auth/invitations/{invitation.pk}/")
-        second = self.client.delete(f"/auth/invitations/{invitation.pk}/")
+        first = self.client.delete(f"/api/users/invitations/{invitation.pk}/")
+        second = self.client.delete(f"/api/users/invitations/{invitation.pk}/")
         inspect = APIClient().post(
-            "/auth/invitations/inspect/", {"token": token}, format="json"
+            "/api/users/invitations/inspect/", {"token": token}, format="json"
         )
 
         self.assertEqual(first.status_code, 200)
@@ -81,8 +81,8 @@ class InvitationManagementTests(TestCase):
             expires_at=timezone.now() - timedelta(seconds=1)
         )
 
-        used_response = self.client.delete(f"/auth/invitations/{used.pk}/")
-        expired_response = self.client.delete(f"/auth/invitations/{expired.pk}/")
+        used_response = self.client.delete(f"/api/users/invitations/{used.pk}/")
+        expired_response = self.client.delete(f"/api/users/invitations/{expired.pk}/")
 
         self.assertEqual(used_response.status_code, 409)
         self.assertEqual(used_response.data["code"], "INVITATION_ALREADY_USED")
@@ -98,14 +98,14 @@ class InvitationManagementTests(TestCase):
         )
         self.client.force_authenticate(unauthorized)
 
-        listing = self.client.get("/auth/invitations/")
-        revocation = self.client.delete(f"/auth/invitations/{invitation.pk}/")
+        listing = self.client.get("/api/users/invitations/")
+        revocation = self.client.delete(f"/api/users/invitations/{invitation.pk}/")
 
         self.assertEqual(listing.status_code, 403)
         self.assertEqual(revocation.status_code, 403)
 
     def _status_count(self, lifecycle_status):
-        response = self.client.get(f"/auth/invitations/?status={lifecycle_status}")
+        response = self.client.get(f"/api/users/invitations/?status={lifecycle_status}")
         self.assertEqual(response.status_code, 200)
         return response.data["count"]
 
@@ -115,7 +115,7 @@ class InvitationManagementTests(TestCase):
 
     def _create_with_token(self, email):
         response = self.client.post(
-            "/auth/invitations/",
+            "/api/users/invitations/",
             {"email": email, "group_ids": [self.group.pk]},
             format="json",
         )

@@ -7,7 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from awcenter.file_security import UploadSecurityError, WORD_DOCUMENT_POLICY, validate_uploaded_file
 from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobExecutionFailure, JobExecutionResult
-from jobs.worker import update_progress
+from jobs.execution import update_progress
 
 from .message_helpers import attachment_bytes, attachment_name, close_message, open_message
 

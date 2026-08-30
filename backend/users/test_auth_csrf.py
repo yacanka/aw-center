@@ -1,120 +1,85 @@
+"""Browser-only Django session and CSRF contract tests."""
+
 from django.contrib.auth import get_user_model
-from django.test import TestCase
-from rest_framework.authtoken.models import Token
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
-User = get_user_model()
 
-
-class CookieTokenCsrfTests(TestCase):
+@override_settings(
+    SESSION_COOKIE_SECURE=False,
+    CSRF_COOKIE_SECURE=False,
+    SESSION_COOKIE_SAMESITE="Lax",
+    CSRF_COOKIE_SAMESITE="Lax",
+)
+class SessionCsrfTests(TestCase):
     def setUp(self):
         self.client = APIClient(enforce_csrf_checks=True)
-        self.user = User.objects.create_superuser(
-            username="csrf_user",
+        self.user = get_user_model().objects.create_user(
+            username="session-user",
             password="StrongPass!123",
-            email="csrf@example.com",
-            first_name="Before",
+            email="session@example.com",
         )
-        token = Token.objects.create(user=self.user)
-        self.client.cookies["auth_token"] = token.key
 
-    def test_cookie_post_requires_csrf_token(self):
-        response = self.client.post("/auth/logout/", format="json")
+    def csrf_token(self):
+        response = self.client.get("/api/session/")
+        self.assertEqual(response.status_code, 200)
+        return response.cookies["csrftoken"].value
 
-        self.assertEqual(response.status_code, 403)
-        self.assertTrue(Token.objects.filter(user=self.user).exists())
+    def login(self):
+        token = self.csrf_token()
+        return self.client.post(
+            "/api/session/",
+            {"username": "session-user", "password": "StrongPass!123"},
+            format="json",
+            HTTP_X_CSRFTOKEN=token,
+        )
 
-    def test_cookie_post_accepts_valid_csrf_token(self):
-        csrf_token = self._set_valid_csrf_cookie()
+    def test_bootstrap_sets_csrf_cookie_without_auth_cache(self):
+        response = self.client.get("/api/session/")
 
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"state": "anonymous", "user": None})
+        self.assertIn("csrftoken", response.cookies)
+
+    def test_login_requires_csrf(self):
         response = self.client.post(
-            "/auth/logout/",
-            HTTP_X_CSRFTOKEN=csrf_token,
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(Token.objects.filter(user=self.user).exists())
-
-    def test_cookie_put_requires_csrf_token(self):
-        response = self.client.put(
-            "/auth/preferences/",
-            {"items_per_page": 25},
+            "/api/session/",
+            {"username": "session-user", "password": "StrongPass!123"},
             format="json",
         )
 
         self.assertEqual(response.status_code, 403)
 
-    def test_cookie_put_accepts_valid_csrf_token(self):
-        csrf_token = self._set_valid_csrf_cookie()
-
-        response = self.client.put(
-            "/auth/preferences/",
-            {"items_per_page": 25},
-            HTTP_X_CSRFTOKEN=csrf_token,
-            format="json",
-        )
+    def test_login_uses_http_only_session_cookie_and_exposes_no_token(self):
+        response = self.login()
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["state"], "authenticated")
+        self.assertEqual(response.data["user"]["username"], "session-user")
+        self.assertNotIn("token", response.data)
+        self.assertTrue(response.cookies["sessionid"]["httponly"])
 
-    def test_cookie_patch_requires_csrf_token(self):
-        response = self.client.patch(
-            "/auth/me/",
-            {"first_name": "After"},
-            format="json",
+        bootstrap = self.client.get("/api/session/")
+        self.assertEqual(bootstrap.data["state"], "authenticated")
+
+    def test_logout_requires_csrf_and_invalidates_server_session(self):
+        self.assertEqual(self.login().status_code, 200)
+
+        rejected = self.client.delete("/api/session/")
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(self.client.get("/api/session/").data["state"], "authenticated")
+
+        token = self.client.cookies["csrftoken"].value
+        accepted = self.client.delete(
+            "/api/session/",
+            HTTP_X_CSRFTOKEN=token,
         )
+        self.assertEqual(accepted.status_code, 204)
+        self.assertEqual(self.client.get("/api/session/").data["state"], "anonymous")
 
-        self.assertEqual(response.status_code, 403)
+    def test_authorization_header_is_not_a_browser_auth_fallback(self):
+        self.client.credentials(HTTP_AUTHORIZATION="Token debug-token")
 
-    def test_cookie_patch_accepts_valid_csrf_token(self):
-        csrf_token = self._set_valid_csrf_cookie()
+        response = self.client.get("/api/users/preferences/")
 
-        response = self.client.patch(
-            "/auth/me/",
-            {"first_name": "After"},
-            HTTP_X_CSRFTOKEN=csrf_token,
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.first_name, "After")
-
-    def test_cookie_delete_requires_csrf_token(self):
-        response = self.client.delete(f"/auth/users/{self.user.id}/", format="json")
-
-        self.assertEqual(response.status_code, 403)
-        self.assertTrue(User.objects.filter(id=self.user.id).exists())
-
-    def test_cookie_delete_accepts_valid_csrf_token(self):
-        csrf_token = self._set_valid_csrf_cookie()
-
-        response = self.client.delete(
-            f"/auth/users/{self.user.id}/",
-            HTTP_X_CSRFTOKEN=csrf_token,
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(User.objects.filter(id=self.user.id).exists())
-
-    def test_header_token_post_does_not_require_csrf_token(self):
-        token = Token.objects.get(user=self.user)
-        self.client.cookies.clear()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
-
-        response = self.client.post("/auth/logout/", format="json")
-
-        self.assertEqual(response.status_code, 200)
-
-    def _set_valid_csrf_cookie(self):
-        self.client.cookies.pop("auth_token", None)
-        response = self.client.post(
-            "/auth/token/",
-            {"username": "csrf_user", "password": "StrongPass!123"},
-            format="json",
-        )
-        csrf_token = response.cookies["csrftoken"].value
-        self.client.cookies["auth_token"] = response.cookies["auth_token"].value
-        self.client.cookies["csrftoken"] = csrf_token
-        return csrf_token
+        self.assertIn(response.status_code, {401, 403})

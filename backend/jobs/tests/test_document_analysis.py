@@ -1,6 +1,7 @@
 import json
 from unittest.mock import patch
 
+from awcenter.job_executors import resolve_job_executor
 from jobs.models import Job, JobStatus
 from jobs.services import create_job
 from jobs.worker import claim_next_job, execute_claimed_job
@@ -20,9 +21,10 @@ class DocumentAnalysisApiTests(JobTestCase):
 
         selected = ["approvals", "revision_history", "approvals"]
         response = self.client.post(
-            "/word/jobs/analyze/",
+            "/api/tools/word/jobs/analyze/",
             {"file": word_upload(), "check_ids": json.dumps(selected)},
             format="multipart",
+            HTTP_IDEMPOTENCY_KEY="analysis-allowlisted-checks",
         )
 
         self.assertEqual(response.status_code, 201)
@@ -35,9 +37,10 @@ class DocumentAnalysisApiTests(JobTestCase):
 
         for checks in ([], ["unknown_check"]):
             response = self.client.post(
-                "/word/jobs/analyze/",
+                "/api/tools/word/jobs/analyze/",
                 {"file": word_upload(), "check_ids": json.dumps(checks)},
                 format="multipart",
+                HTTP_IDEMPOTENCY_KEY=f"analysis-invalid-{len(checks)}",
             )
             self.assertEqual(response.status_code, 400)
         self.assertEqual(Job.objects.count(), 0)
@@ -58,7 +61,7 @@ class DocumentAnalysisWorkerTests(JobTestCase):
             word_upload(),
         )
 
-        execute_claimed_job(claim_next_job("analysis-worker"))
+        execute_claimed_job(claim_next_job("analysis-worker"), resolve_job_executor)
 
         job.refresh_from_db()
         self._assert_private_report(job)
@@ -88,7 +91,7 @@ class DocumentAnalysisWorkerTests(JobTestCase):
             word_upload(),
         )
 
-        execute_claimed_job(claim_next_job("analysis-worker"))
+        execute_claimed_job(claim_next_job("analysis-worker"), resolve_job_executor)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatus.FAILED)
@@ -121,7 +124,7 @@ class DocumentAnalysisWorkerTests(JobTestCase):
             word_upload(),
         )
 
-        execute_claimed_job(claim_next_job("custom-analysis-worker"))
+        execute_claimed_job(claim_next_job("custom-analysis-worker"), resolve_job_executor)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatus.SUCCEEDED)

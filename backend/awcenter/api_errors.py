@@ -36,9 +36,13 @@ class ApiErrorContractMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        """Return the downstream response without changing non-template responses."""
+        """Return downstream responses and prevent bridge protocol caching."""
 
-        return self.get_response(request)
+        response = self.get_response(request)
+        if request.path.startswith("/internal/bridge/"):
+            response["Cache-Control"] = "no-store"
+            response["Pragma"] = "no-cache"
+        return response
 
     def process_template_response(self, request, response):
         """Normalize unrendered DRF error responses before rendering."""

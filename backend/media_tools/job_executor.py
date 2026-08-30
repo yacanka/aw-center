@@ -4,7 +4,7 @@ from django.conf import settings
 
 from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobCancelled, JobExecutionFailure, JobExecutionResult
-from jobs.worker import cancellation_requested, update_progress
+from jobs.execution import cancellation_requested, update_progress
 from .services import build_ffmpeg_command, parse_parameters
 
 
@@ -35,16 +35,19 @@ def run_cancellable_ffmpeg(job_id, input_path, output_path, parameters):
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline_seconds = int(getattr(settings, "JOB_EXECUTION_TIMEOUT_SECONDS", 900))
     elapsed = 0
-    while process.poll() is None:
-        wait_for_process(process)
-        elapsed += heartbeat_seconds()
-        if cancellation_requested(job_id):
+    try:
+        while process.poll() is None:
+            wait_for_process(process)
+            elapsed += heartbeat_seconds()
+            if cancellation_requested(job_id):
+                raise JobCancelled()
+            if elapsed >= deadline_seconds:
+                raise JobExecutionFailure("Media conversion timed out.", "JOB_TIMEOUT", True)
+            update_progress(job_id, 25, "FFmpeg conversion is running.")
+    except Exception:
+        if process.poll() is None:
             stop_process(process)
-            raise JobCancelled()
-        if elapsed >= deadline_seconds:
-            stop_process(process)
-            raise JobExecutionFailure("Media conversion timed out.", "JOB_TIMEOUT", True)
-        update_progress(job_id, 25, "FFmpeg conversion is running.")
+        raise
     ensure_success(process, output_path)
 
 

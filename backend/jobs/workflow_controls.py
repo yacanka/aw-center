@@ -21,7 +21,12 @@ def reconcile_active_workflows():
     )[:100]
     for workflow in workflows:
         job = latest_current_job(workflow)
-        if job and job.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}:
+        if job and job.status in {
+            JobStatus.SUCCEEDED,
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+            JobStatus.RECONCILIATION_REQUIRED,
+        }:
             synchronize_workflow_job(job)
         elif not job and workflow.created_at < timezone.now() - timedelta(seconds=30):
             set_workflow_state(

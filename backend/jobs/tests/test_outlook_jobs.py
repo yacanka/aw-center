@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from awcenter.job_executors import resolve_job_executor
 from jobs.models import Job, JobStatus
 from jobs.services import create_job
 from jobs.worker import claim_next_job, execute_claimed_job
@@ -38,9 +39,10 @@ class OutlookJobTests(JobTestCase):
         """The standalone bridge endpoint persists a private durable job."""
 
         response = self.client.post(
-            "/outlook/jobs/extract-word-attachment/",
+            "/api/tools/outlook/jobs/extract-word-attachment/",
             {"file": outlook_upload()},
             format="multipart",
+            HTTP_IDEMPOTENCY_KEY="outlook-extraction-api",
         )
 
         self.assertEqual(response.status_code, 201)
@@ -99,6 +101,6 @@ class OutlookJobTests(JobTestCase):
             {},
             outlook_upload(),
         )
-        execute_claimed_job(claim_next_job("outlook-worker"))
+        execute_claimed_job(claim_next_job("outlook-worker"), resolve_job_executor)
         job.refresh_from_db()
         return job

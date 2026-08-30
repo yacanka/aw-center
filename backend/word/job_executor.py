@@ -2,10 +2,9 @@ from pathlib import Path
 
 from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobExecutionFailure, JobExecutionResult
-from jobs.worker import update_progress
+from jobs.execution import update_progress
+from jobs.kind_contracts import SUPPORTED_TRANSLATIONS, WORD_TRANSLATION_LABELS
 from word.service.translator import get_text_generator
-
-SUPPORTED_TRANSLATIONS = {"tr2en": "TR-EN", "en2tr": "EN-TR"}
 
 
 def execute_word_translation(job):
@@ -69,4 +68,4 @@ def translated_filename(input_name, translation_type):
     """Build a bounded user-facing translated document filename."""
 
     stem = Path(input_name).stem[:100]
-    return f"[{SUPPORTED_TRANSLATIONS[translation_type]}] {stem}.docx"
+    return f"[{WORD_TRANSLATION_LABELS[translation_type]}] {stem}.docx"

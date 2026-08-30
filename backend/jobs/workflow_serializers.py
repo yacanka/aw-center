@@ -5,7 +5,6 @@ from rest_framework import serializers
 from .recovery import recovery_hint
 from .serializers import JobSerializer
 from .workflow_models import WorkflowRun, WorkflowRunEvent, WorkflowStatus
-from .workflow_recipes import WORKFLOW_RECIPES
 
 
 class WorkflowEventSerializer(serializers.ModelSerializer):
@@ -57,18 +56,24 @@ class WorkflowRunSerializer(serializers.ModelSerializer):
     def get_steps(self, workflow):
         """Return recipe steps paired with their latest durable job attempts."""
 
-        recipe = WORKFLOW_RECIPES.get(workflow.recipe)
-        if not recipe:
+        definition = workflow.definition if isinstance(workflow.definition, dict) else {}
+        recipe_steps = definition.get("steps")
+        if not isinstance(recipe_steps, list):
             return []
         jobs = latest_jobs_by_step(workflow)
         return [
             {
-                "sequence": step.sequence,
-                "kind": step.kind,
-                "label": step.label,
-                "job": JobSerializer(jobs[step.sequence]).data if step.sequence in jobs else None,
+                "sequence": step["sequence"],
+                "kind": step["kind"],
+                "label": step["label"],
+                "job": (
+                    JobSerializer(jobs[step["sequence"]]).data
+                    if step["sequence"] in jobs
+                    else None
+                ),
             }
-            for step in recipe.steps
+            for step in recipe_steps
+            if valid_serialized_step(step)
         ]
 
 
@@ -95,3 +100,17 @@ def latest_jobs_by_step(workflow):
     for job in jobs:
         latest[job.workflow_step] = job
     return latest
+
+
+def valid_serialized_step(step):
+    """Reject malformed persisted metadata from the public workflow response."""
+
+    return (
+        isinstance(step, dict)
+        and isinstance(step.get("sequence"), int)
+        and 1 <= step["sequence"] <= 100
+        and isinstance(step.get("kind"), str)
+        and 1 <= len(step["kind"]) <= 64
+        and isinstance(step.get("label"), str)
+        and 1 <= len(step["label"]) <= 160
+    )

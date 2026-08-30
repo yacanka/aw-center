@@ -1,6 +1,9 @@
 """Characterization tests for Word comparison helpers."""
 
+from io import BytesIO
+
 from django.test import SimpleTestCase
+from openpyxl import load_workbook
 
 from word.service.compare import (
     align_paragraphs_indexed,
@@ -10,6 +13,7 @@ from word.service.compare import (
     tokenize_words,
     u_normalize,
 )
+from word.views import write_excel_report_openpyxl
 
 
 class WordComparisonHelperTests(SimpleTestCase):
@@ -38,3 +42,30 @@ class WordComparisonHelperTests(SimpleTestCase):
         aligned = align_paragraphs_indexed(first_lines, second_lines, 0.99, 0.50)
         self.assertEqual(aligned[0], (0, "same", 0, "same", "equal"))
         self.assertIn((1, "old text", 1, "new text", "replace"), aligned)
+
+    def test_excel_report_neutralizes_untrusted_document_text(self):
+        output = BytesIO()
+
+        write_excel_report_openpyxl(
+            output,
+            [
+                {
+                    "Tag": "replace",
+                    "A_Index": 1,
+                    "B_Index": 1,
+                    "A_Text": "=1+1",
+                    "B_Text": "@SUM(A1:A2)",
+                    "A_Len": 4,
+                    "B_Len": 11,
+                    "Similarity": 0.5,
+                }
+            ],
+            {"equal": 0, "insert": 0, "delete": 0, "replace": 1},
+        )
+
+        worksheet = load_workbook(BytesIO(output.getvalue()), data_only=False)["Diff"]
+        headers = {cell.value: cell.column for cell in worksheet[1]}
+        for field in ("A_Text", "B_Text"):
+            cell = worksheet.cell(row=2, column=headers[field])
+            self.assertNotEqual(cell.data_type, "f")
+            self.assertTrue(cell.value.startswith("'"))

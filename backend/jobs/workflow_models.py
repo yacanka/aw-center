@@ -27,6 +27,7 @@ class WorkflowRun(models.Model):
     )
     recipe = models.CharField(max_length=64)
     title = models.CharField(max_length=160)
+    definition = models.JSONField(default=dict)
     status = models.CharField(
         max_length=24, choices=WorkflowStatus.choices, default=WorkflowStatus.QUEUED
     )

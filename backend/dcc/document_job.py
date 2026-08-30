@@ -1,6 +1,7 @@
 """Render immutable DCC snapshots as verified private DOCX job artifacts."""
 
 import json
+import re
 import zipfile
 
 from jobs.artifacts import materialize_job_input, temporary_output
@@ -8,7 +9,15 @@ from jobs.contracts import JobExecutionFailure, JobExecutionResult
 from jobs.worker import update_progress
 from projects.registry import UnknownProjectDefinitionError, get_project_definition
 
+from .services.render_controllers import apply_project_dcc_controller
 from .services.template_resolver import DccTemplateResolutionError, resolve_dcc_template_path
+
+SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = frozenset({1, 2})
+LEGACY_PANEL_FIELD_PATTERN = re.compile(
+    r"^(Panel_Status|Panel_Updated_Time|Panel_AS_Name|Affected_Requirements|"
+    r"Further_Compliance|Design_Change_Assessment|"
+    r"Certification_Change_Classification)_(\d+)$"
+)
 
 
 def execute_dcc_document_creation(job):
@@ -39,7 +48,10 @@ def load_snapshot(path):
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise JobExecutionFailure("The DCC source snapshot is invalid.", "DCC_SNAPSHOT_INVALID") from error
     required = {"schema_version", "issue_key", "project_slug", "output_name", "placeholders"}
-    if snapshot.get("schema_version") != 1 or not required.issubset(snapshot):
+    if (
+        snapshot.get("schema_version") not in SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS
+        or not required.issubset(snapshot)
+    ):
         raise JobExecutionFailure("The DCC source snapshot is unsupported.", "DCC_SNAPSHOT_INVALID")
     if not isinstance(snapshot["placeholders"], dict):
         raise JobExecutionFailure("The DCC source snapshot is invalid.", "DCC_SNAPSHOT_INVALID")
@@ -75,8 +87,48 @@ def create_template_document(snapshot, template_class):
 def render_document(document, snapshot, output_path):
     """Render template fields and save the DCC document."""
 
-    document.render(snapshot["placeholders"])
+    render_context = build_render_context(snapshot)
+    document.render(render_context)
     document.save(output_path)
+
+
+def build_render_context(snapshot):
+    """Upgrade legacy panel fields and apply the project controller."""
+
+    placeholders = snapshot["placeholders"]
+    if snapshot.get("schema_version") == 1:
+        placeholders = upgrade_legacy_panel_fields(placeholders, snapshot.get("panel_count"))
+    return apply_project_dcc_controller(snapshot["project_slug"], placeholders)
+
+
+def upgrade_legacy_panel_fields(placeholders, panel_count):
+    """Convert queued schema-v1 numbered panel fields to the array contract."""
+
+    context = dict(placeholders)
+    indexed_values = []
+    for key in tuple(context):
+        match = LEGACY_PANEL_FIELD_PATTERN.fullmatch(key)
+        if not match:
+            continue
+        field_name, raw_index = match.groups()
+        indexed_values.append((int(raw_index), field_name, context.pop(key)))
+    required_count = max(
+        [normalized_panel_count(panel_count), *(index for index, _field, _value in indexed_values)]
+    )
+    panels = [dict() for _index in range(required_count)]
+    for index, field_name, value in indexed_values:
+        panels[index - 1][field_name] = value
+    context.setdefault("Panels", panels)
+    return context
+
+
+def normalized_panel_count(value):
+    """Return a safe non-negative legacy panel count."""
+
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def validate_docx(path):
