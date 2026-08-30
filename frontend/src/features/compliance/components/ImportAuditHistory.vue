@@ -1,0 +1,162 @@
+<template>
+  <n-button v-if="allowed" secondary @click="openModal">Import history</n-button>
+  <n-modal
+    v-model:show="show"
+    preset="card"
+    title="CompDoc import history"
+    class="app-modal app-modal--xlarge"
+  >
+    <n-flex align="center" style="margin-bottom: 16px">
+      <n-input
+        v-model:value="search"
+        clearable
+        placeholder="Search filename or importer"
+        @keyup.enter="fetchFirstPage"
+      />
+      <n-select
+        v-model:value="selectedStatus"
+        clearable
+        placeholder="All statuses"
+        :options="statusOptions"
+      />
+      <n-button :loading="loading" @click="fetchFirstPage">Search</n-button>
+    </n-flex>
+    <n-data-table
+      remote
+      striped
+      :loading="loading"
+      :columns="columns"
+      :data="audits"
+      :pagination="pagination"
+      :row-key="(row: ImportAudit) => row.id"
+      :scroll-x="1120"
+      @update:page="updatePage"
+      @update:page-size="updatePageSize"
+    />
+  </n-modal>
+  <ImportAuditDetail ref="detail" :project="project" />
+</template>
+
+<script setup lang="ts">
+import { computed, h, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { NButton, NTag, type DataTableColumns, type PaginationInfo } from 'naive-ui'
+import ImportAuditDetail from '@/features/compliance/components/ImportAuditDetail.vue'
+import { formatApiError } from '@/shared/api/apiError'
+import {
+  listImportAudits,
+  type ImportAudit,
+  type ImportAuditStatus
+} from '@/features/compliance/api/compdocImportAudits'
+
+const props = defineProps<{ allowed: boolean; project: string }>()
+const route = useRoute()
+const statusOptions = ['processing', 'success', 'partial', 'failed'].map((value) => ({
+  label: titleCase(value),
+  value
+}))
+const statusTypes = {
+  processing: 'info',
+  success: 'success',
+  partial: 'warning',
+  failed: 'error'
+} as const
+const show = ref(false)
+const loading = ref(false)
+const audits = ref<ImportAudit[]>([])
+const search = ref('')
+const selectedStatus = ref<ImportAuditStatus | null>(null)
+const page = ref(1)
+const pageSize = ref(12)
+const count = ref(0)
+const detail = ref<InstanceType<typeof ImportAuditDetail> | null>(null)
+const pagination = computed<Partial<PaginationInfo>>(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  itemCount: count.value,
+  showSizePicker: true,
+  pageSizes: [12, 25, 50, 100]
+}))
+const columns: DataTableColumns<ImportAudit> = [
+  { title: 'File', key: 'source_filename', width: 240, ellipsis: { tooltip: true } },
+  { title: 'Importer ID', key: 'imported_by', width: 130 },
+  {
+    title: 'Status',
+    key: 'status',
+    width: 110,
+    render: (row) => h(NTag, { type: statusTypes[row.status] }, () => titleCase(row.status))
+  },
+  { title: 'Rows', key: 'total_rows', width: 70 },
+  {
+    title: 'Created / Updated / Unchanged / Rejected',
+    key: 'result',
+    width: 280,
+    render: (row) =>
+      `${row.created_count} / ${row.updated_count} / ${row.unchanged_count} / ${row.rejected_count}`
+  },
+  { title: 'Started', key: 'started_at', width: 170, render: (row) => formatDate(row.started_at) },
+  {
+    title: '',
+    key: 'actions',
+    width: 90,
+    render: (row) =>
+      h(NButton, { size: 'small', onClick: () => detail.value?.open(row.id) }, () => 'Details')
+  }
+]
+
+onMounted(openLinkedAudit)
+
+function openLinkedAudit(): void {
+  const auditId = route.query.audit
+  if (props.allowed && typeof auditId === 'string') void detail.value?.open(auditId)
+}
+
+function openModal(): void {
+  show.value = true
+  fetchFirstPage()
+}
+
+function fetchFirstPage(): void {
+  page.value = 1
+  void fetchAudits()
+}
+
+async function fetchAudits(): Promise<void> {
+  loading.value = true
+  try {
+    const result = await listImportAudits({
+      project: props.project,
+      page: page.value,
+      page_size: pageSize.value,
+      search: search.value.trim() || undefined,
+      status: selectedStatus.value || undefined
+    })
+    audits.value = result.results
+    count.value = result.count
+  } catch (error) {
+    window.$message.error(formatApiError(error))
+  } finally {
+    loading.value = false
+  }
+}
+
+function updatePage(value: number): void {
+  page.value = value
+  void fetchAudits()
+}
+
+function updatePageSize(value: number): void {
+  pageSize.value = value
+  fetchFirstPage()
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+    new Date(value)
+  )
+}
+
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+</script>

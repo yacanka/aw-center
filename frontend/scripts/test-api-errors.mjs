@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatApiError, getApiErrorCode } from '../src/services/apiError.ts'
+import { formatApiError, getApiErrorCode } from '../src/shared/api/apiError.ts'
+import { FALLBACK_ERROR_MESSAGE } from '../src/shared/api/apiError.ts'
 
 test('reads the standard payload from an Axios-style Error object', () => {
   const error = new Error('Request failed with status code 404')
@@ -25,9 +26,14 @@ test('keeps the original message for ordinary Error objects', () => {
 test('extracts a stable code from an Axios-style Error object', () => {
   const error = new Error('Conflict')
   error.response = {
-    data: { detail: 'The reviewed records changed.', code: 'COMPDOC_IMPORT_DATABASE_CONFLICT' }
+    data: { detail: 'The reviewed records changed.', code: 'VERSION_CONFLICT' }
   }
 
-  assert.equal(getApiErrorCode(error), 'COMPDOC_IMPORT_DATABASE_CONFLICT')
+  assert.equal(getApiErrorCode(error), 'VERSION_CONFLICT')
   assert.equal(getApiErrorCode(new Error('Network unavailable.')), undefined)
+})
+
+test('rejects retired error payload shapes instead of adapting them', () => {
+  assert.equal(formatApiError({ message: 'retired payload' }), FALLBACK_ERROR_MESSAGE)
+  assert.equal(formatApiError({ detail: 'missing stable code' }), FALLBACK_ERROR_MESSAGE)
 })

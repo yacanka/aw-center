@@ -1,0 +1,366 @@
+<script setup lang="ts">
+import { computed, h, ref, onMounted, onUnmounted } from 'vue'
+import { NButton, NDataTable, NSpace, NIcon, DataTableColumns, PaginationInfo } from 'naive-ui'
+import { provideDdfController } from '@/features/tools/composables/ddfController'
+import { popupStore } from '@/app/stores/popupStore'
+import { IDdf } from '@/features/tools/models/ddf'
+import UpdateForm from '@/features/tools/components/ddf/DDFPopup.vue'
+import UploadPopup from '@/features/tools/components/ddf/UploadPopup.vue'
+import Details from '@/features/tools/components/ddf/DetailedInfo.vue'
+import Graph from '@/features/tools/components/ddf/Graph.vue'
+import {
+  ChannelAdd24Regular,
+  Add24Regular,
+  DataBarVertical24Regular,
+  Delete24Regular,
+  Eye24Regular
+} from '@vicons/fluent'
+import { getDateFilterMenuFunc } from '@/shared/components/table/advancedFilterMenus'
+import { getStringFilterMenuFunc } from '@/shared/components/table/valueFilterMenus'
+import { getDateFilterFunc, getStringFilterFunc } from '@/shared/services/tableFilters'
+
+const popup = popupStore()
+const store = provideDdfController()
+const viewPopup = ref()
+const uploadPopup = ref()
+const table = ref()
+const graph = ref()
+
+const filterValue = ref<Record<string, any>>({})
+
+const page = ref(1)
+const pageSize = ref(10)
+
+const pagination = computed<Partial<PaginationInfo>>(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  itemCount: store.pagination.count,
+  showSizePicker: true,
+  pageSizes: [10, 25, 50, 100]
+}))
+
+const onFilter = (attrib: string, filterData: any) => {
+  filterValue.value[attrib] = filterData
+  page.value = 1
+  fetchDdf()
+}
+
+const onClean = (attrib: string) => {
+  filterValue.value[attrib] = null
+  page.value = 1
+  fetchDdf()
+}
+
+const columns: DataTableColumns<IDdf> = [
+  {
+    type: 'expand',
+    expandable: () => true,
+    renderExpand: (row) => {
+      return h(Details, { ddf: row })
+    }
+  },
+  {
+    title: 'Project',
+    key: 'project',
+    width: 300,
+    filter: getStringFilterFunc('project'),
+    renderFilterMenu: getStringFilterMenuFunc('project', filterValue, onFilter),
+    ellipsis: {
+      tooltip: true
+    },
+    resizable: true,
+    minWidth: 200,
+    maxWidth: 600
+  },
+  {
+    title: 'Doc Name',
+    key: 'doc_name',
+    filter: getStringFilterFunc('doc_name'),
+    renderFilterMenu: getStringFilterMenuFunc('doc_name', filterValue, onFilter),
+    ellipsis: {
+      tooltip: true
+    },
+    resizable: true,
+    minWidth: 200,
+    maxWidth: 600
+  },
+  {
+    title: 'Doc No',
+    key: 'doc_no',
+    filter: getStringFilterFunc('doc_no'),
+    renderFilterMenu: getStringFilterMenuFunc('doc_no', filterValue, onFilter),
+    ellipsis: {
+      tooltip: true
+    },
+    width: 120
+  },
+  {
+    title: 'Doc Issue',
+    key: 'doc_issue',
+    filter: getStringFilterFunc('doc_issue'),
+    renderFilterMenu: getStringFilterMenuFunc('doc_issue', filterValue, onFilter),
+    ellipsis: {
+      tooltip: true
+    },
+    width: 100
+  },
+  {
+    title: 'Doc Date',
+    key: 'date',
+    filter: getDateFilterFunc('date'),
+    renderFilterMenu: getDateFilterMenuFunc('date', onFilter, onClean),
+    width: 100
+  },
+  {
+    title: 'Commentor',
+    key: 'commentor',
+    filter: getStringFilterFunc('commentor'),
+    renderFilterMenu: getStringFilterMenuFunc('commentor', filterValue, onFilter),
+    width: 140,
+    ellipsis: {
+      tooltip: true
+    }
+  },
+  {
+    title: 'Comments',
+    key: 'comments',
+    filter: (value, row) => {
+      return row.comments.some((comment) => comment.includes(String(value)))
+    },
+    width: 120,
+    ellipsis: {
+      tooltip: true
+    },
+    render(row: IDdf) {
+      return h(
+        NButton,
+        {
+          ghost: true,
+          size: 'small',
+          focusable: false,
+          onClick: () => {
+            const combinedArray = row.comments.map(
+              (element, index) => `[${row.comment_types[index]}] ${element[2]}`
+            )
+            popup.open('Comments', combinedArray)
+          }
+        },
+        {
+          default: () => 'Show'
+        }
+      )
+    }
+  },
+  {
+    title: 'Action',
+    key: 'actions',
+    minWidth: 120,
+    render(row: IDdf) {
+      const analyzeDisabled = ref(false)
+      return h(
+        NSpace,
+        {},
+        {
+          default: () => [
+            h(
+              NButton,
+              {
+                ghost: true,
+                size: 'small',
+                type: 'info',
+                focusable: false,
+                renderIcon: () => h(Eye24Regular),
+                onClick: () => {
+                  viewPopup.value.openModal(row, 'view')
+                }
+              },
+              { default: () => null }
+            ),
+            h(
+              NButton,
+              {
+                ghost: true,
+                size: 'small',
+                type: 'error',
+                focusable: false,
+                renderIcon: () => h(Delete24Regular),
+                onClick: () => {
+                  window.$dialog.error({
+                    title: 'Delete',
+                    content: 'Are you sure to delete?',
+                    positiveText: 'Yes',
+                    negativeText: 'No',
+                    onPositiveClick: () => {
+                      if (row.id === undefined) return
+                      store
+                        .deleteDdf(row.id)
+                        .then(() => {
+                          console.log('Request deleted: ', row.doc_name)
+                        })
+                        .catch((err: any) => {
+                          console.error('Error while deleting ', row.doc_name, ': ', err)
+                        })
+                    }
+                  })
+                }
+              },
+              { default: () => null }
+            ),
+            h(
+              NButton,
+              {
+                ghost: true,
+                size: 'small',
+                type: 'warning',
+                focusable: false,
+                disabled: analyzeDisabled.value,
+                //renderIcon: () => h(Eye24Regular),
+                onClick: () => {
+                  analyzeDisabled.value = true
+                  store
+                    .assessment(row)
+                    .then((res) => {
+                      console.log(res)
+                      popup.open('Result', res, false)
+                    })
+                    .finally(() => {
+                      analyzeDisabled.value = false
+                    })
+                }
+              },
+              { default: () => 'Analyze' }
+            )
+          ]
+        }
+      )
+    }
+  }
+]
+
+function fetchDdf() {
+  return store.fetchDdf({
+    ...filterValue.value,
+    page: page.value,
+    page_size: pageSize.value
+  })
+}
+
+function handlePageUpdate(newPage: number) {
+  page.value = newPage
+  fetchDdf()
+}
+
+function handlePageSizeUpdate(newPageSize: number) {
+  pageSize.value = newPageSize
+  page.value = 1
+  fetchDdf()
+}
+
+function showpUploadForm() {
+  uploadPopup.value.setActive(true)
+}
+
+function rowKey(row: IDdf) {
+  return row.id ?? `${row.project}:${row.doc_no}:${row.doc_issue}`
+}
+
+function showAddDdfForm(mode: string) {
+  viewPopup.value.openModal({}, mode)
+}
+
+function showAnalyzeBar() {
+  const filteredTable = table.value.data.filter((ddf: Record<string, any>) => {
+    for (const key in filterValue.value) {
+      if (filterValue.value[key] && !ddf[key].includes(filterValue.value[key])) {
+        //console.log(ddf[key], filterValue.value[key])
+        return false
+      }
+    }
+    return true
+  })
+  graph.value.openModal(filteredTable)
+}
+
+function deleteAllDdfs() {
+  window.$dialog.error({
+    title: 'Delete',
+    content: 'Are you sure to delete all DDF?',
+    positiveText: 'Yes',
+    negativeText: 'No',
+    onPositiveClick: async () => {
+      const res = await store.deleteDdfs()
+      console.log(res)
+    }
+  })
+}
+
+onMounted(() => {
+  fetchDdf()
+})
+
+onUnmounted(() => {
+  store.clearList()
+})
+</script>
+
+<template>
+  <n-flex justify="space-between">
+    <n-flex>
+      <n-button @click="showpUploadForm" :focusable="false">
+        <template #icon>
+          <n-icon size="24">
+            <ChannelAdd24Regular />
+          </n-icon>
+        </template>
+        Import
+      </n-button>
+      <n-button @click="showAddDdfForm('new')" :focusable="false">
+        <template #icon>
+          <n-icon size="24">
+            <Add24Regular />
+          </n-icon>
+        </template>
+        New
+      </n-button>
+      <n-button @click="showAnalyzeBar" :focusable="false">
+        <template #icon>
+          <n-icon size="24">
+            <DataBarVertical24Regular />
+          </n-icon>
+        </template>
+        Summary
+      </n-button>
+    </n-flex>
+    <n-flex>
+      <n-button ghost type="error" @click="deleteAllDdfs" :focusable="false">
+        <template #icon>
+          <n-icon size="24">
+            <Delete24Regular />
+          </n-icon>
+        </template>
+        Delete All
+      </n-button>
+    </n-flex>
+  </n-flex>
+  <n-flex justify="end">
+    <n-text> <strong>Total: </strong>{{ store.pagination.count }} </n-text>
+  </n-flex>
+  <n-data-table
+    :loading="store.isLoading"
+    striped
+    type="expand"
+    :tree="true"
+    :columns="columns"
+    :data="store.getList"
+    remote
+    :pagination="pagination"
+    :scroll-x="1350"
+    ref="table"
+    :row-key="rowKey"
+    @update:page="handlePageUpdate"
+    @update:page-size="handlePageSizeUpdate"
+  />
+  <UpdateForm ref="viewPopup" />
+  <UploadPopup ref="uploadPopup" />
+  <Graph ref="graph" />
+</template>

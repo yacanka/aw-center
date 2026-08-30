@@ -8,7 +8,7 @@ import {
   navigationAccessPolicy,
   resolveRouteAccess,
   safePostLoginPath
-} from '../src/services/accessPolicy.ts'
+} from '../src/features/session/services/accessPolicy.ts'
 
 const permission = (appLabel, codename) => ({ content_type: { app_label: appLabel }, codename })
 const standardUser = { id: 7, is_active: true, permissions: [], group_details: [] }
@@ -31,24 +31,14 @@ test('recognizes direct and group-derived Django permissions', () => {
   assert.equal(hasEffectivePermission(groupUser, 'auth.delete_user'), false)
 })
 
-test('enforces granular user, DDF, Outlook Task, and developer policies', () => {
+test('enforces granular user, DDF, and developer policies without legacy DCC permissions', () => {
   const viewer = { ...standardUser, permissions: [permission('auth', 'view_user')] }
   const ddfViewer = { ...standardUser, permissions: [permission('ddf', 'view_ddf')] }
-  const dccCreator = { ...standardUser, permissions: [permission('dcc', 'add_jira_dcc')] }
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/users'), viewer), 'allow')
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/ddfAssistant'), ddfViewer), 'allow')
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), standardUser), 'forbidden')
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), dccCreator), 'allow')
-  assert.equal(
-    resolveRouteAccess(navigationAccessPolicy('/accelerator'), standardUser),
-    'forbidden'
-  )
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/accelerator'), dccCreator), 'allow')
-  assert.equal(
-    resolveRouteAccess(navigationAccessPolicy('/accelerator/outlook'), dccCreator),
-    'allow'
-  )
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/task/ecr'), dccCreator), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), standardUser), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/accelerator'), standardUser), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/task/ecr'), standardUser), 'allow')
   assert.equal(
     resolveRouteAccess(navigationAccessPolicy('/developer/doors'), standardUser),
     'forbidden'

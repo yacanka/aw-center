@@ -5,18 +5,18 @@ import {
   getBooleanFilterFunc,
   getDateFilterFunc,
   getStringFilterFunc
-} from '../src/services/tableFilters.ts'
-import { serializeCompdocFilters } from '../src/composables/compdoc/table.ts'
+} from '../src/shared/services/tableFilters.ts'
+import { serializeCompdocFilters } from '../src/features/compliance/composables/table.ts'
 import {
   createDefaultColumnSettings,
   reconcileColumnSettings
-} from '../src/services/compdocColumns.ts'
-import { buildClientCompdocSummary } from '../src/services/compdocChartAlgorithms.ts'
+} from '../src/features/compliance/api/compdocColumns.ts'
+import { buildClientCompdocSummary } from '../src/features/compliance/api/compdocChartAlgorithms.ts'
 import {
   createStatusChartData,
   createStatusChartRows,
   createTimelineChartData
-} from '../src/services/compdocChartData.ts'
+} from '../src/features/compliance/api/compdocChartData.ts'
 
 test('matches equal dates and supports both accepted date formats', () => {
   const filter = getDateFilterFunc('date')

@@ -5,7 +5,7 @@ import {
   buildWorkMetrics,
   integrationExceptions,
   recentSuccessfulJobs
-} from '../src/services/homeDashboard.ts'
+} from '../src/app/services/homeDashboard.ts'
 
 test('summarizes only active owner-scoped work states', () => {
   const metrics = buildWorkMetrics({
@@ -53,11 +53,17 @@ test('keeps only configuration and live-health integration exceptions', () => {
 
 test('application home composes attention, work, quick access, and integration exceptions', async () => {
   const [home, mainView, commandPalette, jobs, integrations] = await Promise.all([
-    readFile(new URL('../src/views/Home.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/views/MainView.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/navigation/CommandPalette.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/home/JobOverview.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/home/IntegrationExceptions.vue', import.meta.url), 'utf8')
+    readFile(new URL('../src/app/pages/Home.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/app/layouts/ProtectedLayout.vue', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../src/app/components/navigation/CommandPalette.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(new URL('../src/app/components/home/JobOverview.vue', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../src/app/components/home/IntegrationExceptions.vue', import.meta.url),
+      'utf8'
+    )
   ])
 
   assert.match(home, /ActionCenter[\s\S]*JobOverview[\s\S]*QuickAccess[\s\S]*IntegrationExceptions/)
