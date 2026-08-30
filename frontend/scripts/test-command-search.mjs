@@ -7,7 +7,7 @@ import {
   prioritizeRecentCommands,
   selectQuickAccessCommands,
   searchNavigationCommands
-} from '../src/services/commandSearch.ts'
+} from '../src/app/services/commandSearch.ts'
 
 const sources = [
   { label: 'Home', key: '/home', name: 'home' },

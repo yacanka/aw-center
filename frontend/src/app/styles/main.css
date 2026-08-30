@@ -1,0 +1,89 @@
+:root {
+  color-scheme: light;
+  font-family: v-sans, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --app-content-max-width: 1680px;
+  --app-gutter: clamp(12px, 2vw, 24px);
+  --app-modal-gutter: 12px;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+body,
+#app {
+  min-height: 100dvh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.app-modal {
+  max-height: calc(100dvh - (2 * var(--app-modal-gutter)));
+  max-width: calc(100vw - (2 * var(--app-modal-gutter)));
+  overflow: auto;
+  width: min(720px, calc(100vw - (2 * var(--app-modal-gutter))));
+}
+
+.app-modal--small {
+  width: min(560px, calc(100vw - (2 * var(--app-modal-gutter))));
+}
+
+.app-modal--large {
+  width: min(960px, calc(100vw - (2 * var(--app-modal-gutter))));
+}
+
+.app-modal--xlarge {
+  width: min(1180px, calc(100vw - (2 * var(--app-modal-gutter))));
+}
+
+.app-page-container {
+  margin-inline: auto;
+  min-width: 0;
+  width: min(100%, 1100px);
+}
+
+.app-table-container {
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+.app-long-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.app-preformatted {
+  margin: 0;
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --app-modal-gutter: 8px;
+  }
+}
