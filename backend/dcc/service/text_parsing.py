@@ -35,15 +35,22 @@ def check_panel_text(text: str) -> bool:
 
 
 def extract_text_from_text(text: str, search_text1: str = "", search_text2: str = "") -> str:
-    """Extract text between optional start and end markers using legacy behavior."""
+    """Extract text between optional markers without manufacturing partial values."""
     if search_text1 == "":
-        return text[: text.find(search_text2)]
+        end_point = text.find(search_text2)
+        return text[:end_point] if end_point >= 0 else ""
     if search_text2 == "":
-        start_point = text.find(search_text1) + len(search_text1)
+        marker = text.find(search_text1)
+        if marker < 0:
+            return ""
+        start_point = marker + len(search_text1)
         return text[start_point: len(text)]
-    start_point = text.find(search_text1) + len(search_text1)
+    marker = text.find(search_text1)
+    if marker < 0:
+        return ""
+    start_point = marker + len(search_text1)
     end_point = text.find(search_text2, start_point)
-    return text[start_point:end_point]
+    return text[start_point:end_point] if end_point >= 0 else ""
 
 
 def make_surname_upper(fullname: str) -> str:

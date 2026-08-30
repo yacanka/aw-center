@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError, ProgrammingError
 
 from orgs.models import Project
-from projects.registry import PROJECT_DEFINITIONS, get_enabled_project_definitions
+from projects.registry import PROJECT_DEFINITIONS
 
 
 class Command(BaseCommand):
@@ -15,7 +15,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """Run a read-only registry alignment check."""
         database_slugs = self.get_database_slugs()
-        missing_slugs = self.get_missing_enabled_slugs(database_slugs)
+        missing_slugs = self.get_missing_catalog_slugs(database_slugs)
         unknown_slugs = self.get_unknown_database_slugs(database_slugs)
 
         self.write_warning_lines(unknown_slugs)
@@ -34,10 +34,9 @@ class Command(BaseCommand):
             raise CommandError("orgs.Project table is unavailable; run migrations first.") from error
 
     @staticmethod
-    def get_missing_enabled_slugs(database_slugs):
-        """Return enabled registry slugs absent from orgs.Project."""
-        enabled_slugs = {definition.slug for definition in get_enabled_project_definitions()}
-        return sorted(enabled_slugs - database_slugs)
+    def get_missing_catalog_slugs(database_slugs):
+        """Return technical catalog slugs absent from seeded business projects."""
+        return sorted(set(PROJECT_DEFINITIONS) - database_slugs)
 
     @staticmethod
     def get_unknown_database_slugs(database_slugs):
@@ -56,4 +55,4 @@ class Command(BaseCommand):
     @staticmethod
     def build_missing_message(missing_slugs):
         """Return the failure message for missing enabled registry projects."""
-        return "Enabled registry projects missing from orgs.Project: " + ", ".join(missing_slugs)
+        return "Catalog projects missing from orgs.Project: " + ", ".join(missing_slugs)

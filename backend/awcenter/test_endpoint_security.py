@@ -5,17 +5,21 @@ from django.urls import URLPattern, URLResolver, get_resolver
 from rest_framework.permissions import AllowAny
 from rest_framework.test import APIClient
 
-from projects.registry import get_enabled_project_definitions
-
-
 APPROVED_PUBLIC_ROUTES = {
-    "auth/password-reset/",
-    "auth/password-reset/confirm/",
-    "auth/token/",
-    "auth/invitations/inspect/",
-    "auth/invitations/accept/",
+    "api/session/",
+    "api/users/password-reset/",
+    "api/users/password-reset/confirm/",
+    "api/users/invitations/inspect/",
+    "api/users/invitations/accept/",
     "health/live/",
     "health/ready/",
+    # These routes deliberately bypass browser authentication; the views require
+    # a verified client certificate forwarded by one allowlisted bridge proxy.
+    "internal/bridge/v1/claims/",
+    "internal/bridge/v1/jobs/<uuid:job_id>/complete/",
+    "internal/bridge/v1/jobs/<uuid:job_id>/heartbeat/",
+    "internal/bridge/v1/jobs/<uuid:job_id>/input/",
+    "internal/bridge/v1/status/",
 }
 
 
@@ -68,12 +72,15 @@ class EndpointSecurityTests(SimpleTestCase):
         """Placeholder probe endpoints stay absent from the production surface."""
 
         paths = [
-            "/orgs/test/",
-            "/doors/test/",
-            "/excel/test/",
-            "/docproof/test/",
-            "/dcc/test/",
-            "/dcc/sse_test/",
+            "/api/orgs/test/",
+            "/api/integrations/doors/test/",
+            "/api/tools/excel/test/",
+            "/api/integrations/docproof/test/",
+            "/api/dcc/test/",
+            "/api/dcc/sse_test/",
+            "/core/views.py",
+            "/core/__pycache__/views.pyc",
+            "/media/private.txt",
         ]
         for path in paths:
             with self.subTest(path=path):
@@ -82,7 +89,7 @@ class EndpointSecurityTests(SimpleTestCase):
     def test_rejected_request_returns_support_reference(self):
         """Authentication failures remain traceable from browser to backend logs."""
 
-        response = self.client.get("/orgs/projects/", HTTP_X_REQUEST_ID="browser-123")
+        response = self.client.get("/api/projects/", HTTP_X_REQUEST_ID="browser-123")
 
         self.assertEqual(response["X-Request-ID"], "browser-123")
         self.assertEqual(response.json()["request_id"], "browser-123")
@@ -92,32 +99,29 @@ class EndpointSecurityTests(SimpleTestCase):
         """Return representative protected endpoints across application domains."""
 
         endpoints = [
-            ("get", "/download/missing.txt/"),
-            ("get", "/orgs/projects/"),
-            ("get", "/orgs/panels/"),
-            ("get", "/orgs/responsibles/"),
-            ("get", "/outlook/msg/download/"),
-            ("post", "/word/compare/"),
-            ("get", "/docproof/search/?document_no=DOC-1"),
+            ("get", "/api/projects/"),
+            ("get", "/api/projects/aesa/organization/panels/"),
+            ("get", "/api/projects/aesa/organization/responsible-assignments/"),
+            ("get", "/api/tools/outlook/msg/download/"),
+            ("post", "/api/tools/word/compare/"),
+            ("get", "/api/integrations/docproof/search/?document_no=DOC-1"),
+            ("get", "/api/dcc/records/"),
+            ("get", "/api/jobs/00000000-0000-0000-0000-000000000001/"),
         ]
-        for project in get_enabled_project_definitions():
-            endpoints.extend(project_endpoints(project.url_prefix))
+        endpoints.extend(project_endpoints("aesa"))
         return endpoints
 
 
-def project_endpoints(prefix):
+def project_endpoints(slug):
     """Return protected document and organization routes for one project."""
 
     document_id = "00000000-0000-0000-0000-000000000001"
     return [
-        ("get", f"/{prefix}/compdocs/"),
-        ("get", f"/{prefix}/compdocs/fields/"),
-        ("get", f"/{prefix}/compdocs/notification-policy/"),
-        ("put", f"/{prefix}/compdocs/notification-policy/"),
-        ("get", f"/{prefix}/compdocs/{document_id}/tracking/"),
-        ("post", f"/{prefix}/compdocs/{document_id}/docproof/"),
-        ("post", f"/{prefix}/compdocs/{document_id}/notifications/"),
-        ("post", f"/{prefix}/compdocs/{document_id}/notifications/draft/"),
-        ("get", f"/{prefix}/orgs/panels/"),
-        ("get", f"/{prefix}/orgs/responsibles/"),
+        ("get", f"/api/projects/{slug}/compliance-documents/"),
+        ("get", f"/api/projects/{slug}/compliance-documents/fields/"),
+        ("get", f"/api/projects/{slug}/compliance-documents/notification-policy/"),
+        ("put", f"/api/projects/{slug}/compliance-documents/notification-policy/"),
+        ("get", f"/api/projects/{slug}/compliance-documents/{document_id}/tracking/"),
+        ("get", f"/api/projects/{slug}/organization/panels/"),
+        ("get", f"/api/projects/{slug}/organization/responsible-assignments/"),
     ]

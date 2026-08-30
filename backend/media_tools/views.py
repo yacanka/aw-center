@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from awcenter.api_errors import ErrorCodes, error_response
 from awcenter.file_security import MEDIA_POLICY, UploadSecurityError, validate_request_upload
 from jobs.api import job_creation_response
-from jobs.services import create_job
+from jobs.services import create_job, require_idempotency_key
 from .services import estimate_output_size, parse_parameters
 
 
@@ -45,6 +45,9 @@ def create_media_job(request):
     """Validate and enqueue a durable media conversion job."""
 
     try:
+        idempotency_key = require_idempotency_key(
+            request.headers.get("Idempotency-Key", "")
+        )
         uploaded_file = get_uploaded_file(request)
         parameters = get_request_parameters(request)
         job, created = create_job(
@@ -53,7 +56,7 @@ def create_media_job(request):
             title=f"Convert {uploaded_file.name}",
             parameters=asdict(parameters),
             uploaded_file=uploaded_file,
-            idempotency_key=request.headers.get("Idempotency-Key", ""),
+            idempotency_key=idempotency_key,
             request_id=getattr(request, "request_id", ""),
         )
         return job_creation_response(job, created)

@@ -1,4 +1,7 @@
 from django.contrib.auth.models import Group, User
+import uuid
+
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.db.models.signals import post_save
@@ -198,3 +201,43 @@ class UserInvitation(models.Model):
                 name="users_one_open_invitation_per_email",
             )
         ]
+
+
+class PasswordResetDelivery(models.Model):
+    """Durable mail outbox entry without a recoverable password-reset token."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CLAIMED = "claimed", "Claimed"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="password_reset_deliveries",
+    )
+    state_digest = models.CharField(max_length=64, editable=False)
+    token_timestamp = models.PositiveBigIntegerField(editable=False)
+    message_id = models.CharField(max_length=255, unique=True, editable=False)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    error_code = models.CharField(max_length=64, blank=True)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    lease_token = models.UUIDField(null=True, blank=True, editable=False)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    requested_at = models.DateTimeField()
+    sent_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["requested_at", "id"]
+        indexes = [models.Index(fields=["status", "next_attempt_at"])]

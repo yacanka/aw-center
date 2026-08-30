@@ -15,10 +15,10 @@ django-simple-history
 django-environ
 django-extensions
 whitenoise
-cheroot
 gunicorn
 psycopg[binary]
 redis
+cryptography
 
 # Integrations and HTTP clients
 jira

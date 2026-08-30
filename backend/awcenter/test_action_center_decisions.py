@@ -1,19 +1,20 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from common.action_center_models import ActionCenterDecision
+from attention.models import ActionCenterDecision
 from jobs.models import JobStatus
+from orgs.models import ProjectRoleAssignment
 
 from .test_action_center import (
     create_failed_job,
     create_jira_draft,
     create_job,
     create_partial_audit,
+    grant_project_role,
 )
 
 User = get_user_model()
@@ -25,11 +26,8 @@ class ActionCenterDecisionTests(TestCase):
     def setUp(self):
         """Create two audit viewers and one authenticated client."""
 
-        permission = Permission.objects.get(codename="view_compdocimportaudit")
         self.user = User.objects.create_user("decision-user", password="StrongPass!123")
         self.other = User.objects.create_user("decision-other", password="StrongPass!123")
-        self.user.user_permissions.add(permission)
-        self.other.user_permissions.add(permission)
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
@@ -40,9 +38,9 @@ class ActionCenterDecisionTests(TestCase):
         item_id = f"job:{job.pk}"
 
         response = self.post_decision(item_id, "snooze")
-        hidden = self.client.get("/action-center/")
+        hidden = self.client.get("/api/attention/")
         ActionCenterDecision.objects.update(snoozed_until=timezone.now() - timedelta(seconds=1))
-        visible = self.client.get("/action-center/")
+        visible = self.client.get("/api/attention/")
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(hidden.data["items"], [])
@@ -52,12 +50,19 @@ class ActionCenterDecisionTests(TestCase):
         """One user's terminal decision never hides another viewer's audit."""
 
         audit = create_partial_audit()
+        for user in (self.user, self.other):
+            grant_project_role(
+                user,
+                audit.project,
+                ProjectRoleAssignment.Domain.COMPLIANCE,
+                ProjectRoleAssignment.Role.VIEWER,
+            )
         item_id = f"import:{audit.pk}"
         self.post_decision(item_id, "snooze")
         self.post_decision(item_id, "dismiss")
-        dismissed = self.client.get("/action-center/")
+        dismissed = self.client.get("/api/attention/")
         self.client.force_authenticate(self.other)
-        other_view = self.client.get("/action-center/")
+        other_view = self.client.get("/api/attention/")
 
         decision = ActionCenterDecision.objects.get(user=self.user, item_key=item_id)
         self.assertIsNotNone(decision.acknowledged_at)
@@ -82,6 +87,12 @@ class ActionCenterDecisionTests(TestCase):
 
         source = create_job(self.user, "Analysis", JobStatus.SUCCEEDED)
         draft = create_jira_draft(self.user, source, "approved")
+        grant_project_role(
+            self.user,
+            draft.projects.get(),
+            ProjectRoleAssignment.Domain.DCC,
+            ProjectRoleAssignment.Role.VIEWER,
+        )
 
         response = self.post_decision(f"jira-draft:{draft.pk}", "dismiss")
 
@@ -92,7 +103,7 @@ class ActionCenterDecisionTests(TestCase):
         """Post one action-center decision using the authenticated client."""
 
         return self.client.post(
-            "/action-center/decisions/",
+            "/api/attention/decisions/",
             {"item_id": item_id, "action": action},
             format="json",
         )

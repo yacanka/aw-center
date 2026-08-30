@@ -42,17 +42,14 @@ _EXACT_GUIDANCE = {
     "COMPDOC_IMPORT_PREVIEW_MISMATCH": ErrorGuidance(
         False, "Preview the exact workbook you want to import, then confirm it."
     ),
-    "COMPDOC_IMPORT_DATABASE_CONFLICT": ErrorGuidance(
-        False, "Review a fresh import preview against the latest compliance documents."
+    "VERSION_CONFLICT": ErrorGuidance(
+        False, "Reload the resource, review the latest values, and reapply your changes."
     ),
     "COMPDOC_EXPORT_ROW_LIMIT": ErrorGuidance(
         False, "Narrow the register or ask an administrator to raise the bounded export limit."
     ),
     "COMPDOC_DELETE_COUNT_CONFLICT": ErrorGuidance(
         False, "Refresh the document list and review the new total before deleting."
-    ),
-    "COMPDOC_VERSION_CONFLICT": ErrorGuidance(
-        False, "Reload the document, review the newer values, and reapply your changes."
     ),
     "COMPDOC_VERSION_REQUIRED": ErrorGuidance(
         False, "Reload the document before editing so the current version can be verified."

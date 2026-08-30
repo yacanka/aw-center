@@ -3,15 +3,17 @@
 import json
 import re
 
+from orgs.models import Project
+
+from .access_policy import OPERATOR, require_projects_role
 from .document_fields import field, main_issue_fields, panel_fields
-from .service.JIRAConnector import JiraConnector
 from .service.text_parsing import classify_dcc
-from .services.project_resolver import resolve_project_from_jira_components
-from .services.subtask_controls import apply_project_subtask_control
+from .services.project_resolver import resolve_projects_from_jira_components
 
 ISSUE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]*-\d+\b")
 MAX_SUBTASKS = 200
 MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
+SNAPSHOT_SCHEMA_VERSION = 2
 
 
 class DccSnapshotError(ValueError):
@@ -33,27 +35,26 @@ def extract_issue_key(issue_reference):
     return match.group(0)
 
 
-def capture_dcc_snapshot(session_id, issue_reference, server_url):
+def capture_dcc_snapshot(connector, issue_reference, actor):
     """Read JIRA once and return a bounded snapshot without persisting credentials."""
 
     issue_key = extract_issue_key(issue_reference)
-    connector = authenticated_connector(session_id, server_url)
+    if not connector.current_user():
+        raise DccSnapshotError("The JIRA session is not authenticated.", "DCC_SESSION_INVALID")
     connector.set_issue(issue_key)
     issue = connector.get_issue()
     validate_parent_issue(issue)
-    project = resolve_project_from_jira_components(field(issue.fields, "components"))
-    snapshot = build_snapshot(connector, issue, issue_key, project)
+    definitions = resolve_projects_from_jira_components(field(issue.fields, "components"))
+    if len(definitions) != 1:
+        raise DccSnapshotError(
+            "The JIRA task must identify exactly one DCC project.",
+            "DCC_PROJECT_AMBIGUOUS",
+        )
+    projects = resolve_enabled_projects(definitions)
+    require_projects_role(actor, projects, OPERATOR)
+    snapshot = build_snapshot(connector, issue, issue_key, definitions, projects)
     validate_snapshot_size(snapshot)
     return snapshot
-
-
-def authenticated_connector(session_id, server_url):
-    """Create a JIRA connector and verify the transient session immediately."""
-
-    connector = JiraConnector(server_url=server_url, jira_session_id=session_id)
-    if not connector.get_client().myself():
-        raise DccSnapshotError("The JIRA session is not authenticated.", "DCC_SESSION_INVALID")
-    return connector
 
 
 def validate_parent_issue(issue):
@@ -67,28 +68,42 @@ def validate_parent_issue(issue):
         raise DccSnapshotError("The task has too many subtasks to process safely.", "DCC_TOO_MANY_SUBTASKS")
 
 
-def build_snapshot(connector, issue, issue_key, project):
+def resolve_enabled_projects(definitions):
+    slugs = [definition.slug for definition in definitions]
+    projects_by_slug = {
+        project.slug: project
+        for project in Project.objects.filter(slug__in=slugs, enabled=True)
+    }
+    if set(projects_by_slug) != set(slugs):
+        raise DccSnapshotError(
+            "The JIRA task includes an unavailable project.",
+            "DCC_PROJECT_INVALID",
+        )
+    return [projects_by_slug[slug] for slug in slugs]
+
+
+def build_snapshot(connector, issue, issue_key, definitions, projects):
     """Build the versioned, JSON-serializable DCC rendering contract."""
 
     placeholders = main_issue_fields(issue.fields)
+    primary = definitions[0]
     panels = fetch_panels(connector, issue)
-    controlled = apply_project_subtask_control(project.slug, panels)
-    if controlled.render_context:
-        placeholders["Project_Subtasks"] = dict(controlled.render_context)
-    classifications, responsible_values, panel_titles = append_panels(
-        controlled.subtasks, project, placeholders
+    panel_values, classifications, responsible_values, panel_titles = build_panel_values(
+        panels, primary
     )
-    placeholders.update(controlled.placeholder_overrides)
+    placeholders["Panels"] = panel_values
     apply_classification(placeholders, classifications)
     apply_responsible(placeholders, classifications, responsible_values)
     form_number = placeholders.get("DCC_Form_Number", issue_key)
     return {
-        "schema_version": 1,
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "issue_key": issue_key,
-        "project_slug": project.slug,
-        "project_label": project.display_name or project.jira_component,
+        "project_slug": primary.slug,
+        "project_slugs": [definition.slug for definition in definitions],
+        "project_ids": [project.pk for project in projects],
+        "project_label": primary.dcc_label or primary.jira_component or primary.slug,
         "output_name": safe_output_name(form_number),
-        "panel_count": len(controlled.subtasks),
+        "panel_count": len(panels),
         "panel_titles": panel_titles,
         "placeholders": placeholders,
     }
@@ -103,22 +118,22 @@ def fetch_panels(connector, issue):
     )
 
 
-def append_panels(panels, project, placeholders):
-    """Merge controlled subtask fields into the template placeholders."""
+def build_panel_values(panels, project):
+    """Build the ordered panel array consumed by the DOCX template."""
 
-    classifications, responsible_values, panel_titles = [], set(), []
-    for index, panel in enumerate(panels):
+    panel_values, classifications, responsible_values, panel_titles = [], [], set(), []
+    for panel in panels:
         values, classification, responsible = panel_fields(
-            panel.fields, index, project.slug == "gokbey"
+            panel.fields, project.slug == "gokbey"
         )
-        placeholders.update(values)
+        panel_values.append(values)
         classifications.append(classification)
         title = str(field(panel.fields, "summary") or "").strip()
         if title:
             panel_titles.append(title[:500])
         if responsible:
             responsible_values.add(responsible)
-    return classifications, responsible_values, panel_titles
+    return panel_values, classifications, responsible_values, panel_titles
 
 
 def apply_classification(placeholders, classifications):
@@ -140,10 +155,10 @@ def apply_responsible(placeholders, classifications, responsible_values):
         placeholders["Responsible_AS"] = next(iter(responsible_values))
         return
     _classified_type, responsible = classify_dcc(classifications)
-    from .document_fields import display_name
-
     if responsible:
-        placeholders["Responsible_AS"] = display_name(responsible)
+        raw_name = field(responsible, "displayName")
+        if isinstance(raw_name, str) and raw_name.strip():
+            placeholders["Responsible_AS"] = raw_name.split("(", 1)[0].strip()
 
 
 def safe_output_name(form_number):

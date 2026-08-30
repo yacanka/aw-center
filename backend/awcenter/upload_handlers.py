@@ -14,10 +14,9 @@ class AbsoluteUploadLimitHandler(FileUploadHandler):
         self.received_bytes = 0
 
     def new_file(self, *args, **kwargs):
-        """Reset the per-file counter when a multipart file starts."""
+        """Start another file without resetting the request-wide byte counter."""
 
         super().new_file(*args, **kwargs)
-        self.received_bytes = 0
 
     def receive_data_chunk(self, raw_data, start):
         """Pass safe chunks onward and stop an oversized upload immediately."""

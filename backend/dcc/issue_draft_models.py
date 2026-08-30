@@ -14,6 +14,7 @@ class JiraIssueDraftStatus(models.TextChoices):
     PUBLISHING = "publishing", "Publishing"
     PUBLISHED = "published", "Published"
     FAILED = "failed", "Failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required", "Reconciliation required"
 
 
 class JiraIssueDraft(models.Model):
@@ -23,6 +24,15 @@ class JiraIssueDraft(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="jira_issue_drafts"
     )
+    assigned_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="assigned_jira_issue_drafts",
+        blank=True,
+    )
+    projects = models.ManyToManyField(
+        "orgs.Project",
+        related_name="jira_issue_drafts",
+    )
     source_job = models.OneToOneField(
         "jobs.Job", on_delete=models.CASCADE, related_name="jira_issue_draft"
     )
@@ -31,7 +41,7 @@ class JiraIssueDraft(models.Model):
     description = models.TextField(max_length=30000)
     extra_fields = models.JSONField(default=dict, blank=True)
     status = models.CharField(
-        max_length=16, choices=JiraIssueDraftStatus.choices, default=JiraIssueDraftStatus.DRAFT
+        max_length=32, choices=JiraIssueDraftStatus.choices, default=JiraIssueDraftStatus.DRAFT
     )
     version = models.PositiveIntegerField(default=1)
     marker_label = models.CharField(max_length=64, unique=True, editable=False)
@@ -47,6 +57,13 @@ class JiraIssueDraft(models.Model):
     approved_at = models.DateTimeField(null=True, blank=True)
     publish_started_at = models.DateTimeField(null=True, blank=True)
     published_at = models.DateTimeField(null=True, blank=True)
+    publication_job = models.OneToOneField(
+        "jobs.Job",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="jira_publication_draft",
+    )
     last_error_code = models.CharField(max_length=64, blank=True)
     last_error_message = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -55,7 +72,6 @@ class JiraIssueDraft(models.Model):
     class Meta:
         ordering = ["-updated_at"]
         indexes = [models.Index(fields=["owner", "status", "updated_at"])]
-        permissions = [("publish_jiraissuedraft", "Can publish reviewed JIRA issue drafts")]
 
 
 class JiraIssueDraftEvent(models.Model):

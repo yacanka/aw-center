@@ -56,7 +56,7 @@ class WorkflowRunAdmin(admin.ModelAdmin):
     list_filter = ["recipe", "status", "created_at"]
     search_fields = ["id", "title", "owner__username", "input_name", "error_code"]
     readonly_fields = [
-        "id", "owner", "recipe", "title", "status", "parameters", "input_name",
+        "id", "owner", "recipe", "title", "status", "definition", "parameters", "input_name",
         "input_sha256", "current_step", "total_steps", "message", "error_code",
         "idempotency_key", "request_id", "completed_at", "created_at", "updated_at",
     ]

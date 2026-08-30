@@ -1,3 +1,4 @@
+from django.urls import reverse
 from rest_framework import serializers
 
 from .models import Job, JobEvent, JobStatus
@@ -16,10 +17,8 @@ class JobSerializer(serializers.ModelSerializer):
     """Serialize safe job state without storage paths or private parameters."""
 
     can_cancel = serializers.SerializerMethodField()
-    can_retry = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
     recovery_hint = serializers.SerializerMethodField()
-    handoffs = serializers.SerializerMethodField()
     jira_draft = serializers.SerializerMethodField()
 
     class Meta:
@@ -27,10 +26,10 @@ class JobSerializer(serializers.ModelSerializer):
         fields = [
             "id", "kind", "title", "status", "progress", "message", "error_code",
             "input_name", "output_name", "result_summary", "attempt", "max_attempts",
-            "retry_of", "source_job", "workflow_run", "workflow_step", "retryable",
+            "source_job", "workflow_run", "workflow_step",
             "request_id",
             "created_at", "started_at", "completed_at", "confirmation_expires_at", "updated_at",
-            "can_cancel", "can_retry", "download_url", "recovery_hint", "handoffs", "jira_draft",
+            "can_cancel", "download_url", "recovery_hint", "jira_draft",
         ]
 
     def get_can_cancel(self, job):
@@ -38,31 +37,22 @@ class JobSerializer(serializers.ModelSerializer):
 
         return job.status in {JobStatus.QUEUED, JobStatus.RUNNING}
 
-    def get_can_retry(self, job):
-        """Return whether retry policy permits a new attempt."""
-
-        return (
-            job.status in {JobStatus.FAILED, JobStatus.CANCELLED}
-            and job.retryable
-            and job.attempt < job.max_attempts
-        )
-
     def get_download_url(self, job):
         """Return an owned API URL only when output is available."""
 
-        return f"/jobs/{job.id}/download/" if job.status == JobStatus.SUCCEEDED and job.output_file else None
+        if job.status != JobStatus.SUCCEEDED or not job.output_file:
+            return None
+        return reverse("job_download", kwargs={"job_id": job.id})
 
     def get_recovery_hint(self, job):
         """Return an actionable sanitized hint for failed jobs."""
 
-        return recovery_hint(job.error_code) if job.status == JobStatus.FAILED else ""
-
-    def get_handoffs(self, job):
-        """Return allowlisted next actions for a verified completed output."""
-
-        from .handoffs import available_handoffs
-
-        return available_handoffs(job)
+        if job.status not in {
+            JobStatus.FAILED,
+            JobStatus.RECONCILIATION_REQUIRED,
+        }:
+            return ""
+        return recovery_hint(job.error_code)
 
     def get_jira_draft(self, job):
         """Return a content-free reference to an existing analysis review draft."""

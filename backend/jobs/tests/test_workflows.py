@@ -9,7 +9,7 @@ from jobs.services import set_job_state
 from .base import JobTestCase
 from .test_document_jobs import word_upload
 
-WORKFLOW_URL = "/jobs/workflows/"
+WORKFLOW_URL = "/api/workflows/"
 RECIPE = "translate-and-analyze"
 
 
@@ -21,8 +21,8 @@ class WorkflowApiTests(JobTestCase):
 
         self.client.force_authenticate(user=None)
 
-        self.assertEqual(self.client.get(f"{WORKFLOW_URL}recipes/").status_code, 401)
-        self.assertEqual(self.client.get(WORKFLOW_URL).status_code, 401)
+        self.assertEqual(self.client.get(f"{WORKFLOW_URL}recipes/").status_code, 403)
+        self.assertEqual(self.client.get(WORKFLOW_URL).status_code, 403)
 
     def test_creation_queues_first_step_with_safe_metadata(self):
         """A supported recipe creates an owned run and its first durable job."""
@@ -83,8 +83,8 @@ class WorkflowApiTests(JobTestCase):
         self.assertIsNotNone(workflow.completed_at)
         self.assertTrue(workflow.events.filter(status=WorkflowStatus.SUCCEEDED).exists())
 
-    def test_step_failure_is_explained_and_retry_resumes_same_sequence(self):
-        """A retryable failed step pauses the run and a job retry resumes it."""
+    def test_step_failure_is_explained_without_generic_job_retry(self):
+        """A failed recipe remains auditable and cannot be retried outside its feature."""
 
         workflow = self.workflow()
         source = workflow.jobs.get()
@@ -94,12 +94,11 @@ class WorkflowApiTests(JobTestCase):
         self.assertEqual(workflow.status, WorkflowStatus.FAILED)
         self.assertEqual(workflow.error_code, "MODEL_DOWN")
 
-        response = self.client.post(f"/jobs/{source.id}/retry/")
+        response = self.client.post(f"/api/jobs/{source.id}/retry/")
         workflow.refresh_from_db()
-        retry = Job.objects.get(pk=response.data["id"])
-        self.assertEqual(workflow.status, WorkflowStatus.QUEUED)
-        self.assertEqual(retry.workflow_run, workflow)
-        self.assertEqual(retry.workflow_step, 1)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(workflow.status, WorkflowStatus.FAILED)
+        self.assertEqual(workflow.jobs.count(), 1)
 
     def test_tampered_output_fails_workflow_without_rewriting_job_success(self):
         """An integrity failure blocks advancement but preserves source truth."""

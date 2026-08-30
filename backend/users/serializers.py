@@ -1,19 +1,17 @@
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import ContentType, Group, Permission
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.utils.encoding import force_bytes, force_str
-from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.db import transaction
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
 from rest_framework.serializers import CharField, ListField, ModelSerializer, Serializer
 
-from dcc.service.MailSender import SendMail, html_to_text, replace_all_keys
 from .models import UserPreferences
+from .password_reset_notifications import enqueue_password_reset
+from .password_reset_tokens import token_generator
 
-TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
 User = get_user_model()
-token_generator = PasswordResetTokenGenerator()
 
 
 class ContentTypeSerializer(ModelSerializer):
@@ -221,32 +219,17 @@ class PasswordResetRequestSerializer(serializers.Serializer):
     def save(self):
         email = self.validated_data["email"]
 
-        # Kullanıcı var/yok bilgisini sızdırmamak için her durumda 200 döneceğiz.
+        # Account existence is deliberately not reflected in the public response.
         user = User.objects.filter(email__iexact=email, is_active=True).first()
         if not user:
             return
-
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = token_generator.make_token(user)
-        reset_link = f"{settings.FRONTEND_RESET_URL}?uid={uid}&token={token}"
-
-        mail_placeholder = {
-            "RESET_LINK": reset_link,
-        }
-
-        html_file_path = TEMPLATE_DIR / "mail_password_reset_request_template.html"
-        mail_title = "Şifre sıfırlama"
-
-        content = html_to_text(html_file_path)
-        content = replace_all_keys(content, mail_placeholder)
-
-        SendMail(mail_title, content, user.email, "")
+        enqueue_password_reset(user)
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    uid = serializers.CharField()
-    token = serializers.CharField()
-    new_password = serializers.CharField(min_length=8, write_only=True)
+    uid = serializers.CharField(max_length=128)
+    token = serializers.CharField(max_length=128)
+    new_password = serializers.CharField(min_length=8, max_length=128, write_only=True)
 
     def validate(self, attrs):
         uid = attrs["uid"]
@@ -266,9 +249,16 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         return attrs
 
     def save(self):
-        user = self.validated_data["user"]
         new_password = self.validated_data["new_password"]
-        user.set_password(new_password)
-        user.save(update_fields=["password"])
-        return user
-
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(
+                pk=self.validated_data["user"].pk,
+                is_active=True,
+            )
+            if not token_generator.check_token(user, self.validated_data["token"]):
+                raise serializers.ValidationError(
+                    {"detail": "Token is invalid or has expired."}
+                )
+            user.set_password(new_password)
+            user.save(update_fields=["password"])
+            return user

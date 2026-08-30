@@ -11,15 +11,19 @@ from django.utils import timezone
 from jira import JIRAError
 from jobs.contracts import JobExecutionFailure
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 
 from awcenter.api_errors import error_response
+from integrations.jira.sessions import (
+    JiraSessionError,
+    has_legacy_jira_credential,
+    jira_connector_for,
+)
 from jobs.api import job_creation_response
 from jobs.confirmation import create_confirmation_job
 from jobs.models import Job
-from jobs.services import (
-    IdempotencyConflict, find_idempotent_job, validate_idempotency_key,
-)
+from jobs.services import IdempotencyConflict, find_idempotent_job, require_idempotency_key
 
 from .document_preview import prepare_dcc_preview
 from .document_snapshot import (
@@ -29,7 +33,8 @@ from .job_error_responses import (
     jira_unavailable_response, snapshot_error_response, unexpected_capture_response,
 )
 from .job_parameters import build_preview_parameters
-from .permissions import DCCAutomationPermission
+from .access_policy import OPERATOR, require_projects_role
+from .access_policy import enabled_projects_by_ids
 from .preview_confirmation import confirm_dcc_preview
 from .services.project_resolver import DccProjectResolutionError
 
@@ -38,23 +43,33 @@ JOB_KIND = "dcc.create_document"
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated, DCCAutomationPermission])
+@permission_classes([IsAuthenticated])
 def preview_dcc_document_job(request):
     """Capture and dry-render a private snapshot without exposing it to workers."""
 
-    session_id = str(request.data.get("JSESSIONID") or "").strip()
+    legacy_error = reject_legacy_session_input(request)
+    if legacy_error:
+        return legacy_error
     issue_reference = str(request.data.get("url") or "").strip()
-    validation_response = validate_request_values(session_id, issue_reference)
+    validation_response = validate_request_values(issue_reference)
     if validation_response:
         return validation_response
-    return capture_preview_response(request, session_id, issue_reference)
+    try:
+        connector = jira_connector_for(request.user)
+    except JiraSessionError as error:
+        return error_response(
+            error.detail,
+            code=error.code,
+            response_status=error.response_status,
+        )
+    return capture_preview_response(request, connector, issue_reference)
 
 
-def capture_preview_response(request, session_id, issue_reference):
+def capture_preview_response(request, connector, issue_reference):
     """Map JIRA and preview failures to sanitized API errors."""
 
     try:
-        return create_snapshot_preview(request, session_id, issue_reference)
+        return create_snapshot_preview(request, connector, issue_reference)
     except DccSnapshotError as error:
         return snapshot_error_response(error)
     except DccProjectResolutionError:
@@ -63,29 +78,33 @@ def capture_preview_response(request, session_id, issue_reference):
         return jira_unavailable_response()
     except IdempotencyConflict:
         raise
+    except APIException:
+        raise
     except Exception:
         return unexpected_capture_response(logger)
 
 
-def create_snapshot_preview(request, session_id, issue_reference):
+def create_snapshot_preview(request, connector, issue_reference):
     """Create or replay one immutable, owner-bound confirmation preview."""
 
     issue_key = extract_issue_key(issue_reference)
-    parameters = build_preview_parameters(issue_key)
-    key = validate_idempotency_key(request.headers.get("Idempotency-Key", ""))
+    key = require_idempotency_key(request.headers.get("Idempotency-Key", ""))
     existing = find_idempotent_job(request.user, JOB_KIND, key)
     if existing:
-        return replay_snapshot_preview(existing, parameters)
-    snapshot = capture_dcc_snapshot(session_id, issue_key, settings.JIRA_URL)
+        return replay_snapshot_preview(request.user, existing, issue_key)
+    snapshot = capture_dcc_snapshot(connector, issue_key, request.user)
     validate_snapshot_size(snapshot)
+    parameters = build_preview_parameters(issue_key, snapshot["project_ids"])
     return persist_snapshot_preview(request, issue_key, parameters, snapshot, key)
 
 
-def replay_snapshot_preview(existing, parameters):
+def replay_snapshot_preview(actor, existing, issue_key):
     """Replay only an identical preview that remains authorized."""
 
-    if existing.parameters != parameters:
+    if existing.parameters.get("issue_key") != issue_key:
         raise IdempotencyConflict()
+    projects = enabled_projects_by_ids(existing.parameters.get("project_ids", ()))
+    require_projects_role(actor, projects, OPERATOR)
     return job_creation_response(existing, False)
 
 
@@ -103,16 +122,21 @@ def persist_snapshot_preview(request, issue_key, parameters, snapshot, key):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated, DCCAutomationPermission])
+@permission_classes([IsAuthenticated])
 def confirm_dcc_document_job(request, job_id):
     """Queue the exact owned snapshot after an explicit, time-bounded confirmation."""
 
+    legacy_error = reject_legacy_session_input(request)
+    if legacy_error:
+        return legacy_error
     with transaction.atomic():
         job = Job.objects.select_for_update().filter(
             pk=job_id, owner=request.user, kind=JOB_KIND,
         ).first()
         if job is None:
             return error_response("DCC preview was not found.", code="DCC_PREVIEW_NOT_FOUND", response_status=404)
+        projects = enabled_projects_by_ids(job.parameters.get("project_ids", ()))
+        require_projects_role(request.user, projects, OPERATOR)
         try:
             return confirm_dcc_preview(job, request.data)
         except DccSnapshotError as error:
@@ -133,11 +157,23 @@ def preview_ttl_seconds():
     return max(60, min(int(settings.DCC_PREVIEW_TTL_SECONDS), 86400))
 
 
-def validate_request_values(session_id, issue_reference):
-    """Reject missing or implausibly large transient request values."""
+def validate_request_values(issue_reference):
+    """Reject missing or implausibly large issue references."""
 
-    if not session_id or not issue_reference:
-        return error_response("JIRA session and task URL are required.", code="DCC_FIELDS_REQUIRED")
-    if len(session_id) > 4096 or len(issue_reference) > 2048:
-        return error_response("JIRA session or task URL is too long.", code="DCC_FIELDS_INVALID")
+    if not issue_reference:
+        return error_response("JIRA task URL is required.", code="DCC_FIELDS_REQUIRED")
+    if len(issue_reference) > 2048:
+        return error_response("JIRA task URL is too long.", code="DCC_FIELDS_INVALID")
     return None
+
+
+def reject_legacy_session_input(request):
+    """Reject browser credentials outside the canonical JIRA session resource."""
+
+    if not has_legacy_jira_credential((request.data, request.query_params)):
+        return None
+    return error_response(
+        "Connect JIRA through the integrations session endpoint.",
+        code="JIRA_SESSION_CANONICAL_REQUIRED",
+        response_status=400,
+    )

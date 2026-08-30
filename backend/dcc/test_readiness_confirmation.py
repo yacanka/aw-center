@@ -2,13 +2,12 @@
 
 from unittest.mock import patch
 
-from django.contrib.auth.models import Permission
-
 from jobs.models import Job, JobStatus
 from jobs.tests.base import JobTestCase
 from jobs.tests.test_dcc_jobs import snapshot_contract
+from orgs.models import Project, ProjectRoleAssignment
 
-PREVIEW_URL = "/dcc/jobs/create-document/preview/"
+PREVIEW_URL = "/api/dcc/jobs/create-document/preview/"
 WARNING_CODE = "DCC_PANEL_COVERAGE"
 
 
@@ -16,23 +15,34 @@ class DccReadinessConfirmationTests(JobTestCase):
     """Verify warning acknowledgement is required and audited atomically."""
 
     def setUp(self):
-        """Grant DCC creation to the preview owner."""
-
         super().setUp()
-        self.user.user_permissions.add(Permission.objects.get(codename="add_jira_dcc"))
+        self.project = Project.objects.get(slug="hys")
+        ProjectRoleAssignment.objects.create(
+            user=self.user,
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.DCC,
+            role=ProjectRoleAssignment.Role.OPERATOR,
+        )
 
     @patch("dcc.job_views.prepare_dcc_preview")
     @patch("dcc.job_views.capture_dcc_snapshot")
-    def test_confirmation_requires_and_audits_exact_warning_codes(self, capture, prepare):
+    @patch("dcc.job_views.jira_connector_for")
+    def test_confirmation_requires_and_audits_exact_warning_codes(
+        self,
+        connector_for,
+        capture,
+        prepare,
+    ):
         """An unacknowledged warning cannot silently enter the worker queue."""
 
-        capture.return_value = snapshot_contract()
+        capture.return_value = snapshot_contract([self.project.pk])
         prepare.return_value = warning_summary()
         preview = self.client.post(
-            PREVIEW_URL, {"JSESSIONID": "temporary", "url": "DCC-1"}, format="json",
+            PREVIEW_URL, {"url": "DCC-1"}, format="json",
             HTTP_IDEMPOTENCY_KEY="dcc-readiness-confirmation",
         )
-        confirm_url = f"/dcc/jobs/create-document/{preview.data['id']}/confirm/"
+        confirm_url = f"/api/dcc/jobs/create-document/{preview.data['id']}/confirm/"
+        capture.assert_called_once_with(connector_for.return_value, "DCC-1", self.user)
 
         blocked = self.client.post(confirm_url, {}, format="json")
         self.assertEqual(Job.objects.get(pk=preview.data["id"]).status, JobStatus.AWAITING_CONFIRMATION)

@@ -8,16 +8,16 @@ from .base import JobTestCase
 
 
 class JobApiTests(JobTestCase):
-    """Verify ownership, idempotency, cancellation, retry, and downloads."""
+    """Verify ownership, idempotency, cancellation, and downloads."""
 
     def test_media_job_is_durable_and_idempotent(self):
         """Repeated safe keys return the same persisted job."""
 
         headers = {"HTTP_IDEMPOTENCY_KEY": "media-request-123"}
         payload = {"file": self.image_upload(), "output_extension": "png"}
-        first = self.client.post("/media-tools/jobs/", payload, format="multipart", **headers)
+        first = self.client.post("/api/tools/media/jobs/", payload, format="multipart", **headers)
         replay = self.client.post(
-            "/media-tools/jobs/",
+            "/api/tools/media/jobs/",
             {"file": self.image_upload(), "output_extension": "png"},
             format="multipart",
             **headers,
@@ -34,7 +34,7 @@ class JobApiTests(JobTestCase):
 
         create_job(self.other_user, "media.convert", "Private", {}, self.image_upload())
 
-        response = self.client.get("/jobs/")
+        response = self.client.get("/api/jobs/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 0)
@@ -44,14 +44,14 @@ class JobApiTests(JobTestCase):
 
         headers = {"HTTP_IDEMPOTENCY_KEY": "media-request-456"}
         self.client.post(
-            "/media-tools/jobs/",
+            "/api/tools/media/jobs/",
             {"file": self.image_upload(), "output_extension": "png"},
             format="multipart",
             **headers,
         )
 
         response = self.client.post(
-            "/media-tools/jobs/",
+            "/api/tools/media/jobs/",
             {"file": self.image_upload("other.jpg"), "output_extension": "webp"},
             format="multipart",
             **headers,
@@ -60,49 +60,58 @@ class JobApiTests(JobTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.data["code"], "IDEMPOTENCY_CONFLICT")
 
-    def test_queued_job_can_be_cancelled_and_retried(self):
-        """Cancellation is terminal and retry copies verified input."""
+    def test_queued_job_can_be_cancelled_without_generic_retry_api(self):
+        """Feature endpoints own creation; Job API cannot duplicate an operation."""
 
         job, _ = create_job(self.user, "media.convert", "Convert", {}, self.image_upload())
-        cancelled = self.client.post(f"/jobs/{job.id}/cancel/")
-        retried = self.client.post(f"/jobs/{job.id}/retry/")
+        cancelled = self.client.post(f"/api/jobs/{job.id}/cancel/")
+        retried = self.client.post(f"/api/jobs/{job.id}/retry/")
 
         self.assertEqual(cancelled.data["status"], JobStatus.CANCELLED)
-        self.assertEqual(retried.status_code, 201)
-        retry_job = Job.objects.get(pk=retried.data["id"])
-        self.assertEqual(retry_job.retry_of, job)
-        self.assertEqual(retry_job.input_sha256, job.input_sha256)
-        self.assertTrue(retry_job.input_file.storage.exists(retry_job.input_file.name))
+        self.assertEqual(retried.status_code, 404)
+        self.assertEqual(Job.objects.count(), 1)
 
-    def test_repeated_retry_replays_one_direct_attempt(self):
-        """Repeated retry requests cannot create parallel attempts."""
+    def test_job_serializer_does_not_advertise_retry_or_handoff_controls(self):
+        """The status surface cannot expose removed generic mutation controls."""
 
         job, _ = create_job(self.user, "media.convert", "Convert", {}, self.image_upload())
-        self.client.post(f"/jobs/{job.id}/cancel/")
+        self.client.post(f"/api/jobs/{job.id}/cancel/")
 
-        first = self.client.post(f"/jobs/{job.id}/retry/")
-        replay = self.client.post(f"/jobs/{job.id}/retry/")
+        detail = self.client.get(f"/api/jobs/{job.id}/")
 
-        self.assertEqual(first.status_code, 201)
-        self.assertEqual(replay.status_code, 200)
-        self.assertEqual(first.data["id"], replay.data["id"])
-        self.assertEqual(replay["Idempotency-Replayed"], "true")
-        self.assertEqual(Job.objects.count(), 2)
-        job.refresh_from_db()
-        self.assertFalse(job.retryable)
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotIn("can_retry", detail.data)
+        self.assertNotIn("retryable", detail.data)
+        self.assertNotIn("handoffs", detail.data)
 
     def test_output_download_requires_ownership(self):
         """A completed artifact cannot be downloaded by another user."""
 
         job, _ = create_job(self.user, "media.convert", "Convert", {}, self.image_upload())
-        job.output_file.save("converted.png", ContentFile(b"result"), save=False)
+        payload = b"result"
+        job.output_file.save("converted.png", ContentFile(payload), save=False)
         job.output_name = "converted.png"
+        job.output_sha256 = hashlib.sha256(payload).hexdigest()
         set_job_state(job, JobStatus.SUCCEEDED, 100, "Done")
         self.client.force_authenticate(self.other_user)
 
-        response = self.client.get(f"/jobs/{job.id}/download/")
+        response = self.client.get(f"/api/jobs/{job.id}/download/")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_output_download_rejects_tampered_artifact(self):
+        """Stored content must still match the worker-published digest."""
+
+        job, _ = create_job(self.user, "media.convert", "Convert", {}, self.image_upload())
+        job.output_file.save("converted.png", ContentFile(b"tampered"), save=False)
+        job.output_name = "converted.png"
+        job.output_sha256 = hashlib.sha256(b"expected").hexdigest()
+        set_job_state(job, JobStatus.SUCCEEDED, 100, "Done")
+
+        response = self.client.get(f"/api/jobs/{job.id}/download/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "JOB_OUTPUT_INTEGRITY_FAILED")
 
     def test_input_digest_is_streamed_and_persisted(self):
         """Queued inputs retain a SHA-256 integrity fingerprint."""
@@ -121,7 +130,7 @@ class JobApiTests(JobTestCase):
 
         WorkerHeartbeat.objects.create(worker_id="worker-1")
 
-        response = self.client.get("/jobs/system/")
+        response = self.client.get("/api/jobs/system/")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["available"])

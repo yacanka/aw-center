@@ -9,7 +9,7 @@ from docxtpl import DocxTemplate
 
 from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobExecutionFailure, JobExecutionResult
-from jobs.worker import update_progress
+from jobs.execution import update_progress
 
 REQUIRED_COLUMNS = [
     "Cover Page Number", "Cover Page Issue", "ATA Chapter", "Disciplines",

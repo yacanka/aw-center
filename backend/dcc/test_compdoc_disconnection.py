@@ -11,10 +11,12 @@ class CompDocDisconnectionTests(SimpleTestCase):
         """DCC no longer exposes CompDoc traceability history."""
 
         with self.assertRaises(Resolver404):
-            resolve("/dcc/compdoc-traceability/")
+            resolve("/api/dcc/compdoc-traceability/")
 
     def test_recommendation_route_is_removed(self):
         """DCC previews no longer accept CompDoc recommendation selections."""
 
         with self.assertRaises(Resolver404):
-            resolve(f"/dcc/jobs/create-document/{uuid4()}/compdoc-recommendations/")
+            resolve(
+                f"/api/dcc/jobs/create-document/{uuid4()}/compdoc-recommendations/"
+            )

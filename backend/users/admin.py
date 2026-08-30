@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin
 
-from .models import UserInvitation, UserPreferences
+from .models import PasswordResetDelivery, UserInvitation, UserPreferences
 
 class UserPreferencesInline(admin.StackedInline):
     model = UserPreferences
@@ -96,4 +96,45 @@ class UserInvitationAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         """Require secure application services for invitation creation."""
 
+        return False
+
+
+@admin.register(PasswordResetDelivery)
+class PasswordResetDeliveryAdmin(admin.ModelAdmin):
+    """Read-only delivery audit; no password-reset token is persisted."""
+
+    list_display = (
+        "id",
+        "user",
+        "status",
+        "attempt_count",
+        "requested_at",
+        "sent_at",
+        "error_code",
+    )
+    list_filter = ("status", "error_code")
+    search_fields = ("user__username", "user__email")
+    readonly_fields = (
+        "id",
+        "user",
+        "state_digest",
+        "token_timestamp",
+        "message_id",
+        "status",
+        "error_code",
+        "attempt_count",
+        "lease_token",
+        "claimed_at",
+        "claim_expires_at",
+        "next_attempt_at",
+        "requested_at",
+        "sent_at",
+        "cancelled_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

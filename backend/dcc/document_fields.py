@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 from bs4 import BeautifulSoup
 
-from .service.JIRAConnector import ISO_time_to_string, split_text_by_chracter
+from integrations.jira.client import ISO_time_to_string, split_text_by_chracter
 from .service.text_parsing import extract_text_from_text, make_surname_upper
 
 
@@ -24,25 +24,25 @@ def main_issue_fields(fields):
     return placeholders
 
 
-def panel_fields(fields, index, parse_legacy_comment=False):
-    """Return one panel subtask's template placeholders and classification data."""
+def panel_fields(fields, parse_legacy_comment=False):
+    """Return one panel subtask's array item and classification data."""
 
-    number = index + 1
     placeholders = {}
-    add_text(placeholders, f"Panel_Status_{number}", field(field(fields, "status"), "name"))
+    add_text(placeholders, "Panel_Name", field(fields, "summary"))
+    add_text(placeholders, "Panel_Status", field(field(fields, "status"), "name"))
     if field(fields, "updated"):
-        placeholders[f"Panel_Updated_Time_{number}"] = ISO_time_to_string(field(fields, "updated"))
+        placeholders["Panel_Updated_Time"] = ISO_time_to_string(field(fields, "updated"))
     assignee = field(fields, "assignee")
-    placeholders[f"Panel_AS_Name_{number}"] = display_name(assignee)
-    add_optional_panel_fields(placeholders, fields, number)
-    append_candidate_assignee(placeholders, fields, number)
+    placeholders["Panel_AS_Name"] = display_name(assignee)
+    add_optional_panel_fields(placeholders, fields)
+    append_candidate_assignee(placeholders, fields)
     classification = option(fields, "customfield_45004") or "Minor-No Effect"
     if parse_legacy_comment:
-        classification = apply_legacy_comment(placeholders, fields, number) or classification
+        classification = apply_legacy_comment(placeholders, fields) or classification
     return placeholders, (classification, assignee), text(field(fields, "customfield_45005"))
 
 
-def add_optional_panel_fields(placeholders, fields, number):
+def add_optional_panel_fields(placeholders, fields):
     """Copy optional panel assessment fields without manufacturing empty values."""
 
     mappings = {
@@ -51,10 +51,10 @@ def add_optional_panel_fields(placeholders, fields, number):
         "Design_Change_Assessment": "customfield_45008",
     }
     for placeholder, source in mappings.items():
-        add_text(placeholders, f"{placeholder}_{number}", field(fields, source))
+        add_text(placeholders, placeholder, field(fields, source))
 
 
-def apply_legacy_comment(placeholders, fields, number):
+def apply_legacy_comment(placeholders, fields):
     """Parse the legacy Gokbey HTML comment fields when they are available."""
 
     comments = field(field(fields, "comment"), "comments") or []
@@ -63,7 +63,7 @@ def apply_legacy_comment(placeholders, fields, number):
     content = BeautifulSoup(text(field(comments[0], "body")), "html.parser").get_text(" ", strip=True)
     values = legacy_comment_values(content)
     for key, value in values.items():
-        add_text(placeholders, f"{key}_{number}", value)
+        add_text(placeholders, key, value)
     return values["Certification_Change_Classification"]
 
 
@@ -86,13 +86,13 @@ def legacy_comment_values(content):
     }
 
 
-def append_candidate_assignee(placeholders, fields, number):
+def append_candidate_assignee(placeholders, fields):
     """Append a candidate assignee to the primary panel assignee display."""
 
     candidate = display_name(field(fields, "customfield_45421"))
     if not candidate:
         return
-    key = f"Panel_AS_Name_{number}"
+    key = "Panel_AS_Name"
     placeholders[key] = ", ".join(value for value in (placeholders.get(key), candidate) if value)
 
 

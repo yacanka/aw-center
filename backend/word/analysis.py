@@ -5,7 +5,7 @@ from django.conf import settings
 
 from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobExecutionFailure, JobExecutionResult
-from jobs.worker import update_progress
+from jobs.execution import update_progress
 from word.analysis_contracts import ANALYSIS_CHECKS, resolve_analysis_checks  # noqa: F401
 from word.analysis_results import bounded_index, bounded_score, score_status
 from word.service.paraphrase import ExplainableDocxRetriever

@@ -1,83 +1,67 @@
-from django.utils.text import slugify
+"""Organization API serializers with project scope supplied by the URL."""
 
 from rest_framework import serializers
-from rest_framework.validators import UniqueTogetherValidator
 
-from .models import  Project, Panel, Responsible, People
+from .models import Panel, Person, ResponsibleAssignment
 
-class ProjectSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Project
-        fields = '__all__'
-
-        extra_kwargs = {
-            'slug': {'read_only': True}
-        }
-
-    def create(self, validated_data):
-        name = validated_data.get("name", "")
-        validated_data["slug"] = slugify(name)
-        return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        if "name" in validated_data:
-            name = validated_data.get("name", "")
-            validated_data["slug"] = slugify(name)
-
-        return super().update(instance, validated_data)
 
 class PanelSerializer(serializers.ModelSerializer):
-    project = serializers.SlugRelatedField(slug_field="name", queryset=Project.objects.all())
+    project_slug = serializers.CharField(source="project.slug", read_only=True)
 
     class Meta:
         model = Panel
-        fields = '__all__'
-        read_only_fields = ['slug']
-        validators = [
-            UniqueTogetherValidator(
-                queryset=Panel.objects.all(),
-                fields=["project", "ata"],
-                message="This ATA chapter already exists."
-            )
-        ]
+        fields = ("id", "project_slug", "name", "discipline", "ata")
 
-    def create(self, validated_data):
-        name = validated_data.get("name", "")
-        validated_data["slug"] = slugify(name)
-        return super().create(validated_data)
 
-    def update(self, instance, validated_data):
-        if "name" in validated_data:
-            name = validated_data.get("name", "")
-            validated_data["slug"] = slugify(name)
-
-        return super().update(instance, validated_data)
-
-class ResponsibleSerializer(serializers.ModelSerializer):
-    project = serializers.SlugRelatedField(slug_field="name", queryset=Project.objects.all())
-    panel = serializers.SlugRelatedField(slug_field="ata", queryset=Panel.objects.all())
+class ResponsibleAssignmentSerializer(serializers.ModelSerializer):
+    panel = serializers.PrimaryKeyRelatedField(queryset=Panel.objects.none())
     panel_name = serializers.CharField(source="panel.name", read_only=True)
+    panel_ata = serializers.CharField(source="panel.ata", read_only=True)
     person_id = serializers.SlugRelatedField(
         source="person",
         slug_field="person_id",
-        queryset=People.objects.all(),
+        queryset=Person.objects.all(),
     )
     name = serializers.CharField(source="person.name", read_only=True)
     email = serializers.EmailField(source="person.email", read_only=True)
 
     class Meta:
-        model = Responsible
-        fields = ['id', 'project', 'panel', 'name', 'email', 'title', 'panel_name', 'person_id']
+        model = ResponsibleAssignment
+        fields = (
+            "id",
+            "panel",
+            "panel_name",
+            "panel_ata",
+            "person_id",
+            "name",
+            "email",
+            "responsibility_role",
+        )
 
-class PeopleSerializer(serializers.ModelSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        project = self.context.get("project")
+        if project is not None:
+            self.fields["panel"].queryset = Panel.objects.filter(project=project)
+
+    def validate_panel(self, panel):
+        project = self.context.get("project")
+        if project is None or panel.project_id != project.pk:
+            raise serializers.ValidationError("Panel must belong to the URL project.")
+        return panel
+
+
+class PersonSerializer(serializers.ModelSerializer):
     class Meta:
-        model = People
-        fields = '__all__'
+        model = Person
+        fields = ("id", "person_id", "name", "email")
 
     def create(self, validated_data):
-        person_id = validated_data.get('person_id')
-        try:
-            instance = People.objects.get(person_id=person_id)
-            return instance
-        except People.DoesNotExist:
-            return super().create(validated_data)
+        person, _ = Person.objects.get_or_create(
+            person_id=validated_data["person_id"],
+            defaults={
+                "name": validated_data["name"],
+                "email": validated_data["email"],
+            },
+        )
+        return person

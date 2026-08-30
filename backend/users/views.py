@@ -1,18 +1,22 @@
+import time
+
 from django.contrib.auth import get_user_model, update_session_auth_hash
-from django.contrib.auth.models import Group, Permission, update_last_login
-from django.conf import settings
-from django.middleware.csrf import get_token
+from django.contrib.auth.models import Group, Permission
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.authtoken.models import Token
-from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .permissions import GroupPermission, UserPermission
-from .login_serializer import LoginSerializer
-from common.views import paginated_response
+from .password_reset_notifications import pad_password_reset_response
+from .throttles import (
+    PasswordResetAccountThrottle,
+    PasswordResetAddressThrottle,
+    PasswordResetCapabilityThrottle,
+    PasswordResetConfirmAddressThrottle,
+)
+from awcenter.pagination import paginated_response
 from .serializers import (
     PasswordChangeSerializer,
     PasswordResetConfirmSerializer,
@@ -120,81 +124,12 @@ class GroupView(APIView):
 
 
 PUBLIC_ENDPOINTS = {
-    "CustomAuthToken": "Public login endpoint; credentials are validated by DRF token auth.",
+    "SessionView": "Public session bootstrap/login endpoint with explicit CSRF protection.",
     "PasswordResetRequestAPIView": "Public request endpoint; response does not reveal account existence.",
     "PasswordResetConfirmAPIView": "Public confirmation endpoint; uid and token prove reset authorization.",
     "InvitationInspectView": "Public token inspection; the high-entropy token proves access.",
     "InvitationAcceptView": "Public single-use account creation authorized by a locked invitation.",
 }
-
-
-class CustomAuthToken(ObtainAuthToken):
-    permission_classes = [AllowAny]
-    serializer_class = LoginSerializer
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.serializer_class(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data["user"]
-        token, _ = Token.objects.get_or_create(user=user)
-        update_last_login(None, user)
-        response = Response(
-            self._login_payload(user, token, request),
-            status=status.HTTP_200_OK,
-        )
-        get_token(request)
-        response.set_cookie(
-            settings.AUTH_COOKIE_NAME,
-            token.key,
-            httponly=True,
-            samesite=settings.AUTH_COOKIE_SAMESITE,
-            secure=settings.AUTH_COOKIE_SECURE,
-            max_age=settings.AUTH_COOKIE_MAX_AGE,
-        )
-        return response
-
-    def _login_payload(self, user, token, request):
-        payload = {
-            "detail": "Login successful.",
-            "user": UserSerializer(user, context={"request": request}).data,
-        }
-        if settings.AUTH_TOKEN_RESPONSE_ENABLED:
-            payload["token"] = token.key
-        return payload
-
-
-class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        if request.user.is_authenticated:
-            self._delete_user_token(request.user)
-        response = Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
-        response.delete_cookie(
-            settings.AUTH_COOKIE_NAME,
-            samesite=settings.AUTH_COOKIE_SAMESITE,
-        )
-        return response
-
-    def _delete_user_token(self, user):
-        try:
-            user.auth_token.delete()
-        except Token.DoesNotExist:
-            pass
-
-
-class MeView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        serializer = UserSerializer(request.user, context={"request": request})
-        return Response(serializer.data)
-
-    def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class PasswordChangeView(APIView):
@@ -218,20 +153,6 @@ class PermissionListView(APIView):
     def get(self, request):
         permissions = Permission.objects.select_related("content_type").order_by("content_type__app_label", "codename")
         return paginated_response(request, permissions, PermissionSerializer)
-
-
-class CurrentUserView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        serializer = UserSerializer(request.user, context={"request": request})
-        return Response(serializer.data)
-
-    def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class UserPreferencesView(APIView):
@@ -308,16 +229,28 @@ class ExtraSettingView(APIView):
 
 class PasswordResetRequestAPIView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetAddressThrottle, PasswordResetAccountThrottle]
 
     def post(self, request):
-        serializer = PasswordResetRequestSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({"detail": "If the email is registered, a link has been sent."}, status=status.HTTP_200_OK)
+        started_at = time.monotonic()
+        try:
+            serializer = PasswordResetRequestSerializer(data=request.data, context={"request": request})
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(
+                {"detail": "If the email is registered, a link has been sent."},
+                status=status.HTTP_200_OK,
+            )
+        finally:
+            pad_password_reset_response(started_at)
 
 
 class PasswordResetConfirmAPIView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [
+        PasswordResetConfirmAddressThrottle,
+        PasswordResetCapabilityThrottle,
+    ]
 
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)

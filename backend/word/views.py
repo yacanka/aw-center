@@ -18,6 +18,7 @@ from word.service.compare_rendering import (
     write_sentence_aware_diff_with_ids,
 )
 from awcenter.file_security import WORD_POLICY, validate_request_upload
+from awcenter.spreadsheet_security import spreadsheet_safe_dataframe
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -126,7 +127,7 @@ def compare(request):
 
 def write_excel_report_openpyxl(out_excel, excel_rows, summary_stats, table_rows=None):
     import pandas as pd
-    from openpyxl.formatting.rule import FormulaRule
+    from openpyxl.formatting.rule import DataBarRule, FormulaRule
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
@@ -145,7 +146,7 @@ def write_excel_report_openpyxl(out_excel, excel_rows, summary_stats, table_rows
             r.setdefault("ListLevel_B", None)
             r.setdefault("ListTag", None)
 
-    diff_df = pd.DataFrame(excel_rows, columns=diff_cols)
+    diff_df = spreadsheet_safe_dataframe(pd.DataFrame(excel_rows, columns=diff_cols))
 
     summary_df = pd.DataFrame([{
         "Equal": summary_stats.get("equal", 0),
@@ -158,7 +159,7 @@ def write_excel_report_openpyxl(out_excel, excel_rows, summary_stats, table_rows
     # TableDiff Page
     if table_rows:
         table_cols = ["TableIndex","ChangeType","RowKey","ColumnName","OldValue","NewValue"]
-        table_df = pd.DataFrame(table_rows, columns=table_cols)
+        table_df = spreadsheet_safe_dataframe(pd.DataFrame(table_rows, columns=table_cols))
     else:
         table_df = None
 
