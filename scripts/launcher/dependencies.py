@@ -78,7 +78,7 @@ def install_frontend(project: Project, mode: str, offline_dir: Path) -> None:
 
 
 def prepare_offline(project: Project, scope: Scope, offline_dir: Path) -> None:
-    """Download Python artifacts and populate an npm cache for offline setup."""
+    """Build Python wheels and populate an npm cache for offline setup."""
     scope.require_any()
     if scope.backend:
         if not project.requirements:
@@ -90,11 +90,10 @@ def prepare_offline(project: Project, scope: Scope, offline_dir: Path) -> None:
                 sys.executable,
                 "-m",
                 "pip",
-                "download",
-                "--only-binary=:all:",
+                "wheel",
                 "-r",
                 project.requirements,
-                "-d",
+                "--wheel-dir",
                 wheels,
             ],
             project.root,

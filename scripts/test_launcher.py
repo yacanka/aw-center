@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts.launcher.cli import build_parser, project_path
-from scripts.launcher.dependencies import install_backend
+from scripts.launcher.dependencies import install_backend, prepare_offline
 from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError, Project, Scope
 from scripts.launcher.offline_manifest import verify_offline_manifest, write_offline_manifest
@@ -66,6 +66,25 @@ class DiscoveryTests(unittest.TestCase):
 class DependencyTests(unittest.TestCase):
     """Validate explicit online and offline dependency behavior."""
 
+    @mock.patch("scripts.launcher.dependencies.write_offline_manifest")
+    @mock.patch("scripts.launcher.dependencies.run")
+    def test_offline_preparation_builds_missing_wheels(
+        self, run_mock: mock.Mock, manifest_mock: mock.Mock
+    ) -> None:
+        """Source-only dependencies should be built into the wheel bundle."""
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            offline_dir = project.root / "offline"
+            prepare_offline(project, Scope(frontend=False), offline_dir)
+
+        command, working_directory = run_mock.call_args.args
+        self.assertEqual(command[1:4], ["-m", "pip", "wheel"])
+        self.assertIn("--wheel-dir", command)
+        self.assertIn(offline_dir / "wheels", command)
+        self.assertNotIn("--only-binary=:all:", command)
+        self.assertEqual(working_directory, project.root)
+        manifest_mock.assert_called_once_with(project, Scope(frontend=False), offline_dir)
+
     @mock.patch("scripts.launcher.dependencies.run")
     @mock.patch("scripts.launcher.dependencies.ensure_virtual_environment")
     def test_offline_backend_install_uses_only_prepared_wheels(
@@ -93,9 +112,11 @@ class DependencyTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary))
+            (project.frontend / "package-lock.json").write_text("{}\n", encoding="utf-8")
             populate_npm_cache(project, project.root / "offline/npm-cache")
             command, working_directory = run_mock.call_args.args
             self.assertNotEqual(working_directory, project.frontend)
+            self.assertEqual(command[1], "ci")
             self.assertIn("--ignore-scripts", command)
 
 

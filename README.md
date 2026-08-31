@@ -19,6 +19,15 @@ python launcher.py check
 python launcher.py dev --migrate
 ```
 
+`backend/.env.example` local development için doğrudan çalışabilen, secret
+içermeyen örnektir. Kopyalanan `backend/.env` Git tarafından yok sayılır;
+makineye özel değerleri burada veya daha yüksek öncelikli process environment'da
+verin. Tracked `.env.development` yalnız eski profil seçen kurulumlarla uyumluluk
+için korunur ve credential içermemelidir. Production bu dosyaları ve launcher'ı
+kullanmaz: Docker Compose için canonical şablon repository kökündeki
+`.env.example` dosyasıdır ve gerçek değerler checkout dışında veya secret
+manager'da tutulur.
+
 Varsayılan adresler:
 
 - Vue development server: `http://127.0.0.1:5173/app/`

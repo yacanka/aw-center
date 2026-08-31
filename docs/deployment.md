@@ -49,7 +49,7 @@ Redis container'ı image'ın `redis` kullanıcısıyla çalışır; entrypoint p
 
 ## Zorunlu deployment environment
 
-Kök `.env.example` yalnız isim/shape şablonudur; gerçek değerleri secret manager veya orchestrator environment'ından sağlayın.
+Kök `.env.example` yalnız isim/shape şablonudur; gerçek değerleri secret manager veya orchestrator environment'ından sağlayın. `backend/.env.example`, `.env.development` ve `.env.production` deployment girdisi değildir; bunlar sırasıyla self-contained local örnek, geriye uyumlu local profil ve Django runtime referansıdır. Preflight'a ve Compose'a yalnız kök production şablonundan türetilen operator-owned environment verin.
 
 | Değişken | Sözleşme |
 |---|---|

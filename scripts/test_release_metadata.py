@@ -1,6 +1,7 @@
 """Unit tests for immutable release manifest and SBOM generation."""
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,34 @@ from scripts import build_release_metadata, deployment_preflight, verify_release
 
 
 class ReleaseMetadataTests(unittest.TestCase):
+    def test_production_environment_template_covers_compose_inputs(self):
+        root = Path(__file__).resolve().parents[1]
+        template_path = root / ".env.example"
+        template_lines = template_path.read_text(encoding="utf-8").splitlines()
+        template_keys = [
+            line.partition("=")[0].strip()
+            for line in template_lines
+            if line.strip() and not line.lstrip().startswith("#") and "=" in line
+        ]
+        compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+        compose_inputs = set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", compose))
+
+        self.assertEqual(len(template_keys), len(set(template_keys)))
+        self.assertEqual(compose_inputs - set(template_keys), set())
+        self.assertIn("COMPOSE_PROFILES", template_keys)
+
+        values = deployment_preflight.read_env_file(template_path)
+        for feature in (
+            "DOCPROOF_ENABLED",
+            "DOORS_ENABLED",
+            "JIRA_ENABLED",
+            "TEAMCENTER_ENABLED",
+            "WINDOWS_BRIDGE_ENABLED",
+        ):
+            self.assertEqual(values[feature], "false")
+        self.assertEqual(values["AWCENTER_MAIL_TRANSPORT"], "disabled")
+        self.assertNotIn("AWCENTER_ENV_FILE", values)
+
     def test_sbom_is_deterministic_and_contains_both_lock_ecosystems(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
