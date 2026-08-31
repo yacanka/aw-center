@@ -151,6 +151,8 @@ Job claim/recovery, compliance/ECR version transition ve notification lease test
 
 `frontend/package.json` içindeki `test:ci` sırasıyla Vitest unit testleri ve repository-owned Node contract testlerini çalıştırır. `test:e2e` ayrı Playwright gate'idir; mevcut smoke session API'nin CSRF cookie/header contract'ını, anonymous protected deep-link redirect'ini ve `/app/task/ecr` ekranında `reconciliation_required` publication'ın version + yeni `Idempotency-Key` ile queued durable attempt'e resume edilmesini gerçek Chromium navigation'ıyla doğrular. Bu mocked browser contract smoke'u canlı Django/container smoke'unun yerine geçmez. Route görünürlüğü, navigation guard ve backend permission aynı policy niyetini paylaşmalıdır; UI gizleme authorization yerine geçmez.
 
+Frontend lock dosyasının canonical üreticisi `frontend/package.json` içindeki npm sürümüdür. Rolldown'ın optional WASI zincirindeki `@emnapi/core` ve `@emnapi/runtime` peer'ları doğrudan dev dependency olarak sabitlenir; böylece npm 10 ve npm 11 aynı lock dosyasını `npm ci` ile kabul eder. Dependency güncellemesinden sonra iki npm major'ünde de clean install doğrulanmalıdır.
+
 `format:check` read-only'dir. CI source'u otomatik formatlamaz. Bundle build, `check-bundle-budget.mjs` ve postbuild artifact existence kontrolüyle tamamlanır.
 
 ## CI ve release gate
