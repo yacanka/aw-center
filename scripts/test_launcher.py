@@ -15,7 +15,11 @@ from scripts.launcher.cli import build_parser, project_path
 from scripts.launcher.dependencies import install_backend, prepare_offline
 from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError, Project, Scope
-from scripts.launcher.offline_manifest import verify_offline_manifest, write_offline_manifest
+from scripts.launcher.offline_manifest import (
+    command_version,
+    verify_offline_manifest,
+    write_offline_manifest,
+)
 from scripts.launcher.packaging import package_offline, write_zip
 from scripts.launcher.runtime import (
     dev,
@@ -118,6 +122,27 @@ class DependencyTests(unittest.TestCase):
             self.assertNotEqual(working_directory, project.frontend)
             self.assertEqual(command[1], "ci")
             self.assertIn("--ignore-scripts", command)
+
+    @mock.patch("scripts.launcher.offline_manifest.subprocess.run")
+    @mock.patch(
+        "scripts.launcher.offline_manifest.required_tool",
+        return_value=r"C:\\Program Files\\nodejs\\npm.cmd",
+    )
+    def test_toolchain_version_uses_resolved_windows_command_shim(
+        self, required_tool_mock: mock.Mock, run_mock: mock.Mock
+    ) -> None:
+        """Manifest creation should invoke the resolved Windows npm.cmd shim."""
+        run_mock.return_value = mock.Mock(returncode=0, stdout="10.9.2\n")
+
+        self.assertEqual(command_version("npm"), "10.9.2")
+
+        required_tool_mock.assert_called_once_with("npm")
+        run_mock.assert_called_once_with(
+            [r"C:\\Program Files\\nodejs\\npm.cmd", "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
 
 class RuntimeTests(unittest.TestCase):

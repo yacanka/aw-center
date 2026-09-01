@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from .model import LauncherError, Project, Scope
+from .process import required_tool
 
 MANIFEST_NAME = "manifest.json"
 MANIFEST_VERSION = 1
@@ -136,8 +137,9 @@ def git_commit(root: Path) -> str:
 
 
 def command_version(command: str) -> str:
+    executable = required_tool(command)
     completed = subprocess.run(
-        [command, "--version"], check=False, capture_output=True, text=True
+        [executable, "--version"], check=False, capture_output=True, text=True
     )
     if completed.returncode:
         raise LauncherError(f"{command} version could not be determined")
