@@ -147,4 +147,9 @@ def print_urls(scope: Scope, host: str, backend_port: int, frontend_port: int) -
         print(f"Backend:  {public_url(host, backend_port)}")
     if scope.frontend:
         print(f"Frontend: {public_url(host, frontend_port)}")
+    if scope.backend and scope.frontend:
+        print(
+            "Use the frontend URL exactly as printed; "
+            "its hostname is part of the API security check."
+        )
     print("Press Ctrl+C to stop.")
