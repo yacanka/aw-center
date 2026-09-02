@@ -66,7 +66,10 @@ class DeploymentContractTests(SimpleTestCase):
         backend = services["backend"]
 
         self.assertNotIn("frontend", compose["services"])
-        self.assertEqual(services["ingress"]["ports"], ["80:80", "443:443"])
+        self.assertEqual(
+            services["ingress"]["ports"],
+            ["80:80", "443:443", "127.0.0.1:${DOORS_RUNNER_PORT:-8765}:8765"],
+        )
         self.assertNotIn("ports", backend)
         self.assertNotIn("build", backend)
         self.assertIn("AWCENTER_IMAGE", backend["image"])
@@ -77,12 +80,12 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("${SECRET_KEY:?", rendered)
         self.assertIn("${DATABASE_URL:?", rendered)
         self.assertNotIn("change-me-local-only", rendered)
-        for name in ("ingress", "windows-bridge-ingress"):
-            self.assertIn(
-                "/etc/nginx/templates/default.conf.template:ro",
-                " ".join(services[name]["volumes"]),
-            )
-        for name in ("ingress", "windows-bridge-ingress", "database", "redis"):
+        self.assertIn(
+            "/etc/nginx/templates/default.conf.template:ro",
+            " ".join(services["ingress"]["volumes"]),
+        )
+        self.assertNotIn("windows-bridge-ingress", services)
+        for name in ("ingress", "database", "redis"):
             self.assertIn("@sha256:", services[name]["image"])
         for name in ("backend", "worker", "notification-worker", "cleanup-worker"):
             self.assertEqual(services[name]["user"], "10001:10001")
@@ -129,11 +132,7 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("requirepass %s", " ".join(services["redis"]["command"]))
         self.assertNotIn("--requirepass", services["redis"]["command"][-1])
         self.assertIn("unset REDIS_PASSWORD", services["redis"]["command"][-1])
-        bridge = services["windows-bridge-ingress"]
-        self.assertEqual(bridge["profiles"], ["windows-bridge"])
-        self.assertIn("bridge.invalid", bridge["environment"]["AWCENTER_BRIDGE_HOST"])
-        self.assertIn("test -s /etc/nginx/tls/bridge-ca.crt", bridge["command"][-1])
-        self.assertIn("healthcheck", bridge)
+        self.assertIn("DOORS_RUNNER_TOKEN", services["backend"]["environment"])
 
     def test_ci_uses_strict_read_only_and_container_quality_gates(self):
         """CI cannot mutate sources or bypass type and artifact checks."""
@@ -198,7 +197,7 @@ class DeploymentContractTests(SimpleTestCase):
 
         nginx = self.read("deploy/nginx/awcenter.conf")
         media_start = nginx.index("location ^~ /media/")
-        media_end = nginx.index("location ^~ /internal/bridge/", media_start)
+        media_end = nginx.index("location ^~ /internal/", media_start)
         media_block = nginx[media_start:media_end]
 
         self.assertIn("client_max_body_size 600m;", nginx)
@@ -209,16 +208,11 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("return 308 https://${AWCENTER_HOST}$request_uri;", nginx)
         self.assertIn('"$request_method $uri $server_protocol"', nginx)
         self.assertIn("access_log /var/log/nginx/access.log awcenter_safe;", nginx)
-        bridge = self.read("deploy/nginx/windows-bridge.conf")
-        self.assertIn("ssl_verify_client on;", bridge)
-        self.assertIn("X-AWC-mTLS-Cert $ssl_client_escaped_cert", bridge)
-        self.assertIn('X-AWC-mTLS-Fingerprint ""', bridge)
-        self.assertIn('X-AWC-mTLS-Subject ""', bridge)
-        self.assertNotIn("$ssl_client_fingerprint", bridge)
-        self.assertIn("location ^~ /internal/bridge/v1/", bridge)
-        self.assertIn("listen 127.0.0.1:8080", bridge)
-        self.assertIn('"$request_method $uri $server_protocol"', bridge)
-        self.assertIn("access_log /var/log/nginx/access.log awcenter_safe;", bridge)
+        self.assertIn("listen 8765;", nginx)
+        self.assertIn("location ^~ /internal/doors-runner/v1/", nginx)
+        self.assertIn('proxy_set_header Authorization "";', nginx)
+        self.assertIn('proxy_set_header Cookie "";', nginx)
+        self.assertFalse((REPOSITORY_ROOT / "deploy/nginx/windows-bridge.conf").exists())
 
     def read(self, relative_path):
         """Read one bounded repository deployment file."""

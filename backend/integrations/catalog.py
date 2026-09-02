@@ -1,4 +1,4 @@
-"""Non-secret capability catalog for AW Center integration bridges."""
+"""Non-secret capability catalog for AW Center integrations."""
 
 import importlib.util
 import shutil
@@ -6,12 +6,12 @@ from pathlib import Path
 
 from django.conf import settings
 
-from automations.bridge import bridge_status
+from automations.runner_protocol import runner_status
 from integrations.teamcenter.services import integration_status as teamcenter_status
 
 
 def integration_catalog():
-    """Return configuration readiness for supported integration bridges."""
+    """Return configuration readiness for supported integrations."""
 
     return [
         _jira_integration(),
@@ -54,7 +54,7 @@ def _teamcenter_integration():
 
 
 def _doors_integration():
-    status = bridge_status()
+    status = runner_status()
     ready = bool(settings.DOORS_ENABLED and status["available"])
     return _item(
         "doors",
@@ -143,5 +143,5 @@ def _item(identifier, name, ready, description, capabilities, route, configured=
         "description": description,
         "capabilities": capabilities,
         "route": route,
-        "platform": "windows-agent" if identifier == "doors" else "cross-platform",
+        "platform": "windows" if identifier == "doors" else "cross-platform",
     }

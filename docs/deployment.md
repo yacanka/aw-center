@@ -1,23 +1,22 @@
 # Production deployment ve operasyon runbook'u
 
-Bu belge AW Center'ın desteklenen tek production topolojisini tanımlar: Linux container runtime, same-origin HTTPS, immutable combined image, PostgreSQL 17, Redis 7 ve private artifact volume. Local launcher production'da kullanılmaz.
+Bu belge AW Center'ın desteklenen tek production topolojisini tanımlar: aynı Windows cihazdaki Linux container runtime, same-origin HTTPS, immutable combined image, PostgreSQL 17, Redis 7, private artifact volume ve native host-local DOORS runner. Local launcher production'da kullanılmaz.
 
 ## Servis topolojisi
 
 | Compose service | Sorumluluk | State |
 |---|---|---|
-| `ingress` | Public TLS, `/app`, `/api`, `/health` proxy | TLS files read-only |
+| `ingress` | Public TLS proxy ve host-loopback DOORS runner listener | TLS files read-only |
 | `backend` | Gunicorn/Django, built Vue shell ve API | Source/image read-only |
 | `worker` | `local` queue durable executors ve heartbeat | PostgreSQL + private volume |
 | `notification-worker` | Password-reset outbox ve compliance notification scan/send | PostgreSQL + Redis |
 | `cleanup-worker` | Expired preview ve terminal job/artifact retention | PostgreSQL + private volume |
 | `database` | PostgreSQL 17 | `postgres-data` volume |
 | `redis` | Shared Redis 7 cache/capability state, AOF | `redis-data` volume |
-| `windows-bridge-ingress` | Opsiyonel mTLS agent ingress | CA/server TLS read-only |
 
-Backend host portuna publish edilmez. Public ingress `/media/` ve `/internal/bridge/` yollarını kapatır. Bridge ingress ayrı `windows-bridge` profile'ındadır ve yalnız internal bridge API'yi geçirir.
+Backend host portuna publish edilmez. Public ingress `/media/` ve bütün `/internal/` yollarını kapatır. Aynı Nginx container'ındaki `8765` listener hosta yalnız `127.0.0.1` üzerinden publish edilir ve sadece `/internal/doors-runner/v1/` yolunu geçirir.
 
-`windows-bridge` profile'ı bir Windows poller başlatmaz. Poller binary/service'i ayrı release, sertifika lifecycle'ı ve Windows service supervisor'u olan harici bir deployment bileşenidir; Compose yalnız onun bağlandığı mTLS ingress'in sahibidir.
+Native runner Compose service'i değildir. Repository-owned `run_doors_runner` komutu, DOORS ile aynı logged-in Windows kullanıcısı altında Task Scheduler tarafından çalıştırılır. Runner database/cache/private-volume credential'ı almaz; loopback endpoint ve `DOORS_RUNNER_TOKEN` dışında server capability'si yoktur.
 
 ## Process least-privilege sözleşmesi
 
@@ -25,11 +24,10 @@ Compose ortak runtime ayarlarını paylaşır, fakat feature secret ve volume'la
 
 | Service | İzinli ek secret/config | Filesystem capability |
 |---|---|---|
-| `backend` | Browser/API integration'ları | `private-artifacts:rw`, `models:ro` |
+| `backend` | Browser/API integration'ları ve DOORS runner token | `private-artifacts:rw`, `models:ro` |
 | `worker` | Yalnız local executor JIRA/Teamcenter ayarları | `private-artifacts:rw`, `models:ro` |
 | `notification-worker` | Yalnız password-reset/compliance mail transport | Ek volume yok |
 | `cleanup-worker` | Yalnız artifact retention | `private-artifacts:rw` |
-| `windows-bridge-ingress` | Bridge enable gate'i ve hostname | Nginx config + public/server/CA TLS dosyaları `ro` |
 
 Notification worker'a integration/session credential'ı veya private/model volume; cleanup worker'a integration/mail credential'ı veya model volume; backend/local worker'a mail credential'ı vermeyin. Password-reset API yalnız durable outbox'a yazar; SMTP teslimi notification worker'dadır. Bir yeni executor bu matrisi genişletmek zorundaysa değişikliği Compose contract testi ve threat-boundary gerekçesiyle birlikte yapın.
 
@@ -73,9 +71,9 @@ Production default'ları:
 - `PRIVATE_MEDIA_ROOT=/app/private_media`
 - `AWCENTER_MAIL_TRANSPORT=django` veya `disabled`
 
-Bir integration yalnız explicit `*_ENABLED=true` ile açılır. JIRA session encryption key ve upstream credential'lar secret'tır. ECR review state'i PostgreSQL'de durable'dır fakat publish/resume yalnız kullanıcıya bağlı ephemeral JIRA session ve `Idempotency-Key` ile yeni, server-owned fenced job başlatır; credential job payload'ına yazılmaz. `DOORS_ENABLED=true` yalnız tam yapılandırılmış Windows bridge ile geçerlidir. Production system checks HTTP integration URL'lerinde HTTPS, PostgreSQL, Redis, proxy trust, cookie ve bridge zorunluluklarını fail-closed doğrular.
+Bir integration yalnız explicit `*_ENABLED=true` ile açılır. JIRA session encryption key ve upstream credential'lar secret'tır. ECR review state'i PostgreSQL'de durable'dır fakat publish/resume yalnız kullanıcıya bağlı ephemeral JIRA session ve `Idempotency-Key` ile yeni, server-owned fenced job başlatır; credential job payload'ına yazılmaz. `DOORS_ENABLED=true` en az 256-bit `DOORS_RUNNER_TOKEN` gerektirir. Production system checks HTTP integration URL'lerinde HTTPS, PostgreSQL, Redis, proxy trust, cookie ve runner-token zorunluluklarını fail-closed doğrular.
 
-Preflight `DATABASE_URL` değerini bundled topology'ye bağlar: host `database`, port varsayılan PostgreSQL portu, kullanıcı/veritabanı da `POSTGRES_USER`/`POSTGRES_DB` ile aynı olmalıdır. Ayrıca TLS certificate/private-key dosyaları ile model dizininin var, regular/non-symlink ve beklenen türde olmasını ister. Private key group/other permission bit'i taşıyamaz ve certificate ile aynı dosya olamaz. Bridge enabled ise ayrıca `COMPOSE_PROFILES=windows-bridge`, placeholder olmayan bridge hostname, trusted-proxy flag'i, CA dosyası ve listedeki her client fingerprint için geçerli SHA-256 biçimi zorunludur. Bridge disabled iken profile'ın açık kalması da reddedilir. `deployment_preflight.py` env dosyasını okuduktan sonra process environment değerlerini üstün kabul eder; operator, doğruladığı env dosyasını daha sonra fark edilmeyen shell override'larıyla değiştirmemelidir.
+Preflight `DATABASE_URL` değerini bundled topology'ye bağlar: host `database`, port varsayılan PostgreSQL portu, kullanıcı/veritabanı da `POSTGRES_USER`/`POSTGRES_DB` ile aynı olmalıdır. Ayrıca TLS certificate/private-key dosyaları ile model dizininin var, regular/non-symlink ve beklenen türde olmasını ister. Private key group/other permission bit'i taşıyamaz ve certificate ile aynı dosya olamaz. DOORS enabled ise URL-safe ve en az 43 karakterlik runner token zorunludur. `deployment_preflight.py` env dosyasını okuduktan sonra process environment değerlerini üstün kabul eder; operator, doğruladığı env dosyasını daha sonra fark edilmeyen shell override'larıyla değiştirmemelidir.
 
 ## Release evidence
 
@@ -210,11 +208,11 @@ curl -fsS "https://$AWCENTER_HOST/health/ready/"
 curl -fsS "https://$AWCENTER_HOST/app/" >/dev/null
 ```
 
-Windows bridge etkinse public gate'ten bağımsız olarak [windows-bridge.md](windows-bridge.md) kontrollerini tamamladıktan sonra açın:
+DOORS etkinse ingress açıldıktan sonra [doors-runner.md](doors-runner.md) kurulumunu tamamlayın ve native Windows kullanıcı oturumunda one-shot canary çalıştırın:
 
-```bash
-awcenter_compose --profile windows-bridge up -d --wait --wait-timeout 180 \
-  windows-bridge-ingress
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py run_doors_runner --once
 ```
 
 `docker compose up -d` komutunu service adı vermeden ilk bootstrap adımı olarak kullanmayın; ingress migration/readiness'ten önce açılmamalıdır.
@@ -236,7 +234,7 @@ awcenter_compose() {
 awcenter_compose pull
 ```
 
-Schema geçişine başlamadan önce maintenance window açın. Önce public ingress'i kapatıp yeni browser/API job create isteklerini kesin; retention ve notification lifecycle'larını durdurun, fakat mevcut local/Windows claim'lerinin tamamlanabilmesi için backend, job worker ve bridge ingress'i çalışır bırakın:
+Schema geçişine başlamadan önce maintenance window açın. DOORS runner'ın yeni claim almasını durdurun, aktif DOORS işlerini tamamlayın ve Task Scheduler kaydını maintenance süresince disable edin. Runner heartbeat'i stale olduktan sonra public ingress'i kapatıp yeni browser/API job create isteklerini kesin; retention ve notification lifecycle'larını durdurun, fakat mevcut local claim'lerin tamamlanabilmesi için backend ve job worker'ı çalışır bırakın:
 
 ```bash
 awcenter_compose stop ingress
@@ -254,10 +252,9 @@ awcenter_compose exec -T backend python manage.py shell -c \
 
 ECR reconciliation kaydı yeni image'da da otomatik alınmaz. Operator/provider marker durumunu doğruladıktan ve kullanıcı JIRA session'ını yeniden bağladıktan sonra owner `/api/workflows/ecr/<uuid>/resume/` üzerinden yeni `Idempotency-Key` ile explicit attempt başlatır.
 
-Gate sıfır döndüğünde artık yeni claim alınamaz; bridge ingress, worker ve backend'i sırasıyla durdurun:
+Gate sıfır döndüğünde artık yeni claim alınamaz; worker ve backend'i sırasıyla durdurun:
 
 ```bash
-awcenter_compose --profile windows-bridge stop windows-bridge-ingress
 awcenter_compose stop worker backend
 ```
 
@@ -283,7 +280,7 @@ sha256sum "$AWCENTER_BACKUP_DIRECTORY/postgresql.dump" \
 
 `AWCENTER_BACKUP_ROOT` repository checkout'u veya launcher package alanı dışında, yalnız operator tarafından okunabilen absolute bir dizin olmalıdır. Backup dosyalarını ayrıca host dışında şifreli ve erişim kontrollü storage'a kopyalayın; restore drill ile periyodik olarak doğrulayın. Database ve private artifact snapshot'ı bir çifttir.
 
-Redis authoritative business/job/ECR review state'i değildir ve bu restore çiftinin parçası olarak geri yüklenmez. JIRA oturumları, probe cache'i ve tek kullanımlık bridge capability'leri upgrade/DR sonrasında kaybolabilir; ECR publish/resume öncesi kullanıcı JIRA'yı yeniden bağlar ve agent yeni claim alır. Drain tamamlanmadan Redis'i silmeyin veya değiştirmeyin.
+Redis authoritative business/job/ECR review state'i değildir ve bu restore çiftinin parçası olarak geri yüklenmez. JIRA oturumları, probe cache'i ve tek kullanımlık runner capability'leri upgrade/DR sonrasında kaybolabilir; ECR publish/resume öncesi kullanıcı JIRA'yı yeniden bağlar ve DOORS runner yeni claim alır. Drain tamamlanmadan Redis'i silmeyin veya değiştirmeyin.
 
 Yeni image ile one-shot migration ve gate'leri çalıştırın:
 
@@ -316,11 +313,11 @@ curl -fsS "https://$AWCENTER_HOST/health/ready/"
 curl -fsS "https://$AWCENTER_HOST/app/" >/dev/null
 ```
 
-Bridge etkin deployment'ta dedicated ingress'i ayrıca yeniden başlatın ve onaylı external agent release'inin mTLS status/claim smoke'unu tamamlayın:
+DOORS etkin deployment'ta runner Task Scheduler kaydını yeniden enable edin; aynı release'teki native komutla status/claim canary'sini tamamlayın:
 
-```bash
-awcenter_compose --profile windows-bridge up -d --wait --wait-timeout 180 \
-  windows-bridge-ingress
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py run_doors_runner --once
 ```
 
 Herhangi bir gate başarısızsa ilgili ingress kapalı kalır.
@@ -340,7 +337,7 @@ Herhangi bir gate başarısızsa ilgili ingress kapalı kalır.
 - `/health/ready/`: database, Redis cache ve frontend artifact hazır mı; herhangi biri başarısızsa 503.
 - Job worker: database heartbeat + container-local worker identity file.
 - Notification worker: password-reset ve compliance kuyruklarının başarılı pass'i sonrası heartbeat file; cleanup da kendi başarılı pass'i sonrası heartbeat file yazar. Compose stale threshold ile health verir.
-- Public ve bridge Nginx container healthcheck'i yalnız loopback `127.0.0.1:8080/nginx-ready` üzerinden backend readiness'i proxy eder; bu listener hosta publish edilmez ve public TLS/mTLS doğrulamasını gevşetmez.
+- Nginx container healthcheck'i yalnız container-loopback `127.0.0.1:8080/nginx-ready` üzerinden backend readiness'i proxy eder; bu health listener'ı hosta publish edilmez. Ayrı runner listener'ı hostta yalnız `127.0.0.1` binding'ine sahiptir.
 - Loglar JSON stdout'dur ve `request_id`, seviye, logger ve bounded operational alanlar taşır.
 
 Readiness upstream URL, credential veya private path döndürmez. Integration health kullanıcı-authenticated catalog/probe üzerinden ve timeout/circuit-breaker ile değerlendirilir.

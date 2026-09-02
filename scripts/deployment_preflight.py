@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlsplit
 RELEASE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 IMAGE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 REDIS_PASSWORD = re.compile(r"^[A-Za-z0-9._~-]{24,128}$")
+DOORS_RUNNER_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 HOST = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -97,7 +98,7 @@ def validate(values) -> list[str]:
     if not REDIS_PASSWORD.fullmatch(redis_password) or _placeholder(redis_password):
         errors.append("REDIS_PASSWORD")
     errors.extend(_validate_runtime_paths(values))
-    errors.extend(_validate_windows_bridge(values))
+    errors.extend(_validate_doors_runner(values))
     return errors
 
 
@@ -171,38 +172,13 @@ def _validate_runtime_paths(values: dict[str, str]) -> list[str]:
     return errors
 
 
-def _validate_windows_bridge(values: dict[str, str]) -> list[str]:
-    bridge_enabled = _truthy(values.get("WINDOWS_BRIDGE_ENABLED"))
-    doors_enabled = _truthy(values.get("DOORS_ENABLED"))
-    profiles = {
-        profile.strip()
-        for profile in str(values.get("COMPOSE_PROFILES", "")).split(",")
-        if profile.strip()
-    }
-    if not bridge_enabled:
-        errors = ["DOORS_REQUIRES_WINDOWS_BRIDGE"] if doors_enabled else []
-        if "windows-bridge" in profiles:
-            errors.append("WINDOWS_BRIDGE_PROFILE_WITHOUT_ENABLEMENT")
-        return errors
+def _validate_doors_runner(values: dict[str, str]) -> list[str]:
+    """Require a strong shared secret only when the local runner is enabled."""
 
-    errors = []
-    if "windows-bridge" not in profiles:
-        errors.append("WINDOWS_BRIDGE_COMPOSE_PROFILE")
-    host = str(values.get("AWCENTER_BRIDGE_HOST", "")).strip().lower()
-    if not HOST.fullmatch(host) or _reserved_host(host):
-        errors.append("AWCENTER_BRIDGE_HOST")
-    if not _truthy(values.get("WINDOWS_BRIDGE_TRUST_PROXY_HEADERS")):
-        errors.append("WINDOWS_BRIDGE_TRUST_PROXY_HEADERS")
-    if _regular_file(values.get("WINDOWS_BRIDGE_CA_FILE")) is None:
-        errors.append("WINDOWS_BRIDGE_CA_FILE")
-    fingerprint_items = [
-        item.replace(":", "").strip().lower()
-        for item in str(values.get("WINDOWS_BRIDGE_CLIENT_FINGERPRINTS", "")).split(",")
-        if item.strip()
-    ]
-    if not fingerprint_items or not all(SHA256.fullmatch(item) for item in fingerprint_items):
-        errors.append("WINDOWS_BRIDGE_CLIENT_FINGERPRINTS")
-    return errors
+    if not _truthy(values.get("DOORS_ENABLED")):
+        return []
+    token = str(values.get("DOORS_RUNNER_TOKEN", ""))
+    return [] if DOORS_RUNNER_TOKEN.fullmatch(token) else ["DOORS_RUNNER_TOKEN"]
 
 
 def _read_json(path: Path) -> dict | None:

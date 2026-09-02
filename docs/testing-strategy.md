@@ -57,7 +57,8 @@ Dar backend örnekleri:
 ../.venv/bin/python manage.py test users.test_auth_csrf
 ../.venv/bin/python manage.py test compliance
 ../.venv/bin/python manage.py test jobs
-../.venv/bin/python manage.py test automations doors.test_bridge_tasks
+../.venv/bin/python manage.py test automations integrations.tests.test_doors_runner \
+  integrations.tests.test_doors_runner_tasks
 ../.venv/bin/python manage.py test awcenter.test_architecture awcenter.test_deployment_contract
 ```
 
@@ -109,7 +110,7 @@ Frontend artifact-serving değişikliğinde build sonrasında, `backend/` içind
 | Upload/private artifact | File security, path traversal/signature/size, authorization, SHA ve cleanup testleri |
 | Job/executor | Catalog resolution, queue allowlist, idempotency, lease/token fencing, heartbeat, cancellation, recovery, retention |
 | ECR workflow | Owner scope, bounded PDF/immutable review create replay'i, versioned approve/reject, ephemeral JIRA session, publish/resume idempotency, job fencing ve no-auto-retry reconciliation |
-| Windows bridge | mTLS spoof rejection, trusted proxy, certificate SHA-256, one-use input/output, stale completion ve DOORS adapter tests |
+| DOORS runner | Loopback-only ingress, runner-token rejection, one-use input/output, stale completion, local catalog allowlist ve DOORS adapter tests |
 | Frontend service/store | Vitest + ilgili script contract + typecheck |
 | Session/router/browser shell | Backend auth/CSRF + frontend unit/route contracts + `test:e2e` |
 | Static/Vite/Docker/Nginx | Frontend build, collectstatic, artifact verify, deployment contract, container build/smoke |
@@ -129,7 +130,7 @@ Değişen yüzeyle orantılı olarak en az şunları değerlendirin:
 - idempotency key replay: aynı input ve farklı input;
 - ECR'de cross-owner erişim, stale approve/reject version, credential payload reddi, missing/expired JIRA session, stale publication fence ve explicit resume öncesi reconciliation doğrulaması;
 - expired/recovered lease ve stale worker publish;
-- browser cookie/authorization ile internal bridge erişimi;
+- browser cookie/authorization ile internal runner erişimi;
 - untrusted proxy, missing/invalid/expired certificate ve fingerprint mismatch;
 - Redis authenticated health + unauthenticated command rejection ve Nginx loopback-only readiness;
 - response/log içinde secret, path, certificate veya upstream exception sızıntısı.

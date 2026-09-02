@@ -4,7 +4,7 @@ Bu belge mevcut production contract'ın canonical açıklamasıdır. Tarihsel re
 
 ## Mimari hedef
 
-AW Center tek deployable Django/Vue uygulamasıdır. Modüler monolith sınırları korunur; ayrı process gerektiren işler aynı image'dan çalışan worker lifecycle'larına ayrılır. Production ortamı Linux container, PostgreSQL ve Redis'tir. Windows'a bağımlı DOORS otomasyonu ana uygulamanın dışında, yalnız outbound HTTPS kullanan mTLS agent ile çalışır.
+AW Center tek deployable Django/Vue uygulamasıdır. Modüler monolith sınırları korunur; ayrı process gerektiren işler aynı image'dan çalışan worker lifecycle'larına ayrılır. Production web/data lifecycle'ları aynı Windows cihazdaki Linux container'larında çalışır. Windows'a bağımlı DOORS otomasyonu, DOORS'un kullanıcı oturumunda çalışan native host-local runner'a ayrılır.
 
 Temel ilkeler:
 
@@ -36,15 +36,15 @@ Same image, ayrı lifecycle
     ├── password-reset + compliance notification worker
     └── retention cleanup worker
 
-Windows DOORS agent
-    │ outbound HTTPS + client certificate
+Windows DOORS runner
+    │ loopback HTTP + dedicated runner token
     ▼
-Dedicated mTLS ingress :8443
-    │ yalnız /internal/bridge/v1/
-    └── Django bridge API
+Main Nginx local listener 127.0.0.1:8765
+    │ yalnız /internal/doors-runner/v1/
+    └── Django runner API
 ```
 
-Ana ingress `/internal/bridge/` ve `/media/` yollarını 404 ile kapatır. Bridge ingress yalnız internal bridge path'ini proxy eder. Backend doğrudan host portuna publish edilmez.
+Public ingress `/internal/` ve `/media/` yollarını 404 ile kapatır. Aynı Nginx container'ındaki ikinci listener hosta yalnız `127.0.0.1` üzerinden publish edilir ve sadece runner path'ini proxy eder. Backend doğrudan host portuna publish edilmez.
 
 Process sınırı yalnız command ayrımı değildir; secret ve filesystem capability'si de daraltılır:
 
@@ -54,9 +54,8 @@ Process sınırı yalnız command ayrımı değildir; secret ve filesystem capab
 | `worker` | Yalnız local executor'ların JIRA/Teamcenter ayarları | private artifact `rw`, model `ro` |
 | `notification-worker` | Yalnız mail transport | Ek volume yok |
 | `cleanup-worker` | Yalnız retention ayarı | private artifact `rw` |
-| `windows-bridge-ingress` | Yalnız bridge enable gate'i ve hostname | Nginx config ve mTLS dosyaları `ro` |
 
-Tüm Django lifecycle'ları aynı image ve minimum ortak database/cache/runtime ayarlarını kullanır; tablodaki capability'ler bunun üstündeki farklardır. Bunlar numeric non-root UID/GID ile, tüm Linux capability'leri drop edilmiş ve `no-new-privileges` altında çalışır. Bir lifecycle'a başka capability'nin credential veya volume'unu vermek desteklenen trust boundary'yi genişletir. Windows poller bu topolojinin servisi değildir; repository dışında versionlanan ve Windows üzerinde ayrıca supervise edilen outbound agent'tır.
+Tüm Django lifecycle'ları aynı image ve minimum ortak database/cache/runtime ayarlarını kullanır; tablodaki capability'ler bunun üstündeki farklardır. Bunlar numeric non-root UID/GID ile, tüm Linux capability'leri drop edilmiş ve `no-new-privileges` altında çalışır. Bir lifecycle'a başka capability'nin credential veya volume'unu vermek desteklenen trust boundary'yi genişletir. Native runner repository-owned `run_doors_runner` komutudur; database/cache/private volume erişimi olmadan DOORS ile aynı logged-in Windows kullanıcısı altında supervise edilir.
 
 ## Backend sınırları
 
@@ -67,11 +66,11 @@ Tüm Django lifecycle'ları aynı image ve minimum ortak database/cache/runtime 
 | `projects` | Read-only teknik project registry ve küçük policy strategy'leri | Business project satırı veya role sahibi değildir |
 | `orgs` | `Project`, organizasyon verisi ve project-scoped role assignment | Registry slug'ıyla hizalanır |
 | `jobs` | Durable job/workflow state, leases, fencing, private artifact lifecycle | Feature package import etmez |
-| `automations` | Executor metadata catalog ve Windows bridge protocol | Generic workflow/event framework değildir |
+| `automations` | Executor metadata catalog ve host-local runner protocol | Generic workflow/event framework değildir |
 | `attention` | Kullanıcının action/decision görünümü | Domain aggregate'lerini sahiplenmez |
 | `integrations` | Vendor transport/session adapterları ile DOORS, Teamcenter ve DocProof HTTP/use-case yüzeyleri | Credential response/log üretmez; vendor başına kök Django app oluşturmaz |
 | `dcc`, tools | Domain HTTP adapterı, validation ve executor | Kernel'e ters bağımlılık oluşturmaz |
-| `users` | Browser session, users, invitations, preferences ve password-reset outbox | Machine bridge authentication'ına karışmaz; SMTP web process'ine verilmez |
+| `users` | Browser session, users, invitations, preferences ve password-reset outbox | Runner authentication'ına karışmaz; SMTP web process'ine verilmez |
 
 `backend/awcenter/test_architecture.py`, production import graph'ini, jobs kernel bağımsızlığını, kaldırılmış runtime package'larını, browser auth sınırını ve canonical URL yüzeyini fitness function olarak kilitler.
 
@@ -104,7 +103,7 @@ Authorization her request'te URL project'i, object project'i ve `ProjectRoleAssi
 - expired lease recovery ve yeni token;
 - private output + yetkili download + retention.
 
-Executor metadata'sının tek kaynağı `automations.catalog.EXECUTOR_CATALOG`'dur. Her kayıt `kind`, dotted callable path, `queue`, upload policy ve timeout içerir. `awcenter.job_executors` yalnız `local` callable'ları composition root'ta resolve eder. Windows bridge yalnız `windows` allowlist'ini claim eder. Böylece job kernel feature koduna, feature kodu da worker implementation'ına bağlanmaz.
+Executor metadata'sının tek kaynağı `automations.catalog.EXECUTOR_CATALOG`'dur. Her kayıt `kind`, dotted callable path, `queue`, upload policy ve timeout içerir. `awcenter.job_executors` yalnız `local` callable'ları composition root'ta resolve eder. Native runner yalnız `doors` allowlist'ini hem server hem Windows tarafındaki local catalog üzerinden doğrulayarak claim eder. Böylece job kernel feature koduna, feature kodu da worker implementation'ına bağlanmaz.
 
 Workflow/handoff servisleri workflow-agnostic `jobs.persistence` primitive'lerini kullanır. Import graph'ta `services ↔ workflow_services ↔ handoffs` cycle'ı yoktur.
 
@@ -128,7 +127,7 @@ Browser sözleşmesi:
 
 Password-reset request'i public response'ta account existence ayrımı yapmadan bir `PasswordResetDelivery` outbox kaydı oluşturur. Web process'i mail secret'ı taşımaz. Notification worker row lease ile claim eder, account-state fingerprint'ini yeniden doğrular ve deterministic Message-ID/stable token timestamp ile gönderir. Raw reset token'ı saklanmaz. Yalnız aktif lease terminal state yayımlayabilir; dış mail transport'unda sonucu belirsiz kalan tekrar aynı Message-ID ve token timestamp'iyle yürür. Reset capability'si query yerine URL fragment'ında taşınır ve login shell belleğe aldıktan hemen sonra `history.replaceState` ile adres çubuğu/history'den temizlenir.
 
-Windows agent identity browser session'ından tamamen ayrıdır. Dedicated ingress client certificate'i doğrular; Django yalnız trusted proxy IP'den gelen escaped certificate'i parse edip SHA-256 fingerprint ve subject'i kendisi üretir.
+DOORS runner identity browser session'ından tamamen ayrıdır. Runner yalnız loopback listener'a bağlanır ve dedicated `X-AWC-Runner-Token` credential'ı kullanır. Nginx runner listener'ında browser `Authorization` ve `Cookie` header'larını temizler; Django token'ı constant-time karşılaştırır. Execution ve tek kullanımlık artifact capability'leri runner identity'sinden ayrıca doğrulanır.
 
 ## API ve hata yüzeyi
 
@@ -138,10 +137,10 @@ Canonical root surface:
 - `/api/projects/` ve project-scoped organization/compliance
 - `/api/attention/`, `/api/dcc/`, `/api/jobs/`, `/api/workflows/` ve `/api/workflows/ecr/`
 - `/api/integrations/...`, `/api/tools/...`, `/api/releases/`
-- `/internal/bridge/v1/`
+- `/internal/doors-runner/v1/`
 - `/app/`, `/health/live/`, `/health/ready/`, `/admin/`
 
-API error'ları `awcenter.api_errors` ile `{ detail, code, ... }` biçimindedir; request correlation middleware `X-Request-ID`/`request_id` üretir. Structured JSON log yalnız bounded operational alanları içerir. Cookie, authorization, payload, certificate, private path ve upstream secret loglanmaz.
+API error'ları `awcenter.api_errors` ile `{ detail, code, ... }` biçimindedir; request correlation middleware `X-Request-ID`/`request_id` üretir. Structured JSON log yalnız bounded operational alanları içerir. Cookie, authorization, runner token, payload, private path ve upstream secret loglanmaz.
 
 ## File, static ve private artifact sınırı
 

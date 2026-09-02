@@ -86,7 +86,7 @@ def job_system_status(request):
     active_since = timezone.now() - timedelta(seconds=stale_seconds)
     active_workers = WorkerHeartbeat.objects.filter(
         heartbeat_at__gte=active_since
-    ).exclude(worker_id__startswith="windows:").count()
+    ).exclude(worker_id__startswith="doors:").count()
     counts = owned_jobs(request).values("status").annotate(total=Count("id"))
     return Response({
         "available": active_workers > 0,

@@ -38,13 +38,9 @@ x-awcenter-backend-integrations: &awcenter-backend-integrations
   TEAMCENTER_PASSWORD: "${TEAMCENTER_PASSWORD:-}"
   TEAMCENTER_VERIFY_SSL: "True"
   DOORS_ENABLED: "${DOORS_ENABLED:-false}"
+  DOORS_RUNNER_TOKEN: "${DOORS_RUNNER_TOKEN:-}"
   ASSESSMENT_API_URL: "${ASSESSMENT_API_URL:-}"
   ASSESSMENT_API_ALLOWED_HOSTS: "${ASSESSMENT_API_ALLOWED_HOSTS:-}"
-  WINDOWS_BRIDGE_ENABLED: "${WINDOWS_BRIDGE_ENABLED:-false}"
-  WINDOWS_BRIDGE_TRUST_PROXY_HEADERS: "${WINDOWS_BRIDGE_TRUST_PROXY_HEADERS:-false}"
-  WINDOWS_BRIDGE_TRUSTED_PROXY_IPS: "172.30.250.2"
-  WINDOWS_BRIDGE_CLIENT_FINGERPRINTS: "${WINDOWS_BRIDGE_CLIENT_FINGERPRINTS:-}"
-  WINDOWS_BRIDGE_CLIENT_SUBJECTS: "${WINDOWS_BRIDGE_CLIENT_SUBJECTS:-}"
 
 x-awcenter-worker-integrations: &awcenter-worker-integrations
   JIRA_ENABLED: "${JIRA_ENABLED:-false}"
@@ -102,6 +98,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "127.0.0.1:${DOORS_RUNNER_PORT:-8765}:8765"
     volumes:
       - ./deploy/nginx/awcenter.conf:/etc/nginx/templates/default.conf.template:ro
       - "${TLS_CERTIFICATE_FILE:?Set TLS_CERTIFICATE_FILE}:/etc/nginx/tls/tls.crt:ro"
@@ -117,43 +114,6 @@ services:
       timeout: 5s
       retries: 5
 
-  windows-bridge-ingress:
-    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
-    profiles: ["windows-bridge"]
-    restart: unless-stopped
-    environment:
-      AWCENTER_BRIDGE_HOST: "${AWCENTER_BRIDGE_HOST:-bridge.invalid}"
-      WINDOWS_BRIDGE_ENABLED: "${WINDOWS_BRIDGE_ENABLED:-false}"
-    ports:
-      - "${WINDOWS_BRIDGE_PORT:-8443}:8443"
-    volumes:
-      - ./deploy/nginx/windows-bridge.conf:/etc/nginx/templates/default.conf.template:ro
-      - "${TLS_CERTIFICATE_FILE}:/etc/nginx/tls/tls.crt:ro"
-      - "${TLS_PRIVATE_KEY_FILE}:/etc/nginx/tls/tls.key:ro"
-      - "${WINDOWS_BRIDGE_CA_FILE:-/dev/null}:/etc/nginx/tls/bridge-ca.crt:ro"
-    networks:
-      windows-bridge:
-        ipv4_address: 172.30.250.2
-    depends_on:
-      backend:
-        condition: service_healthy
-    command:
-      - /bin/sh
-      - -ec
-      - >-
-        test "$${WINDOWS_BRIDGE_ENABLED}" = "true";
-        test "$${AWCENTER_BRIDGE_HOST}" != "bridge.invalid";
-        test -s /etc/nginx/tls/bridge-ca.crt;
-        exec nginx -g 'daemon off;'
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - "wget -q -O /dev/null http://127.0.0.1:8080/nginx-ready || exit 1"
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   backend:
     <<: *awcenter-runtime
     environment:
@@ -163,10 +123,6 @@ services:
       - "${MODEL_DIRECTORY:?Set MODEL_DIRECTORY}:/app/models:ro"
     expose:
       - "8000"
-    networks:
-      default: {}
-      windows-bridge:
-        ipv4_address: 172.30.250.3
     healthcheck:
       test:
         - CMD-SHELL
@@ -289,10 +245,3 @@ volumes:
   private-artifacts:
   postgres-data:
   redis-data:
-
-networks:
-  windows-bridge:
-    internal: true
-    ipam:
-      config:
-        - subnet: 172.30.250.0/29

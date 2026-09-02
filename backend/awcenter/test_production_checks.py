@@ -63,13 +63,11 @@ class ProductionConfigurationCheckTests(SimpleTestCase):
 
     @override_settings(
         DEBUG=False,
-        WINDOWS_BRIDGE_ENABLED=True,
-        WINDOWS_BRIDGE_TRUST_PROXY_HEADERS=True,
-        WINDOWS_BRIDGE_TRUSTED_PROXY_IPS=["not-an-ip"],
-        WINDOWS_BRIDGE_CLIENT_FINGERPRINTS=["invalid"],
+        DOORS_ENABLED=True,
+        DOORS_RUNNER_TOKEN="invalid",
     )
-    def test_bridge_allowlists_are_semantically_validated(self):
-        self.assertIn("awcenter.E022", self.error_ids())
+    def test_doors_runner_token_is_semantically_validated(self):
+        self.assertIn("awcenter.E014", self.error_ids())
 
     @override_settings(
         ALLOWED_HOSTS=["awcenter.internal"],

@@ -1,4 +1,4 @@
-"""Tests for DB-independent Windows bridge task adapters."""
+"""Tests for DB-independent DOORS runner task adapters."""
 
 import json
 import tempfile
@@ -7,8 +7,8 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from integrations.doors.bridge_tasks import (
-    BridgeTaskPayloadError,
+from integrations.doors.runner_tasks import (
+    RunnerTaskPayloadError,
     create_object,
     execute_dxl,
     link_requirements,
@@ -16,10 +16,10 @@ from integrations.doors.bridge_tasks import (
 )
 
 
-class DoorsBridgeTaskTests(SimpleTestCase):
+class DoorsRunnerTaskTests(SimpleTestCase):
     """Verify artifact-only payloads delegate to allowlisted client methods."""
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_execute_dxl_dispatches_only_named_read_operation(self, execute):
         client = Mock()
         client.check_module.return_value.ok = True
@@ -34,7 +34,7 @@ class DoorsBridgeTaskTests(SimpleTestCase):
         self.assertEqual(result["filename"], "doors-result.json")
         client.check_module.assert_called_once_with("/Project/Module")
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_execute_dxl_lists_objects_with_validated_bounds(self, execute):
         """List artifacts delegate all validated bounds to the Windows client."""
 
@@ -60,7 +60,7 @@ class DoorsBridgeTaskTests(SimpleTestCase):
         )
         self.assertEqual(json.loads(output.read_text())["count"], 1)
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_execute_dxl_exports_module_for_compliance_import(self, execute):
         client = Mock()
         client.export_module.return_value = {
@@ -88,7 +88,7 @@ class DoorsBridgeTaskTests(SimpleTestCase):
         self.assertFalse(payload["truncated"])
         self.assertFalse(payload["attributes_truncated"])
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_execute_dxl_reads_one_object(self, execute):
         """Object-detail artifacts cannot select an arbitrary client method."""
 
@@ -112,7 +112,7 @@ class DoorsBridgeTaskTests(SimpleTestCase):
             "/Project/Module", 42, ["Object Text"]
         )
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_execute_dxl_checks_disciplines(self, execute):
         """Discipline checks dispatch only the fixed high-level client operation."""
 
@@ -133,18 +133,18 @@ class DoorsBridgeTaskTests(SimpleTestCase):
         client.check_applicable_disciplines.assert_called_once_with("/Project/Module")
         self.assertEqual(json.loads(output.read_text())["count"], 1)
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_execute_dxl_rejects_arbitrary_operation(self, execute):
-        with self.assertRaises(BridgeTaskPayloadError):
+        with self.assertRaises(RunnerTaskPayloadError):
             self.run_task(execute_dxl, {"operation": "raw_dxl", "script": "delete all"})
         execute.assert_not_called()
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_execute_dxl_rejects_unknown_or_credential_fields(self, execute):
         """Artifacts cannot smuggle credentials past an operation serializer."""
 
         with self.assertRaisesRegex(
-            BridgeTaskPayloadError,
+            RunnerTaskPayloadError,
             "DOORS automation payload failed validation.",
         ):
             self.run_task(
@@ -152,30 +152,30 @@ class DoorsBridgeTaskTests(SimpleTestCase):
                 {
                     "operation": "check_module",
                     "module_path": "/Project/Module",
-                    "password": "must-not-cross-the-bridge",
+                    "password": "must-not-cross-the-runner",
                 },
             )
         execute.assert_not_called()
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_malformed_payload_returns_sanitized_error(self, execute):
         """Parser details and invalid content never escape the task boundary."""
 
         with self.assertRaisesRegex(
-            BridgeTaskPayloadError,
+            RunnerTaskPayloadError,
             "^DOORS automation payload is invalid\\.$",
         ) as raised:
             self.run_raw_task(execute_dxl, b'{"sensitive-value"')
         self.assertNotIn("sensitive-value", str(raised.exception))
         execute.assert_not_called()
 
-    @override_settings(WINDOWS_BRIDGE_MAX_INPUT_BYTES=16)
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
-    def test_payload_limit_matches_bridge_catalog_policy(self, execute):
-        """Oversized artifacts fail before client construction on the agent."""
+    @override_settings(DOORS_RUNNER_MAX_INPUT_BYTES=16)
+    @patch("integrations.doors.runner_tasks.execute_with_client")
+    def test_payload_limit_matches_runner_catalog_policy(self, execute):
+        """Oversized artifacts fail before client construction on the runner."""
 
         with self.assertRaisesRegex(
-            BridgeTaskPayloadError,
+            RunnerTaskPayloadError,
             "DOORS automation payload size is invalid.",
         ):
             self.run_task(
@@ -184,7 +184,7 @@ class DoorsBridgeTaskTests(SimpleTestCase):
             )
         execute.assert_not_called()
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_update_object_uses_validated_scalar_contract(self, execute):
         client = Mock()
         execute.side_effect = lambda operation: operation(client)
@@ -203,12 +203,12 @@ class DoorsBridgeTaskTests(SimpleTestCase):
         )
         self.assertTrue(json.loads(output.read_text())["updated"])
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_update_object_rejects_nested_values(self, execute):
         """Unsupported nested values fail before any Windows-side call."""
 
         with self.assertRaisesRegex(
-            BridgeTaskPayloadError,
+            RunnerTaskPayloadError,
             "DOORS automation payload failed validation.",
         ):
             self.run_task(
@@ -221,7 +221,7 @@ class DoorsBridgeTaskTests(SimpleTestCase):
             )
         execute.assert_not_called()
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_create_object_writes_bounded_representation(self, execute):
         client = Mock()
         created = Mock()
@@ -249,7 +249,7 @@ class DoorsBridgeTaskTests(SimpleTestCase):
         )
         self.assertEqual(json.loads(output.read_text())["absolute_number"], 43)
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_link_requirements_uses_only_the_validated_client_operation(self, execute):
         """The agent receives structured Linker fields rather than executable DXL."""
 
@@ -279,12 +279,12 @@ class DoorsBridgeTaskTests(SimpleTestCase):
         client.link_requirements.assert_called_once_with(payload)
         self.assertEqual(json.loads(output.read_text())["mode"], "preview")
 
-    @patch("integrations.doors.bridge_tasks.execute_with_client")
+    @patch("integrations.doors.runner_tasks.execute_with_client")
     def test_link_requirements_rejects_script_or_unknown_fields(self, execute):
-        """A bridge artifact cannot append arbitrary code to the Linker contract."""
+        """A runner artifact cannot append arbitrary code to the Linker contract."""
 
         with self.assertRaisesRegex(
-            BridgeTaskPayloadError,
+            RunnerTaskPayloadError,
             "DOORS automation payload failed validation.",
         ):
             self.run_task(

@@ -29,7 +29,7 @@ export function usePocLinker() {
     activeness: false
   })
   const testText = ref('This is test text')
-  const bridge = ref<DoorsStatus | null>(null)
+  const runner = ref<DoorsStatus | null>(null)
   const statusLoading = ref(false)
   const queueing = ref(false)
   const result = ref<DoorsRequirementLinkResult | null>(null)
@@ -51,7 +51,7 @@ export function usePocLinker() {
   )
   const canQueue = computed(
     () =>
-      Boolean(bridge.value?.available) &&
+      Boolean(runner.value?.available) &&
       validInput.value &&
       !queueing.value &&
       !pageJob.active.value &&
@@ -64,10 +64,10 @@ export function usePocLinker() {
       : testText.value.slice(start, start + form.text_length)
   })
   const readinessMessage = computed(() => {
-    if (!bridge.value) return 'Windows automation availability has not been verified.'
-    if (!bridge.value.configured) return 'The outbound Windows bridge is not configured.'
-    if (!bridge.value.available) return 'No authenticated Windows automation agent is live.'
-    return `${bridge.value.active_agents} Windows automation agent(s) available.`
+    if (!runner.value) return 'Windows automation availability has not been verified.'
+    if (!runner.value.configured) return 'The host-local DOORS runner is not configured.'
+    if (!runner.value.available) return 'The host-local DOORS runner is not live.'
+    return `${runner.value.active_runners} DOORS runner(s) available.`
   })
   const visibleGroups = computed(() => result.value?.groups.slice(0, 200) || [])
 
@@ -82,9 +82,9 @@ export function usePocLinker() {
   async function loadStatus(): Promise<void> {
     statusLoading.value = true
     try {
-      bridge.value = await fetchDoorsStatus()
+      runner.value = await fetchDoorsStatus()
     } catch (error) {
-      bridge.value = null
+      runner.value = null
       window.$message.error(formatApiError(error))
     } finally {
       statusLoading.value = false
@@ -162,7 +162,7 @@ export function usePocLinker() {
 
   return {
     ...pageJob,
-    bridge,
+    runner,
     canCreateLinks,
     canQueue,
     cropPreview,

@@ -14,12 +14,12 @@ APPROVED_PUBLIC_ROUTES = {
     "health/live/",
     "health/ready/",
     # These routes deliberately bypass browser authentication; the views require
-    # a verified client certificate forwarded by one allowlisted bridge proxy.
-    "internal/bridge/v1/claims/",
-    "internal/bridge/v1/jobs/<uuid:job_id>/complete/",
-    "internal/bridge/v1/jobs/<uuid:job_id>/heartbeat/",
-    "internal/bridge/v1/jobs/<uuid:job_id>/input/",
-    "internal/bridge/v1/status/",
+    # the dedicated token available only to the host-local DOORS runner.
+    "internal/doors-runner/v1/claims/",
+    "internal/doors-runner/v1/jobs/<uuid:job_id>/complete/",
+    "internal/doors-runner/v1/jobs/<uuid:job_id>/heartbeat/",
+    "internal/doors-runner/v1/jobs/<uuid:job_id>/input/",
+    "internal/doors-runner/v1/status/",
 }
 
 

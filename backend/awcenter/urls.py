@@ -33,7 +33,7 @@ urlpatterns = [
     path("api/users/", include("users.urls")),
     path("api/jobs/", include("jobs.urls")),
     path("api/workflows/", include("automations.workflow_urls")),
-    path("internal/bridge/v1/", include("automations.bridge_urls")),
+    path("internal/doors-runner/v1/", include("automations.runner_urls")),
     path("api/releases/", include("releases.urls")),
     path("api/tools/ddf/", include("ddf.urls")),
     path("api/tools/excel/", include("excel.urls")),

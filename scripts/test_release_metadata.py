@@ -25,7 +25,7 @@ class ReleaseMetadataTests(unittest.TestCase):
 
         self.assertEqual(len(template_keys), len(set(template_keys)))
         self.assertEqual(compose_inputs - set(template_keys), set())
-        self.assertIn("COMPOSE_PROFILES", template_keys)
+        self.assertIn("DOORS_RUNNER_PORT", template_keys)
 
         values = deployment_preflight.read_env_file(template_path)
         for feature in (
@@ -33,7 +33,6 @@ class ReleaseMetadataTests(unittest.TestCase):
             "DOORS_ENABLED",
             "JIRA_ENABLED",
             "TEAMCENTER_ENABLED",
-            "WINDOWS_BRIDGE_ENABLED",
         ):
             self.assertEqual(values[feature], "false")
         self.assertEqual(values["AWCENTER_MAIL_TRANSPORT"], "disabled")
@@ -321,33 +320,17 @@ class ReleaseMetadataTests(unittest.TestCase):
                 ["TLS_CERTIFICATE_FILE", "TLS_PRIVATE_KEY_FILE", "MODEL_DIRECTORY"],
             )
 
-    def test_windows_bridge_profile_is_explicit_and_fail_closed(self):
-        values = {
-            "WINDOWS_BRIDGE_ENABLED": "true",
-            "AWCENTER_BRIDGE_HOST": "bridge.internal",
-            "WINDOWS_BRIDGE_TRUST_PROXY_HEADERS": "true",
-            "WINDOWS_BRIDGE_CLIENT_FINGERPRINTS": "a" * 64,
-        }
-
-        self.assertIn(
-            "WINDOWS_BRIDGE_COMPOSE_PROFILE",
-            deployment_preflight._validate_windows_bridge(values),
+    def test_doors_runner_token_is_required_only_when_doors_is_enabled(self):
+        self.assertEqual(deployment_preflight._validate_doors_runner({}), [])
+        self.assertEqual(
+            deployment_preflight._validate_doors_runner({"DOORS_ENABLED": "true"}),
+            ["DOORS_RUNNER_TOKEN"],
         )
-        self.assertIn(
-            "WINDOWS_BRIDGE_PROFILE_WITHOUT_ENABLEMENT",
-            deployment_preflight._validate_windows_bridge(
-                {"COMPOSE_PROFILES": "windows-bridge"}
+        self.assertEqual(
+            deployment_preflight._validate_doors_runner(
+                {"DOORS_ENABLED": "true", "DOORS_RUNNER_TOKEN": "a" * 43}
             ),
-        )
-        self.assertIn(
-            "AWCENTER_BRIDGE_HOST",
-            deployment_preflight._validate_windows_bridge(
-                {
-                    **values,
-                    "COMPOSE_PROFILES": "windows-bridge",
-                    "AWCENTER_BRIDGE_HOST": "bridge.invalid",
-                }
-            ),
+            [],
         )
 
     def test_deployment_preflight_rejects_template_environment(self):

@@ -276,9 +276,9 @@ class DoorsApiTests(TestCase):
         shutil.rmtree(self.media_directory, ignore_errors=True)
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_status_never_returns_database_or_credentials(self, bridge_status):
-        """DOORS readiness output contains only non-secret bridge state."""
+        """DOORS readiness output contains only non-secret runner state."""
 
         bridge_status.return_value = self.bridge_state(available=True)
 
@@ -290,17 +290,17 @@ class DoorsApiTests(TestCase):
             {
                 "configured": True,
                 "available": True,
-                "active_agents": 1,
-                "transport": "outbound_https_mtls",
+                "active_runners": 1,
+                "transport": "loopback_token",
             },
         )
         self.assertNotIn("database", response.data)
         self.assertNotIn("password", response.data)
 
     @override_settings(DOORS_ENABLED=False)
-    @patch("automations.bridge.bridge_status")
-    def test_disabled_integration_stays_unavailable_when_bridge_is_live(self, bridge_status):
-        """A live generic bridge cannot bypass the DOORS feature flag."""
+    @patch("automations.runner_protocol.runner_status")
+    def test_disabled_integration_stays_unavailable_when_runner_is_live(self, bridge_status):
+        """A live runner cannot bypass the DOORS feature flag."""
 
         bridge_status.return_value = self.bridge_state(available=True)
 
@@ -310,13 +310,13 @@ class DoorsApiTests(TestCase):
         self.assertEqual(status_response.status_code, 200)
         self.assertFalse(status_response.data["configured"])
         self.assertFalse(status_response.data["available"])
-        self.assertEqual(status_response.data["active_agents"], 0)
+        self.assertEqual(status_response.data["active_runners"], 0)
         self.assertEqual(create_response.status_code, 503)
-        self.assertEqual(create_response.data["code"], "WINDOWS_BRIDGE_UNAVAILABLE")
+        self.assertEqual(create_response.data["code"], "DOORS_RUNNER_UNAVAILABLE")
         self.assertFalse(Job.objects.exists())
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_module_check_creates_credential_free_private_job(self, bridge_status):
         """HTTP serializes an allowlisted operation and never invokes COM."""
 
@@ -340,7 +340,7 @@ class DoorsApiTests(TestCase):
         execute_client.assert_not_called()
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_read_routes_persist_only_their_allowlisted_operation(self, bridge_status):
         """Each read route emits its fixed operation rather than caller-selected DXL."""
 
@@ -389,7 +389,7 @@ class DoorsApiTests(TestCase):
                 self.assertNotRegex(json.dumps(stored), r"password|credential|username|token")
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_idempotent_replay_is_owner_scoped(self, bridge_status):
         """Exact retries replay per owner while another owner gets a new job."""
 
@@ -411,7 +411,7 @@ class DoorsApiTests(TestCase):
         self.assertEqual(detail.status_code, 404)
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_idempotency_key_cannot_be_reused_for_different_input(self, bridge_status):
         """One owner cannot alias two different operations to the same request key."""
 
@@ -430,8 +430,8 @@ class DoorsApiTests(TestCase):
         self.assertEqual(Job.objects.count(), 1)
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
-    def test_enqueue_requires_live_bridge_and_idempotency_key(self, bridge_status):
+    @patch("automations.runner_protocol.runner_status")
+    def test_enqueue_requires_live_runner_and_idempotency_key(self, bridge_status):
         """No unclaimable job or keyless external operation enters the queue."""
 
         bridge_status.return_value = self.bridge_state(available=False)
@@ -444,13 +444,13 @@ class DoorsApiTests(TestCase):
         )
 
         self.assertEqual(unavailable.status_code, 503)
-        self.assertEqual(unavailable.data["code"], "WINDOWS_BRIDGE_UNAVAILABLE")
+        self.assertEqual(unavailable.data["code"], "DOORS_RUNNER_UNAVAILABLE")
         self.assertEqual(keyless.status_code, 400)
         self.assertEqual(keyless.data["code"], "IDEMPOTENCY_KEY_REQUIRED")
         self.assertFalse(Job.objects.exists())
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_enqueue_rejects_unknown_credential_fields(self, bridge_status):
         """Credentials cannot be silently accepted or persisted with an operation."""
 
@@ -468,10 +468,10 @@ class DoorsApiTests(TestCase):
         self.assertNotIn("not-accepted", json.dumps(response.data))
         self.assertFalse(Job.objects.exists())
 
-    @override_settings(DOORS_ENABLED=True, WINDOWS_BRIDGE_MAX_INPUT_BYTES=16)
-    @patch("automations.bridge.bridge_status")
-    def test_enqueue_rejects_artifacts_the_bridge_cannot_claim(self, bridge_status):
-        """The HTTP boundary and Windows bridge enforce the same payload limit."""
+    @override_settings(DOORS_ENABLED=True, DOORS_RUNNER_MAX_INPUT_BYTES=16)
+    @patch("automations.runner_protocol.runner_status")
+    def test_enqueue_rejects_artifacts_the_runner_cannot_claim(self, bridge_status):
+        """The HTTP boundary and DOORS runner enforce the same payload limit."""
 
         bridge_status.return_value = self.bridge_state(available=True)
 
@@ -498,7 +498,7 @@ class DoorsApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_administrator_can_queue_validated_object_update(self, bridge_status):
         """An administrator mutation becomes a durable operation-specific job."""
 
@@ -525,7 +525,7 @@ class DoorsApiTests(TestCase):
         self.assertNotIn("operation", payload)
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_administrator_can_queue_validated_object_create(self, bridge_status):
         """Object creation is an explicit durable write with scalar-only input."""
 
@@ -553,7 +553,7 @@ class DoorsApiTests(TestCase):
         self.assertNotIn("operation", payload)
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_authenticated_user_can_queue_link_preview(self, bridge_status):
         """Show mode remains available without granting an external write."""
 
@@ -580,7 +580,7 @@ class DoorsApiTests(TestCase):
         self.assertFalse(Job.objects.exists())
 
     @override_settings(DOORS_ENABLED=True)
-    @patch("automations.bridge.bridge_status")
+    @patch("automations.runner_protocol.runner_status")
     def test_administrator_can_queue_fenced_link_creation(self, bridge_status):
         """Link mode is durable and reconciles an uncertain Windows outcome."""
 
@@ -747,15 +747,15 @@ class DoorsApiTests(TestCase):
 
     @staticmethod
     def bridge_state(available):
-        """Return a complete non-secret bridge state fixture."""
+        """Return a complete non-secret runner state fixture."""
 
         return {
             "configured": True,
             "enabled": available,
             "available": available,
-            "active_agents": 1 if available else 0,
-            "queue": "windows",
-            "transport": "outbound_https_mtls",
+            "active_runners": 1 if available else 0,
+            "queue": "doors",
+            "transport": "loopback_token",
             "database_access": "none",
             "cache_access": "none",
         }
