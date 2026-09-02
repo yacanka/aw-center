@@ -8,7 +8,7 @@
   >
     <n-space vertical size="large">
       <n-alert type="info" :bordered="false">
-        The module is read by the existing Windows DOORS bridge. Data is validated with the same
+        The module is read by the host-local Windows DOORS runner. Data is validated with the same
         identity, required-field, project, version, and concurrency checks as Excel imports.
       </n-alert>
 
@@ -29,7 +29,7 @@
         >
           Load module fields
         </n-button>
-        <n-text v-if="job" depth="3"> Bridge job: {{ job.status }} · {{ job.progress }}% </n-text>
+        <n-text v-if="job" depth="3"> Runner job: {{ job.status }} · {{ job.progress }}% </n-text>
       </n-space>
 
       <template v-if="source">

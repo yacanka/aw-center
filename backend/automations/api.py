@@ -1,4 +1,4 @@
-"""HTTP endpoints for the mTLS Windows agent protocol."""
+"""HTTP endpoints for the host-local DOORS runner protocol."""
 
 from django.http import FileResponse
 from django.urls import reverse
@@ -12,20 +12,20 @@ from rest_framework.decorators import (
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .bridge import (
-    BridgeRequestInvalid,
-    bridge_poll_interval,
-    claim_windows_job,
-    complete_windows_job,
-    heartbeat_windows_job,
+from .runner_protocol import (
+    RunnerRequestInvalid,
+    runner_poll_interval,
+    claim_doors_job,
+    complete_doors_job,
+    heartbeat_doors_job,
     maximum_output_bytes,
     open_input_artifact,
 )
-from .identity import authenticate_agent
+from .identity import authenticate_runner
 
 
 class NoBrowserAuthentication(BaseAuthentication):
-    """Make explicit that bridge endpoints never authenticate browser principals."""
+    """Make explicit that runner endpoints never authenticate browser principals."""
 
     def authenticate(self, request):
         return None
@@ -34,19 +34,19 @@ class NoBrowserAuthentication(BaseAuthentication):
 @api_view(["GET"])
 @authentication_classes([NoBrowserAuthentication])
 @permission_classes([AllowAny])
-def agent_status(request):
-    """Confirm the HTTPS/mTLS data-plane contract to an authenticated agent."""
+def runner_status_view(request):
+    """Confirm the local data-plane contract to an authenticated runner."""
 
-    authenticate_agent_request(request)
+    authenticate_runner_request(request)
     return no_store(
         Response(
             {
                 "enabled": True,
-                "queue": "windows",
-                "transport": "outbound_https_mtls",
+                "queue": "doors",
+                "transport": "loopback_token",
                 "database_access": "none",
                 "cache_access": "none",
-                "poll_interval_seconds": bridge_poll_interval(),
+                "poll_interval_seconds": runner_poll_interval(),
             }
         )
     )
@@ -56,24 +56,24 @@ def agent_status(request):
 @authentication_classes([NoBrowserAuthentication])
 @permission_classes([AllowAny])
 def claim(request):
-    """Lease one allowlisted Windows job without accepting user credentials."""
+    """Lease one allowlisted DOORS job without accepting user credentials."""
 
-    identity = authenticate_agent_request(request)
-    claimed = claim_windows_job(identity)
+    identity = authenticate_runner_request(request)
+    claimed = claim_doors_job(identity)
     if claimed is None:
         return no_store(Response(status=status.HTTP_204_NO_CONTENT))
-    input_url = reverse("windows_bridge_input", kwargs={"job_id": claimed.job_id})
+    input_url = reverse("doors_runner_input", kwargs={"job_id": claimed.job_id})
     heartbeat_url = reverse(
-        "windows_bridge_heartbeat", kwargs={"job_id": claimed.job_id}
+        "doors_runner_heartbeat", kwargs={"job_id": claimed.job_id}
     )
     complete_url = reverse(
-        "windows_bridge_complete", kwargs={"job_id": claimed.job_id}
+        "doors_runner_complete", kwargs={"job_id": claimed.job_id}
     )
     policy = claimed.metadata.upload_policy
     response = Response(
         {
             "schema_version": 1,
-            "queue": "windows",
+            "queue": "doors",
             "job": {
                 "id": str(claimed.job_id),
                 "kind": claimed.kind,
@@ -99,7 +99,7 @@ def claim(request):
                 },
             },
             "contract": {
-                "transport": "https_mtls",
+                "transport": "loopback_token",
                 "database_access": "none",
                 "cache_access": "none",
             },
@@ -114,7 +114,7 @@ def claim(request):
 def download_input(request, job_id):
     """Stream one SHA-verified input after atomically consuming its capability."""
 
-    identity = authenticate_agent_request(request)
+    identity = authenticate_runner_request(request)
     execution_token = required_header(request, "X-AWC-Execution-Token")
     artifact_token = required_header(request, "X-AWC-Artifact-Token")
     artifact, filename, digest = open_input_artifact(
@@ -131,10 +131,10 @@ def download_input(request, job_id):
 def heartbeat(request, job_id):
     """Renew one claim and return cooperative cancellation intent."""
 
-    identity = authenticate_agent_request(request)
+    identity = authenticate_runner_request(request)
     execution_token = required_header(request, "X-AWC-Execution-Token")
     payload = request.data if isinstance(request.data, dict) else {}
-    result = heartbeat_windows_job(
+    result = heartbeat_doors_job(
         identity, job_id, execution_token, payload.get("progress")
     )
     return no_store(Response(result))
@@ -146,11 +146,11 @@ def heartbeat(request, job_id):
 def complete(request, job_id):
     """Publish one fenced success/failure using the output transfer capability."""
 
-    identity = authenticate_agent_request(request)
+    identity = authenticate_runner_request(request)
     execution_token = required_header(request, "X-AWC-Execution-Token")
     artifact_token = required_header(request, "X-AWC-Artifact-Token")
     completion_status = str(request.data.get("status", ""))
-    terminal_status = complete_windows_job(
+    terminal_status = complete_doors_job(
         identity,
         job_id,
         execution_token,
@@ -164,18 +164,18 @@ def complete(request, job_id):
     return no_store(Response({"job_id": str(job_id), "status": terminal_status}))
 
 
-def authenticate_agent_request(request):
-    """Reject query credentials before applying the sole mTLS identity mechanism."""
+def authenticate_runner_request(request):
+    """Reject query credentials before applying runner authentication."""
 
     if request.query_params:
-        raise BridgeRequestInvalid()
-    return authenticate_agent(request)
+        raise RunnerRequestInvalid()
+    return authenticate_runner(request)
 
 
 def required_header(request, name):
     value = str(request.headers.get(name, "")).strip()
     if not value:
-        raise BridgeRequestInvalid()
+        raise RunnerRequestInvalid()
     return value
 
 

@@ -7,4 +7,4 @@ Güncel kaynaklar:
 - [Mimari](docs/architecture.md)
 - [Dağıtım](docs/deployment.md)
 - [Test stratejisi](docs/testing-strategy.md)
-- [Windows bridge sözleşmesi](docs/windows-bridge.md)
+- [Host-local DOORS runner sözleşmesi](docs/doors-runner.md)

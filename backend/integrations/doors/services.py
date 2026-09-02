@@ -48,15 +48,15 @@ def execute_with_client(operation: Callable[[DoorsClient], Result]) -> Result:
 
 
 def integration_status() -> dict[str, object]:
-    """Return fail-closed readiness for the supported outbound bridge topology."""
+    """Return fail-closed readiness for the host-local runner topology."""
 
-    from automations.bridge import bridge_status
+    from automations.runner_protocol import runner_status
 
-    bridge = bridge_status()
+    runner = runner_status()
     return {
-        "configured": bool(settings.DOORS_ENABLED and bridge["configured"]),
-        "platform_supported": bool(bridge["available"]),
-        "available": bool(settings.DOORS_ENABLED and bridge["available"]),
-        "execution_mode": "outbound_https_mtls",
-        "bridge": bridge,
+        "configured": bool(settings.DOORS_ENABLED and runner["configured"]),
+        "platform_supported": bool(runner["available"]),
+        "available": bool(settings.DOORS_ENABLED and runner["available"]),
+        "execution_mode": "loopback_token",
+        "runner": runner,
     }

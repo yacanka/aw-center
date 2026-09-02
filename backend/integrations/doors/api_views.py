@@ -1,4 +1,4 @@
-"""Durable, bridge-backed HTTP adapters for IBM Rational DOORS operations."""
+"""Durable, runner-backed HTTP adapters for IBM Rational DOORS operations."""
 
 import json
 
@@ -28,16 +28,16 @@ from .services import integration_status
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def status_view(request):
-    """Expose only the fail-closed Windows bridge capability state."""
+    """Expose only the fail-closed local runner capability state."""
 
-    status = doors_bridge_status()
+    status = doors_runner_status()
     return Response(status)
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def create_module_check_job(request):
-    """Queue one module accessibility check for a Windows bridge agent."""
+    """Queue one module accessibility check for the host-local DOORS runner."""
 
     return enqueue_read_job(
         request,
@@ -180,7 +180,7 @@ def enqueue_validated_job(
 ):
     """Persist an already validated JSON automation payload."""
 
-    unavailable = bridge_unavailable_response()
+    unavailable = runner_unavailable_response()
     if unavailable:
         return unavailable
     idempotency_key = str(request.headers.get("Idempotency-Key", "")).strip()
@@ -219,26 +219,26 @@ def enqueue_validated_job(
     return job_creation_response(job, created)
 
 
-def bridge_unavailable_response():
+def runner_unavailable_response():
     """Fail closed instead of building an unclaimable external-write backlog."""
 
-    if doors_bridge_status()["available"]:
+    if doors_runner_status()["available"]:
         return None
     return error_response(
-        "The Windows automation bridge is unavailable.",
-        code="WINDOWS_BRIDGE_UNAVAILABLE",
+        "The local DOORS runner is unavailable.",
+        code="DOORS_RUNNER_UNAVAILABLE",
         response_status=503,
     )
 
 
-def doors_bridge_status():
-    """Combine the integration feature flag with live bridge readiness."""
+def doors_runner_status():
+    """Combine the integration feature flag with live runner readiness."""
 
     status = integration_status()
-    bridge = status["bridge"]
+    runner = status["runner"]
     return {
         "configured": status["configured"],
         "available": status["available"],
-        "active_agents": bridge["active_agents"] if status["configured"] else 0,
-        "transport": bridge["transport"],
+        "active_runners": runner["active_runners"] if status["configured"] else 0,
+        "transport": runner["transport"],
     }

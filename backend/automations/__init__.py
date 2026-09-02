@@ -1,1 +1,1 @@
-"""Static automation metadata and outbound worker bridge boundaries."""
+"""Static automation metadata and isolated runner boundaries."""

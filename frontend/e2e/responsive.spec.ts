@@ -141,8 +141,8 @@ async function routeResponsiveApi(page: Page, isAuthenticated: () => boolean): P
       return json(route, {
         configured: true,
         available: true,
-        active_agents: 1,
-        transport: 'outbound_https_mtls',
+        active_runners: 1,
+        transport: 'loopback_token',
         auth_mode: 'service_account',
         service_root: 'https://integration.example.test',
         tls_verification_enabled: true

@@ -132,8 +132,8 @@ test('PoC Linker queues a durable preview and renders the verified result', asyn
     json(route, {
       configured: true,
       available: true,
-      active_agents: 1,
-      transport: 'outbound_https_mtls'
+      active_runners: 1,
+      transport: 'loopback_token'
     })
   )
 

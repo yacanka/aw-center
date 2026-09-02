@@ -1,4 +1,4 @@
-"""Server-side state transitions for the outbound-only Windows bridge."""
+"""Server-side state transitions for the host-local DOORS runner."""
 
 import hashlib
 import hmac
@@ -36,50 +36,50 @@ from jobs.models import JobStatus, WorkerHeartbeat
 from jobs.services import set_job_state
 from jobs.worker import claim_next_job
 
-from .catalog import WINDOWS_QUEUE, ExecutorMetadata, executor_kinds, executor_metadata
-from .identity import AgentIdentity, bridge_configuration_ready
+from .catalog import DOORS_QUEUE, ExecutorMetadata, executor_kinds, executor_metadata
+from .identity import RunnerIdentity, runner_configuration_ready
 
 SHA256_PATTERN = frozenset("0123456789abcdef")
 TRANSFER_DIRECTIONS = frozenset({"input", "output"})
 FAILURE_CODES = frozenset(
     {
-        "BRIDGE_TASK_FAILED",
-        "BRIDGE_TASK_INVALID_INPUT",
-        "BRIDGE_TASK_TIMEOUT",
-        "BRIDGE_AGENT_SHUTDOWN",
+        "DOORS_RUNNER_TASK_FAILED",
+        "DOORS_RUNNER_INVALID_INPUT",
+        "DOORS_RUNNER_TASK_TIMEOUT",
+        "DOORS_RUNNER_SHUTDOWN",
     }
 )
-EXTERNAL_WRITE_KINDS = frozenset({"doors.update_object", "doors.create_object"})
+STATIC_EXTERNAL_WRITE_KINDS = frozenset({"doors.update_object", "doors.create_object"})
 logger = logging.getLogger(__name__)
 
 
-class BridgeRequestInvalid(APIException):
+class RunnerRequestInvalid(APIException):
     status_code = 400
-    default_code = "BRIDGE_REQUEST_INVALID"
-    default_detail = "Windows bridge request is invalid."
+    default_code = "DOORS_RUNNER_REQUEST_INVALID"
+    default_detail = "DOORS runner request is invalid."
 
 
-class BridgeClaimLost(APIException):
+class RunnerClaimLost(APIException):
     status_code = 409
-    default_code = "BRIDGE_CLAIM_LOST"
-    default_detail = "Windows bridge execution claim is no longer active."
+    default_code = "DOORS_RUNNER_CLAIM_LOST"
+    default_detail = "DOORS runner execution claim is no longer active."
 
 
-class BridgeTransferRejected(APIException):
+class RunnerTransferRejected(APIException):
     status_code = 409
-    default_code = "BRIDGE_TRANSFER_REJECTED"
-    default_detail = "Windows bridge artifact transfer was rejected."
+    default_code = "DOORS_RUNNER_TRANSFER_REJECTED"
+    default_detail = "DOORS runner artifact transfer was rejected."
 
 
-class BridgeUnavailable(APIException):
+class RunnerUnavailable(APIException):
     status_code = 503
-    default_code = "BRIDGE_UNAVAILABLE"
-    default_detail = "Windows bridge state is temporarily unavailable."
+    default_code = "DOORS_RUNNER_UNAVAILABLE"
+    default_detail = "DOORS runner state is temporarily unavailable."
 
 
 @dataclass(frozen=True)
-class BridgeClaim:
-    """Return only execution-scoped data needed by one Windows agent."""
+class RunnerClaim:
+    """Return only execution-scoped data needed by one native DOORS runner."""
 
     job_id: object
     kind: str
@@ -94,44 +94,44 @@ class BridgeClaim:
     lease_seconds: int
 
 
-def bridge_status() -> dict[str, object]:
+def runner_status() -> dict[str, object]:
     """Return non-secret, fail-closed availability for browser status APIs."""
 
-    configured = bridge_configuration_ready()
+    configured = runner_configuration_ready()
     stale_seconds = max(5, int(getattr(settings, "JOB_WORKER_STALE_SECONDS", 10)))
-    active_agents = 0
+    active_runners = 0
     if configured:
         active_since = timezone.now() - timedelta(seconds=stale_seconds)
         try:
-            active_agents = WorkerHeartbeat.objects.filter(
-                worker_id__startswith="windows:", heartbeat_at__gte=active_since
+            active_runners = WorkerHeartbeat.objects.filter(
+                worker_id__startswith="doors:", heartbeat_at__gte=active_since
             ).count()
         except Exception:
-            active_agents = 0
-    available = configured and active_agents > 0
+            active_runners = 0
+    available = configured and active_runners > 0
     return {
         "configured": configured,
         "enabled": available,
         "available": available,
-        "active_agents": active_agents,
-        "queue": WINDOWS_QUEUE,
-        "transport": "outbound_https_mtls",
+        "active_runners": active_runners,
+        "queue": DOORS_QUEUE,
+        "transport": "loopback_token",
         "database_access": "none",
         "cache_access": "none",
     }
 
 
-def bridge_poll_interval() -> float:
-    """Return the server-selected idle polling cadence for external agents."""
+def runner_poll_interval() -> float:
+    """Return the server-selected idle polling cadence for the local runner."""
 
     stale_seconds = max(5, int(getattr(settings, "JOB_WORKER_STALE_SECONDS", 10)))
     return max(1.0, min(30.0, stale_seconds / 2))
 
 
-def claim_windows_job(identity: AgentIdentity) -> BridgeClaim | None:
-    """Claim only a catalog-allowlisted Windows job for one certificate identity."""
+def claim_doors_job(identity: RunnerIdentity) -> RunnerClaim | None:
+    """Claim only a catalog-allowlisted DOORS job for one runner identity."""
 
-    kinds = executor_kinds(WINDOWS_QUEUE)
+    kinds = executor_kinds(DOORS_QUEUE)
     touch_worker(identity.worker_id)
     if not kinds:
         return None
@@ -140,11 +140,11 @@ def claim_windows_job(identity: AgentIdentity) -> BridgeClaim | None:
         if job is None:
             return None
         metadata = executor_metadata(job.kind)
-        if metadata is None or metadata.queue != WINDOWS_QUEUE or not valid_input(job, metadata):
+        if metadata is None or metadata.queue != DOORS_QUEUE or not valid_input(job, metadata):
             reject_invalid_claim(job)
             continue
         input_token, output_token = issue_transfer_tokens(job, metadata)
-        return BridgeClaim(
+        return RunnerClaim(
             job_id=job.id,
             kind=job.kind,
             execution_token=job.execution_token,
@@ -157,24 +157,24 @@ def claim_windows_job(identity: AgentIdentity) -> BridgeClaim | None:
             heartbeat_interval_seconds=heartbeat_interval(),
             lease_seconds=int(lease_duration().total_seconds()),
         )
-    raise BridgeUnavailable()
+    raise RunnerUnavailable()
 
 
-def heartbeat_windows_job(identity, job_id, execution_token, progress=None):
-    """Renew and optionally advance one certificate-bound remote execution claim."""
+def heartbeat_doors_job(identity, job_id, execution_token, progress=None):
+    """Renew and optionally advance one token-bound runner execution claim."""
 
     lease = build_lease(identity, job_id, execution_token)
     if not renew_execution_lease(lease):
-        raise BridgeClaimLost()
+        raise RunnerClaimLost()
     try:
         status = execution_status(lease)
         if progress is not None and status == JobStatus.RUNNING:
             update_execution_progress(
-                lease, validate_progress(progress), "Windows automation is running."
+                lease, validate_progress(progress), "DOORS runner is executing the job."
             )
             status = execution_status(lease)
     except (JobCancelled, JobLeaseLost) as error:
-        raise BridgeClaimLost() from error
+        raise RunnerClaimLost() from error
     return {
         "status": status,
         "cancel_requested": status == JobStatus.CANCEL_REQUESTED,
@@ -186,7 +186,7 @@ def open_input_artifact(identity, job_id, execution_token, artifact_token):
 
     lease = build_lease(identity, job_id, execution_token)
     with transaction.atomic():
-        job = lock_windows_claim(lease)
+        job = lock_doors_claim(lease)
         require_transfer(job, lease, "input", artifact_token)
     try:
         artifact = job.input_file.open("rb")
@@ -194,14 +194,14 @@ def open_input_artifact(identity, job_id, execution_token, artifact_token):
         artifact.seek(0)
     except Exception as error:
         mark_corrupt_input(lease, artifact_token)
-        raise BridgeTransferRejected() from error
+        raise RunnerTransferRejected() from error
     if not hmac.compare_digest(digest, job.input_sha256):
         artifact.close()
         mark_corrupt_input(lease, artifact_token)
-        raise BridgeTransferRejected()
+        raise RunnerTransferRejected()
     try:
         with transaction.atomic():
-            current = lock_windows_claim(lease)
+            current = lock_doors_claim(lease)
             consume_transfer(current, lease, "input", artifact_token)
     except Exception:
         artifact.close()
@@ -209,7 +209,7 @@ def open_input_artifact(identity, job_id, execution_token, artifact_token):
     return artifact, job.input_name, digest
 
 
-def complete_windows_job(
+def complete_doors_job(
     identity,
     job_id,
     execution_token,
@@ -229,11 +229,14 @@ def complete_windows_job(
             lease, artifact_token, uploaded_file, declared_sha256, output_name
         )
     if completion_status not in {"failed", "cancelled"}:
-        raise BridgeRequestInvalid()
+        raise RunnerRequestInvalid()
     with transaction.atomic():
-        job = lock_windows_claim(lease, allow_cancel_requested=True)
+        job = lock_doors_claim(lease, allow_cancel_requested=True)
         consume_transfer(job, lease, "output", artifact_token)
-        if job.kind in EXTERNAL_WRITE_KINDS and (
+        external_write = (
+            job.reconcile_on_lease_loss or job.kind in STATIC_EXTERNAL_WRITE_KINDS
+        )
+        if external_write and (
             completion_status == "cancelled" or job.status == JobStatus.CANCEL_REQUESTED
         ):
             job.retryable = False
@@ -246,14 +249,14 @@ def complete_windows_job(
             )
         elif completion_status == "cancelled" or job.status == JobStatus.CANCEL_REQUESTED:
             set_job_state(
-                job, JobStatus.CANCELLED, job.progress, "Windows automation cancelled.",
+                job, JobStatus.CANCELLED, job.progress, "DOORS runner job cancelled.",
                 "JOB_CANCELLED",
             )
         else:
-            code = failure_code if failure_code in FAILURE_CODES else "BRIDGE_TASK_FAILED"
-            if job.kind in EXTERNAL_WRITE_KINDS and code in {
-                "BRIDGE_TASK_TIMEOUT",
-                "BRIDGE_AGENT_SHUTDOWN",
+            code = failure_code if failure_code in FAILURE_CODES else "DOORS_RUNNER_TASK_FAILED"
+            if external_write and code in {
+                "DOORS_RUNNER_TASK_TIMEOUT",
+                "DOORS_RUNNER_SHUTDOWN",
             }:
                 job.retryable = False
                 set_job_state(
@@ -265,11 +268,11 @@ def complete_windows_job(
                 )
             else:
                 job.retryable = code in {
-                    "BRIDGE_TASK_TIMEOUT",
-                    "BRIDGE_AGENT_SHUTDOWN",
+                    "DOORS_RUNNER_TASK_TIMEOUT",
+                    "DOORS_RUNNER_SHUTDOWN",
                 }
                 set_job_state(
-                    job, JobStatus.FAILED, job.progress, "Windows automation failed.", code
+                    job, JobStatus.FAILED, job.progress, "DOORS runner job failed.", code
                 )
     return job.status
 
@@ -281,28 +284,28 @@ def complete_success(lease, artifact_token, uploaded_file, declared_sha256, outp
     digest = stream_digest(uploaded_file)
     uploaded_file.seek(0)
     if not hmac.compare_digest(digest, declared_sha256.lower()):
-        raise BridgeTransferRejected()
+        raise RunnerTransferRejected()
 
     staged = None
     published = False
     try:
         with transaction.atomic():
-            job = lock_windows_claim(lease, allow_cancel_requested=True)
+            job = lock_doors_claim(lease, allow_cancel_requested=True)
             require_transfer(job, lease, "output", artifact_token)
         staged = stage_job_output(job, filename, uploaded_file)
         if not hmac.compare_digest(staged.digest, digest):
-            raise BridgeTransferRejected()
+            raise RunnerTransferRejected()
         with transaction.atomic():
-            job = lock_windows_claim(lease, allow_cancel_requested=True)
+            job = lock_doors_claim(lease, allow_cancel_requested=True)
             consume_transfer(job, lease, "output", artifact_token)
             publish_staged_job_output(staged)
             published = True
             job.output_file = staged.final_name
             job.output_name = filename
             job.output_sha256 = staged.digest
-            job.result_summary = {"type": "windows_automation"}
+            job.result_summary = {"type": "doors_automation"}
             set_job_state(
-                job, JobStatus.SUCCEEDED, 100, "Windows automation completed."
+                job, JobStatus.SUCCEEDED, 100, "DOORS runner job completed."
             )
         return job.status
     except Exception:
@@ -310,7 +313,7 @@ def complete_success(lease, artifact_token, uploaded_file, declared_sha256, outp
             discard_staged_job_output(staged, published=published)
         except Exception as cleanup_error:
             logger.error(
-                "Failed to remove an unpublished bridge artifact",
+                "Failed to remove an unpublished runner artifact",
                 extra={
                     "job_id": str(lease.job_id),
                     "error_type": type(cleanup_error).__name__,
@@ -326,22 +329,22 @@ def build_lease(identity, job_id, execution_token):
         parsed_job_id = UUID(str(job_id))
         parsed_execution_token = UUID(str(execution_token))
     except (TypeError, ValueError, AttributeError) as error:
-        raise BridgeRequestInvalid() from error
+        raise RunnerRequestInvalid() from error
     return ExecutionLease(parsed_job_id, identity.worker_id, parsed_execution_token)
 
 
-def lock_windows_claim(lease, *, allow_cancel_requested=False):
-    """Lock a live claim and additionally enforce the static Windows queue allowlist."""
+def lock_doors_claim(lease, *, allow_cancel_requested=False):
+    """Lock a live claim and enforce the static DOORS queue allowlist."""
 
     try:
         job = lock_active_execution(
             lease, allow_cancel_requested=allow_cancel_requested
         )
     except (JobCancelled, JobLeaseLost) as error:
-        raise BridgeClaimLost() from error
+        raise RunnerClaimLost() from error
     metadata = executor_metadata(job.kind)
-    if metadata is None or metadata.queue != WINDOWS_QUEUE:
-        raise BridgeClaimLost()
+    if metadata is None or metadata.queue != DOORS_QUEUE:
+        raise RunnerClaimLost()
     return job
 
 
@@ -367,7 +370,7 @@ def reject_invalid_claim(job):
 
     lease = ExecutionLease.from_job(job)
     with transaction.atomic():
-        locked = lock_windows_claim(lease, allow_cancel_requested=True)
+        locked = lock_doors_claim(lease, allow_cancel_requested=True)
         if locked.status == JobStatus.CANCEL_REQUESTED:
             set_job_state(
                 locked, JobStatus.CANCELLED, locked.progress, "Job cancelled.",
@@ -379,8 +382,8 @@ def reject_invalid_claim(job):
                 locked,
                 JobStatus.FAILED,
                 locked.progress,
-                "Windows automation input is invalid.",
-                "BRIDGE_TASK_INVALID_INPUT",
+                "DOORS runner input is invalid.",
+                "DOORS_RUNNER_INVALID_INPUT",
             )
 
 
@@ -396,7 +399,7 @@ def issue_transfer_tokens(job, metadata):
             key = transfer_key(job.id, job.execution_token, direction, token, "issued")
             cache.set(key, job.worker_id, timeout=timeout)
             if cache.get(key) != job.worker_id:
-                raise BridgeUnavailable()
+                raise RunnerUnavailable()
             issued.append(key)
     except Exception as error:
         for key in issued:
@@ -405,9 +408,9 @@ def issue_transfer_tokens(job, metadata):
             except Exception:
                 pass
         requeue_dispatch_failure(job)
-        if isinstance(error, BridgeUnavailable):
+        if isinstance(error, RunnerUnavailable):
             raise
-        raise BridgeUnavailable() from error
+        raise RunnerUnavailable() from error
     return input_token, output_token
 
 
@@ -416,7 +419,7 @@ def requeue_dispatch_failure(job):
 
     lease = ExecutionLease.from_job(job)
     with transaction.atomic():
-        locked = lock_windows_claim(lease, allow_cancel_requested=True)
+        locked = lock_doors_claim(lease, allow_cancel_requested=True)
         if locked.status == JobStatus.CANCEL_REQUESTED:
             set_job_state(
                 locked, JobStatus.CANCELLED, locked.progress, "Job cancelled.",
@@ -427,7 +430,7 @@ def requeue_dispatch_failure(job):
                 locked,
                 JobStatus.QUEUED,
                 locked.progress,
-                "Windows bridge dispatch will retry.",
+                "DOORS runner dispatch will retry.",
             )
 
 
@@ -441,9 +444,9 @@ def require_transfer(job, lease, direction, token):
         owner = cache.get(issued_key)
         consumed = cache.get(consumed_key)
     except Exception as error:
-        raise BridgeUnavailable() from error
+        raise RunnerUnavailable() from error
     if consumed or not owner or not hmac.compare_digest(str(owner), lease.worker_id):
-        raise BridgeTransferRejected()
+        raise RunnerTransferRejected()
 
 
 def consume_transfer(job, lease, direction, token):
@@ -457,33 +460,33 @@ def consume_transfer(job, lease, direction, token):
         if consumed:
             cache.delete(issued_key)
     except Exception as error:
-        raise BridgeUnavailable() from error
+        raise RunnerUnavailable() from error
     if not consumed:
-        raise BridgeTransferRejected()
+        raise RunnerTransferRejected()
 
 
 def transfer_key(job_id, execution_token, direction, token, state):
     """Build a non-secret cache key from a capability digest."""
 
     token_digest = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
-    return f"awc:bridge:v1:{job_id}:{execution_token}:{direction}:{state}:{token_digest}"
+    return f"awc:doors-runner:v1:{job_id}:{execution_token}:{direction}:{state}:{token_digest}"
 
 
 def validate_transfer_token(direction, token):
     if direction not in TRANSFER_DIRECTIONS:
-        raise BridgeTransferRejected()
+        raise RunnerTransferRejected()
     normalized = str(token or "")
     if len(normalized) < 32 or len(normalized) > 128:
-        raise BridgeTransferRejected()
+        raise RunnerTransferRejected()
 
 
 def validate_output(uploaded_file, declared_sha256, output_name):
     """Validate remote result bounds and traversal-safe display name."""
 
     if uploaded_file is None or uploaded_file.size < 1:
-        raise BridgeRequestInvalid()
+        raise RunnerRequestInvalid()
     if uploaded_file.size > maximum_output_bytes():
-        raise BridgeRequestInvalid()
+        raise RunnerRequestInvalid()
     filename = str(output_name or uploaded_file.name or "").strip()
     if (
         not filename
@@ -492,7 +495,7 @@ def validate_output(uploaded_file, declared_sha256, output_name):
         or not SAFE_NAME_PATTERN.fullmatch(filename)
         or not valid_sha256(declared_sha256)
     ):
-        raise BridgeRequestInvalid()
+        raise RunnerRequestInvalid()
     return filename
 
 
@@ -510,9 +513,9 @@ def validate_progress(value):
     try:
         progress = int(value)
     except (TypeError, ValueError) as error:
-        raise BridgeRequestInvalid() from error
+        raise RunnerRequestInvalid() from error
     if not 0 <= progress <= 99:
-        raise BridgeRequestInvalid()
+        raise RunnerRequestInvalid()
     return progress
 
 
@@ -533,7 +536,7 @@ def mark_corrupt_input(lease, artifact_token):
 
     try:
         with transaction.atomic():
-            job = lock_windows_claim(lease, allow_cancel_requested=True)
+            job = lock_doors_claim(lease, allow_cancel_requested=True)
             consume_transfer(job, lease, "input", artifact_token)
             if job.status == JobStatus.CANCEL_REQUESTED:
                 set_job_state(
@@ -549,5 +552,5 @@ def mark_corrupt_input(lease, artifact_token):
                     "Stored input failed integrity verification.",
                     "JOB_INPUT_CORRUPT",
                 )
-    except (BridgeClaimLost, BridgeTransferRejected):
+    except (RunnerClaimLost, RunnerTransferRejected):
         return

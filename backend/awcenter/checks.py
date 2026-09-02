@@ -188,42 +188,14 @@ def _integration_checks():
                 id="awcenter.E021",
             )
         )
-    if settings.DOORS_ENABLED and not settings.WINDOWS_BRIDGE_ENABLED:
-        checks.append(
-            Error(
-                "DOORS requires the supported Windows bridge topology.",
-                id="awcenter.E014",
-            )
-        )
-    if settings.WINDOWS_BRIDGE_ENABLED:
-        if not settings.WINDOWS_BRIDGE_CLIENT_FINGERPRINTS:
-            checks.append(
-                Error(
-                    "At least one Windows bridge client certificate fingerprint is required.",
-                    id="awcenter.E015",
-                )
-            )
-        if not settings.WINDOWS_BRIDGE_TRUST_PROXY_HEADERS:
-            checks.append(
-                Error(
-                    "Windows bridge mTLS headers require explicit proxy trust.",
-                    id="awcenter.E016",
-                )
-            )
-        if not settings.WINDOWS_BRIDGE_TRUSTED_PROXY_IPS:
-            checks.append(
-                Error(
-                    "Windows bridge requires an explicit trusted proxy IP allowlist.",
-                    id="awcenter.E017",
-                )
-            )
-        from automations.identity import bridge_configuration_ready
+    if settings.DOORS_ENABLED:
+        from automations.identity import valid_runner_token
 
-        if not bridge_configuration_ready():
+        if not valid_runner_token(settings.DOORS_RUNNER_TOKEN):
             checks.append(
                 Error(
-                    "Windows bridge certificate and proxy allowlists are invalid.",
-                    id="awcenter.E022",
+                    "DOORS requires a valid host-local runner token.",
+                    id="awcenter.E014",
                 )
             )
     if settings.ASSESSMENT_API_URL:

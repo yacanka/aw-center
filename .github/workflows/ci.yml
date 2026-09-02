@@ -273,7 +273,6 @@ jobs:
           MODEL_DIRECTORY="$evidence_root/models" \
           TLS_CERTIFICATE_FILE="$evidence_root/tls.crt" \
           TLS_PRIVATE_KEY_FILE="$evidence_root/tls.key" \
-          WINDOWS_BRIDGE_ENABLED=false \
           DOORS_ENABLED=false \
           python scripts/deployment_preflight.py \
             --release-manifest release-metadata/release-manifest.json \

@@ -1,16 +1,10 @@
-"""Security and fencing tests for static automation metadata and Windows bridge APIs."""
+"""Security and fencing tests for static metadata and local DOORS runner APIs."""
 
 import ast
 import hashlib
 import tempfile
-from datetime import datetime, timedelta, timezone as datetime_timezone
+from datetime import timedelta
 from pathlib import Path
-from urllib.parse import quote
-
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -28,54 +22,23 @@ from jobs.worker import claim_next_job
 from .catalog import (
     EXECUTOR_CATALOG,
     LOCAL_QUEUE,
-    WINDOWS_QUEUE,
+    DOORS_QUEUE,
     executor_kinds,
 )
 
 
-def test_certificate_identity():
-    key = ec.generate_private_key(ec.SECP256R1())
-    subject = x509.Name(
-        [
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "AW Center"),
-            x509.NameAttribute(NameOID.COMMON_NAME, "awcenter-windows-agent-01"),
-        ]
-    )
-    now = datetime.now(datetime_timezone.utc)
-    certificate = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(subject)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(minutes=1))
-        .not_valid_after(now + timedelta(days=1))
-        .sign(key, hashes.SHA256())
-    )
-    pem = certificate.public_bytes(serialization.Encoding.PEM).decode("ascii")
-    return (
-        quote(pem, safe=""),
-        certificate.fingerprint(hashes.SHA256()).hex().upper(),
-        certificate.subject.rfc4514_string(),
-    )
-
-
-CERTIFICATE_HEADER, FINGERPRINT, SUBJECT = test_certificate_identity()
+RUNNER_TOKEN = "a" * 43
 
 
 @override_settings(
     DOORS_ENABLED=True,
-    WINDOWS_BRIDGE_ENABLED=True,
-    WINDOWS_BRIDGE_TRUST_PROXY_HEADERS=True,
-    WINDOWS_BRIDGE_TRUSTED_PROXY_IPS=["127.0.0.1"],
-    WINDOWS_BRIDGE_CLIENT_FINGERPRINTS=[FINGERPRINT],
-    WINDOWS_BRIDGE_CLIENT_SUBJECTS=[SUBJECT],
+    DOORS_RUNNER_TOKEN=RUNNER_TOKEN,
     JOB_LEASE_SECONDS=60,
     JOB_WORKER_STALE_SECONDS=10,
     JOB_MAX_OUTPUT_BYTES=1024 * 1024,
 )
-class WindowsBridgeApiTests(TestCase):
-    """Exercise the complete outbound-only bridge data-plane contract."""
+class DoorsRunnerApiTests(TestCase):
+    """Exercise the complete host-local runner data-plane contract."""
 
     def setUp(self):
         self.private_root = Path(tempfile.mkdtemp())
@@ -92,13 +55,13 @@ class WindowsBridgeApiTests(TestCase):
 
         shutil.rmtree(self.private_root, ignore_errors=True)
 
-    def test_claim_uses_only_windows_allowlist_and_returns_no_infrastructure_credentials(self):
+    def test_claim_uses_only_doors_allowlist_and_returns_no_infrastructure_credentials(self):
         """An older local job cannot cross the Windows queue trust boundary."""
 
         local, _ = create_job(
             self.user, "media.convert", "Local", {}, self.json_upload("local.json")
         )
-        remote = self.create_windows_job()
+        remote = self.create_doors_job()
 
         response = self.claim()
 
@@ -108,7 +71,7 @@ class WindowsBridgeApiTests(TestCase):
         self.assertGreater(response.data["job"]["heartbeat_interval_seconds"], 0)
         self.assertGreater(response.data["job"]["lease_seconds"], 0)
         self.assertTrue(response.data["job"]["lease_expires_at"].endswith("+00:00"))
-        self.assertEqual(response.data["queue"], WINDOWS_QUEUE)
+        self.assertEqual(response.data["queue"], DOORS_QUEUE)
         self.assertEqual(response.data["contract"]["database_access"], "none")
         self.assertEqual(response.data["contract"]["cache_access"], "none")
         serialized = response.content.decode("utf-8").casefold()
@@ -119,23 +82,23 @@ class WindowsBridgeApiTests(TestCase):
         local.refresh_from_db()
         self.assertEqual(local.status, JobStatus.QUEUED)
 
-    def test_agent_status_selects_idle_poll_cadence(self):
+    def test_runner_status_selects_idle_poll_cadence(self):
         response = self.client.get(
-            "/internal/bridge/v1/status/",
+            "/internal/doors-runner/v1/status/",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertGreater(response.data["poll_interval_seconds"], 0)
 
-    def test_bridge_errors_are_never_cacheable(self):
+    def test_runner_errors_are_never_cacheable(self):
         response = self.client.post(
-            "/internal/bridge/v1/claims/?credential=forbidden",
+            "/internal/doors-runner/v1/claims/?credential=forbidden",
             {},
             format="json",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
         )
 
         self.assertEqual(response.status_code, 400)
@@ -145,29 +108,29 @@ class WindowsBridgeApiTests(TestCase):
     def test_input_download_is_sha_verified_and_single_use(self):
         """A transfer capability cannot replay the private input artifact."""
 
-        self.create_windows_job()
+        self.create_doors_job()
         claim = self.claim().data["job"]
         headers = self.execution_headers(
             claim["execution_token"], claim["input"]["artifact_token"]
         )
 
         first = self.client.get(
-            claim["input"]["download_url"], secure=True, **self.mtls_headers(), **headers
+            claim["input"]["download_url"], secure=True, **self.runner_headers(), **headers
         )
         content = b"".join(first.streaming_content)
         replay = self.client.get(
-            claim["input"]["download_url"], secure=True, **self.mtls_headers(), **headers
+            claim["input"]["download_url"], secure=True, **self.runner_headers(), **headers
         )
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(hashlib.sha256(content).hexdigest(), first["X-AWC-Artifact-SHA256"])
         self.assertEqual(replay.status_code, 409)
-        self.assertEqual(replay.data["code"], "BRIDGE_TRANSFER_REJECTED")
+        self.assertEqual(replay.data["code"], "DOORS_RUNNER_TRANSFER_REJECTED")
 
     def test_heartbeat_advances_progress_and_reports_cancellation(self):
         """Remote progress uses the same fenced state transition as local executors."""
 
-        job = self.create_windows_job()
+        job = self.create_doors_job()
         claim = self.claim().data["job"]
         headers = self.execution_headers(claim["execution_token"])
 
@@ -176,7 +139,7 @@ class WindowsBridgeApiTests(TestCase):
             {"progress": 35},
             format="json",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
             **headers,
         )
         Job.objects.filter(pk=job.pk).update(status=JobStatus.CANCEL_REQUESTED)
@@ -185,7 +148,7 @@ class WindowsBridgeApiTests(TestCase):
             {},
             format="json",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
             **headers,
         )
 
@@ -198,7 +161,7 @@ class WindowsBridgeApiTests(TestCase):
     def test_output_requires_matching_sha_and_completes_once(self):
         """A bad digest cannot consume or publish the output capability."""
 
-        job = self.create_windows_job()
+        job = self.create_doors_job()
         claim = self.claim().data["job"]
         content = b'{"accessible":true}'
         headers = self.execution_headers(
@@ -230,17 +193,17 @@ class WindowsBridgeApiTests(TestCase):
         self.assertEqual(job.output_sha256, hashlib.sha256(content).hexdigest())
         self.assertEqual(replay.status_code, 409)
 
-    def test_ambiguous_windows_write_requires_reconciliation(self):
+    def test_ambiguous_runner_write_requires_reconciliation(self):
         """A timed-out external write cannot be retried automatically."""
 
         job = self.create_external_write_job()
         claim = self.claim().data["job"]
         response = self.client.post(
             claim["output"]["complete_url"],
-            {"status": "failed", "error_code": "BRIDGE_TASK_TIMEOUT"},
+            {"status": "failed", "error_code": "DOORS_RUNNER_TASK_TIMEOUT"},
             format="multipart",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
             **self.execution_headers(
                 claim["execution_token"], claim["output"]["artifact_token"]
             ),
@@ -250,6 +213,35 @@ class WindowsBridgeApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(job.status, JobStatus.RECONCILIATION_REQUIRED)
         self.assertEqual(job.error_code, "RECONCILIATION_REQUIRED")
+        self.assertFalse(job.retryable)
+
+    def test_dynamic_requirement_link_write_requires_reconciliation(self):
+        """A link preview can retry, but an active link write cannot."""
+
+        job, _ = create_job(
+            self.user,
+            "doors.link_requirements",
+            "Link DOORS requirements",
+            {},
+            self.json_upload("doors-link.json"),
+            reconcile_on_lease_loss=True,
+        )
+        claim = self.claim().data["job"]
+
+        response = self.client.post(
+            claim["output"]["complete_url"],
+            {"status": "failed", "error_code": "DOORS_RUNNER_TASK_TIMEOUT"},
+            format="multipart",
+            secure=True,
+            **self.runner_headers(),
+            **self.execution_headers(
+                claim["execution_token"], claim["output"]["artifact_token"]
+            ),
+        )
+
+        job.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(job.status, JobStatus.RECONCILIATION_REQUIRED)
         self.assertFalse(job.retryable)
 
     def test_external_write_success_wins_a_cancellation_race(self):
@@ -285,7 +277,7 @@ class WindowsBridgeApiTests(TestCase):
             {"status": "cancelled"},
             format="multipart",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
             **self.execution_headers(
                 claim["execution_token"], claim["output"]["artifact_token"]
             ),
@@ -296,10 +288,10 @@ class WindowsBridgeApiTests(TestCase):
         self.assertEqual(job.status, JobStatus.RECONCILIATION_REQUIRED)
         self.assertFalse(job.retryable)
 
-    def test_recovered_claim_fences_old_agent_tokens(self):
-        """Recovery rotates execution identity even for the same client certificate."""
+    def test_recovered_claim_fences_old_runner_tokens(self):
+        """Recovery rotates execution identity even for the same runner."""
 
-        job = self.create_windows_job()
+        job = self.create_doors_job()
         stale = self.claim().data["job"]
         Job.objects.filter(pk=job.pk).update(
             lease_expires_at=timezone.now() - timedelta(seconds=1)
@@ -322,73 +314,61 @@ class WindowsBridgeApiTests(TestCase):
         self.assertEqual(job.execution_token.hex, current["execution_token"].replace("-", ""))
         self.assertFalse(job.output_file)
 
-    def test_proxy_spoof_browser_auth_and_cookie_credentials_are_rejected(self):
-        """mTLS from a trusted proxy is the sole bridge authentication mechanism."""
+    def test_wrong_token_browser_auth_and_cookie_credentials_are_rejected(self):
+        """The dedicated runner token is the sole machine authentication mechanism."""
 
-        spoofed = self.client.post(
-            "/internal/bridge/v1/claims/",
+        missing = self.client.post(
+            "/internal/doors-runner/v1/claims/",
             {},
             format="json",
             secure=True,
-            **{**self.mtls_headers(), "REMOTE_ADDR": "198.51.100.20"},
         )
-        asserted_only = self.client.post(
-            "/internal/bridge/v1/claims/",
+        wrong = self.client.post(
+            "/internal/doors-runner/v1/claims/",
             {},
             format="json",
             secure=True,
-            REMOTE_ADDR="127.0.0.1",
-            HTTP_X_AWC_MTLS_VERIFIED="SUCCESS",
-            HTTP_X_AWC_MTLS_FINGERPRINT=FINGERPRINT,
-            HTTP_X_AWC_MTLS_SUBJECT=SUBJECT,
+            HTTP_X_AWC_RUNNER_TOKEN="b" * 43,
         )
         authorized = self.client.post(
-            "/internal/bridge/v1/claims/",
+            "/internal/doors-runner/v1/claims/",
             {},
             format="json",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
             HTTP_AUTHORIZATION="Bearer browser-token",
         )
         cookie = self.client.post(
-            "/internal/bridge/v1/claims/",
+            "/internal/doors-runner/v1/claims/",
             {},
             format="json",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
             HTTP_COOKIE="sessionid=browser-session",
         )
         browser = APIClient()
         browser.force_authenticate(self.user)
         session_only = browser.post(
-            "/internal/bridge/v1/claims/", {}, format="json", secure=True
+            "/internal/doors-runner/v1/claims/", {}, format="json", secure=True
         )
-        insecure = self.client.post(
-            "/internal/bridge/v1/claims/",
-            {},
-            format="json",
-            secure=False,
-            **self.mtls_headers(),
-        )
-        with override_settings(WINDOWS_BRIDGE_TRUST_PROXY_HEADERS=False):
-            untrusted_header_mode = self.client.post(
-                "/internal/bridge/v1/claims/",
+        with override_settings(DOORS_ENABLED=False):
+            disabled = self.client.post(
+                "/internal/doors-runner/v1/claims/",
                 {},
                 format="json",
                 secure=True,
-                **self.mtls_headers(),
+                **self.runner_headers(),
             )
 
-        self.assertEqual(spoofed.status_code, 403)
-        self.assertEqual(asserted_only.status_code, 403)
+        self.assertEqual(missing.status_code, 403)
+        self.assertEqual(wrong.status_code, 403)
         self.assertEqual(authorized.status_code, 403)
         self.assertEqual(cookie.status_code, 403)
         self.assertEqual(session_only.status_code, 403)
-        self.assertEqual(insecure.status_code, 403)
-        self.assertEqual(untrusted_header_mode.status_code, 403)
+        self.assertEqual(disabled.status_code, 403)
 
-    def test_status_stays_disabled_until_configured_agent_is_live(self):
-        """Configuration alone cannot advertise an unavailable bridge as enabled."""
+    def test_status_stays_disabled_until_configured_runner_is_live(self):
+        """Configuration alone cannot advertise an unavailable runner as enabled."""
 
         browser = APIClient()
         browser.force_authenticate(self.user)
@@ -397,7 +377,7 @@ class WindowsBridgeApiTests(TestCase):
         after = browser.get("/api/integrations/doors/status/")
         local_status = browser.get("/api/jobs/system/")
         removed_alias = browser.get("/api/automations/status/")
-        with override_settings(WINDOWS_BRIDGE_ENABLED=False):
+        with override_settings(DOORS_RUNNER_TOKEN=""):
             disabled = browser.get("/api/integrations/doors/status/")
 
         self.assertEqual(before.status_code, 200)
@@ -408,7 +388,7 @@ class WindowsBridgeApiTests(TestCase):
         self.assertEqual(removed_alias.status_code, 404)
         self.assertFalse(disabled.data["available"])
 
-    def create_windows_job(self):
+    def create_doors_job(self):
         payload = b'{"operation":"check_module","module_path":"/Project/Module"}'
         job, _ = create_job(
             self.user,
@@ -432,11 +412,11 @@ class WindowsBridgeApiTests(TestCase):
 
     def claim(self):
         return self.client.post(
-            "/internal/bridge/v1/claims/",
+            "/internal/doors-runner/v1/claims/",
             {},
             format="json",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
         )
 
     def complete(self, claim, headers, content, digest):
@@ -452,7 +432,7 @@ class WindowsBridgeApiTests(TestCase):
             },
             format="multipart",
             secure=True,
-            **self.mtls_headers(),
+            **self.runner_headers(),
             **headers,
         )
 
@@ -461,12 +441,8 @@ class WindowsBridgeApiTests(TestCase):
         return SimpleUploadedFile(name, content, content_type="application/json")
 
     @staticmethod
-    def mtls_headers():
-        return {
-            "REMOTE_ADDR": "127.0.0.1",
-            "HTTP_X_AWC_MTLS_VERIFIED": "SUCCESS",
-            "HTTP_X_AWC_MTLS_CERT": CERTIFICATE_HEADER,
-        }
+    def runner_headers():
+        return {"HTTP_X_AWC_RUNNER_TOKEN": RUNNER_TOKEN}
 
     @staticmethod
     def execution_headers(execution_token, artifact_token=None):
@@ -483,10 +459,10 @@ class AutomationArchitectureTests(SimpleTestCase):
         for metadata in EXECUTOR_CATALOG:
             self.assertTrue(callable(import_string(metadata.dotted_path)), metadata.kind)
 
-    def test_local_composition_root_cannot_resolve_windows_executor(self):
+    def test_local_composition_root_cannot_resolve_doors_executor(self):
         self.assertTrue(executor_kinds(LOCAL_QUEUE))
         self.assertEqual(
-            set(executor_kinds(WINDOWS_QUEUE)),
+            set(executor_kinds(DOORS_QUEUE)),
             {
                 "doors.run_dxl",
                 "doors.update_object",
@@ -498,7 +474,7 @@ class AutomationArchitectureTests(SimpleTestCase):
         with self.assertRaises(JobExecutionFailure):
             resolve_job_executor("doors.run_dxl")
 
-    def test_kernel_and_windows_tasks_keep_dependency_direction(self):
+    def test_kernel_and_doors_tasks_keep_dependency_direction(self):
         root = Path(__file__).resolve().parents[1]
         kernel_files = tuple((root / "jobs").glob("*.py"))
         feature_roots = {"dcc", "excel", "integrations", "media_tools", "outlook", "word"}
@@ -506,11 +482,11 @@ class AutomationArchitectureTests(SimpleTestCase):
             imports = imported_roots(path)
             self.assertTrue(feature_roots.isdisjoint(imports), path.name)
 
-        bridge_imports = imported_roots(
-            root / "integrations" / "doors" / "bridge_tasks.py"
+        runner_imports = imported_roots(
+            root / "integrations" / "doors" / "runner_tasks.py"
         )
-        self.assertNotIn("jobs", bridge_imports)
-        self.assertNotIn("django.db", bridge_imports)
+        self.assertNotIn("jobs", runner_imports)
+        self.assertNotIn("django.db", runner_imports)
 
         composition_source = (root / "awcenter" / "job_executors.py").read_text()
         self.assertNotIn("from dcc", composition_source)

@@ -1,4 +1,4 @@
-"""Sanitized live-health adapters for Integration Hub bridges."""
+"""Sanitized live-health adapters for Integration Hub connections."""
 
 from dataclasses import dataclass
 import importlib.util
@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from django.conf import settings
 import requests
 
-from automations.bridge import bridge_status
+from automations.runner_protocol import runner_status
 from integrations.teamcenter.services import parse_tls_verification
 
 
@@ -58,16 +58,16 @@ def probe_docproof() -> ProbeOutcome:
 
 
 def probe_doors() -> ProbeOutcome:
-    """Report only the server-observed, certificate-bound Windows bridge state."""
+    """Report only the server-observed, token-bound local runner state."""
 
     if not settings.DOORS_ENABLED:
         return ProbeOutcome("not_configured", "DOORS automation is disabled.")
-    status = bridge_status()
+    status = runner_status()
     if not status["configured"]:
-        return ProbeOutcome("not_configured", "The Windows bridge is not configured.")
+        return ProbeOutcome("not_configured", "The local DOORS runner is not configured.")
     if status["available"]:
-        return ProbeOutcome("available", "A Windows bridge agent is active.")
-    return ProbeOutcome("unavailable", "No Windows bridge agent is active.")
+        return ProbeOutcome("available", "The local DOORS runner is active.")
+    return ProbeOutcome("unavailable", "The local DOORS runner is not active.")
 
 
 def probe_office() -> ProbeOutcome:

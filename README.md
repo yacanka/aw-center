@@ -2,7 +2,7 @@
 
 AW Center; proje-scoped compliance document yönetimi, DCC/JIRA akışları, durable document işleri, engineering integration'ları ve Office/PDF araçlarını aynı Django + Vue uygulamasında birleştirir.
 
-Production hedefi tek ve bilinçli olarak dardır: Linux üzerinde immutable container image, same-origin HTTPS, PostgreSQL 17, Redis 7, private artifact volume ve bağımsız web/worker/notification/cleanup process'leri. Windows-only DOORS otomasyonu ayrı bir outbound mTLS agent ile çalışır; ana backend Windows üzerinde çalışmaz.
+Production hedefi tek ve bilinçli olarak dardır: aynı Windows cihazdaki Linux container'larında immutable image, same-origin HTTPS, PostgreSQL 17, Redis 7, private artifact volume ve bağımsız web/worker/notification/cleanup process'leri. Windows-only DOORS otomasyonu, DOORS'un kullanıcı oturumunda çalışan host-local native runner ile yürütülür; ana backend Windows process'i olarak çalışmaz.
 
 ## Hızlı başlangıç
 
@@ -55,8 +55,8 @@ Background lifecycles
   ├─ notification-worker: password-reset outbox + compliance notifications
   └─ cleanup-worker: preview and terminal-artifact retention
 
-Windows DOORS agent
-  └─ outbound HTTPS + mTLS → dedicated bridge ingress → /internal/bridge/v1/
+Windows DOORS runner
+  └─ loopback HTTP + runner token → /internal/doors-runner/v1/
 ```
 
 Temel modül sınırları:
@@ -66,7 +66,7 @@ Temel modül sınırları:
 - `backend/projects/`: read-only teknik capability registry'si ve küçük project policy strategy'leri.
 - `backend/orgs/`: business project kayıtları, organizasyon verisi ve project-scoped roller.
 - `backend/jobs/`: feature bağımsız durable job/workflow kernel'i, lease ve execution fencing.
-- `backend/automations/`: static executor metadata kataloğu ve Windows bridge protocol'u.
+- `backend/automations/`: static executor metadata kataloğu ve host-local runner protocol'u.
 - `backend/integrations/` ve domain app'leri: dış sistem adapterları.
 - `frontend/src/app/`, `frontend/src/shared/`, `frontend/src/features/`: composition/router, ortak HTTP-güvenlik primitive'leri ve feature-owned API/composable/UI sınırları. Page/component doğrudan HTTP client kullanmaz; route-local state global Pinia'ya taşınmaz.
 
@@ -93,7 +93,7 @@ Canonical yüzey:
 - `/api/projects/<slug>/compliance-documents/`: canonical compliance aggregate
 - `/api/dcc/`, `/api/jobs/`, `/api/workflows/` ve owner-scoped `/api/workflows/ecr/`
 - `/api/integrations/` ve `/api/tools/...`
-- `/internal/bridge/v1/`: browser'a kapalı Windows agent data plane
+- `/internal/doors-runner/v1/`: yalnız host loopback'ine açık DOORS runner data plane
 
 Canonical `/api/` dışında root-level feature alias'ları ve unauthenticated file/download route'ları desteklenmez.
 
@@ -110,7 +110,7 @@ Proje başına Django app veya model yoktur. `compliance.ComplianceDocument`, `o
 
 ## Durable işler ve private artifact'lar
 
-Job create endpoint'leri private input artifact, SHA-256, owner, idempotency key ve static job kind sözleşmesini kaydeder. Local worker yalnız `local`, Windows bridge yalnız `windows` queue allowlist'ini claim eder. Her claim yeni execution token ve süreli lease alır; heartbeat lease'i yeniler, progress monotonic ve fenced'dir. Terminal publish tekrar row lock + token kontrolünden geçer. Recovery sonrası eski worker artifact yayımlayamaz.
+Job create endpoint'leri private input artifact, SHA-256, owner, idempotency key ve static job kind sözleşmesini kaydeder. Container worker yalnız `local`, native DOORS runner yalnız `doors` queue allowlist'ini claim eder. Her claim yeni execution token ve süreli lease alır; heartbeat lease'i yeniler, progress monotonic ve fenced'dir. Terminal publish tekrar row lock + token kontrolünden geçer. Recovery sonrası eski runner artifact yayımlayamaz.
 
 Artifact'lar `PRIVATE_MEDIA_ROOT` altındaki owner-scoped storage'dadır. Nginx `/media/` isteğini 404 ile kapatır; download yalnız yetkili Django view ve stored SHA-256 doğrulaması üzerinden yapılır. `cleanup-worker`, expired confirmation preview'larını ve `JOB_ARTIFACT_RETENTION_DAYS` süresini aşan terminal job/artifact'ları temizler.
 
@@ -118,7 +118,7 @@ Outlook MSG attachment'ları parse response'unda URL taşımaz. Tarayıcı attac
 
 ECR akışı frontend'deki `/app/task/ecr` ekranından yönetilir. `GET/POST /api/workflows/ecr/` ve owner-scoped detail endpoint'i bounded PDF'den üretilen immutable review'u sunar; create `Idempotency-Key` ile tekrarlanabilir, approve/reject ise ayrı optimistic `version` mutation'larıdır. Yeni publish veya resume denemesi ephemeral JIRA session ve `Idempotency-Key` ister, approved snapshot'ı server-owned fenced job ile yayımlar. Sonucu belirsiz dış write `reconciliation_required` olur, otomatik retry edilmez; kullanıcı/provider sonucu doğruladıktan sonra explicit resume başlatır. Legacy client-side ECR orchestration veya compatibility route yoktur.
 
-Windows hattı için [windows-bridge.md](docs/windows-bridge.md) belgesine bakın.
+Windows hattı için [doors-runner.md](docs/doors-runner.md) belgesine bakın.
 
 ## Local komutlar
 
@@ -195,7 +195,7 @@ Compose topology; `ingress`, `backend`, `worker`, `notification-worker`, `cleanu
 
 Redis non-root kullanıcı ve restricted runtime config ile authenticated çalışır. Nginx healthcheck'leri public bypass eklemek yerine yalnız container-loopback readiness listener'ından backend readiness'i doğrular.
 
-Opsiyonel `windows-bridge` profile'ı yalnız ayrı mTLS ingress'i ekler. Windows poller binary/service'i bu repository'nin veya Compose topolojisinin parçası değildir; ayrı onaylanan release ve Windows service supervision'ı operasyon ekibinin sorumluluğudur. Migration, operator superuser oluşturma ve iki aşamalı `run_release_smoke` one-shot container komutlarıdır; ingress ancak core/notification smoke, deploy checks, readiness ve worker health geçtikten sonra açılır.
+Main ingress host loopback'ine ayrıca yalnız DOORS runner path'ini geçiren bir listener publish eder; public HTTPS listener bütün `/internal/` yollarını kapatır. Native runner bu repository'deki `run_doors_runner` komutudur ve DOORS ile aynı logged-in Windows kullanıcısı altında supervise edilir. Migration, operator superuser oluşturma ve iki aşamalı `run_release_smoke` one-shot container komutlarıdır; public ingress ancak core/notification smoke, deploy checks, readiness ve worker health geçtikten sonra açılır.
 
 Release evidence:
 
@@ -219,7 +219,7 @@ Kurulum, backup, forward-fix ve atomic ingress gate için [deployment.md](docs/d
 - [Deployment ve operasyon](docs/deployment.md)
 - [Test stratejisi](docs/testing-strategy.md)
 - [Local database reset](docs/local-database-reset.md)
-- [Windows bridge](docs/windows-bridge.md)
+- [Host-local DOORS runner](docs/doors-runner.md)
 - [Local launcher](docs/launcher-runtime.md)
 
 Eski review/roadmap dosyaları yalnız tarihsel snapshot notlarıdır; operasyonel sözleşme olarak kullanılmaz.

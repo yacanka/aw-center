@@ -12,11 +12,11 @@ from awcenter.file_security import (
 )
 
 LOCAL_QUEUE = "local"
-WINDOWS_QUEUE = "windows"
-SUPPORTED_QUEUES = frozenset({LOCAL_QUEUE, WINDOWS_QUEUE})
+DOORS_QUEUE = "doors"
+SUPPORTED_QUEUES = frozenset({LOCAL_QUEUE, DOORS_QUEUE})
 JSON_OPERATION_POLICY = UploadPolicy(
     frozenset({".json"}),
-    "WINDOWS_BRIDGE_MAX_INPUT_BYTES",
+    "DOORS_RUNNER_MAX_INPUT_BYTES",
     1024 * 1024,
 )
 
@@ -105,29 +105,29 @@ EXECUTOR_CATALOG = (
     ),
     ExecutorMetadata(
         kind="doors.run_dxl",
-        dotted_path="integrations.doors.bridge_tasks.execute_dxl",
-        queue=WINDOWS_QUEUE,
+        dotted_path="integrations.doors.runner_tasks.execute_dxl",
+        queue=DOORS_QUEUE,
         upload_policy=JSON_OPERATION_POLICY,
         timeout_seconds=120,
     ),
     ExecutorMetadata(
         kind="doors.update_object",
-        dotted_path="integrations.doors.bridge_tasks.update_object",
-        queue=WINDOWS_QUEUE,
+        dotted_path="integrations.doors.runner_tasks.update_object",
+        queue=DOORS_QUEUE,
         upload_policy=JSON_OPERATION_POLICY,
         timeout_seconds=120,
     ),
     ExecutorMetadata(
         kind="doors.create_object",
-        dotted_path="integrations.doors.bridge_tasks.create_object",
-        queue=WINDOWS_QUEUE,
+        dotted_path="integrations.doors.runner_tasks.create_object",
+        queue=DOORS_QUEUE,
         upload_policy=JSON_OPERATION_POLICY,
         timeout_seconds=120,
     ),
     ExecutorMetadata(
         kind="doors.link_requirements",
-        dotted_path="integrations.doors.bridge_tasks.link_requirements",
-        queue=WINDOWS_QUEUE,
+        dotted_path="integrations.doors.runner_tasks.link_requirements",
+        queue=DOORS_QUEUE,
         upload_policy=JSON_OPERATION_POLICY,
         timeout_seconds=120,
     ),

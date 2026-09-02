@@ -1,7 +1,7 @@
 <template>
   <n-space vertical size="large">
     <n-card title="Requirement PoC Linker">
-      <n-alert :type="bridge?.available ? 'success' : 'warning'" :bordered="false">
+      <n-alert :type="runner?.available ? 'success' : 'warning'" :bordered="false">
         {{ readinessMessage }} The operation runs as a validated, durable Windows automation job.
       </n-alert>
 
@@ -69,7 +69,7 @@
           Preview is available to authenticated users. Creating links requires administrator access.
         </n-alert>
         <n-space justify="center">
-          <n-button :loading="statusLoading" @click="loadStatus">Refresh bridge status</n-button>
+          <n-button :loading="statusLoading" @click="loadStatus">Refresh runner status</n-button>
           <n-popconfirm
             v-if="form.activeness"
             positive-text="Create links"
@@ -164,7 +164,7 @@ const directionOptions = [
 ]
 
 const {
-  bridge,
+  runner,
   cancel,
   cancelling,
   canCreateLinks,
