@@ -31,6 +31,21 @@ python launcher.py package-offline --offline-dir offline --offline-zip project-o
 python launcher.py package-changes
 ```
 
+Launcher'ın yazdırdığı frontend URL'sini hostname dahil aynen kullanın. Örneğin çıktı
+`http://127.0.0.1:5173` ise sayfayı `http://localhost:5173` ile açmak güvenlik
+kontrolünden geçmez; browser hostname'i (`localhost`) process-local `VITE_API_URL`
+hostname'iyle (`127.0.0.1`) aynı değildir. `localhost` kullanmak istiyorsanız iki
+child process'i de aynı adla başlatın:
+
+```bash
+python launcher.py dev --host localhost
+```
+
+Başka bir cihazdan erişim için wildcard bind adresini browser adresi olarak
+kullanmayın; erişilebilir somut host/IP ile başlatıp yazdırılan URL'yi açın (örneğin
+`python launcher.py dev --host 192.0.2.10`). Bu same-host kontrolünü gevşetmek yerine
+frontend ile session-cookie kullanan API'nin hostlarını hizalar.
+
 `check` backend için Django system check, isolated in-memory migration drift/plan; frontend için format ve typecheck çalıştırır. `test` full Django, launcher/release metadata unittest'leri ve frontend `test:ci` çalıştırır.
 
 Playwright browser cache'i launcher tarafından örtülü kurulmaz. İlk kullanımda `frontend/` içinde `npx playwright install chromium`, ardından repository kökünde `npm --prefix frontend run test:e2e` çalıştırın; release gate bu browser smoke'u ayrıca ister.

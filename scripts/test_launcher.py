@@ -7,7 +7,7 @@ import io
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -24,6 +24,7 @@ from scripts.launcher.packaging import package_offline, write_zip
 from scripts.launcher.runtime import (
     dev,
     frontend_env,
+    print_urls,
     runtime_env,
     test as run_repository_tests,
 )
@@ -156,6 +157,16 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(frontend_env("http://127.0.0.1:8000"), {
             "VITE_API_URL": "http://127.0.0.1:8000"
         })
+
+    def test_dev_urls_warn_that_browser_hostname_must_match(self) -> None:
+        """The launcher should make its same-host API constraint actionable."""
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            print_urls(Scope(), "127.0.0.1", 8000, 5173)
+
+        self.assertIn("Frontend: http://127.0.0.1:5173", output.getvalue())
+        self.assertIn("Use the frontend URL exactly as printed", output.getvalue())
 
     @mock.patch("scripts.launcher.runtime.supervise")
     @mock.patch("scripts.launcher.runtime.start")
