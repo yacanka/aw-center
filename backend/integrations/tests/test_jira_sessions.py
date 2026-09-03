@@ -66,6 +66,8 @@ class JiraSessionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["state"], "connected")
         self.assertEqual(set(response.data), {"state", "expires_at"})
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(response["Pragma"], "no-cache")
         self.assertNotIn(credential, str(response.data))
         self.assertNotIn(credential, cached)
         decrypted = Fernet(TEST_FERNET_KEY.encode("ascii")).decrypt(cached.encode("ascii"))
@@ -88,7 +90,10 @@ class JiraSessionTests(TestCase):
 
         self.assertEqual(other_response.data["state"], "disconnected")
         self.assertEqual(owner_response.data["state"], "connected")
+        self.assertEqual(other_response["Cache-Control"], "no-store")
+        self.assertEqual(owner_response["Cache-Control"], "no-store")
         self.assertEqual(first_delete.status_code, 204)
+        self.assertEqual(first_delete["Cache-Control"], "no-store")
         self.assertEqual(second_delete.status_code, 204)
         self.assertIsNone(get_jira_session(self.user))
 

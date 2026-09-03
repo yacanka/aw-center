@@ -8,6 +8,13 @@ from .issue_draft_views import (
     issue_draft_publish,
 )
 from .job_views import confirm_dcc_document_job, preview_dcc_document_job
+from .reminder_views import create_dcc_reminder
+from .subtask_views import (
+    create_subtask_job,
+    inspect_subtask_fields,
+    inspect_subtask_workbook,
+    resume_subtask_job,
+)
 from .views import DccRecordCollectionView, DccRecordDetailView
 
 urlpatterns = [
@@ -16,6 +23,23 @@ urlpatterns = [
         "records/<uuid:record_id>/",
         DccRecordDetailView.as_view(),
         name="dcc-record-detail",
+    ),
+    path(
+        "records/<uuid:record_id>/reminders/",
+        create_dcc_reminder,
+        name="dcc-record-reminders",
+    ),
+    path("subtasks/fields/", inspect_subtask_fields, name="dcc-subtask-fields"),
+    path(
+        "subtasks/workbook/",
+        inspect_subtask_workbook,
+        name="dcc-subtask-workbook",
+    ),
+    path("subtasks/jobs/", create_subtask_job, name="dcc-subtask-jobs"),
+    path(
+        "subtasks/jobs/<uuid:job_id>/resume/",
+        resume_subtask_job,
+        name="dcc-subtask-job-resume",
     ),
     path(
         "jobs/create-document/preview/",

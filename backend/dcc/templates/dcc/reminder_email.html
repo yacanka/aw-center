@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="tr">
+  <body>
+    <p>Merhaba,</p>
+    <p>
+      <a href="{{ jira_url }}">{{ issue }}</a>
+      ({{ title }}) için açık alt görevler CCB {{ ccb_no }} toplantı gündemine dahil edilmiştir.
+    </p>
+    <p>Lütfen atanmış çalışmaları {{ due_date }} tarihine kadar tamamlayın.</p>
+    <p>Projeler: {{ project_labels|join:", " }}</p>
+  </body>
+</html>

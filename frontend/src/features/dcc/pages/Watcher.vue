@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
-import { NButton, NTag, type DataTableColumns, type PaginationInfo } from 'naive-ui'
+import { NButton, NFlex, NTag, type DataTableColumns, type PaginationInfo } from 'naive-ui'
 import type { IDcc } from '@/features/dcc/models/dcc'
 import { fetchDccRecords } from '@/features/dcc/api/dccRecords'
 import type { PaginationMeta } from '@/shared/services/pagination'
+import DccReminderDialog from '@/features/dcc/components/DccReminderDialog.vue'
+import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
+import { hasProjectDccRole } from '@/features/projects/models/projectRegistry'
 
 const records = ref<IDcc[]>([])
 const loading = ref(false)
 const pageMeta = ref<PaginationMeta>({ count: 0, next: null, previous: null })
 const page = ref(1)
 const pageSize = ref(12)
+const reminderDialog = ref<InstanceType<typeof DccReminderDialog> | null>(null)
+const projectCatalog = useProjectCatalogStore()
 const pagination = computed<Partial<PaginationInfo>>(() => ({
   page: page.value,
   pageSize: pageSize.value,
@@ -31,20 +36,33 @@ const columns: DataTableColumns<IDcc> = [
       )
   },
   {
-    title: 'JIRA',
-    key: 'jira_issue_url',
-    width: 110,
+    title: 'Actions',
+    key: 'actions',
+    width: 230,
     render: (row) =>
-      h(
-        NButton,
-        {
-          text: true,
-          type: 'primary',
-          disabled: !row.jira_issue_url,
-          onClick: () => openJiraIssue(row.jira_issue_url)
-        },
-        () => 'Open issue'
-      )
+      h(NFlex, { wrap: false, size: 'small' }, () => [
+        h(
+          NButton,
+          {
+            text: true,
+            type: 'primary',
+            disabled: !row.jira_issue_url,
+            onClick: () => openJiraIssue(row.jira_issue_url)
+          },
+          () => 'Open issue'
+        ),
+        h(
+          NButton,
+          {
+            size: 'small',
+            type: 'info',
+            ghost: true,
+            disabled: !row.active || !canSendReminder(row),
+            onClick: () => reminderDialog.value?.open(row)
+          },
+          () => 'Send reminder'
+        )
+      ])
   }
 ]
 
@@ -78,14 +96,22 @@ function openJiraIssue(url?: string): void {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+function canSendReminder(row: IDcc): boolean {
+  if (projectCatalog.status !== 'ready' || row.project_slugs.length === 0) return false
+  return row.project_slugs.every((slug) => {
+    const project = projectCatalog.projects.find((item) => item.slug === slug)
+    return Boolean(project && hasProjectDccRole(project.roles.dcc, 'operator'))
+  })
+}
+
 onMounted(fetchDcc)
 </script>
 
 <template>
   <n-card title="DCC records">
     <n-alert type="info" :bordered="false" style="margin-bottom: 12px">
-      This view shows the bounded DCC register. JIRA synchronization, reminder email, direct ECD
-      upload, and legacy assessment actions are unavailable in the current API.
+      This view shows the bounded DCC register. Reminder recipients are resolved from open JIRA
+      subtasks and delivery is handled by the notification worker.
     </n-alert>
     <n-flex justify="end">
       <n-text><strong>Total:</strong> {{ pageMeta.count }}</n-text>
@@ -96,12 +122,13 @@ onMounted(fetchDcc)
       :data="records"
       :pagination="pagination"
       :row-key="(row: IDcc) => row.id"
-      :scroll-x="620"
+      :scroll-x="760"
       remote
       striped
       size="small"
       @update:page="handlePageUpdate"
       @update:page-size="handlePageSizeUpdate"
     />
+    <DccReminderDialog ref="reminderDialog" />
   </n-card>
 </template>

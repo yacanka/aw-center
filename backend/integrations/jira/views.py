@@ -25,14 +25,22 @@ class JiraSessionView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    def finalize_response(self, request, response, *args, **kwargs):
+        """Apply no-store to successful and rejected credential exchange responses."""
+
+        finalized = super().finalize_response(request, response, *args, **kwargs)
+        finalized["Cache-Control"] = "no-store"
+        finalized["Pragma"] = "no-cache"
+        return finalized
+
     def get(self, request):
         invalid = reject_query_credentials(request)
         if invalid:
             return invalid
         record = get_jira_session(request.user)
         if record is None:
-            return Response(disconnected_payload())
-        return Response(record.public_payload())
+            return no_store_response(disconnected_payload())
+        return no_store_response(record.public_payload())
 
     def post(self, request):
         invalid = reject_query_credentials(request)
@@ -57,14 +65,14 @@ class JiraSessionView(APIView):
                 code="JIRA_SESSION_UNAVAILABLE",
                 response_status=502,
             )
-        return Response(record.public_payload())
+        return no_store_response(record.public_payload())
 
     def delete(self, request):
         invalid = reject_query_credentials(request)
         if invalid:
             return invalid
         clear_jira_session(request.user)
-        return Response(status=204)
+        return no_store_response(status=204)
 
 
 def reject_query_credentials(request):
@@ -87,3 +95,12 @@ def session_error_response(error):
 
 def disconnected_payload():
     return {"state": "disconnected", "user": None, "expires_at": None}
+
+
+def no_store_response(data=None, *, status=200):
+    """Prevent browsers and intermediaries from caching session lifecycle responses."""
+
+    response = Response(data, status=status)
+    response["Cache-Control"] = "no-store"
+    response["Pragma"] = "no-cache"
+    return response
