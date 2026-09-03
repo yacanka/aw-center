@@ -152,16 +152,22 @@ class JiraConnector:
         )
         if priority:
             fields["priority"] = {"name": priority}
+        return self.create_subtask_from_fields(fields, assignee)
+
+    def create_subtask_from_fields(self, fields, assignee=None):
+        """Create prevalidated subtask fields with the site's assignee fallback."""
+
+        prepared_fields = dict(fields)
         try:
-            return self.jira.create_issue(fields=fields)
+            return self.jira.create_issue(fields=prepared_fields)
         except JIRAError as error:
             if not assignee or not self.is_default_assignee_error(error):
                 logger.warning("JIRA sub-task creation was rejected.")
                 raise
-        fields.pop("assignee", None)
-        fields["customfield_28701"] = {"name": assignee}
+        prepared_fields.pop("assignee", None)
+        prepared_fields["customfield_28701"] = {"name": assignee}
         try:
-            return self.jira.create_issue(fields=fields)
+            return self.jira.create_issue(fields=prepared_fields)
         except JIRAError:
             logger.warning("JIRA fallback sub-task creation was rejected.")
             raise
@@ -237,12 +243,15 @@ class JiraConnector:
             return (datetime.now() + timedelta(days=duedate)).date().isoformat()
         return duedate
 
-    def get_open_subtask(self):
+    def get_open_subtask(self, max_items=200):
         self.check_issue_key()
         issue = self.jira.issue(self.issue_key)
+        references = list(issue.fields.subtasks or ())
+        if len(references) > max_items:
+            raise ValueError("The JIRA task has too many subtasks to inspect safely.")
         return [
             subtask
-            for reference in issue.fields.subtasks
+            for reference in references
             if (subtask := self.jira.issue(reference.key)).fields.status.name != "Closed"
         ]
 

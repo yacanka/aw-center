@@ -48,6 +48,13 @@ EXECUTOR_CATALOG = (
         timeout_seconds=180,
     ),
     ExecutorMetadata(
+        kind="dcc.create_jira_subtasks",
+        dotted_path="dcc.subtask_executor.execute_jira_subtask_batch",
+        queue=LOCAL_QUEUE,
+        upload_policy=JSON_OPERATION_POLICY,
+        timeout_seconds=300,
+    ),
+    ExecutorMetadata(
         kind="automations.publish_ecr_jira",
         dotted_path="automations.ecr_publication_executor.execute_ecr_jira_publication",
         queue=LOCAL_QUEUE,

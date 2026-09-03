@@ -9,6 +9,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from compliance.notifications import scan_notifications
+from dcc.reminder_notifications import process_dcc_reminder_deliveries
 from users.password_reset_notifications import process_password_reset_deliveries
 
 LOGGER = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 class Command(BaseCommand):
     """Process durable outbound notification queues."""
 
-    help = "Run password-reset delivery and Compliance Documents notification queues."
+    help = "Run password-reset, DCC reminder, and Compliance Documents notification queues."
 
     def add_arguments(self, parser):
         """Register bounded worker controls."""
@@ -50,12 +51,16 @@ class Command(BaseCommand):
     def _run_scan(self, project):
         try:
             reset_result = process_password_reset_deliveries()
+            dcc_result = process_dcc_reminder_deliveries()
             compliance_result = scan_notifications(project_slug=project)
             self.stdout.write(
                 "Notifications: "
                 f"password_reset_processed={reset_result['processed']} "
                 f"password_reset_sent={reset_result['sent']} "
                 f"password_reset_failed={reset_result['failed']} "
+                f"dcc_processed={dcc_result['processed']} "
+                f"dcc_sent={dcc_result['sent']} "
+                f"dcc_failed={dcc_result['failed']} "
                 f"compliance_processed={compliance_result['processed']} "
                 f"compliance_sent={compliance_result['sent']} "
                 f"compliance_failed={compliance_result['failed']}"

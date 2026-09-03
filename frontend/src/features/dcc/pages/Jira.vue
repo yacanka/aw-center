@@ -7,6 +7,7 @@ import { nullCheck } from '@/shared/utils/general'
 import Unauthorized from '@/features/session/pages/Unauthorized.vue'
 import DCCCreator from '@/features/dcc/pages/DCCCreator.vue'
 import Watcher from '@/features/dcc/pages/Watcher.vue'
+import SubtaskGenerator from '@/features/dcc/pages/SubtaskGenerator.vue'
 import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import { hasProjectDccRole } from '@/features/projects/models/projectRegistry'
 
@@ -42,8 +43,13 @@ async function initialize(): Promise<void> {
   try {
     await projectCatalog.load()
     if (!canAccessDcc.value) return
-    activeTab.value =
-      typeof route.query.dcc_job === 'string' && canCreateDcc.value ? 'dcc' : DEFAULT_TAB
+    if (typeof route.query.subtask_job === 'string' && canCreateDcc.value) {
+      activeTab.value = 'subtasks'
+    } else if (typeof route.query.dcc_job === 'string' && canCreateDcc.value) {
+      activeTab.value = 'dcc'
+    } else {
+      activeTab.value = DEFAULT_TAB
+    }
     await ensureJiraSession()
   } catch {
     // The catalog store owns the sanitized error; keeping this screen closed is intentional.
@@ -137,6 +143,10 @@ onMounted(initialize)
         <n-tab-pane v-if="canCreateDcc" name="dcc" tab="DCC Creator">
           <n-divider style="margin: 0 0 10px" />
           <DCCCreator />
+        </n-tab-pane>
+        <n-tab-pane v-if="canCreateDcc" name="subtasks" tab="Subtask Creator">
+          <n-divider style="margin: 0 0 10px" />
+          <SubtaskGenerator />
         </n-tab-pane>
       </n-tabs>
     </div>

@@ -113,6 +113,12 @@ ECR feature sözleşmesi owner-scoped `GET/POST /api/workflows/ecr/` collection 
 
 `POST .../publish/` ve `POST .../resume/` yeni attempt için kullanıcının ephemeral JIRA session'ını ve `Idempotency-Key` header'ını zorunlu tutar; credential job payload/database'e kopyalanmaz. Approved version, project set ve owner server-owned `automations.publish_ecr_jira` job'una fence edilir. Provider sonucu belirsizse aggregate ve job `reconciliation_required` durumuna geçer; otomatik retry yoktur. Provider marker/state doğrulandıktan sonra yalnız explicit, yeni idempotent resume attempt'i ilerler. Frontend'in canonical route'u `/app/task/ecr`'dir; client-owned orchestration veya legacy/compatibility route bulunmaz.
 
+### JIRA subtask ve Watcher reminder
+
+Subtask Creator'ın manual ve Excel girişleri `/api/dcc/subtasks/` altında birleşir. HTTP katmanı parent issue, project capability, DCC operator rolü ve canlı/sanitize edilmiş JIRA create metadata'sını doğrular; Excel yalnız bounded ilk sheet'ten credential-free JSON plana normalize edilir. `dcc.create_jira_subtasks` local durable job'ı her satır için owner/idempotency tabanlı marker arar, yalnız eksik kaydı oluşturur. Provider sonucu belirsizse job `reconciliation_required` olur ve aynı marker planını koruyan explicit resume gerekir.
+
+Watcher reminder endpoint'i owner/assignee scope'undaki DCC kaydını, optimistic `version` değerini ve operator rolünü doğrular. Açık JIRA subtasks'tan bounded ve doğrulanmış e-posta listesi çıkarılır; adresler API response'una yazılmaz. Web process'i SMTP çağrısı yapmaz. `DccReminderDelivery` outbox'ı notification worker tarafından row lease, retry ve stable `Message-ID` ile teslim edilir; aynı kayıt için yeni gönderim bir saatlik cooldown'a tabidir.
+
 ## Authentication ve authorization
 
 Browser sözleşmesi:

@@ -24,6 +24,9 @@ RECOVERY_HINTS = {
     "DCC_SNAPSHOT_INVALID": "Capture the JIRA task again to create a new immutable source snapshot.",
     "DCC_OUTPUT_INVALID": "Ask an administrator to verify the project DOCX template before retrying.",
     "DCC_RENDER_FAILED": "Ask an administrator to validate the project template placeholders before creating a new preview.",
+    "JIRA_RECONNECT_REQUIRED": "Reconnect JIRA, then use the feature-specific safe resume action.",
+    "JIRA_SUBTASK_MARKER_LOOKUP_FAILED": "Reconnect JIRA and resume the batch so AW Center can reconcile its markers.",
+    "JIRA_SUBTASK_CREATE_REJECTED": "Correct the rejected subtask values and start a new reviewed batch.",
     "WORKFLOW_ADVANCE_FAILED": "Open the completed source step, verify its artifact, then start a new workflow or share the request ID with support.",
     "WORKFLOW_INITIALIZATION_FAILED": "Start the workflow again; if initialization fails repeatedly, share the request ID with support.",
 }

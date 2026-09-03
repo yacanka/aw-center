@@ -12,10 +12,13 @@ const routesUrl = new URL('../src/app/router/routes.ts', import.meta.url)
 const menuUrl = new URL('../src/app/services/mainMenu.ts', import.meta.url)
 const jobCenterUrl = new URL('../src/features/jobs/pages/JobCenter.vue', import.meta.url)
 const watcherUrl = new URL('../src/features/dcc/pages/Watcher.vue', import.meta.url)
+const subtaskPageUrl = new URL('../src/features/dcc/pages/SubtaskGenerator.vue', import.meta.url)
+const subtaskServiceUrl = new URL('../src/features/dcc/api/jiraSubtasks.ts', import.meta.url)
 const sessionConsumerUrls = [
   '../src/features/dcc/pages/Jira.vue',
   '../src/features/dcc/pages/Watcher.vue',
-  '../src/features/dcc/pages/DCCCreator.vue'
+  '../src/features/dcc/pages/DCCCreator.vue',
+  '../src/features/dcc/pages/SubtaskGenerator.vue'
 ].map((path) => new URL(path, import.meta.url))
 const jiraCredentialUrl = new URL('../src/features/dcc/pages/Jira.vue', import.meta.url)
 
@@ -122,6 +125,9 @@ test('DCC records and JIRA browser links are owned by canonical backend response
   assert.doesNotMatch(sources, /VITE_JIRA_SERVER|jiraServer/)
   assert.match(watcher, /row\.jira_issue_url/)
   assert.match(records, /apiClient\.get<PaginatedResponse<IDcc>>\('dcc\/records\/'/)
+  assert.match(records, /dcc\/records\/\$\{record\.id\}\/reminders\//)
+  assert.match(records, /Idempotency-Key/)
+  assert.doesNotMatch(records, /JSESSIONID|getSessionId|sessionId/)
   assert.doesNotMatch(
     sources,
     /dcc\/(?:add|get_issue|create_issue|send_mail|upload|ecd_assessment|add_attachment|subtask_fields|create_queue)\//
@@ -136,6 +142,23 @@ test('JIRA session fields cannot be populated as saved login passwords', async (
   assert.doesNotMatch(source, /autocomplete="off"/)
 })
 
+test('subtask creation uses credential-free durable jobs and explicit marker reconciliation', async () => {
+  const [container, page, service] = await Promise.all([
+    readFile(new URL('../src/features/dcc/pages/Jira.vue', import.meta.url), 'utf8'),
+    readFile(subtaskPageUrl, 'utf8'),
+    readFile(subtaskServiceUrl, 'utf8')
+  ])
+
+  assert.match(container, /SubtaskGenerator/)
+  assert.match(page, /PageJobStatus/)
+  assert.match(page, /Reconcile markers and resume/)
+  assert.match(service, /dcc\/subtasks\/jobs\//)
+  assert.match(service, /Idempotency-Key/)
+  assert.match(service, /resumeSubtaskJob/)
+  assert.doesNotMatch(`${page}\n${service}`, /JSESSIONID|getSessionId|sessionId/)
+  assert.doesNotMatch(page, /EventSource|localStorage|sessionStorage/)
+})
+
 test('ECR uses the reviewed durable workflow and keeps retired direct actions closed', async () => {
   const [container, ecrTask, ecrService] = await Promise.all([
     readFile(new URL('../src/features/dcc/pages/Jira.vue', import.meta.url), 'utf8'),
@@ -143,7 +166,8 @@ test('ECR uses the reviewed durable workflow and keeps retired direct actions cl
     readFile(new URL('../src/features/dcc/api/ecrWorkflows.ts', import.meta.url), 'utf8')
   ])
 
-  assert.doesNotMatch(container, /SubtaskGenerator|ExcelSubtaskGenerator/)
+  assert.match(container, /SubtaskGenerator/)
+  assert.doesNotMatch(container, /ExcelSubtaskGenerator/)
   assert.match(ecrTask, /api\/ecrWorkflows/)
   assert.match(ecrTask, /allowed_actions/)
   assert.match(ecrTask, /reconciliation_required/)

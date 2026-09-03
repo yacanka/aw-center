@@ -106,6 +106,17 @@ class EndpointSecurityTests(SimpleTestCase):
             ("post", "/api/tools/word/compare/"),
             ("get", "/api/integrations/docproof/search/?document_no=DOC-1"),
             ("get", "/api/dcc/records/"),
+            (
+                "post",
+                "/api/dcc/records/00000000-0000-0000-0000-000000000001/reminders/",
+            ),
+            ("post", "/api/dcc/subtasks/fields/"),
+            ("post", "/api/dcc/subtasks/workbook/"),
+            ("post", "/api/dcc/subtasks/jobs/"),
+            (
+                "post",
+                "/api/dcc/subtasks/jobs/00000000-0000-0000-0000-000000000001/resume/",
+            ),
             ("get", "/api/jobs/00000000-0000-0000-0000-000000000001/"),
         ]
         endpoints.extend(project_endpoints("aesa"))

@@ -118,6 +118,10 @@ Outlook MSG attachment'ları parse response'unda URL taşımaz. Tarayıcı attac
 
 ECR akışı frontend'deki `/app/task/ecr` ekranından yönetilir. `GET/POST /api/workflows/ecr/` ve owner-scoped detail endpoint'i bounded PDF'den üretilen immutable review'u sunar; create `Idempotency-Key` ile tekrarlanabilir, approve/reject ise ayrı optimistic `version` mutation'larıdır. Yeni publish veya resume denemesi ephemeral JIRA session ve `Idempotency-Key` ister, approved snapshot'ı server-owned fenced job ile yayımlar. Sonucu belirsiz dış write `reconciliation_required` olur, otomatik retry edilmez; kullanıcı/provider sonucu doğruladıktan sonra explicit resume başlatır. Legacy client-side ECR orchestration veya compatibility route yoktur.
 
+JIRA Subtask Creator, liste ve Excel eşleme modlarını `/api/dcc/subtasks/...` altında aynı güvenli sözleşmeyle sunar. Tarayıcı yalnız canonical JIRA session endpoint'ine tek seferlik credential gönderir; subtask payload'ı credential içermez. Oluşturma server-owned durable job'dır ve her satır provider tarafındaki deterministik marker ile uzlaştırılır. Belirsiz dış write otomatik tekrarlanmaz; explicit resume aynı marker'ları koruyarak yalnız eksik subtasks'ları oluşturur.
+
+Watcher reminder akışı `/api/dcc/records/<uuid>/reminders/` üzerinden güncel record `version`, DCC operator rolü ve saatlik kayıt bazlı cooldown doğrular. Alıcılar açık JIRA subtasks assignee adreslerinden server tarafında alınır; browser'a dönmez. Web process'i yalnız durable outbox kaydı üretir, SMTP gönderimi lease-fenced notification worker'da stable `Message-ID` ile yapılır.
+
 Windows hattı için [doors-runner.md](docs/doors-runner.md) belgesine bakın.
 
 ## Local komutlar

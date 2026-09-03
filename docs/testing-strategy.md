@@ -110,6 +110,8 @@ Frontend artifact-serving değişikliğinde build sonrasında, `backend/` içind
 | Upload/private artifact | File security, path traversal/signature/size, authorization, SHA ve cleanup testleri |
 | Job/executor | Catalog resolution, queue allowlist, idempotency, lease/token fencing, heartbeat, cancellation, recovery, retention |
 | ECR workflow | Owner scope, bounded PDF/immutable review create replay'i, versioned approve/reject, ephemeral JIRA session, publish/resume idempotency, job fencing ve no-auto-retry reconciliation |
+| JIRA subtask | Operator/project scope, credential-free manual/Excel plan, live field contract, marker idempotency, uncertain write ve explicit resume |
+| DCC reminder | Record/version/role scope, recipient sınırı, idempotency/cooldown, outbox lease, stable Message-ID ve SMTP'siz web enqueue |
 | DOORS runner | Loopback-only ingress, runner-token rejection, one-use input/output, stale completion, local catalog allowlist ve DOORS adapter tests |
 | Frontend service/store | Vitest + ilgili script contract + typecheck |
 | Session/router/browser shell | Backend auth/CSRF + frontend unit/route contracts + `test:e2e` |
@@ -129,6 +131,8 @@ Değişen yüzeyle orantılı olarak en az şunları değerlendirin:
 - Outlook attachment capability'sinde cross-user kullanım, query/URL sızıntısı, replay ve cached SHA-256 mismatch;
 - idempotency key replay: aynı input ve farklı input;
 - ECR'de cross-owner erişim, stale approve/reject version, credential payload reddi, missing/expired JIRA session, stale publication fence ve explicit resume öncesi reconciliation doğrulaması;
+- subtask create/resume'da legacy credential reddi, unknown/required field kontrolü, marker reuse ve uncertain provider write sonrası otomatik retry olmaması;
+- Watcher reminder'da record/project scope, stale version, aynı idempotency replay'i, saatlik cooldown, alıcıların response'ta gizlenmesi ve stale mail lease;
 - expired/recovered lease ve stale worker publish;
 - browser cookie/authorization ile internal runner erişimi;
 - untrusted proxy, missing/invalid/expired certificate ve fingerprint mismatch;
