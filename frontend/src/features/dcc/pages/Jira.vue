@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useDccStore } from '@/features/dcc/stores/dcc'
 import { nullCheck } from '@/shared/utils/general'
@@ -8,11 +8,13 @@ import Unauthorized from '@/features/session/pages/Unauthorized.vue'
 import DCCCreator from '@/features/dcc/pages/DCCCreator.vue'
 import Watcher from '@/features/dcc/pages/Watcher.vue'
 import SubtaskGenerator from '@/features/dcc/pages/SubtaskGenerator.vue'
+import ExcelSubtaskGenerator from '@/features/dcc/pages/ExcelSubtaskGenerator.vue'
 import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import { hasProjectDccRole } from '@/features/projects/models/projectRegistry'
 
 const DEFAULT_TAB = 'watcher'
 const route = useRoute()
+const router = useRouter()
 const store = useDccStore()
 const projectCatalog = useProjectCatalogStore()
 const activeTab = ref(DEFAULT_TAB)
@@ -43,8 +45,15 @@ async function initialize(): Promise<void> {
   try {
     await projectCatalog.load()
     if (!canAccessDcc.value) return
-    if (typeof route.query.subtask_job === 'string' && canCreateDcc.value) {
-      activeTab.value = 'subtasks'
+    if (
+      canCreateDcc.value &&
+      (route.query.jira_tab === 'subtask' || route.query.jira_tab === 'excelSubtask')
+    ) {
+      activeTab.value = route.query.jira_tab
+    } else if (typeof route.query.subtask_job === 'string' && canCreateDcc.value) {
+      activeTab.value = 'subtask'
+    } else if (typeof route.query.excel_subtask_job === 'string' && canCreateDcc.value) {
+      activeTab.value = 'excelSubtask'
     } else if (typeof route.query.dcc_job === 'string' && canCreateDcc.value) {
       activeTab.value = 'dcc'
     } else {
@@ -68,6 +77,9 @@ async function disconnectJiraAccount(): Promise<void> {
 /** Keep tab navigation local to this visit; the JIRA session is shared by all tools. */
 function handleTabChange(tab: string): void {
   activeTab.value = tab
+  if (route.query.subtask_job || route.query.excel_subtask_job) {
+    void router.replace({ query: { ...route.query, jira_tab: tab } })
+  }
 }
 
 /** Reuse the server-owned connection, or ask for a one-time credential exchange. */
@@ -144,9 +156,13 @@ onMounted(initialize)
           <n-divider style="margin: 0 0 10px" />
           <DCCCreator />
         </n-tab-pane>
-        <n-tab-pane v-if="canCreateDcc" name="subtasks" tab="Subtask Creator">
+        <n-tab-pane v-if="canCreateDcc" name="subtask" tab="Subtask Generator (List)">
           <n-divider style="margin: 0 0 10px" />
           <SubtaskGenerator />
+        </n-tab-pane>
+        <n-tab-pane v-if="canCreateDcc" name="excelSubtask" tab="Subtask Generator (Excel)">
+          <n-divider style="margin: 0 0 10px" />
+          <ExcelSubtaskGenerator />
         </n-tab-pane>
       </n-tabs>
     </div>

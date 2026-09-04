@@ -166,9 +166,17 @@ def unique_items(items):
 
 
 CERTIFICATES_DIR = BASE_DIR / "certificates"
-MODEL_RUNTIME_DIR = Path(env.path("MODEL_RUNTIME_DIR", default=BASE_DIR / "models"))
+MODEL_RUNTIME_DIR = Path(
+    env.path(
+        "MODEL_RUNTIME_DIR",
+        default=BASE_DIR.parent / ".runtime" / "ai-models",
+    )
+)
 CUSTOM_TEMPLATE_DIR = Path(
-    env.path("CUSTOM_TEMPLATE_DIR", default=BASE_DIR / "custom_templates")
+    env.path(
+        "CUSTOM_TEMPLATE_DIR",
+        default=BASE_DIR.parent / ".runtime" / "document-templates",
+    )
 )
 WORD_TRANSLATION_TR_EN_MODEL = Path(
     env.path("WORD_TRANSLATION_TR_EN_MODEL", default=MODEL_RUNTIME_DIR / "opus-mt-tr-en")
@@ -413,6 +421,10 @@ AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES = env.int(
 AWCENTER_MAX_ARCHIVE_ENTRIES = env.int("AWCENTER_MAX_ARCHIVE_ENTRIES", default=5000)
 AWCENTER_MAX_COMPDOC_IMPORT_ROWS = env.int("AWCENTER_MAX_COMPDOC_IMPORT_ROWS", default=10000)
 AWCENTER_MAX_COMPDOC_EXPORT_ROWS = env.int("AWCENTER_MAX_COMPDOC_EXPORT_ROWS", default=10000)
+AWCENTER_MAX_PANEL_IMPORT_ROWS = env.int("AWCENTER_MAX_PANEL_IMPORT_ROWS", default=10000)
+PANEL_IMPORT_PREVIEW_TTL_SECONDS = env.int(
+    "PANEL_IMPORT_PREVIEW_TTL_SECONDS", default=15 * 60
+)
 COMPDOC_IMPORT_PREVIEW_TTL_SECONDS = env.int(
     "COMPDOC_IMPORT_PREVIEW_TTL_SECONDS", default=15 * 60
 )

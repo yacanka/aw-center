@@ -52,6 +52,7 @@ export const catOptions: CompdocOption[] = [
 const EMPTY_COMPDOC: ICompDoc = {
   name: '',
   panel: null,
+  panel_name: '',
   signature_panel: [],
   ata: null,
   cover_page_no: '',

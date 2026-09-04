@@ -1,9 +1,13 @@
 """Organization model, authorization, and project-scoped API tests."""
 
+from io import BytesIO
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from openpyxl import Workbook
 from rest_framework.test import APIClient
 
 from .access_policy import effective_role, has_role_for_all_projects
@@ -169,3 +173,168 @@ class OrganizationApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.person.refresh_from_db()
         self.assertEqual(self.person.name, "Ada Engineer")
+
+
+class PanelImportApiTests(TestCase):
+    """Protect panel workbook mapping, uniqueness, scope, and confirmation."""
+
+    def setUp(self):
+        self.project = Project.objects.get(slug="ozgur")
+        self.manager = get_user_model().objects.create_user("panel-import-manager")
+        self.viewer = get_user_model().objects.create_user("panel-import-viewer")
+        for user, role in (
+            (self.manager, ProjectRoleAssignment.Role.MANAGER),
+            (self.viewer, ProjectRoleAssignment.Role.VIEWER),
+        ):
+            ProjectRoleAssignment.objects.create(
+                project=self.project,
+                domain=ProjectRoleAssignment.Domain.ORGANIZATION,
+                role=role,
+                user=user,
+            )
+        self.existing = Panel.objects.create(
+            project=self.project,
+            name="Old flight panel",
+            discipline="Systems",
+            ata="27-00",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.manager)
+
+    @property
+    def preview_url(self):
+        return "/api/projects/ozgur/organization/panels/imports/preview/"
+
+    @property
+    def confirm_url(self):
+        return "/api/projects/ozgur/organization/panels/imports/confirm/"
+
+    @staticmethod
+    def workbook(rows, headers=("Panel Name", "ATA Chapter", "Ignored"), title_rows=2):
+        workbook = Workbook()
+        sheet = workbook.active
+        for index in range(title_rows):
+            sheet.append([f"Panel inventory {index + 1}"])
+        sheet.append(list(headers))
+        for row in rows:
+            sheet.append(list(row))
+        output = BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+
+    @staticmethod
+    def upload(content):
+        return SimpleUploadedFile(
+            "panels.xlsx",
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def preview(self, content):
+        return self.client.post(
+            self.preview_url,
+            {"file": self.upload(content)},
+            format="multipart",
+        )
+
+    def confirm(self, content, token):
+        return self.client.post(
+            self.confirm_url,
+            {"file": self.upload(content), "confirmation_token": token},
+            format="multipart",
+        )
+
+    def test_preview_and_confirm_expand_multiple_ata_values_and_preserve_discipline(self):
+        content = self.workbook(
+            [("Flight Controls", "27; 28; 29-10", "not imported")],
+            headers=("Pannel Name", "ATA Chaptre", "Responsible"),
+        )
+
+        preview = self.preview(content)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["header_row"], 3)
+        self.assertEqual(preview.data["created_count"], 2)
+        self.assertEqual(preview.data["updated_count"], 1)
+        self.assertEqual(preview.data["unmapped_columns"], ["Responsible"])
+        self.assertEqual(confirmed.status_code, 201)
+        self.assertEqual(
+            list(
+                Panel.objects.filter(project=self.project)
+                .order_by("ata")
+                .values_list("ata", "name")
+            ),
+            [
+                ("27-00", "Flight Controls"),
+                ("28-00", "Flight Controls"),
+                ("29-10", "Flight Controls"),
+            ],
+        )
+        self.existing.refresh_from_db()
+        self.assertEqual(self.existing.discipline, "Systems")
+
+    def test_same_ata_assigned_to_different_panels_is_rejected(self):
+        content = self.workbook(
+            [("Electrical", "24", ""), ("Avionics", "24-00", "")],
+            title_rows=0,
+        )
+
+        preview = self.preview(content)
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["created_count"], 0)
+        self.assertEqual(preview.data["rejected_count"], 2)
+        self.assertFalse(Panel.objects.filter(project=self.project, ata="24-00").exists())
+
+    def test_missing_required_headers_is_rejected_without_writes(self):
+        content = self.workbook(
+            [("Flight Controls", "27", "")],
+            headers=("Panel", "Owner", "Ignored"),
+            title_rows=0,
+        )
+
+        response = self.preview(content)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["code"], "PANEL_IMPORT_COLUMNS_MISSING")
+        self.assertIn("ata", response.data["detail"])
+        self.assertEqual(Panel.objects.filter(project=self.project).count(), 1)
+
+    def test_viewer_cannot_preview_or_confirm_panel_import(self):
+        self.client.force_authenticate(self.viewer)
+        content = self.workbook([("Electrical", "24", "")], title_rows=0)
+
+        preview = self.preview(content)
+        confirmed = self.confirm(content, "not-a-token")
+
+        self.assertEqual(preview.status_code, 403)
+        self.assertEqual(confirmed.status_code, 403)
+
+    def test_confirm_rejects_changed_workbook(self):
+        first = self.workbook([("Electrical", "24", "")], title_rows=0)
+        second = self.workbook([("Hydraulics", "29", "")], title_rows=0)
+        preview = self.preview(first)
+
+        response = self.confirm(second, preview.data["confirmation_token"])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["code"], "PANEL_IMPORT_PREVIEW_MISMATCH")
+
+    def test_confirm_detects_panel_changes_after_preview(self):
+        content = self.workbook([("Electrical", "24", "")], title_rows=0)
+        preview = self.preview(content)
+        Panel.objects.create(
+            project=self.project,
+            name="Concurrent panel",
+            ata="24-00",
+        )
+
+        response = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "PANEL_IMPORT_VERSION_CONFLICT")
+        self.assertEqual(
+            Panel.objects.get(project=self.project, ata="24-00").name,
+            "Concurrent panel",
+        )

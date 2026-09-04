@@ -9,7 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from orgs.models import Project, ProjectRoleAssignment
+from orgs.models import Panel, Project, ProjectRoleAssignment
 
 from .models import ComplianceDocument, CoverPage, ImportAudit
 
@@ -26,6 +26,11 @@ class ComplianceImportTests(TestCase):
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
+        self.panel = Panel.objects.create(
+            project=self.project,
+            name="Flight Controls",
+            ata="27-00",
+        )
 
     def workbook(
         self,
@@ -36,6 +41,8 @@ class ComplianceImportTests(TestCase):
         status=None,
         target_date=None,
         delivery_date=None,
+        panel=None,
+        ata=None,
     ):
         output = BytesIO()
         row = {
@@ -49,6 +56,10 @@ class ComplianceImportTests(TestCase):
             row["UBM Target Date"] = target_date
         if delivery_date is not None:
             row["UBM Delivery Date"] = delivery_date
+        if panel is not None:
+            row["Panel"] = panel
+        if ata is not None:
+            row["ATA Chapter"] = ata
         pd.DataFrame([row]).to_excel(output, index=False)
         return output.getvalue()
 
@@ -153,6 +164,70 @@ class ComplianceImportTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn(response.data["code"], {"IMPORT_PREVIEW_MISMATCH", "VALIDATION_ERROR"})
+
+    def test_import_resolves_flexibly_formatted_ata_column(self):
+        for index, ata_value in enumerate((27, 2700, "27-00", "27.00", "ATA 27"), start=1):
+            with self.subTest(ata_value=ata_value):
+                content = self.workbook(
+                    name=f"ATA document {index}",
+                    cover=f"CP-ATA-{index}",
+                    tech=f"TD-ATA-{index}",
+                    ata=ata_value,
+                )
+
+                preview = self.preview(content)
+                confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+                self.assertEqual(preview.status_code, 200)
+                self.assertIn(
+                    {"source": "ATA Chapter", "target": "ata"},
+                    preview.data["mapped_columns"],
+                )
+                self.assertEqual(confirmed.status_code, 201)
+                self.assertEqual(
+                    ComplianceDocument.objects.get(name=f"ATA document {index}").panel,
+                    self.panel,
+                )
+
+    def test_existing_panel_column_also_accepts_short_ata_format(self):
+        content = self.workbook(panel=27)
+
+        preview = self.preview(content)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(confirmed.status_code, 201)
+        self.assertEqual(ComplianceDocument.objects.get().panel, self.panel)
+
+    def test_ata_disambiguates_a_panel_name_with_multiple_chapters(self):
+        Panel.objects.create(
+            project=self.project,
+            name=self.panel.name,
+            ata="28-00",
+        )
+        content = self.workbook(panel=self.panel.name, ata=27)
+
+        preview = self.preview(content)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(confirmed.status_code, 201)
+        self.assertEqual(ComplianceDocument.objects.get().panel, self.panel)
+
+    def test_conflicting_panel_and_ata_are_rejected(self):
+        Panel.objects.create(
+            project=self.project,
+            name="Electrical",
+            ata="24-00",
+        )
+        content = self.workbook(panel="Electrical", ata=27)
+
+        preview = self.preview(content)
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["rejected_count"], 1)
+        self.assertIn("ata", preview.data["invalid_documents"][0]["fields"])
+        self.assertFalse(ComplianceDocument.objects.exists())
 
     def test_import_builds_to_be_issued_event_without_status_flow_column(self):
         content = self.workbook(

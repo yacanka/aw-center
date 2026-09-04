@@ -12,11 +12,18 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
-from awcenter.file_security import EXCEL_POLICY, validate_request_upload
+from awcenter.file_security import EXCEL_POLICY, OOXML_WORKBOOK_POLICY, validate_request_upload
 from utils.arrays import find_missing_elements
 
 from .access_policy import require_project_role
 from .models import Panel, Person, Project, ProjectRoleAssignment, ResponsibleAssignment
+from .panel_imports import (
+    PanelImportColumnsMissing,
+    create_panel_import_confirmation,
+    execute_panel_import,
+    prepare_panel_import,
+    verify_panel_import_confirmation,
+)
 from .people_search import MAX_QUERY_LENGTH, rank_people
 from .serializers import PanelSerializer, PersonSerializer, ResponsibleAssignmentSerializer
 
@@ -63,6 +70,56 @@ class PanelViewSet(ProjectOrganizationMixin, ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(project=self.project)
+
+
+class PanelImportPreviewView(ProjectOrganizationMixin, APIView):
+    """Inspect a panel workbook without changing project data."""
+
+    def post(self, request, project_slug):
+        uploaded_file = validate_request_upload(request, "file", OOXML_WORKBOOK_POLICY)
+        plan = prepare_panel_import(uploaded_file, self.project)
+        if plan.mapping["missing_columns"]:
+            missing = ", ".join(plan.mapping["missing_columns"])
+            raise PanelImportColumnsMissing(
+                f"Missing required Excel columns: {missing}."
+            )
+        return Response(
+            {
+                **plan.mapping,
+                **plan.counts,
+                "invalid_panels": list(plan.errors),
+                "confirmation_token": create_panel_import_confirmation(
+                    uploaded_file,
+                    request.user,
+                    self.project,
+                    plan,
+                ),
+                "database_state_protected": True,
+            }
+        )
+
+
+class PanelImportConfirmView(ProjectOrganizationMixin, APIView):
+    """Apply only the exact panel workbook reviewed in preview."""
+
+    def post(self, request, project_slug):
+        uploaded_file = validate_request_upload(request, "file", OOXML_WORKBOOK_POLICY)
+        fingerprint = verify_panel_import_confirmation(
+            request.data.get("confirmation_token"),
+            uploaded_file,
+            request.user,
+            self.project,
+        )
+        plan = execute_panel_import(uploaded_file, self.project, fingerprint)
+        return Response(
+            {
+                "detail": "Panel import completed.",
+                "code": "PANEL_IMPORT_COMPLETED",
+                **plan.counts,
+                "invalid_panels": list(plan.errors),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ResponsibleAssignmentViewSet(ProjectOrganizationMixin, ModelViewSet):

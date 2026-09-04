@@ -17,7 +17,6 @@ frontend/.env*
 backend/db.sqlite3*
 backend/db_old.sqlite3*
 backend/media
-backend/models
 backend/private_media
 backend/static/
 backend/staticfiles/

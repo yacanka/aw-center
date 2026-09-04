@@ -86,6 +86,8 @@ class ComplianceApiTests(TestCase):
         self.assertEqual(accepted.status_code, 201)
         self.assertEqual(accepted.data["version"], 1)
         self.assertEqual(accepted.data["project_slug"], "ozgur")
+        self.assertEqual(accepted.data["panel"], self.panel.pk)
+        self.assertEqual(accepted.data["panel_name"], self.panel.name)
 
     def test_optimistic_update_rejects_stale_version(self):
         document = self.create_document()

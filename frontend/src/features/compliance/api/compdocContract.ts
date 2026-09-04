@@ -62,6 +62,7 @@ export function normalizeCompdoc(value: unknown): ICompDoc {
     version: positiveNumberOrUndefined(value.version),
     project: stringValue(value.project_slug || value.project),
     panel: nullableNumber(value.panel),
+    panel_name: stringValue(value.panel_name),
     name: stringValue(value.name),
     signature_panel: stringArray(value.signature_panel),
     ata: nullableString(value.ata),

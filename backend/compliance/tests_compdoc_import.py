@@ -6,6 +6,7 @@ from compliance.compdoc_import import HeaderMappingResult, build_mapping_preview
 MODEL_FIELDS = {
     "name",
     "panel",
+    "ata",
     "responsible",
     "status",
     "cat",
@@ -61,11 +62,15 @@ class FakePandas:
 
 class ComplianceDocumentImportMappingTests(TestCase):
     def test_maps_static_multilingual_aliases_to_model_fields(self):
-        mapping = map_headers(["İsim", "Document Name", "MOC", "Tech Document Number"], MODEL_FIELDS)
+        mapping = map_headers(
+            ["İsim", "Document Name", "MOC", "Tech Document Number", "ATA Chaptre"],
+            MODEL_FIELDS,
+        )
 
         self.assertEqual(mapping["İsim"], "name")
         self.assertEqual(mapping["MOC"], "moc")
         self.assertEqual(mapping["Tech Document Number"], "tech_doc_no")
+        self.assertEqual(mapping["ATA Chaptre"], "ata")
 
     def test_maps_fuzzy_header_typo_when_similarity_is_confident(self):
         mapping = map_headers(["Documnt Name", "Cover Page Numbr"], MODEL_FIELDS)

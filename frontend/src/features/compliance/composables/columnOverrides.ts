@@ -13,7 +13,8 @@ export function useCompdocColumnOverrides(orgs: OrganizationController) {
     ...issueColumns.columns,
     {
       key: 'panel',
-      render: (row) => orgs.getPanels.find((panel) => panel.id === row.panel)?.name || '—'
+      render: (row) =>
+        row.panel_name || orgs.getPanels.find((panel) => panel.id === row.panel)?.name || '—'
     },
     { key: 'status', render: renderStatus }
   ])
