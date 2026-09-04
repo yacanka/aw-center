@@ -39,12 +39,16 @@ def execute_jira_subtask_batch(job):
             if existing:
                 reused_keys.append(existing)
                 continue
+            extra_fields = encoded_fields[index - 1]
             fields = client.build_subtask_fields(
                 item["summary"],
                 item.get("description", ""),
                 item.get("assignee") or None,
                 item.get("due_date"),
-                {**encoded_fields[index - 1], "labels": [marker, "aw-center-subtask"]},
+                {
+                    **extra_fields,
+                    "labels": [*(extra_fields.get("labels") or []), marker, "aw-center-subtask"],
+                },
             )
             ensure_session(job)
             try:

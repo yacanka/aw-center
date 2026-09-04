@@ -9,17 +9,24 @@
       />
     </n-tabs>
 
-    <n-button
-      :disabled="!activeProject || !canManage"
-      :focusable="false"
-      style="margin-bottom: 12px"
-      @click="openNewPanel"
-    >
-      <template #icon
-        ><n-icon size="24"><Add24Regular /></n-icon
-      ></template>
-      New Panel
-    </n-button>
+    <n-space style="margin-bottom: 12px">
+      <n-button
+        :disabled="!activeProject || !canManage"
+        :focusable="false"
+        @click="panelUpload?.openModal()"
+      >
+        <template #icon
+          ><n-icon size="24"><ArrowUpload24Regular /></n-icon
+        ></template>
+        Import Excel
+      </n-button>
+      <n-button :disabled="!activeProject || !canManage" :focusable="false" @click="openNewPanel">
+        <template #icon
+          ><n-icon size="24"><Add24Regular /></n-icon
+        ></template>
+        New Panel
+      </n-button>
+    </n-space>
 
     <n-empty
       v-if="!activeProject && !store.isLoading"
@@ -37,21 +44,25 @@
     />
   </n-card>
   <PanelsPopup ref="panelPopup" />
+  <PanelUpload ref="panelUpload" />
 </template>
 
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { NButton, NSpace, type DataTableColumns } from 'naive-ui'
-import { Add24Regular, Delete24Regular, Edit24Regular } from '@vicons/fluent'
+import { Add24Regular, ArrowUpload24Regular, Delete24Regular, Edit24Regular } from '@vicons/fluent'
 import PanelsPopup from '@/features/organization/components/PanelsPopup.vue'
+import PanelUpload from '@/features/organization/components/PanelUpload.vue'
 import type { IPanel } from '@/features/organization/models/orgs'
 import { useOrganizationController } from '@/features/organization/composables/organizationController'
 
 type PanelPopup = { openModal: (panel: Partial<IPanel>, mode: 'new' | 'update') => void }
+type PanelUploadRef = { openModal: () => void }
 
 const ACTIVE_PROJECT_KEY = 'panelsActiveTab'
 const store = useOrganizationController()
 const panelPopup = ref<PanelPopup | null>(null)
+const panelUpload = ref<PanelUploadRef | null>(null)
 const activeProject = ref<string | null>(null)
 const canManage = computed(() =>
   Boolean(activeProject.value && store.canManageProject(activeProject.value))

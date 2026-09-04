@@ -177,6 +177,7 @@ _EXACT_GUIDANCE = {
 
 _PREFIX_GUIDANCE = (
     ("COMPDOC_IMPORT_", ErrorGuidance(False, "Review the import audit and correct the workbook.")),
+    ("PANEL_IMPORT_", ErrorGuidance(False, "Review the panel workbook and its import preview.")),
     ("UPLOAD_ARCHIVE_", ErrorGuidance(False, "Use a safe, unencrypted archive with fewer entries.")),
     ("UPLOAD_", ErrorGuidance(False, "Review the file requirements and choose another input.")),
     ("INVITATION_", ErrorGuidance(False, "Ask an administrator to review the invitation status.")),

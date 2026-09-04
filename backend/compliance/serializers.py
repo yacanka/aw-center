@@ -41,6 +41,7 @@ class CoverPageVersionConflict(APIException):
 
 class ComplianceDocumentSerializer(serializers.ModelSerializer):
     project_slug = serializers.CharField(source="project.slug", read_only=True)
+    panel_name = serializers.CharField(source="panel.name", read_only=True, allow_null=True)
     ata = serializers.CharField(source="panel.ata", read_only=True, allow_null=True)
     cover_page = CoverPageSerializer()
     panel = serializers.PrimaryKeyRelatedField(
@@ -61,6 +62,7 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             "id",
             "project_slug",
             "panel",
+            "panel_name",
             "ata",
             "cover_page",
             "name",

@@ -134,5 +134,7 @@ def project_endpoints(slug):
         ("put", f"/api/projects/{slug}/compliance-documents/notification-policy/"),
         ("get", f"/api/projects/{slug}/compliance-documents/{document_id}/tracking/"),
         ("get", f"/api/projects/{slug}/organization/panels/"),
+        ("post", f"/api/projects/{slug}/organization/panels/imports/preview/"),
+        ("post", f"/api/projects/{slug}/organization/panels/imports/confirm/"),
         ("get", f"/api/projects/{slug}/organization/responsible-assignments/"),
     ]

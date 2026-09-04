@@ -169,8 +169,10 @@ test('consolidates tab and section guidance into one contextual help control', a
   assert.match(contextHelp, /Timeline/)
 })
 
-test('CompDoc ATA is derived from the selected panel', () => {
-  assert.match(identityFieldsSource, /:options="orgs\.getCompdocPanelOptions"/)
+test('CompDoc panel names remain visible and ATA is derived from the selected panel', () => {
+  assert.match(identityFieldsSource, /:options="panelOptions"/)
+  assert.match(identityFieldsSource, /const options = orgs\.getCompdocPanelOptions/)
+  assert.match(identityFieldsSource, /props\.compdoc\.panel_name/)
   assert.match(identityFieldsSource, /:value="compdoc\.ata \|\| ''"/)
   assert.match(identityFieldsSource, /placeholder="—" readonly/)
   assert.match(identityFieldsSource, /\.filter\(\(panel\) => panel\.id === panelId\)/)
@@ -218,6 +220,7 @@ test('normalizes canonical nested document and bounded field contracts', () => {
     id: 'f8af884c-78dc-4eb4-930a-2468b66b26f6',
     project_slug: 'ozgur',
     panel: 7,
+    panel_name: 'Flight Controls',
     ata: '27-00',
     path: 'controlled/reference',
     cover_page: { number: 'CP-7', issue: 'A' },
@@ -254,6 +257,7 @@ test('normalizes canonical nested document and bounded field contracts', () => {
 
   assert.equal(document.project, 'ozgur')
   assert.equal(document.panel, 7)
+  assert.equal(document.panel_name, 'Flight Controls')
   assert.equal(document.ata, '27-00')
   assert.equal(document.cover_page_no, 'CP-7')
   assert.equal(document.cover_page_issue, 'A')

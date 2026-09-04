@@ -5,7 +5,7 @@
         <n-select
           v-model:value="compdoc.panel"
           placeholder="Select Panel"
-          :options="orgs.getCompdocPanelOptions"
+          :options="panelOptions"
           :disabled="readonly"
           :status="changed('panel')"
           @update:value="syncAtaFromPanel"
@@ -67,6 +67,16 @@ const props = defineProps<{
   readonly: boolean
 }>()
 const orgs = useOrganizationController()
+const panelOptions = computed(() => {
+  const options = orgs.getCompdocPanelOptions
+  const selectedPanel = props.compdoc.panel
+  if (selectedPanel === null || options.some((option) => option.value === selectedPanel)) {
+    return options
+  }
+  if (!props.compdoc.panel_name) return options
+  const ata = props.compdoc.ata ? ` · ATA ${props.compdoc.ata}` : ''
+  return [...options, { label: `${props.compdoc.panel_name}${ata}`, value: selectedPanel }]
+})
 const arrayChanged = computed(
   () => !checkArrayEquals(props.original.signature_panel, props.compdoc.signature_panel)
 )

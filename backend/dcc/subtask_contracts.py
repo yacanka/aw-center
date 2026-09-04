@@ -3,6 +3,7 @@
 from orgs.models import Project
 
 from integrations.jira.create_contract import field_supported, value_supported
+from integrations.jira.contracts import MAX_FIELD_TEXT_LENGTH
 from integrations.jira.field_values import option_label, option_token
 from integrations.jira.sessions import jira_connector_for
 
@@ -12,9 +13,8 @@ from .document_snapshot import extract_issue_key, validate_parent_issue
 from .document_snapshot import DccSnapshotError
 from .services.project_resolver import DccProjectResolutionError, resolve_projects_from_jira_components
 
-RESERVED_METADATA_FIELDS = frozenset(
-    {"project", "parent", "issuetype", "summary", "description", "assignee", "duedate", "labels"}
-)
+RESERVED_METADATA_FIELDS = frozenset({"project", "parent", "issuetype", "summary"})
+BUILTIN_ITEM_FIELDS = {"description": "description", "assignee": "assignee", "duedate": "due_date"}
 MAX_METADATA_FIELDS = 100
 MAX_ALLOWED_VALUES = 100
 
@@ -64,10 +64,16 @@ def sanitize_subtask_fields(fields):
         for option in list(field.get("allowedValues") or ())[:MAX_ALLOWED_VALUES]:
             if not isinstance(option, dict):
                 continue
-            value = option_token(option)
+            token = option_token(option)
+            # Saved main-branch lists use option values; retain ID matching as well.
+            value = option.get("value", token)
+            if isinstance(value, str) and len(value) > MAX_FIELD_TEXT_LENGTH:
+                continue
             label = option_label(option)
             if isinstance(value, (str, int, float)) and not isinstance(value, bool):
-                allowed_values.append({"value": value, "label": str(label or value)[:255]})
+                allowed_values.append(
+                    {"value": value, "id": token, "label": str(label or value)[:255]}
+                )
         schema = field.get("schema") if isinstance(field.get("schema"), dict) else {}
         sanitized.append(
             {
@@ -107,12 +113,12 @@ def validate_item_field_contract(items, metadata):
     required = {
         field["id"]
         for field in metadata
-        if field.get("required") and not field.get("hasDefaultValue")
+        if field.get("required") and not field.get("hasDefaultValue") and field["id"] != "labels"
     }
     incomplete = [
         index
         for index, item in enumerate(items, start=1)
-        if any(item.get("fields", {}).get(key) in (None, "", []) for key in required)
+        if any(item_field_values(item, allowed).get(key) in (None, "", []) for key in required)
     ]
     if incomplete:
         from rest_framework.exceptions import ValidationError
@@ -125,7 +131,7 @@ def validate_item_field_contract(items, metadata):
         for index, item in enumerate(items, start=1)
         if any(
             value not in (None, "", []) and not value_supported(value, allowed[key])
-            for key, value in item.get("fields", {}).items()
+            for key, value in item_field_values(item, allowed).items()
         )
     ]
     if invalid:
@@ -134,3 +140,14 @@ def validate_item_field_contract(items, metadata):
         raise ValidationError(
             {"items": f"JIRA field values are invalid in rows: {', '.join(map(str, invalid[:20]))}"}
         )
+
+
+def item_field_values(item, metadata_by_id):
+    """Validate dynamic built-ins against the same contract as custom columns."""
+
+    values = dict(item.get("fields", {}))
+    for field_id, item_key in BUILTIN_ITEM_FIELDS.items():
+        if field_id in metadata_by_id:
+            value = item.get(item_key)
+            values[field_id] = value.isoformat() if hasattr(value, "isoformat") else value
+    return values

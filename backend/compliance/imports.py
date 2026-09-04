@@ -15,6 +15,7 @@ from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from orgs.ata import normalize_ata_chapter
 from orgs.models import Panel
 
 from .compdoc_import import build_mapping_preview, choose_header_row, read_mapped_excel
@@ -30,6 +31,7 @@ IMPORT_FIELDS = {
     "id",
     "name",
     "panel",
+    "ata",
     "signature_panel",
     "responsible",
     "cat",
@@ -196,12 +198,14 @@ def prepare_tabular_plan(
                 continue
             by_key[key] = document
     panels = list(Panel.objects.filter(project=project))
-    panel_lookup = {
-        key.casefold(): panel
-        for panel in panels
-        for key in (panel.ata, panel.name)
-        if key
-    }
+    panel_lookup = {}
+    for panel in panels:
+        for key in (panel.ata, panel.name):
+            if not key:
+                continue
+            matches = panel_lookup.setdefault(key.casefold(), [])
+            if panel not in matches:
+                matches.append(panel)
 
     normalized = []
     errors = []
@@ -332,12 +336,7 @@ def _normalize_row(source, panel_lookup):
     if not cover_number:
         raise ValidationError({"cover_page_no": "Cover-page number is required."})
 
-    panel = None
-    panel_value = str(values.get("panel") or "").strip()
-    if panel_value:
-        panel = panel_lookup.get(panel_value.casefold())
-        if panel is None:
-            raise ValidationError({"panel": "Panel name or ATA is unknown for this project."})
+    panel = _resolve_panel(values, panel_lookup)
 
     payload = {
         field: _list_value(values.get(field)) if field in LIST_FIELDS else values.get(field)
@@ -359,6 +358,59 @@ def _normalize_row(source, panel_lookup):
         "workflow_events": workflow_events,
         "reconcile_workflow": reconcile_workflow,
     }
+
+
+def _resolve_panel(values, panel_lookup):
+    """Resolve an optional panel name and/or flexibly formatted ATA chapter."""
+
+    panel_value = values.get("panel")
+    ata_value = values.get("ata")
+    has_panel = panel_value not in (None, "")
+    has_ata = ata_value not in (None, "")
+    if not has_panel and not has_ata:
+        return None
+
+    ata_panel = None
+    if has_ata:
+        try:
+            canonical_ata = normalize_ata_chapter(ata_value)
+        except ValueError as error:
+            raise ValidationError(
+                {"ata": "Use an ATA chapter such as 27, 2700, 27-00, or 27-10."}
+            ) from error
+        ata_matches = panel_lookup.get(canonical_ata.casefold(), ())
+        if not ata_matches:
+            raise ValidationError({"ata": "ATA chapter is unknown for this project."})
+        ata_panel = ata_matches[0]
+
+    if not has_panel:
+        return ata_panel
+
+    panel_matches = _panel_candidates(panel_value, panel_lookup)
+    if not panel_matches:
+        raise ValidationError({"panel": "Panel name or ATA is unknown for this project."})
+    if ata_panel is not None:
+        if ata_panel not in panel_matches:
+            raise ValidationError(
+                {"ata": "ATA chapter does not belong to the imported panel."}
+            )
+        return ata_panel
+    if len(panel_matches) > 1:
+        raise ValidationError(
+            {"ata": "ATA chapter is required because this panel name has multiple chapters."}
+        )
+    return panel_matches[0]
+
+
+def _panel_candidates(value, panel_lookup):
+    direct = panel_lookup.get(str(value).strip().casefold())
+    if direct:
+        return direct
+    try:
+        canonical_ata = normalize_ata_chapter(value)
+    except ValueError:
+        return ()
+    return panel_lookup.get(canonical_ata.casefold(), ())
 
 
 def _normalize_status(value):

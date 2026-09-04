@@ -6,7 +6,7 @@ from integrations.jira.contracts import validate_extra_fields
 
 MAX_SUBTASKS_PER_BATCH = 100
 PROTECTED_FIELDS = frozenset(
-    {"project", "parent", "issuetype", "summary", "description", "assignee", "duedate", "labels"}
+    {"project", "parent", "issuetype", "summary", "description", "assignee", "duedate"}
 )
 
 
@@ -39,6 +39,14 @@ class SubtaskItemSerializer(serializers.Serializer):
         if forbidden:
             raise serializers.ValidationError(
                 f"Protected JIRA fields cannot be overridden: {', '.join(forbidden)}"
+            )
+        labels = fields.get("labels") or []
+        if not isinstance(labels, list) or any(
+            not isinstance(label, str) or label.strip().lower().startswith("awcenter-st-")
+            for label in labels
+        ):
+            raise serializers.ValidationError(
+                "Labels must be a list of strings without reserved subtask markers."
             )
         return fields
 

@@ -18,7 +18,8 @@ const sessionConsumerUrls = [
   '../src/features/dcc/pages/Jira.vue',
   '../src/features/dcc/pages/Watcher.vue',
   '../src/features/dcc/pages/DCCCreator.vue',
-  '../src/features/dcc/pages/SubtaskGenerator.vue'
+  '../src/features/dcc/pages/SubtaskGenerator.vue',
+  '../src/features/dcc/pages/ExcelSubtaskGenerator.vue'
 ].map((path) => new URL(path, import.meta.url))
 const jiraCredentialUrl = new URL('../src/features/dcc/pages/Jira.vue', import.meta.url)
 
@@ -150,8 +151,17 @@ test('subtask creation uses credential-free durable jobs and explicit marker rec
   ])
 
   assert.match(container, /SubtaskGenerator/)
-  assert.match(page, /PageJobStatus/)
-  assert.match(page, /Reconcile markers and resume/)
+  const progress = await readFile(
+    new URL('../src/features/dcc/composables/useSubtaskProgress.ts', import.meta.url),
+    'utf8'
+  )
+  assert.match(page, /useSubtaskProgress\('subtask_job'\)/)
+  assert.match(page, /<subtask-list/)
+  assert.match(page, /<n-progress/)
+  assert.match(progress, /usePageJob\(queryKey\)/)
+  assert.match(progress, /resumeSubtaskJob\(previous.id\)/)
+  assert.match(progress, /Resume previous batch/)
+  assert.doesNotMatch(page, /PageJobStatus/)
   assert.match(service, /dcc\/subtasks\/jobs\//)
   assert.match(service, /Idempotency-Key/)
   assert.match(service, /resumeSubtaskJob/)
@@ -167,7 +177,8 @@ test('ECR uses the reviewed durable workflow and keeps retired direct actions cl
   ])
 
   assert.match(container, /SubtaskGenerator/)
-  assert.doesNotMatch(container, /ExcelSubtaskGenerator/)
+  assert.match(container, /name="subtask" tab="Subtask Generator \(List\)"/)
+  assert.match(container, /name="excelSubtask" tab="Subtask Generator \(Excel\)"/)
   assert.match(ecrTask, /api\/ecrWorkflows/)
   assert.match(ecrTask, /allowed_actions/)
   assert.match(ecrTask, /reconciliation_required/)

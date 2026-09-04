@@ -158,12 +158,9 @@ Thumbs.db
 # ========================
 media/
 staticfiles/
-models/
-!frontend/src/models/
-!frontend/src/models/**
 offline/
 wheels/
 workspace/
 
 # Launcher isolated runtime profiles
-.runtime/
+/.runtime/

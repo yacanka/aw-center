@@ -15,7 +15,10 @@ from jobs.worker import claim_next_job, execute_claimed_job
 from orgs.models import Project, ProjectRoleAssignment
 
 from .subtask_executor import execute_jira_subtask_batch
+from .subtask_contracts import sanitize_subtask_fields, validate_item_field_contract
 from .subtask_jobs import JOB_KIND, enqueue_subtask_batch, enqueue_subtask_resume
+from .subtask_serializers import SubtaskBatchSerializer
+from .subtask_views import workbook_items
 
 
 @override_settings(JIRA_ENABLED=True)
@@ -242,6 +245,151 @@ class JiraSubtaskJobTests(JobTestCase):
         with resumed.input_file.open("rb") as stored:
             payload = json.load(stored)
         self.assertEqual(payload["operation_id"], source.parameters["operation_id"])
+
+    def test_original_dynamic_builtin_fields_are_available_without_target_overrides(self):
+        metadata = sanitize_subtask_fields([
+            {"id": identifier, "name": identifier, "schema": {"type": schema_type}}
+            for identifier, schema_type in (
+                ("project", "string"), ("parent", "string"), ("issuetype", "string"),
+                ("summary", "string"), ("description", "string"),
+                ("assignee", "user"), ("duedate", "date"),
+            )
+        ])
+        self.assertEqual(
+            [field["id"] for field in metadata], ["description", "assignee", "duedate"]
+        )
+
+    def test_original_saved_list_shape_round_trips_through_user_preferences(self):
+        lists = [{
+            "title": "Review checklist",
+            "fields": [
+                {"id": "description", "name": "Description", "schema": {"type": "string"}},
+                {"id": "duedate", "name": "Due Date", "schema": {"type": "date"}},
+            ],
+            "list": [{
+                "summary": "Review", "assignee": "reviewer",
+                "fields": {"description": "Details", "duedate": "2026-09-30"},
+            }],
+        }]
+        saved = self.client.patch(
+            "/api/users/preferences/", {"jira_list": lists}, format="json"
+        )
+        self.assertEqual(saved.status_code, 200)
+        loaded = self.client.get("/api/users/preferences/")
+        self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.data["jira_list"], lists)
+
+    def test_main_branch_option_values_and_new_option_ids_both_validate(self):
+        metadata = sanitize_subtask_fields([{
+            "id": "customfield_10001", "name": "Category",
+            "schema": {"type": "option"},
+            "allowedValues": [{"id": "100", "value": "Review", "self": "https://invalid.test/private"}],
+        }])
+        self.assertEqual(metadata[0]["allowedValues"], [
+            {"value": "Review", "id": "100", "label": "Review"}
+        ])
+        for value in ("Review", "100"):
+            validate_item_field_contract(
+                [{"summary": "Review", "fields": {"customfield_10001": value}}], metadata
+            )
+
+    def test_required_builtin_columns_use_normalized_item_values(self):
+        from rest_framework.exceptions import ValidationError
+
+        metadata = sanitize_subtask_fields([
+            {
+                "id": identifier, "name": identifier, "required": True,
+                "schema": {"type": schema_type},
+            }
+            for identifier, schema_type in (
+                ("description", "string"), ("assignee", "user"), ("duedate", "date")
+            )
+        ])
+        serializer = SubtaskBatchSerializer(data={
+            "issue": "CHN-42", "items": [{
+                "summary": "Review", "description": "Details", "assignee": "reviewer",
+                "due_date": "2026-09-30", "fields": {},
+            }],
+        })
+        serializer.is_valid(raise_exception=True)
+        validate_item_field_contract(serializer.validated_data["items"], metadata)
+        with self.assertRaises(ValidationError):
+            validate_item_field_contract([{"summary": "Review", "fields": {}}], metadata)
+
+    def test_reserved_markers_and_target_overrides_remain_rejected(self):
+        for fields in (
+            {"parent": "CHN-99"}, {"project": "OTHER"}, {"issuetype": "Task"},
+            {"labels": ["awcenter-st-forged-1"]},
+            {"labels": ["AWCENTER-ST-forged-1"]},
+        ):
+            with self.subTest(fields=fields):
+                serializer = SubtaskBatchSerializer(data={
+                    "issue": "CHN-42", "items": [{"summary": "Review", "fields": fields}],
+                })
+                self.assertFalse(serializer.is_valid())
+
+    def test_original_excel_date_formats_and_blank_optional_cells(self):
+        from datetime import datetime
+
+        mapping = [
+            {"column": column, "field": field}
+            for column, field in (
+                ("Title", "summary"), ("Details", "description"),
+                ("Owner", "assignee"), ("Due", "duedate"),
+            )
+        ]
+        dates = [
+            "30.09.2026", "30/09/2026", "2026-09-30", "30-09-2026",
+            "30 09 2026", "30 September 2026", "30 Sep 2026", datetime(2026, 9, 30),
+        ]
+        items = workbook_items(
+            workbook_upload(
+                [" Title ", "Details", "Owner", "Due"],
+                [[f"Review {index}", None, None, value] for index, value in enumerate(dates)],
+            ),
+            mapping,
+        )
+        self.assertEqual(len(items), len(dates))
+        for item in items:
+            self.assertEqual(item["description"], "")
+            self.assertEqual(item["assignee"], "")
+            self.assertEqual(item["due_date"], "2026-09-30")
+        serializer = SubtaskBatchSerializer(data={"issue": "CHN-42", "items": items})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_excel_invalid_dates_are_reported_instead_of_silently_discarded(self):
+        from rest_framework.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            workbook_items(
+                workbook_upload(["Title", "Due"], [["Review", "31.02.2026"]]),
+                [{"column": "Title", "field": "summary"}, {"column": "Due", "field": "duedate"}],
+            )
+
+    @patch("dcc.subtask_executor.require_jira_session")
+    @patch("dcc.subtask_executor.jira_connector_for")
+    def test_dynamic_labels_are_preserved_alongside_server_markers(self, connector_for, _session):
+        source, _created = enqueue_subtask_batch(
+            self.user, "CHN-42", [self.project],
+            [{"summary": "Review", "fields": {"labels": ["review"]}}],
+            "subtask-labels-001",
+        )
+        client = Mock()
+        client.find_issue_by_label.return_value = None
+        client.get_subtask_fields.return_value = [{
+            "id": "labels", "name": "Labels", "required": True,
+            "schema": {"type": "array", "items": "string"},
+        }]
+        client.create_subtask_from_fields.return_value = SimpleNamespace(key="CHN-100")
+        connector_for.return_value = client
+        claimed = claim_next_job("subtask-worker", eligible_kinds=(JOB_KIND,))
+        with bind_execution(claimed):
+            result = execute_jira_subtask_batch(claimed)
+        labels = client.build_subtask_fields.call_args.args[4]["labels"]
+        self.assertEqual(labels, [
+            "review", f"awcenter-st-{source.parameters['operation_id']}-1", "aw-center-subtask"
+        ])
+        result.path.unlink(missing_ok=True)
 
 
 def workbook_upload(columns, rows):

@@ -37,6 +37,31 @@ Varsayılan adresler:
 
 `launcher.py dev`, Django, Vite, durable job worker, notification worker ve cleanup worker'ı foreground child process'ler olarak başlatır. Migration yalnız `--migrate` açıkça verildiğinde uygulanır. Launcher production server başlatmaz.
 
+Local yapay zekâ ağırlıkları kaynak koddan ayrı, Git tarafından yok sayılan
+`.runtime/ai-models/` altında tutulur:
+
+```text
+.runtime/ai-models/
+├── opus-mt-tr-en/
+├── opus-mt-en-tr/
+├── paraphrase-multilingual/
+└── ms-marco-cross-encoder/
+```
+
+Operator tarafından sağlanan DOCX şablonları ağırlıklardan ayrı tutulur:
+
+```text
+.runtime/document-templates/
+├── cover_page_template.docx
+└── <project>_dcc_template.docx
+```
+
+Repository içindeki Django/Vue `models/` dizinleri ve feature-owned Django HTML
+şablonları kaynak koddur ve normal biçimde Git tarafından izlenir. Üretilmiş SPA
+`backend/templates/index.html` dosyası build artifact'ı olarak ignore edilir.
+Makineye özel farklı bir konum gerekirse yolları ignore edilen `backend/.env`
+içinde değiştirin.
+
 Local veriyi bilinçli olarak sıfırlamanız gerekiyorsa önce [local database reset rehberini](docs/local-database-reset.md) okuyun. Shared veya production database üzerinde bu akışı kullanmayın.
 
 ## Mimari özeti
@@ -118,7 +143,9 @@ Outlook MSG attachment'ları parse response'unda URL taşımaz. Tarayıcı attac
 
 ECR akışı frontend'deki `/app/task/ecr` ekranından yönetilir. `GET/POST /api/workflows/ecr/` ve owner-scoped detail endpoint'i bounded PDF'den üretilen immutable review'u sunar; create `Idempotency-Key` ile tekrarlanabilir, approve/reject ise ayrı optimistic `version` mutation'larıdır. Yeni publish veya resume denemesi ephemeral JIRA session ve `Idempotency-Key` ister, approved snapshot'ı server-owned fenced job ile yayımlar. Sonucu belirsiz dış write `reconciliation_required` olur, otomatik retry edilmez; kullanıcı/provider sonucu doğruladıktan sonra explicit resume başlatır. Legacy client-side ECR orchestration veya compatibility route yoktur.
 
-JIRA Subtask Creator, liste ve Excel eşleme modlarını `/api/dcc/subtasks/...` altında aynı güvenli sözleşmeyle sunar. Tarayıcı yalnız canonical JIRA session endpoint'ine tek seferlik credential gönderir; subtask payload'ı credential içermez. Oluşturma server-owned durable job'dır ve her satır provider tarafındaki deterministik marker ile uzlaştırılır. Belirsiz dış write otomatik tekrarlanmaz; explicit resume aynı marker'ları koruyarak yalnız eksik subtasks'ları oluşturur.
+JIRA, orijinal `Subtask Generator (List)` ve `Subtask Generator (Excel)` sekmelerini korur. List sekmesinde isimlendirilmiş listeler, çift tıklayarak yeniden adlandırma, dinamik JIRA sütunları, toplu `Set Values` ve `Save` bulunur; mevcut `jira_list` kullanıcı tercihleri aynı veri biçimiyle okunup kaydedilir. Excel sekmesi ilk sheet'in sütunlarını Summary, Description, Assignee ve Due Date alanlarıyla eşler; Summary ve Description seçilmelidir. Gün/ay/yıl tarih biçimleri desteklenir.
+
+İki ekran da `/api/dcc/subtasks/...` sözleşmesini kullanır. Tarayıcı yalnız canonical JIRA session endpoint'ine tek seferlik credential gönderir; subtask payload'ı credential içermez. Oluşturma server-owned durable job'dır; ilerleme eski ekranın progress bar'ında gösterilir. Belirsiz dış write otomatik tekrarlanmaz. Başarısız/belirsiz bir işlemden sonra Generate, aynı marker'larla orijinal listeyi sürdürme veya mevcut formdan yeni batch oluşturma seçimini açıkça sorar; yeni batch mevcut subtasks'ları çoğaltabilir. Job Center üzerinden iptal ve özel sonuç indirme kullanılabilir.
 
 Watcher reminder akışı `/api/dcc/records/<uuid>/reminders/` üzerinden güncel record `version`, DCC operator rolü ve saatlik kayıt bazlı cooldown doğrular. Alıcılar açık JIRA subtasks assignee adreslerinden server tarafında alınır; browser'a dönmez. Web process'i yalnız durable outbox kaydı üretir, SMTP gönderimi lease-fenced notification worker'da stable `Message-ID` ile yapılır.
 

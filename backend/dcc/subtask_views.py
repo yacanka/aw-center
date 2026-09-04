@@ -175,7 +175,13 @@ def workbook_items(workbook, mapping):
     try:
         import pandas as pd
 
-        frame = pd.read_excel(workbook, dtype=object, usecols=requested_columns)
+        frame = pd.read_excel(
+            workbook,
+            dtype=object,
+            usecols=[columns.index(column) for column in requested_columns],
+            nrows=MAX_SUBTASKS_PER_BATCH + 1,
+        )
+        frame.columns = [str(column).strip() for column in frame.columns]
     except Exception as error:
         raise ValidationError({"file": "The workbook first sheet could not be read."}) from error
     if len(frame.index) > MAX_SUBTASKS_PER_BATCH:
@@ -193,13 +199,30 @@ def workbook_items(workbook, mapping):
             continue
         item = {
             "summary": values.pop("summary", ""),
-            "description": values.pop("description", ""),
-            "assignee": values.pop("assignee", ""),
-            "due_date": values.pop("duedate", None),
+            "description": values.pop("description", "") or "",
+            "assignee": values.pop("assignee", "") or "",
+            "due_date": workbook_due_date(values.pop("duedate", None)),
             "fields": {key: value for key, value in values.items() if value not in (None, "")},
         }
         items.append(item)
     return items
+
+
+def workbook_due_date(value):
+    """Preserve the original Excel generator's day-first date formats."""
+
+    if value in (None, ""):
+        return None
+    for date_format in (
+        "%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y",
+        "%d %m %Y", "%d %B %Y", "%d %b %Y",
+    ):
+        try:
+            return datetime.strptime(str(value), date_format).date().isoformat()
+        except ValueError:
+            continue
+    # Invalid dates must be reported, not silently dropped from the user's subtask.
+    raise ValidationError({"file": "A Due Date cell contains an unsupported date."})
 
 
 def workbook_value(value):

@@ -22,11 +22,15 @@ const emit = defineEmits<{
 
 function panelLabel(): string {
   const panel = orgs.getPanels.find((item) => item.id === props.document.panel)
-  return panel?.name || 'Not assigned'
+  return props.document.panel_name || panel?.name || 'Not assigned'
 }
 
 function panelAta(): string {
-  return orgs.getPanels.find((item) => item.id === props.document.panel)?.ata || 'Not assigned'
+  return (
+    props.document.ata ||
+    orgs.getPanels.find((item) => item.id === props.document.panel)?.ata ||
+    'Not assigned'
+  )
 }
 </script>
 
