@@ -7,8 +7,11 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.test import Client
 
+from .pwa_resources import PWA_RESOURCES
+
 MAX_INDEX_BYTES = 2 * 1024 * 1024
 UNSAFE_STATIC_SUFFIXES = frozenset({".py", ".pyc", ".pyo"})
+PWA_ARTIFACTS = {f"app/{path}": content_type for path, content_type in PWA_RESOURCES.items()}
 
 
 class FrontendArtifactError(RuntimeError):
@@ -34,6 +37,7 @@ def verify_frontend_artifact():
 
     verify_static_source_directories()
     verify_collected_static_files()
+    verify_pwa_files()
     index_bytes = read_index_bytes()
     asset_paths = extract_asset_paths(decode_index(index_bytes))
     verify_asset_types(asset_paths)
@@ -41,6 +45,7 @@ def verify_frontend_artifact():
         verify_asset_file(asset_path)
     verify_spa_response(index_bytes)
     verify_static_responses(asset_paths)
+    verify_pwa_responses()
     return {"index_bytes": len(index_bytes), "asset_count": len(asset_paths)}
 
 
@@ -51,6 +56,7 @@ def frontend_files_are_ready():
         index_bytes = read_index_bytes()
         asset_paths = extract_asset_paths(decode_index(index_bytes))
         verify_asset_types(asset_paths)
+        verify_pwa_files()
         for asset_path in asset_paths:
             verify_asset_file(asset_path)
     except (FrontendArtifactError, OSError):
@@ -70,6 +76,18 @@ def verify_static_source_directories():
                 "STATICFILES_DIRS exposes server-side source: "
                 f"{unsafe.relative_to(directory)}"
             )
+
+
+def verify_pwa_files():
+    """Require every fixed-name PWA resource in the immutable frontend artifact."""
+
+    artifact_root = Path(settings.FRONTEND_DIST_DIR).resolve()
+    for relative_path in PWA_ARTIFACTS:
+        resource_path = (artifact_root / relative_path).resolve()
+        if not resource_path.is_relative_to(artifact_root):
+            raise FrontendArtifactError("PWA artifact path is unsafe.")
+        if not resource_path.is_file() or resource_path.stat().st_size == 0:
+            raise FrontendArtifactError(f"PWA artifact is missing or empty: {relative_path}")
 
 
 def verify_collected_static_files():
@@ -195,6 +213,20 @@ def verify_static_responses(asset_paths):
         response = client.get(asset_path, secure=True)
         if response.status_code != 200 or not response_body(response):
             raise FrontendArtifactError(f"Django did not serve frontend asset: {asset_path}")
+
+
+def verify_pwa_responses():
+    """Verify Django serves each PWA resource with its declared media type."""
+
+    client = Client(HTTP_HOST=verification_host())
+    for relative_path, content_type in PWA_ARTIFACTS.items():
+        response = client.get(f"/{relative_path}", secure=True)
+        if (
+            response.status_code != 200
+            or response.headers.get("Content-Type") != content_type
+            or not response_body(response)
+        ):
+            raise FrontendArtifactError(f"Django did not serve PWA artifact: {relative_path}")
 
 
 def response_body(response):

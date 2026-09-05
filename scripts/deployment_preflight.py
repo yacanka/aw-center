@@ -158,7 +158,10 @@ def _validate_runtime_paths(values: dict[str, str]) -> list[str]:
     errors = []
     certificate = _regular_file(values.get("TLS_CERTIFICATE_FILE"))
     private_key = _regular_file(values.get("TLS_PRIVATE_KEY_FILE"))
-    model_directory = _directory(values.get("MODEL_DIRECTORY"))
+    ai_model_directory = _directory(values.get("AI_MODEL_DIRECTORY"))
+    document_template_directory = _directory(
+        values.get("DOCUMENT_TEMPLATE_DIRECTORY")
+    )
     if certificate is None:
         errors.append("TLS_CERTIFICATE_FILE")
     if private_key is None:
@@ -167,8 +170,10 @@ def _validate_runtime_paths(values: dict[str, str]) -> list[str]:
         errors.append("TLS_PRIVATE_KEY_PERMISSIONS")
     if certificate is not None and private_key is not None and certificate == private_key:
         errors.append("TLS_KEY_CERTIFICATE_COLLISION")
-    if model_directory is None:
-        errors.append("MODEL_DIRECTORY")
+    if ai_model_directory is None:
+        errors.append("AI_MODEL_DIRECTORY")
+    if document_template_directory is None:
+        errors.append("DOCUMENT_TEMPLATE_DIRECTORY")
     return errors
 
 

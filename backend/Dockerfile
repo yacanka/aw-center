@@ -63,7 +63,7 @@ COPY requirements.txt /app/requirements.txt
 COPY backend /app
 COPY --from=frontend-build /frontend/dist /app/frontend-dist
 
-RUN mkdir -p /app/models /app/private_media /app/static \
+RUN mkdir -p /app/ai-models /app/document-templates /app/private_media /app/static \
     && export DEBUG=True \
         IPV4_ADDRESS=127.0.0.1 \
         PORT=8000 \

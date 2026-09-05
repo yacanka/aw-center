@@ -1,0 +1,32 @@
+{
+  "id": "/app/",
+  "name": "AW Center",
+  "short_name": "AWC",
+  "description": "AW Center aviation and engineering workflow tools.",
+  "lang": "en",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "background_color": "#f4f7f9",
+  "theme_color": "#1e4fcd",
+  "icons": [
+    {
+      "src": "/app/icons/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app/icons/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app/icons/pwa-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

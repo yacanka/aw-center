@@ -258,7 +258,8 @@ jobs:
           set -euo pipefail
           evidence_root="$(mktemp -d)"
           trap 'rm -rf "$evidence_root"' EXIT
-          mkdir "$evidence_root/models"
+          mkdir "$evidence_root/ai-models"
+          mkdir "$evidence_root/document-templates"
           printf '%s\n' 'CI certificate placeholder' > "$evidence_root/tls.crt"
           printf '%s\n' 'CI private key placeholder' > "$evidence_root/tls.key"
           chmod 600 "$evidence_root/tls.key"
@@ -270,7 +271,8 @@ jobs:
           DATABASE_URL=postgres://awcenter:ci-database-password@database:5432/awcenter \
           POSTGRES_PASSWORD=ci-database-password \
           REDIS_PASSWORD=ci-url-safe-redis-password-123 \
-          MODEL_DIRECTORY="$evidence_root/models" \
+          AI_MODEL_DIRECTORY="$evidence_root/ai-models" \
+          DOCUMENT_TEMPLATE_DIRECTORY="$evidence_root/document-templates" \
           TLS_CERTIFICATE_FILE="$evidence_root/tls.crt" \
           TLS_PRIVATE_KEY_FILE="$evidence_root/tls.key" \
           DOORS_ENABLED=false \
@@ -311,13 +313,13 @@ jobs:
             -e ALLOWED_HOSTS=127.0.0.1,localhost,backend
             -e DATABASE_URL=postgres://awcenter:ci-database-password@127.0.0.1:5432/awcenter
             -e CACHE_URL=redis://:${redis_password}@127.0.0.1:6380/1
-            -e MODEL_RUNTIME_DIR=/app/models
-            -e CUSTOM_TEMPLATE_DIR=/app/models/templates
-            -e COVER_PAGE_TEMPLATE_PATH=/app/models/templates/cover_page_template.docx
-            -e WORD_TRANSLATION_TR_EN_MODEL=/app/models/opus-mt-tr-en
-            -e WORD_TRANSLATION_EN_TR_MODEL=/app/models/opus-mt-en-tr
-            -e WORD_ANALYZER_BI_MODEL=/app/models/paraphrase-multilingual
-            -e WORD_ANALYZER_CROSS_MODEL=/app/models/ms-marco-cross-encoder
+            -e MODEL_RUNTIME_DIR=/app/ai-models
+            -e CUSTOM_TEMPLATE_DIR=/app/document-templates
+            -e COVER_PAGE_TEMPLATE_PATH=/app/document-templates/cover_page_template.docx
+            -e WORD_TRANSLATION_TR_EN_MODEL=/app/ai-models/opus-mt-tr-en
+            -e WORD_TRANSLATION_EN_TR_MODEL=/app/ai-models/opus-mt-en-tr
+            -e WORD_ANALYZER_BI_MODEL=/app/ai-models/paraphrase-multilingual
+            -e WORD_ANALYZER_CROSS_MODEL=/app/ai-models/ms-marco-cross-encoder
             -e SESSION_COOKIE_SECURE=True
             -e CSRF_COOKIE_SECURE=True
             -e SECURE_SSL_REDIRECT=True
@@ -328,10 +330,11 @@ jobs:
             -e DOORS_ENABLED=False
           )
           docker volume create awcenter-ci-private
-          docker volume create awcenter-ci-models
-          trap 'docker rm -f awcenter-web awcenter-worker awcenter-ci-auth-redis >/dev/null 2>&1 || true; docker volume rm awcenter-ci-private awcenter-ci-models >/dev/null 2>&1 || true' EXIT
-          docker run --rm --user 0:0 -v awcenter-ci-models:/app/models awcenter:ci python -c "from pathlib import Path; from docx import Document; root=Path('/app/models/templates'); root.mkdir(parents=True); document=Document(); document.add_paragraph('{{ Design_Change_Title }}'); document.save(root/'hys_dcc_template.docx')"
-          runtime_volumes=(-v awcenter-ci-private:/app/private_media -v awcenter-ci-models:/app/models:ro)
+          docker volume create awcenter-ci-ai-models
+          docker volume create awcenter-ci-document-templates
+          trap 'docker rm -f awcenter-web awcenter-worker awcenter-ci-auth-redis >/dev/null 2>&1 || true; docker volume rm awcenter-ci-private awcenter-ci-ai-models awcenter-ci-document-templates >/dev/null 2>&1 || true' EXIT
+          docker run --rm --user 0:0 -v awcenter-ci-document-templates:/app/document-templates awcenter:ci python -c "from pathlib import Path; from docx import Document; root=Path('/app/document-templates'); document=Document(); document.add_paragraph('{{ Design_Change_Title }}'); document.save(root/'hys_dcc_template.docx')"
+          runtime_volumes=(-v awcenter-ci-private:/app/private_media -v awcenter-ci-ai-models:/app/ai-models:ro -v awcenter-ci-document-templates:/app/document-templates:ro)
           ci_operator_password="$(openssl rand -base64 32)"
           docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci python manage.py migrate --noinput
           docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci python manage.py check --deploy --fail-level WARNING

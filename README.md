@@ -56,6 +56,9 @@ Operator tarafından sağlanan DOCX şablonları ağırlıklardan ayrı tutulur:
 └── <project>_dcc_template.docx
 ```
 
+Production aynı ayrımı `/app/ai-models:ro` ve `/app/document-templates:ro`
+mount'larıyla korur.
+
 Repository içindeki Django/Vue `models/` dizinleri ve feature-owned Django HTML
 şablonları kaynak koddur ve normal biçimde Git tarafından izlenir. Üretilmiş SPA
 `backend/templates/index.html` dosyası build artifact'ı olarak ignore edilir.
@@ -222,7 +225,7 @@ Production'da `launcher.py` kullanılmaz. Desteklenen deploy akışı `deploymen
 3. Runtime aşamasında frontend artifact'ını kopyalar, static collection ve artifact verification yapar.
 4. Numeric non-root kimlik, dropped Linux capability'leri ve `no-new-privileges` ile çalışır; `/app` source tree'sini read-only bırakır.
 
-Compose topology; `ingress`, `backend`, `worker`, `notification-worker`, `cleanup-worker`, `database` ve `redis` servislerinden oluşur. AW Center image release evidence digest'iyle; Dockerfile base image'ları ile Nginx, PostgreSQL ve Redis image'ları SHA-256 digest'leriyle, CI action'ları commit SHA ile pinlidir. Process environment ve volume'ları capability'ye göre daraltılmıştır: notification worker integration secret/private volume, cleanup worker integration/mail/model, backend ve local worker ise mail credential'ı almaz. Private artifact volume yalnız backend, local worker ve cleanup worker'da; model mount'u yalnız backend ve local worker'da bulunur.
+Compose topology; `ingress`, `backend`, `worker`, `notification-worker`, `cleanup-worker`, `database` ve `redis` servislerinden oluşur. AW Center image release evidence digest'iyle; Dockerfile base image'ları ile Nginx, PostgreSQL ve Redis image'ları SHA-256 digest'leriyle, CI action'ları commit SHA ile pinlidir. Process environment ve volume'ları capability'ye göre daraltılmıştır: notification worker integration secret/private/AI-model/template volume'u, cleanup worker integration/mail/AI-model/template volume'u, backend ve local worker ise mail credential'ı almaz. Private artifact volume yalnız backend, local worker ve cleanup worker'da; ayrı AI model ve document template mount'ları yalnız backend ve local worker'da bulunur.
 
 Redis non-root kullanıcı ve restricted runtime config ile authenticated çalışır. Nginx healthcheck'leri public bypass eklemek yerine yalnız container-loopback readiness listener'ından backend readiness'i doğrular.
 

@@ -37,7 +37,7 @@ awcenter_local_compose() {
 }
 ```
 
-Bu production-benzeri Compose reset'i için local env gerçek ve eşleşen digest evidence'ı, non-placeholder hostname, regular TLS certificate, group/other permission bit'i olmayan private key ve mevcut model dizini göstermelidir. Bu girdileri atlamak için preflight'ı bypass etmeyin; daha hafif host geliştirme ihtiyacında aşağıdaki SQLite convenience yolunu kullanın.
+Bu production-benzeri Compose reset'i için local env gerçek ve eşleşen digest evidence'ı, non-placeholder hostname, regular TLS certificate, group/other permission bit'i olmayan private key ile mevcut AI model ve document template dizinlerini göstermelidir. Bu girdileri atlamak için preflight'ı bypass etmeyin; daha hafif host geliştirme ihtiyacında aşağıdaki SQLite convenience yolunu kullanın.
 
 Önce hedefi görün:
 

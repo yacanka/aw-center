@@ -181,11 +181,13 @@ class ReleaseMetadataTests(unittest.TestCase):
             root = Path(directory)
             certificate = root / "tls.crt"
             private_key = root / "tls.key"
-            models = root / "models"
+            ai_models = root / "ai-models"
+            document_templates = root / "document-templates"
             certificate.write_text("certificate", encoding="utf-8")
             private_key.write_text("private key", encoding="utf-8")
             private_key.chmod(0o600)
-            models.mkdir()
+            ai_models.mkdir()
+            document_templates.mkdir()
             values = {
                 "AWCENTER_RELEASE": "release-1",
                 "AWCENTER_IMAGE": "registry.internal/aw-center@sha256:" + "a" * 64,
@@ -196,7 +198,8 @@ class ReleaseMetadataTests(unittest.TestCase):
                 "REDIS_PASSWORD": "redis-password-strong-12345",
                 "TLS_CERTIFICATE_FILE": str(certificate),
                 "TLS_PRIVATE_KEY_FILE": str(private_key),
-                "MODEL_DIRECTORY": str(models),
+                "AI_MODEL_DIRECTORY": str(ai_models),
+                "DOCUMENT_TEMPLATE_DIRECTORY": str(document_templates),
             }
 
             self.assertEqual(deployment_preflight.validate(values), [])
@@ -298,26 +301,39 @@ class ReleaseMetadataTests(unittest.TestCase):
             root = Path(directory)
             certificate = root / "tls.crt"
             private_key = root / "tls.key"
-            models = root / "models"
+            ai_models = root / "ai-models"
+            document_templates = root / "document-templates"
             certificate.write_text("certificate", encoding="utf-8")
             private_key.write_text("private key", encoding="utf-8")
             private_key.chmod(0o600)
-            models.mkdir()
+            ai_models.mkdir()
+            document_templates.mkdir()
             certificate_link = root / "certificate-link"
             private_key_link = root / "private-key-link"
-            models_link = root / "models-link"
+            ai_models_link = root / "ai-models-link"
+            document_templates_link = root / "document-templates-link"
             certificate_link.symlink_to(certificate)
             private_key_link.symlink_to(private_key)
-            models_link.symlink_to(models, target_is_directory=True)
+            ai_models_link.symlink_to(ai_models, target_is_directory=True)
+            document_templates_link.symlink_to(
+                document_templates,
+                target_is_directory=True,
+            )
             values = {
                 "TLS_CERTIFICATE_FILE": str(certificate_link),
                 "TLS_PRIVATE_KEY_FILE": str(private_key_link),
-                "MODEL_DIRECTORY": str(models_link),
+                "AI_MODEL_DIRECTORY": str(ai_models_link),
+                "DOCUMENT_TEMPLATE_DIRECTORY": str(document_templates_link),
             }
 
             self.assertEqual(
                 deployment_preflight._validate_runtime_paths(values),
-                ["TLS_CERTIFICATE_FILE", "TLS_PRIVATE_KEY_FILE", "MODEL_DIRECTORY"],
+                [
+                    "TLS_CERTIFICATE_FILE",
+                    "TLS_PRIVATE_KEY_FILE",
+                    "AI_MODEL_DIRECTORY",
+                    "DOCUMENT_TEMPLATE_DIRECTORY",
+                ],
             )
 
     def test_doors_runner_token_is_required_only_when_doors_is_enabled(self):
@@ -348,7 +364,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("REDIS_PASSWORD", errors)
         self.assertIn("TLS_CERTIFICATE_FILE", errors)
         self.assertIn("TLS_PRIVATE_KEY_FILE", errors)
-        self.assertIn("MODEL_DIRECTORY", errors)
+        self.assertIn("AI_MODEL_DIRECTORY", errors)
+        self.assertIn("DOCUMENT_TEMPLATE_DIRECTORY", errors)
 
 
 if __name__ == "__main__":
