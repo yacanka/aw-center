@@ -10,6 +10,7 @@ import { registerAuthenticationFailureHandler } from '@/shared/api/http'
 import { applyPreferredTheme } from './services/theme'
 import { naiveUi } from './plugins/naiveUi'
 import { registerSessionScopedStore } from '@/features/session/stores/sessionScope'
+import { registerServiceWorker } from './pwa/registerServiceWorker'
 
 const pinia = createPinia()
 const app = createApp(App)
@@ -50,6 +51,7 @@ session.$subscribe((_mutation, state) => applyPreferredTheme(state.user?.prefere
 startStartupPerformanceMeasurements()
 applyPreferredTheme(session.getPreferences)
 app.mount('#app')
+registerServiceWorker()
 
 function registerFeatureComponent(name: string, component: Component) {
   if (!app.component(name)) app.component(name, component)

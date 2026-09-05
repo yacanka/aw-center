@@ -55,14 +55,14 @@ x-awcenter-worker-integrations: &awcenter-worker-integrations
   TEAMCENTER_PASSWORD: "${TEAMCENTER_PASSWORD:-}"
   TEAMCENTER_VERIFY_SSL: "True"
 
-x-awcenter-model-environment: &awcenter-model-environment
-  MODEL_RUNTIME_DIR: /app/models
-  CUSTOM_TEMPLATE_DIR: /app/models/templates
-  COVER_PAGE_TEMPLATE_PATH: /app/models/templates/cover_page_template.docx
-  WORD_TRANSLATION_TR_EN_MODEL: /app/models/opus-mt-tr-en
-  WORD_TRANSLATION_EN_TR_MODEL: /app/models/opus-mt-en-tr
-  WORD_ANALYZER_BI_MODEL: /app/models/paraphrase-multilingual
-  WORD_ANALYZER_CROSS_MODEL: /app/models/ms-marco-cross-encoder
+x-awcenter-runtime-assets-environment: &awcenter-runtime-assets-environment
+  MODEL_RUNTIME_DIR: /app/ai-models
+  CUSTOM_TEMPLATE_DIR: /app/document-templates
+  COVER_PAGE_TEMPLATE_PATH: /app/document-templates/cover_page_template.docx
+  WORD_TRANSLATION_TR_EN_MODEL: /app/ai-models/opus-mt-tr-en
+  WORD_TRANSLATION_EN_TR_MODEL: /app/ai-models/opus-mt-en-tr
+  WORD_ANALYZER_BI_MODEL: /app/ai-models/paraphrase-multilingual
+  WORD_ANALYZER_CROSS_MODEL: /app/ai-models/ms-marco-cross-encoder
 
 x-awcenter-mail-environment: &awcenter-mail-environment
   AWCENTER_MAIL_TRANSPORT: "${AWCENTER_MAIL_TRANSPORT:-disabled}"
@@ -117,10 +117,11 @@ services:
   backend:
     <<: *awcenter-runtime
     environment:
-      <<: [*awcenter-core-environment, *awcenter-backend-integrations, *awcenter-model-environment]
+      <<: [*awcenter-core-environment, *awcenter-backend-integrations, *awcenter-runtime-assets-environment]
     volumes:
       - private-artifacts:/app/private_media
-      - "${MODEL_DIRECTORY:?Set MODEL_DIRECTORY}:/app/models:ro"
+      - "${AI_MODEL_DIRECTORY:?Set AI_MODEL_DIRECTORY}:/app/ai-models:ro"
+      - "${DOCUMENT_TEMPLATE_DIRECTORY:?Set DOCUMENT_TEMPLATE_DIRECTORY}:/app/document-templates:ro"
     expose:
       - "8000"
     healthcheck:
@@ -135,10 +136,11 @@ services:
   worker:
     <<: *awcenter-runtime
     environment:
-      <<: [*awcenter-core-environment, *awcenter-worker-integrations, *awcenter-model-environment]
+      <<: [*awcenter-core-environment, *awcenter-worker-integrations, *awcenter-runtime-assets-environment]
     volumes:
       - private-artifacts:/app/private_media
-      - "${MODEL_DIRECTORY:?Set MODEL_DIRECTORY}:/app/models:ro"
+      - "${AI_MODEL_DIRECTORY:?Set AI_MODEL_DIRECTORY}:/app/ai-models:ro"
+      - "${DOCUMENT_TEMPLATE_DIRECTORY:?Set DOCUMENT_TEMPLATE_DIRECTORY}:/app/document-templates:ro"
     command:
       - python
       - manage.py

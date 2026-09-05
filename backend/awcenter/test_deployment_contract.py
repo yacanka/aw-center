@@ -48,6 +48,8 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("COPY --from=frontend-build /frontend/dist /app/frontend-dist", dockerfile)
         self.assertIn("python manage.py collectstatic --clear --noinput", dockerfile)
         self.assertIn("python manage.py verify_frontend_artifact", dockerfile)
+        self.assertIn("/app/ai-models", dockerfile)
+        self.assertIn("/app/document-templates", dockerfile)
         self.assertIn("chmod -R a-w /app", dockerfile)
         self.assertIn("USER 10001:10001", dockerfile)
         self.assertNotIn("chown -R awcenter:awcenter /app\n", dockerfile)
@@ -127,7 +129,20 @@ class DeploymentContractTests(SimpleTestCase):
             "EMAIL_HOST_PASSWORD",
             services["backend"]["environment"],
         )
-        self.assertIn("/app/models:ro", " ".join(services["backend"]["volumes"]))
+        for service_name in ("backend", "worker"):
+            service = services[service_name]
+            volumes = " ".join(service["volumes"])
+            self.assertIn("/app/ai-models:ro", volumes)
+            self.assertIn("/app/document-templates:ro", volumes)
+            self.assertNotIn("/app/models", volumes)
+            self.assertEqual(
+                service["environment"]["MODEL_RUNTIME_DIR"],
+                "/app/ai-models",
+            )
+            self.assertEqual(
+                service["environment"]["CUSTOM_TEMPLATE_DIR"],
+                "/app/document-templates",
+            )
         self.assertEqual(services["redis"]["user"], "redis")
         self.assertIn("requirepass %s", " ".join(services["redis"]["command"]))
         self.assertNotIn("--requirepass", services["redis"]["command"][-1])

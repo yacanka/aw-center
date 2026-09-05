@@ -26,6 +26,7 @@ class FrontendArtifactTests(SimpleTestCase):
             SECURE_SSL_REDIRECT=False,
         )
         self.override.enable()
+        self.write_pwa_artifact()
 
     def tearDown(self):
         """Remove isolated frontend files and settings."""
@@ -97,6 +98,15 @@ class FrontendArtifactTests(SimpleTestCase):
         with self.assertRaisesMessage(CommandError, "missing or empty"):
             call_command("verify_frontend_artifact", verbosity=0)
 
+    def test_missing_pwa_artifact_blocks_deployment(self):
+        """A partial PWA cannot pass the immutable frontend release gate."""
+
+        self.write_valid_artifact()
+        (self.directory / "app" / "sw.js").unlink()
+
+        with self.assertRaisesMessage(CommandError, "PWA artifact is missing or empty"):
+            call_command("verify_frontend_artifact", verbosity=0)
+
     def test_unsafe_asset_path_blocks_deployment(self):
         """A shell cannot escape the configured immutable asset directory."""
 
@@ -139,6 +149,18 @@ class FrontendArtifactTests(SimpleTestCase):
         (self.assets / "app.js").write_text("export{}", encoding="utf-8")
         (self.assets / "app.css").write_text("body{}", encoding="utf-8")
         self.write_index("/core/assets/app.js")
+        self.write_pwa_artifact()
+
+    def write_pwa_artifact(self):
+        """Write the fixed-name files required by the production PWA routes."""
+
+        pwa_root = self.directory / "app"
+        icon_root = pwa_root / "icons"
+        icon_root.mkdir(parents=True, exist_ok=True)
+        (pwa_root / "manifest.webmanifest").write_text("{}", encoding="utf-8")
+        (pwa_root / "sw.js").write_text("self.addEventListener('fetch', () => {})", encoding="utf-8")
+        for name in ("pwa-192.png", "pwa-512.png", "pwa-maskable-512.png"):
+            (icon_root / name).write_bytes(b"png")
 
     def write_index(self, script, stylesheet="/core/assets/app.css"):
         """Write a bounded SPA shell with configurable asset references."""

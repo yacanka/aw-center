@@ -12,6 +12,7 @@
               </div>
               <AuthenticatedLayout v-else />
             </UiFeedbackBridge>
+            <PwaInstallPrompt />
           </n-loading-bar-provider>
         </n-notification-provider>
       </n-message-provider>
@@ -24,6 +25,7 @@ import { computed, defineAsyncComponent, watchEffect } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import { darkTheme, lightTheme, type GlobalThemeOverrides } from 'naive-ui'
 import UiFeedbackBridge from '@/app/components/UiFeedbackBridge.vue'
+import PwaInstallPrompt from '@/app/components/PwaInstallPrompt.vue'
 import { useSessionStore } from '@/features/session/stores/session'
 import { applyPreferredTheme, resolvePreferredTheme } from './services/theme'
 

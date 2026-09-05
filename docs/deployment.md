@@ -24,12 +24,12 @@ Compose ortak runtime ayarlarını paylaşır, fakat feature secret ve volume'la
 
 | Service | İzinli ek secret/config | Filesystem capability |
 |---|---|---|
-| `backend` | Browser/API integration'ları ve DOORS runner token | `private-artifacts:rw`, `models:ro` |
-| `worker` | Yalnız local executor JIRA/Teamcenter ayarları | `private-artifacts:rw`, `models:ro` |
+| `backend` | Browser/API integration'ları ve DOORS runner token | `private-artifacts:rw`, `ai-models:ro`, `document-templates:ro` |
+| `worker` | Yalnız local executor JIRA/Teamcenter ayarları | `private-artifacts:rw`, `ai-models:ro`, `document-templates:ro` |
 | `notification-worker` | Yalnız password-reset/compliance mail transport | Ek volume yok |
 | `cleanup-worker` | Yalnız artifact retention | `private-artifacts:rw` |
 
-Notification worker'a integration/session credential'ı veya private/model volume; cleanup worker'a integration/mail credential'ı veya model volume; backend/local worker'a mail credential'ı vermeyin. Password-reset API yalnız durable outbox'a yazar; SMTP teslimi notification worker'dadır. Bir yeni executor bu matrisi genişletmek zorundaysa değişikliği Compose contract testi ve threat-boundary gerekçesiyle birlikte yapın.
+Notification worker'a integration/session credential'ı veya private/AI-model/template volume; cleanup worker'a integration/mail credential'ı veya AI-model/template volume; backend/local worker'a mail credential'ı vermeyin. Password-reset API yalnız durable outbox'a yazar; SMTP teslimi notification worker'dadır. Bir yeni executor bu matrisi genişletmek zorundaysa değişikliği Compose contract testi ve threat-boundary gerekçesiyle birlikte yapın.
 
 ## Immutable image contract'ı
 
@@ -39,7 +39,7 @@ Notification worker'a integration/session credential'ı veya private/model volum
 2. Python 3.11 venv + locked `requirements.txt` + `pip check`.
 3. Runtime native araçları, non-root user, frontend artifact copy, `collectstatic`, `verify_frontend_artifact` ve Gunicorn.
 
-Runtime image Node veya compiler içermez. Django lifecycle'ları numeric `10001:10001` kimliği, drop edilmiş tüm Linux capability'leri ve `no-new-privileges` ile çalışır. `/app` source tree build sonunda write bit'lerini kaybeder. Yalnız `/app/private_media` named volume ve `/app/models:ro` deployment mount'ıdır. Source/static volume ile image içeriğini maskelemeyin.
+Runtime image Node veya compiler içermez. Django lifecycle'ları numeric `10001:10001` kimliği, drop edilmiş tüm Linux capability'leri ve `no-new-privileges` ile çalışır. `/app` source tree build sonunda write bit'lerini kaybeder. Yalnız `/app/private_media` named volume, `/app/ai-models:ro` AI ağırlık mount'u ve `/app/document-templates:ro` DOCX şablon mount'u kullanılır. Source/static volume ile image içeriğini maskelemeyin.
 
 AW Center image'ı release evidence digest'iyle; Dockerfile Node/Python base image'ları ile bundled Nginx, PostgreSQL ve Redis image'ları da doğrudan SHA-256 digest'leriyle pinlidir. CI action referansları commit SHA kullanır. Base/altyapı/action pin güncellemesini sürüm yükseltmesi gibi review/test edin; görünen tag/major sürümü koruyup pin'i sessizce değiştirmeyin.
 
@@ -58,8 +58,13 @@ Kök `.env.example` yalnız isim/shape şablonudur; gerçek değerleri secret ma
 | `DATABASE_URL` | PostgreSQL URL; Compose `database` servisine yönelir |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Database bootstrap; secret dışarıda tutulur |
 | `REDIS_PASSWORD` | URL-safe, güçlü Redis authentication secret'ı; Compose cache URL'sine kapalı biçimde aktarılır |
-| `MODEL_DIRECTORY` | Host model dizini; container'a read-only mount edilir |
+| `AI_MODEL_DIRECTORY` | Yalnız AI ağırlıklarını içeren host dizini; container'a read-only mount edilir |
+| `DOCUMENT_TEMPLATE_DIRECTORY` | Operator-managed DOCX şablonlarını içeren host dizini; container'a read-only mount edilir |
 | `TLS_CERTIFICATE_FILE`, `TLS_PRIVATE_KEY_FILE` | Public ingress TLS dosyaları |
+
+Eski `MODEL_DIRECTORY` girdisi desteklenmez. Deployment environment'ını
+güncellerken AI ağırlıklarını `AI_MODEL_DIRECTORY`, DOCX şablonlarını ise
+`DOCUMENT_TEMPLATE_DIRECTORY` ile ayrı dizinler olarak sağlayın.
 
 Production default'ları:
 
@@ -73,7 +78,7 @@ Production default'ları:
 
 Bir integration yalnız explicit `*_ENABLED=true` ile açılır. JIRA session encryption key ve upstream credential'lar secret'tır. ECR review state'i PostgreSQL'de durable'dır fakat publish/resume yalnız kullanıcıya bağlı ephemeral JIRA session ve `Idempotency-Key` ile yeni, server-owned fenced job başlatır; credential job payload'ına yazılmaz. `DOORS_ENABLED=true` en az 256-bit `DOORS_RUNNER_TOKEN` gerektirir. Production system checks HTTP integration URL'lerinde HTTPS, PostgreSQL, Redis, proxy trust, cookie ve runner-token zorunluluklarını fail-closed doğrular.
 
-Preflight `DATABASE_URL` değerini bundled topology'ye bağlar: host `database`, port varsayılan PostgreSQL portu, kullanıcı/veritabanı da `POSTGRES_USER`/`POSTGRES_DB` ile aynı olmalıdır. Ayrıca TLS certificate/private-key dosyaları ile model dizininin var, regular/non-symlink ve beklenen türde olmasını ister. Private key group/other permission bit'i taşıyamaz ve certificate ile aynı dosya olamaz. DOORS enabled ise URL-safe ve en az 43 karakterlik runner token zorunludur. `deployment_preflight.py` env dosyasını okuduktan sonra process environment değerlerini üstün kabul eder; operator, doğruladığı env dosyasını daha sonra fark edilmeyen shell override'larıyla değiştirmemelidir.
+Preflight `DATABASE_URL` değerini bundled topology'ye bağlar: host `database`, port varsayılan PostgreSQL portu, kullanıcı/veritabanı da `POSTGRES_USER`/`POSTGRES_DB` ile aynı olmalıdır. Ayrıca TLS certificate/private-key dosyaları ile AI model ve document template dizinlerinin var, regular/non-symlink ve beklenen türde olmasını ister. Private key group/other permission bit'i taşıyamaz ve certificate ile aynı dosya olamaz. DOORS enabled ise URL-safe ve en az 43 karakterlik runner token zorunludur. `deployment_preflight.py` env dosyasını okuduktan sonra process environment değerlerini üstün kabul eder; operator, doğruladığı env dosyasını daha sonra fark edilmeyen shell override'larıyla değiştirmemelidir.
 
 ## Release evidence
 
@@ -163,7 +168,7 @@ awcenter_compose run --rm --no-deps backend python manage.py createsuperuser
 Ingress kapalıyken ephemeral, exact-cleanup release smoke'larını çalıştırın. Core aşaması
 session/CSRF, role-filtered proje kataloğu, CompDoc preview/confirm+lifecycle, gerçek DCC
 DOCX executor'u ve owner-scoped private download sözleşmesini doğrular. Bu aşama
-`MODEL_DIRECTORY/templates/<project>_dcc_template.docx` dosyasını gerçek worker ile
+`DOCUMENT_TEMPLATE_DIRECTORY/<project>_dcc_template.docx` dosyasını gerçek worker ile
 render eder; template eksik veya bozuksa yayın durur. Notification aşaması yalnız mail
 secret'larına sahip notification-worker lifecycle'ı ile bir canary mesajı gönderir:
 

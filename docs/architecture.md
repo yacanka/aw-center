@@ -152,11 +152,12 @@ API error'ları `awcenter.api_errors` ile `{ detail, code, ... }` biçimindedir;
 
 Upload request'i önce absolute body limitinden, sonra domain `UploadPolicy` ad/uzantı/boyut/imza/arşiv kontrollerinden geçer. Dosya adı veya client MIME tek başına güven kaynağı değildir.
 
-Üç farklı veri sınıfı vardır:
+Runtime verileri dört ayrı sınıfta tutulur:
 
 1. `frontend/dist` ve collected static: image build sırasında üretilen immutable artifact.
-2. Model dizini: deployment tarafından `/app/models:ro` mount edilir.
-3. Job input/output: `/app/private_media` shared volume'unda owner-scoped ve hash'li state.
+2. AI ağırlıkları: deployment tarafından `/app/ai-models:ro` mount edilir.
+3. Operator-managed DOCX şablonları: `/app/document-templates:ro` mount edilir.
+4. Job input/output: `/app/private_media` shared volume'unda owner-scoped ve hash'li state.
 
 Nginx `/media/` servis etmez. Private download, authenticated owner authorization kontrolü ve stored SHA-256 doğrulamasıyla Django üzerinden akar. Backend, worker ve cleanup aynı private volume'u görür.
 
