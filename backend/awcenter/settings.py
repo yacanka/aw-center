@@ -62,6 +62,15 @@ SECRET_KEY = env.str("SECRET_KEY", default="")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool("DEBUG", default=False)
 
+AWCENTER_DEPLOYMENT_MODE = env.str(
+    "AWCENTER_DEPLOYMENT_MODE",
+    default="development" if DEBUG else "windows-native",
+).strip().casefold()
+if AWCENTER_DEPLOYMENT_MODE not in {"development", "windows-native", "container"}:
+    raise ImproperlyConfigured(
+        "AWCENTER_DEPLOYMENT_MODE must be development, windows-native, or container."
+    )
+
 if not SECRET_KEY:
     if DEBUG:
         SECRET_KEY = DEV_SECRET_KEY
@@ -86,6 +95,21 @@ DOCPROOF_CERTIFICATE_FILE = Path(
         default=BASE_DIR / "certificates" / "dmntai_intra.crt",
     )
 )
+NUMARATOR_ENABLED = env.bool("NUMARATOR_ENABLED", default=False)
+NUMARATOR_BASE_URL = env.str("NUMARATOR_BASE_URL", default="")
+NUMARATOR_API_KEY = env.str("NUMARATOR_API_KEY", default="")
+NUMARATOR_CREDENTIAL_ID = env.str("NUMARATOR_CREDENTIAL_ID", default="")
+NUMARATOR_VERIFY_SSL = env.bool("NUMARATOR_VERIFY_SSL", default=True)
+NUMARATOR_PROJECT_FORMATS = env.json("NUMARATOR_PROJECT_FORMATS", default={})
+NUMARATOR_CONNECT_TIMEOUT_SECONDS = env.float(
+    "NUMARATOR_CONNECT_TIMEOUT_SECONDS", default=3.0
+)
+NUMARATOR_READ_TIMEOUT_SECONDS = env.float(
+    "NUMARATOR_READ_TIMEOUT_SECONDS", default=10.0
+)
+NUMARATOR_MAX_RESPONSE_BYTES = env.int(
+    "NUMARATOR_MAX_RESPONSE_BYTES", default=1024 * 1024
+)
 DOORS_ENABLED = env.bool("DOORS_ENABLED", default=False)
 DOORS_EXECUTABLE = env.str("DOORS_EXECUTABLE", default="")
 DOORS_DATABASE = env.str("DOORS_DATABASE", default="")
@@ -96,6 +120,16 @@ DOORS_STARTUP_TIMEOUT_SECONDS = env.float("DOORS_STARTUP_TIMEOUT_SECONDS", defau
 DOORS_RUN_TIMEOUT_SECONDS = env.float("DOORS_RUN_TIMEOUT_SECONDS", default=120.0)
 DOORS_MAX_RESULT_BYTES = env.int("DOORS_MAX_RESULT_BYTES", default=10 * 1024 * 1024)
 DOORS_RESULT_MODE = env.str("DOORS_RESULT_MODE", default="file")
+DOORS_EXECUTION_MODE = env.str("DOORS_EXECUTION_MODE", default="runner").strip().casefold()
+if DOORS_EXECUTION_MODE not in {"worker", "runner"}:
+    raise ImproperlyConfigured("DOORS_EXECUTION_MODE must be worker or runner.")
+_LOCAL_APP_DATA = Path(os.environ.get("LOCALAPPDATA", BASE_DIR / ".runtime"))
+DOORS_WORKER_LOCK_FILE = Path(
+    env.path(
+        "DOORS_WORKER_LOCK_FILE",
+        default=_LOCAL_APP_DATA / "AWCenter" / "state" / "doors-worker.lock",
+    )
+)
 DOORS_RUNNER_TOKEN = env.str("DOORS_RUNNER_TOKEN", default="")
 DOORS_RUNNER_URL = env.str("DOORS_RUNNER_URL", default="http://127.0.0.1:8765")
 DOORS_RUNNER_CREDENTIAL_TARGET = env.str(
@@ -513,13 +547,25 @@ REST_FRAMEWORK = {
 }
 
 CACHE_URL = env.str("CACHE_URL", default="")
-CACHES = {
-    "default": {
+CACHE_DIRECTORY_VALUE = env.str("CACHE_DIRECTORY", default="").strip()
+if CACHE_URL and CACHE_DIRECTORY_VALUE:
+    raise ImproperlyConfigured("Configure CACHE_URL or CACHE_DIRECTORY, not both.")
+if CACHE_URL:
+    DEFAULT_CACHE = {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": CACHE_URL,
     }
-    if CACHE_URL
-    else {
+elif CACHE_DIRECTORY_VALUE:
+    DEFAULT_CACHE = {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": str(Path(CACHE_DIRECTORY_VALUE).expanduser()),
+        "TIMEOUT": 60,
+        "OPTIONS": {
+            "MAX_ENTRIES": 1000,
+        },
+    }
+else:
+    DEFAULT_CACHE = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "awcenter-local-cache",
         "TIMEOUT": 60,
@@ -527,7 +573,7 @@ CACHES = {
             "MAX_ENTRIES": 1000,
         },
     }
-}
+CACHES = {"default": DEFAULT_CACHE}
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = env.str("SESSION_COOKIE_SAMESITE", default="Lax")

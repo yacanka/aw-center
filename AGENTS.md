@@ -8,7 +8,7 @@
 - Durable job kernel'i `backend/jobs/`; statik executor metadata kataloğu `backend/automations/catalog.py`; callable çözümleme composition root'u `backend/awcenter/job_executors.py` içindedir. `jobs` feature app'lerini import etmez.
 - Vendor/integration adapterları ve HTTP/use-case yüzeyleri `backend/integrations/` altında kalır; DOORS, Teamcenter veya DocProof için yeniden kök Django app oluşturma. Generic event bus, plugin framework veya yeni bir background-processing framework ekleme.
 - Frontend composition ve route'ları `frontend/src/app/`; ortak HTTP/CSRF, hata, download ve küçük primitive'ler `frontend/src/shared/`; business UI/API/composable'ları `frontend/src/features/<feature>/` içindedir. Session bootstrap/guard `features/session/`, proje kataloğu `features/projects/` altındadır. Component/page doğrudan Axios/shared HTTP client import etmez; feature API veya composable kullanır.
-- Kök `launcher.py` yalnız local setup/check/test/dev/offline-package girişidir. Üretim sunucusu veya host-local DOORS runner supervisor'u değildir; davranışı `scripts/launcher/`, testleri `scripts/test_launcher*.py` içindedir.
+- Kök `launcher.py` local setup/check/test/dev/offline-package akışlarına ek olarak Windows-native `prod` lifecycle'ını yönetir. `prod`; repository dışındaki explicit environment/TLS dosyası, statik IPv4, SQLite, tek ASGI server ve launcher-owned worker process'leri kullanır. Davranışı `scripts/launcher/`, testleri `scripts/test_launcher*.py` içindedir.
 
 ## Korunacak güvenlik ve API sözleşmeleri
 
@@ -19,26 +19,26 @@
 - Upload'larda `awcenter.file_security` boyut, ad, uzantı, imza ve arşiv politikalarını uygula. Job input/output artifact'ları yalnız `PRIVATE_MEDIA_ROOT`, owner-scoped path, SHA-256 ve yetkili download view ile erişilir. `/media/` public değildir.
 - Outlook attachment gibi cache-backed private download'larda URL/query credential üretme. Capability authenticated POST body'de taşınmalı; owner-bound, kısa ömürlü, tek kullanımlık olmalı ve payload SHA-256 indirme öncesi yeniden doğrulanmalıdır.
 - Job değişikliğinde create endpoint, idempotency key, `automations.catalog` kind/queue/upload/timeout metadata'sı, claim lease/execution token, cancellation, monotonic progress, terminal CAS fencing ve artifact retention birlikte ele alınır. `transaction.atomic`/`select_for_update` ve stale-worker korumasını zayıflatma.
-- Native Windows executor yalnız `doors` queue'dan host-local runner protocol'u üzerinden çalışır. Runner'a database/cache/browser credential verilmez; loopback binding, dedicated runner token, tek kullanımlık artifact capability ve SHA-256 doğrulaması korunur.
+- Güncel Windows-native production'da `doors` queue, yalnız `--include-doors` ile açılan tek genel Windows worker tarafından çalıştırılır; static allowlist, disposable child process, timeout, cancellation, reconciliation ve SHA-256 artifact sınırlarını koru. Aynı kullanıcı oturumunda ikinci DOORS-capable worker'a izin verme. Host-local runner protocol'ü sonraki container mimarisi için geriye dönük uyumlu tutulur.
 - Compliance import/lifecycle/review/notification değişikliklerinde project scope, optimistic `version`, confirmation token, audit/history ve transaction sınırlarını koru. Model/service'i atlayan bulk update ile türetilmiş alanları bozma.
 - Project capability değişikliği backend/frontend contract değişikliğidir: registry, seed/alignment testleri, `frontend/src/features/projects/models/projectRegistry.ts` ve tüketicileri aynı değişiklikte hizala. Internal handler/template/integration metadata'sını API'ye açma.
 
 ## Migration, dependency ve üretilmiş dosyalar
 
-- Production sözleşmesi Linux container + fresh PostgreSQL 17 + Redis 7'dir. Önceki database şemasını dönüştüren geçiş migration'ı veya veri-kopyalama komutu ekleme. Shared/production database'i resetleme; backup al, forward-only migration ve forward-fix kullan.
+- Güncel production sözleşmesi aynı Windows kullanıcı oturumunda `launcher.py prod` + doğrudan TLS ASGI + ayrı SQLite/private-artifact state'idir. SQLite yerel NTFS üzerinde, repository/OneDrive/network share dışında, `DATABASE_CONN_MAX_AGE=0`, bounded busy timeout ve tek job worker ile kullanılır. Docker + fresh PostgreSQL 17 + Redis 7 sonraki olgunluk aşamasıdır. Shared/production database'i resetleme; backup al, forward-only migration ve forward-fix kullan.
 - Normal model değişikliğinde mevcut migration'ı yeniden yazma; yeni migration üret. Migration baseline değişikliği ancak açık repository-wide görevde yapılır ve disposable local database yeniden oluşturulur.
 - Proje katalog satırları `orgs` data migration'ıyla seed edilir. `check_project_registry` salt-okunur doğrulamadır; runtime senkronizasyon komutu ekleme.
 - Python dependency kaynağı `requirements.in`, üretilen lock `requirements.txt`'dir. Güncelleme komutu `uv pip compile --python-version 3.11 requirements.in -o requirements.txt`; lock'u elle düzenleme. Runtime CPython 3.11'dir.
 - Frontend dependency kaynağı `frontend/package.json` ve `frontend/package-lock.json`; kurulum `npm ci` ile yapılır. Kök `package.json` yalnız frontend script proxy'sidir.
 - Secret, certificate, private key, endpoint credential veya gerçek kullanıcı verisi commit etme. `backend/.env` local ve git dışıdır; production değerleri process environment/secret manager'dan gelir.
 - `frontend/dist/`, `frontend/test-results/`, `frontend/playwright-report/`, `backend/static/`, `backend/staticfiles/`, `__pycache__/`, `.venv/`, `.runtime/`, private/media/model dizinleri, SQLite dosyaları ve release evidence üretilmiş/local state'tir; kaynak gibi düzenleme veya commit etme.
-- Container runtime source'u read-only'dir; Django lifecycle'larının numeric non-root kimlik, dropped capabilities ve `no-new-privileges` sınırını koru. Her Compose lifecycle'ına yalnız ihtiyacı olan integration/mail environment'ını ve volume'u ver: notification worker private/AI-model/template volume'u veya integration credential'ı; cleanup worker mail/integration credential'ı veya AI-model/template volume'u; backend/local worker mail credential'ı almamalıdır.
-- Private artifact volume yalnız backend, local worker ve cleanup worker arasında paylaşılır; AI model ve document template dizinleri yalnız backend ve local worker'a ayrı read-only mount edilir. DOORS runner PostgreSQL/Redis/private-volume erişimi almaz; yalnız `127.0.0.1` üzerinde token-authenticated internal API'yi kullanır ve repository ile aynı release'ten çalışır.
-- AI model mount sözleşmesi `/app/ai-models`, document template mount sözleşmesi `/app/document-templates` dizinidir. Word modelleri kendi allowlisted alt dizinlerinde; DCC/cover-page template'leri yalnız document template mount'unda kalır. `CUSTOM_TEMPLATE_DIR` veya model path'lerini source tree'ye ya da writable private artifact alanına yönlendirme.
-- İlk production ingress'i yalnız `run_release_smoke --stage core` ve notification-worker içinde `--stage notification` geçtikten sonra açılır. Bu komut mevcut business state üzerinde çalışmayı reddeden first-install gate'idir; upgrade/veri temizleme aracı olarak gevşetme.
-- Production image reference'ı mutable tag olamaz. Deploy öncesi `deployment_preflight.py` sonucu, CI release evidence'ı, `verify_release_image.py` ile doğrulanmış frontend ağacı ve Compose'a verilen `repository@sha256:<digest>` aynı release zincirini göstermelidir.
+- Gelecekteki container profilinin source'u read-only'dir; Django lifecycle'larının numeric non-root kimlik, dropped capabilities ve `no-new-privileges` sınırını koru. Her Compose lifecycle'ına yalnız ihtiyacı olan integration/mail environment'ını ve volume'u ver: notification worker private/AI-model/template volume'u veya integration credential'ı; cleanup worker mail/integration credential'ı veya AI-model/template volume'u; backend/local worker mail credential'ı almamalıdır.
+- Windows-native production'da database, private artifact, TLS, AI model ve DOCX template yolları `%LOCALAPPDATA%\AWCenter` altındaki açık ve birbirinden ayrılmış host yollarıdır; development production database/private-media yolunu paylaşmaz. Gelecekteki container profilinde private artifact volume ve read-only AI/template mount sınırları ile token-authenticated host-local DOORS runner korunur.
+- Güncel host asset sözleşmesi `%LOCALAPPDATA%\AWCenter\assets\sets\<asset-set-id>\ai-models` ve `document-templates` dizinleridir. Gelecekteki container mount karşılıkları `/app/ai-models` ve `/app/document-templates` olarak kalır. `CUSTOM_TEMPLATE_DIR` veya model path'lerini source tree'ye ya da writable private artifact alanına yönlendirme.
+- Windows-native production yalnız `check --deploy`, pending-migration kontrolü, `collectstatic` ve `verify_frontend_artifact` kapılarından sonra açılır. Gelecekteki container profilinin ilk ingress'i ayrıca `run_release_smoke --stage core` ve `--stage notification` geçtikten sonra açılır; smoke komutunu upgrade/veri temizleme aracı olarak gevşetme.
+- Gelecekteki container production image reference'ı mutable tag olamaz. `deployment_preflight.py`, CI release evidence, `verify_release_image.py` ve `repository@sha256:<digest>` zincirini container aşamasında koru.
 - Dockerfile/Compose base ve infrastructure image digest'lerini veya CI action commit SHA pinlerini yalnız bağımlılık yükseltmesi olarak, deployment contract testleriyle birlikte değiştir; pinleri mutable tag/major referansa gevşetme.
-- Redis authentication'ını command argümanına taşıma; restricted config + non-root process ve authenticated healthcheck sözleşmesini koru. Nginx container health'ini hosta açılan bypass route'uyla değil, loopback aggregate readiness listener'ıyla ölç.
+- Gelecekteki Redis authentication'ını command argümanına taşıma; restricted config + non-root process ve authenticated healthcheck sözleşmesini koru. Nginx container health'ini hosta açılan bypass route'uyla değil, loopback aggregate readiness listener'ıyla ölç.
 
 ## Çalışma ve doğrulama
 
@@ -47,6 +47,7 @@ Repository kökünden temel kapılar:
 ```bash
 python launcher.py check
 python launcher.py test
+python launcher.py prod --help
 ```
 
 Değişiklik kapsamına göre exact kontroller:
@@ -74,5 +75,5 @@ npm --prefix frontend run build
 - Session/route erişimi değişikliğinde backend auth/CSRF testleri ile frontend session, access ve route testlerini birlikte çalıştır.
 - Playwright Chromium'u ilk local E2E kullanımından önce `frontend/` içinde `npx playwright install chromium` ile kur. CI browser kurulumunda `npx playwright install --with-deps chromium` kullan; browser binary'sini repository'ye ekleme.
 - Frontend artifact/static/container değişikliğinde build sonrası `backend/` içinde `../.venv/bin/python manage.py collectstatic --clear --noinput` ve `../.venv/bin/python manage.py verify_frontend_artifact` çalıştır.
-- Deployment değişikliğinde `backend/Dockerfile`, `docker-compose.yml`, iki Nginx config'i, `.github/workflows/ci.yml`, `scripts/deployment_preflight.py`, `scripts/verify_release_image.py`, `backend/awcenter/test_deployment_contract.py` ve release metadata testini birlikte doğrula.
+- Windows production değişikliğinde launcher testleri, production system check'leri, frontend build/collectstatic/artifact verification, SQLite concurrency ve Windows worker/DOORS adapter testlerini birlikte doğrula. Container profili değişikliğinde ayrıca `backend/Dockerfile`, `docker-compose.yml`, Nginx, CI, preflight, image verification ve deployment contract testlerini çalıştır.
 - Çalıştırılmayan veya çevre yüzünden başarısız kalan kontrolü ve kalan riski açıkça raporla.

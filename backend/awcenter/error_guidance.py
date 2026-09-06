@@ -79,6 +79,12 @@ _EXACT_GUIDANCE = {
         False, "Request the CompDoc notification-policy manager permission."
     ),
     "IDEMPOTENCY_CONFLICT": ErrorGuidance(False, "Refresh the job list before submitting new data."),
+    "NUMARATOR_TEMPORARY_FAILURE": ErrorGuidance(
+        True, "Check Numarator availability, then retry this allocation."
+    ),
+    "NUMARATOR_NOT_CONFIGURED": ErrorGuidance(
+        False, "Ask an administrator to configure Numarator for this project."
+    ),
     "INVITATION_EXPIRED": ErrorGuidance(False, "Ask an administrator to create a new invitation."),
     "INVITATION_REVOKED": ErrorGuidance(False, "Ask an administrator for the newest invitation."),
     "INVITATION_USED": ErrorGuidance(False, "Sign in with the account created from this invitation."),
@@ -184,6 +190,7 @@ _PREFIX_GUIDANCE = (
     ("TEAMCENTER_", ErrorGuidance(True, "Check Teamcenter availability, then retry once.")),
     ("DOORS_", ErrorGuidance(True, "Check the DOORS client connection, then retry once.")),
     ("JIRA_", ErrorGuidance(True, "Check the JIRA session and attachment, then retry once.")),
+    ("NUMARATOR_", ErrorGuidance(False, "Review the allocation and Numarator configuration.")),
     ("DCC_", ErrorGuidance(False, "Review the JIRA task, project mapping, and DCC fields.")),
     ("JOB_", ErrorGuidance(False, "Open Job Center and review the job details.")),
     ("WORD_", ErrorGuidance(False, "Review the document and local model configuration.")),

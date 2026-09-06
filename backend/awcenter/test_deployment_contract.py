@@ -8,7 +8,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 class DeploymentContractTests(SimpleTestCase):
-    """Protect the immutable same-origin production topology."""
+    """Protect the future immutable container topology."""
 
     def test_docker_context_excludes_workstation_generated_and_secret_state(self):
         """Local ignored artifacts cannot alter or leak into a release image build."""
@@ -129,6 +129,8 @@ class DeploymentContractTests(SimpleTestCase):
             "EMAIL_HOST_PASSWORD",
             services["backend"]["environment"],
         )
+        self.assertNotIn("NUMARATOR_API_KEY", services["backend"]["environment"])
+        self.assertIn("NUMARATOR_API_KEY", services["worker"]["environment"])
         for service_name in ("backend", "worker"):
             service = services[service_name]
             volumes = " ".join(service["volumes"])
@@ -165,6 +167,11 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("docker run --rm", workflow)
         self.assertIn('python-version: "3.11"', workflow)
         self.assertIn('python-version: "3.14"', workflow)
+        self.assertIn("runs-on: windows-latest", workflow)
+        self.assertIn('AWCENTER_DEPLOYMENT_MODE = "windows-native"', workflow)
+        self.assertIn('DATABASE_URL = "sqlite:///$databasePath"', workflow)
+        self.assertIn("python backend/manage.py check --deploy --fail-level ERROR", workflow)
+        self.assertIn("scripts.test_launcher_jobs", workflow)
         self.assertIn("postgres:17-alpine", workflow)
         self.assertIn("redis:7-alpine", workflow)
         self.assertIn("build_release_metadata.py", workflow)
@@ -191,8 +198,10 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertNotIn('"typecheck:ci"', launcher)
         runtime = self.read("scripts/launcher/runtime.py")
         parser = self.read("scripts/launcher/parser.py")
-        self.assertNotIn("def prod(", runtime)
-        self.assertNotIn('add_parser("prod"', parser)
+        self.assertIn("def prod(", runtime)
+        self.assertIn('"prod",', parser)
+        self.assertIn('"awcenter.asgi:application"', runtime)
+        self.assertIn('"--ssl-certfile"', runtime)
 
     def test_root_npm_manifest_is_dependency_free_strict_proxy(self):
         """Root npm commands cannot use stale dependencies or bypass frontend gates."""

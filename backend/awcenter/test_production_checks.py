@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -55,6 +56,18 @@ class ProductionConfigurationCheckTests(SimpleTestCase):
 
     @override_settings(
         DEBUG=False,
+        NUMARATOR_ENABLED=True,
+        NUMARATOR_BASE_URL="http://numarator.example.test",
+        NUMARATOR_CREDENTIAL_ID="",
+        NUMARATOR_PROJECT_FORMATS={},
+        NUMARATOR_VERIFY_SSL=False,
+    )
+    def test_numarator_requires_secure_complete_non_secret_configuration(self):
+        identifiers = self.error_ids()
+        self.assertTrue({"awcenter.E027", "awcenter.E028", "awcenter.E029"}.issubset(identifiers))
+
+    @override_settings(
+        DEBUG=False,
         ASSESSMENT_API_URL="https://assessment.example.test/api",
         ASSESSMENT_API_ALLOWED_HOSTS=[],
     )
@@ -68,6 +81,79 @@ class ProductionConfigurationCheckTests(SimpleTestCase):
     )
     def test_doors_runner_token_is_semantically_validated(self):
         self.assertIn("awcenter.E014", self.error_ids())
+
+    @override_settings(
+        DEBUG=False,
+        DOORS_ENABLED=True,
+        DOORS_EXECUTION_MODE="worker",
+        DOORS_RUNNER_TOKEN="",
+    )
+    def test_windows_worker_mode_does_not_require_runner_token(self):
+        with patch("awcenter.checks.sys.platform", "win32"):
+            self.assertNotIn("awcenter.E014", self.error_ids())
+
+    @override_settings(
+        DEBUG=False,
+        AWCENTER_DEPLOYMENT_MODE="container",
+        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+        TRUST_PROXY_HEADERS=False,
+        TRUSTED_PROXY_COUNT=0,
+    )
+    def test_future_container_mode_keeps_postgres_redis_and_proxy_contract(self):
+        self.assertTrue(
+            {"awcenter.E001", "awcenter.E002", "awcenter.E007"}.issubset(
+                self.error_ids()
+            )
+        )
+
+    def test_windows_native_mode_accepts_isolated_sqlite_without_proxy_trust(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            with (
+                patch("awcenter.checks.sys.platform", "win32"),
+                override_settings(
+                    DEBUG=False,
+                    AWCENTER_DEPLOYMENT_MODE="windows-native",
+                    REPOSITORY_DIR=repository,
+                    DATABASES={
+                        "default": {
+                            "ENGINE": "django.db.backends.sqlite3",
+                            "NAME": root / "state" / "db.sqlite3",
+                            "CONN_MAX_AGE": 0,
+                        }
+                    },
+                    CACHES={
+                        "default": {
+                            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+                            "LOCATION": str(root / "state" / "cache"),
+                        }
+                    },
+                    PRIVATE_MEDIA_ROOT=root / "state" / "private-media",
+                    STATIC_ROOT=root / "state" / "static",
+                    MEDIA_ROOT=root / "state" / "media",
+                    MODEL_RUNTIME_DIR=root / "assets" / "ai-models",
+                    CUSTOM_TEMPLATE_DIR=root / "assets" / "document-templates",
+                    TRUST_PROXY_HEADERS=False,
+                    TRUSTED_PROXY_COUNT=0,
+                ),
+            ):
+                identifiers = self.error_ids()
+
+        self.assertTrue(
+            {
+                "awcenter.E001",
+                "awcenter.E007",
+                "awcenter.E030",
+                "awcenter.E031",
+                "awcenter.E032",
+                "awcenter.E033",
+                "awcenter.E035",
+                "awcenter.E036",
+            }.isdisjoint(identifiers)
+        )
 
     @override_settings(
         ALLOWED_HOSTS=["awcenter.internal"],

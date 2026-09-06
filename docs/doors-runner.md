@@ -1,158 +1,100 @@
-# Host-local Windows DOORS runner
+# Windows DOORS execution
 
-AW Center ve IBM Rational DOORS aynı Windows cihazda çalışır. Django/Vue,
-PostgreSQL, Redis ve genel worker lifecycle'ları Linux container'larında kalır;
-OLE/COM gerektiren DOORS executor ise DOORS'un açık olduğu Windows kullanıcı
-oturumunda native process olarak çalışır.
+Güncel production'da AW Center ve IBM Rational DOORS aynı Windows cihazda, aynı
+logged-in kullanıcı oturumunda çalışır. `launcher.py prod --include-doors`, genel
+job worker'ına hem `local` hem `doors` queue allowlist'ini verir. Ayrı Task Scheduler
+kaydı, Windows Credential Manager token'ı, loopback HTTP runner veya ikinci Python
+process'i elle başlatılmaz.
 
-Runner ayrı bir uzak sunucu veya inbound agent değildir. Yalnız host
-loopback'ine publish edilen `http://127.0.0.1:8765/internal/doors-runner/v1/`
-data plane'ini poll eder. Public HTTPS ingress bütün `/internal/` yollarını 404
-ile kapatır.
-
-## Neden ayrı process korunuyor?
-
-HTTP request process'i uzun süren COM çağrısı çalıştırmaz. Native runner:
-
-- `pythoncom` ile Windows COM apartment'ını başlatır;
-- açık ve authenticated `DOORS.Application` OLE nesnesine bağlanır;
-- her işi disposable `spawn` subprocess'inde çalıştırır;
-- server-selected heartbeat aralığıyla lease'i yeniler;
-- timeout, cancellation ve stale claim sonucunda subprocess'i sonlandırır;
-- sonucu SHA-256 ile doğrulayıp fenced completion olarak yayımlar.
-
-Runner'a PostgreSQL/Redis credential'ı, Django `SECRET_KEY`, browser cookie'si
-veya private artifact volume'u verilmez.
-
-## Kimlik ve network sınırı
-
-`DOORS_RUNNER_TOKEN` kurulumda `secrets.token_urlsafe(32)` ile üretilen en az
-256-bit shared secret'tır. URL, query string, browser response veya log'a
-yazılmaz. Runner her istekte `X-AWC-Runner-Token` header'ını gönderir; backend
-constant-time comparison uygular.
-
-Bu token yalnız runner process'ini tanıtır. Claim sonrasında verilen execution
-token ile tek kullanımlık input/output artifact token'ları ayrıca zorunludur.
-
-Compose yalnız şu host binding'ini yayınlar:
+## Güncel çalışma şekli
 
 ```text
-127.0.0.1:${DOORS_RUNNER_PORT:-8765}:8765
+Browser → HTTPS Uvicorn/Django → SQLite durable job
+                                  │
+                                  ▼
+                     launcher-owned general worker
+                         ├── local executor'lar
+                         └── DOORS adapter → OLE/COM → açık DOORS oturumu
 ```
 
-LAN veya internet adresine binding eklemeyin. Main Nginx local listener'ı yalnız
-runner path'ini proxy eder, `Authorization` ve `Cookie` header'larını temizler,
-diğer yolları 404 döndürür.
+HTTP request process'i COM çağrısı çalıştırmaz; yalnız durable job oluşturur. Worker:
 
-## Token provisioning
+- `doors` job kind'larını açık allowlist üzerinden çözer;
+- her executor'ı Windows'ta disposable `spawn` subprocess'inde izole eder;
+- input'u private artifact alanından kontrollü geçici dosyaya materialize eder;
+- timeout/cancellation ve stale execution token sınırlarını korur;
+- sonucu hash'li private artifact olarak fenced completion ile yayımlar;
+- sonucu belirsiz bir DOORS write işleminde otomatik retry yerine
+  `reconciliation_required` üretir.
 
-Token'ı secret içermeyen bir komutla üretin:
+`DOORS_WORKER_LOCK_FILE`, aynı Windows kullanıcı profilinde aynı anda yalnız bir
+DOORS-capable worker bulunmasını sağlar. Kilit dosyasını silmek çalışan process'i
+durdurmaz ve ikinci worker açmak için kullanılmamalıdır.
 
-```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
+## Production ayarları
 
-1. Değeri backend deployment secret manager'ında `DOORS_RUNNER_TOKEN` olarak
-   saklayın. Repository veya tracked `.env` dosyasına yazmayın.
-2. Windows Credential Manager arayüzünde, DOORS'u çalıştıran kullanıcı için bir
-   Generic Credential oluşturun. Target adı varsayılan olarak
-   `AWCenter/DOORSRunner`, password alanı token değeridir.
-3. Farklı target kullanılırsa runner ortamında
-   `DOORS_RUNNER_CREDENTIAL_TARGET` ayarlayın.
-
-Native runner önce process environment'daki `DOORS_RUNNER_TOKEN` değerini,
-sonra current-user Windows Credential Manager kaydını kullanır. Production'da
-Credential Manager tercih edilir. Token'ı CLI argument olarak geçiren seçenek
-yoktur.
-
-Rotasyondan önce yeni claim alımını durdurun, aktif işleri drain/cancel edin,
-backend ve Credential Manager değerlerini aynı maintenance penceresinde
-değiştirin, backend ve runner'ı yeniden başlatın. Belirsiz DOORS write sonucunu
-tekrar göndermeden önce reconciliation kaydını doğrulayın.
-
-## Runner kurulumu ve çalışma
-
-Runner backend release'iyle aynı source/release sürümünden çalışmalıdır. Windows
-Python ortamında locked bağımlılıkları kurun; platform marker'ları `pywin32` ve
-`WMI` paketlerini getirir. DOORS bağlantı ayarlarını runner process environment'ı
-veya ignored `backend/.env` içinde yapılandırın:
+Repository dışındaki production env dosyasında:
 
 ```text
 DOORS_ENABLED=True
+DOORS_EXECUTION_MODE=worker
 DOORS_EXECUTABLE=C:\IBM\DOORS\doors.exe
 DOORS_DATABASE=36677@doors-server
 DOORS_PREFER_ACTIVE_INSTANCE=True
 DOORS_AUTO_START_CLIENT=False
-DOORS_RUNNER_URL=http://127.0.0.1:8765
-DOORS_RUNNER_CREDENTIAL_TARGET=AWCenter/DOORSRunner
+DOORS_STARTUP_TIMEOUT_SECONDS=30
+DOORS_RUN_TIMEOUT_SECONDS=120
+DOORS_MAX_RESULT_BYTES=10485760
+DOORS_RESULT_MODE=file
+DOORS_WORKER_LOCK_FILE=C:/Users/<user>/AppData/Local/AWCenter/state/doors-worker.lock
 ```
 
-`backend/` dizininden foreground canary:
+DOORS kullanıcısı önce Windows'a ve DOORS istemcisine interaktif olarak giriş
+yapmalıdır. Production başlatılırken:
 
 ```powershell
-..\.venv\Scripts\python.exe manage.py run_doors_runner --once
+python launcher.py prod `
+  --env-file "$env:LOCALAPPDATA\AWCenter\config\production.env" `
+  --host 192.0.2.10 `
+  --tls-cert-file "$env:LOCALAPPDATA\AWCenter\certificates\server.crt" `
+  --tls-key-file "$env:LOCALAPPDATA\AWCenter\certificates\server.key" `
+  --include-doors
 ```
 
-Sürekli çalışma:
+`--include-doors` verilmezse web uygulaması çalışır fakat DOORS queue'sunu tüketen
+worker olmaz; integration status bunu unavailable olarak bildirir. `DOORS_ENABLED`
+yanlışlıkla açık bırakılıp worker Windows dışında başlatılırsa production check
+fail-closed durur.
 
-```powershell
-..\.venv\Scripts\python.exe manage.py run_doors_runner
-```
+## Güvenlik sınırı
 
-Task Scheduler kaydı DOORS ile aynı kullanıcıya ait olmalı ve **Run only when
-the user is logged on** seçeneğini kullanmalıdır. Session 0 altında ayrı service
-account ile çalıştırmak, aktif desktop OLE nesnesine erişimi garanti etmez.
-Runner aynı anda tek DOORS işi yürütür.
+- DOORS credential'ı job payload, database, browser response veya log'a yazılmaz.
+- Kullanıcıdan gelen DXL dosya yolu doğrudan açılmaz; artifact servisi ve allowlisted
+  task sözleşmesi kullanılır.
+- Temporary input/output dosyaları iş sonunda temizlenir.
+- DOORS output'u bounded size ve SHA-256 doğrulamasıyla yayımlanır.
+- Browser session/CSRF sınırı worker execution identity'si yerine geçmez.
 
-Task Scheduler action'ında program olarak repository kökündeki
-`.venv\Scripts\python.exe`, argument olarak `manage.py run_doors_runner` ve
-**Start in** olarak release'in `backend` dizinini kullanın. Böylece runner,
-server ile aynı source sürümünü ve doğru Django settings yükleme kökünü kullanır.
+## Gelecekteki container profili
 
-## Statik executor allowlist'i
-
-Canonical metadata `backend/automations/catalog.py` içindedir. `doors` queue
-yalnız şu kind'ları kabul eder:
-
-| Kind | Callable | Input |
-|---|---|---|
-| `doors.run_dxl` | `integrations.doors.runner_tasks.execute_dxl` | Bounded JSON ve sabit read-operation allowlist |
-| `doors.update_object` | `integrations.doors.runner_tasks.update_object` | Validated scalar update JSON |
-| `doors.create_object` | `integrations.doors.runner_tasks.create_object` | Validated object creation JSON |
-| `doors.link_requirements` | `integrations.doors.runner_tasks.link_requirements` | Validated Requirement PoC Linker JSON |
-
-Server claim içinde callable yolu döndürse de runner bu yolu kendi local
-catalog'uyla yeniden doğrular. Arbitrary DXL veya server-selected Python callable
-çalıştırılmaz.
-
-## Data plane
-
-| Method/path | Amaç |
-|---|---|
-| `GET /internal/doors-runner/v1/status/` | Token ve transport contract kontrolü |
-| `POST /internal/doors-runner/v1/claims/` | Yalnız `doors` queue'dan job lease etme |
-| `GET /internal/doors-runner/v1/jobs/<id>/input/` | Tek kullanımlık, SHA-256 doğrulanan input |
-| `POST /internal/doors-runner/v1/jobs/<id>/heartbeat/` | Lease renewal, progress ve cancellation intent |
-| `POST /internal/doors-runner/v1/jobs/<id>/complete/` | Fenced terminal publish |
-
-Internal API browser session veya user token kabul etmez. `Authorization`,
-`Cookie` veya query parameter içeren istek reddedilir. Başarılı ve hatalı bütün
-runner response'ları `Cache-Control: no-store` taşır.
-
-DOORS write işinde timeout, runner shutdown, cancellation veya lease loss sonucu
-`reconciliation_required` olur; dış sistem sonucu doğrulanmadan otomatik retry
-yapılmaz.
+Backend Docker/PostgreSQL/Redis'e taşındığında mevcut host-local runner protokolü
+kullanılacaktır. O profilde native runner database, Redis ve private-media volume'una
+erişmez; yalnız `127.0.0.1` loopback API'sini dedicated `DOORS_RUNNER_TOKEN`, execution
+token ve tek kullanımlık artifact capability'leriyle kullanır. Credential Manager ve
+Task Scheduler yönergeleri ancak o profile geçiş planı onaylandığında devreye alınır.
 
 ## Doğrulama
 
+Platformdan bağımsız contract testleri:
+
 ```bash
 cd backend
-../.venv/bin/python manage.py test automations integrations.tests.test_doors_runner
-../.venv/bin/python manage.py test integrations.tests.test_doors_api \
-  integrations.tests.test_doors_runner_tasks
-../.venv/bin/python manage.py test awcenter.test_deployment_contract
+../.venv/bin/python manage.py test automations \
+  integrations.tests.test_doors_api \
+  integrations.tests.test_doors_runner_tasks \
+  jobs.tests.test_isolated_worker
 ```
 
-Gerçek OLE canary'si Windows kullanıcı oturumunda, test DOORS modülü üzerinde
-ayrıca yapılmalıdır. Canary sırasında runner token, execution token, artifact
-capability veya payload loglanmamalıdır.
+Gerçek OLE canary'si Windows kullanıcı oturumunda ve test DOORS modülü üzerinde
+ayrıca yapılmalıdır. Canary sırasında payload, private path veya credential
+loglanmamalıdır.

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from django.conf import settings
 
-from automations.runner_protocol import runner_status
 from integrations.teamcenter.services import integration_status as teamcenter_status
 
 
@@ -18,6 +17,7 @@ def integration_catalog():
         _teamcenter_integration(),
         _doors_integration(),
         _docproof_integration(),
+        _numarator_integration(),
         _office_integration(),
         _ai_integration(),
         _media_integration(),
@@ -54,7 +54,9 @@ def _teamcenter_integration():
 
 
 def _doors_integration():
-    status = runner_status()
+    from integrations.doors.services import integration_status
+
+    status = integration_status()
     ready = bool(settings.DOORS_ENABLED and status["available"])
     return _item(
         "doors",
@@ -86,6 +88,26 @@ def _docproof_integration():
     )
 
 
+def _numarator_integration():
+    from integrations.numarator.client import is_configured
+
+    configured = bool(
+        settings.NUMARATOR_ENABLED
+        and settings.NUMARATOR_BASE_URL
+        and settings.NUMARATOR_PROJECT_FORMATS
+    )
+    return _item(
+        "numarator",
+        "Numarator",
+        configured,
+        "Controlled number allocation for compliance cover pages.",
+        ["document-numbering", "cover-pages", "compliance"],
+        None,
+        configured=configured and any(
+            is_configured(str(project_slug))
+            for project_slug in settings.NUMARATOR_PROJECT_FORMATS
+        ),
+    )
 def _office_integration():
     packages = ("openpyxl", "docx", "pypdf", "extract_msg")
     ready = all(importlib.util.find_spec(package) for package in packages)

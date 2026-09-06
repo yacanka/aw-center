@@ -57,6 +57,14 @@ def probe_docproof() -> ProbeOutcome:
     return _http_probe(settings.DOCPROOF_URL, True)
 
 
+def probe_numarator() -> ProbeOutcome:
+    """Check Numarator reachability without sending the API credential."""
+
+    if not settings.NUMARATOR_ENABLED:
+        return ProbeOutcome("not_configured", "Numarator is disabled.")
+    return _http_probe(settings.NUMARATOR_BASE_URL, settings.NUMARATOR_VERIFY_SSL)
+
+
 def probe_doors() -> ProbeOutcome:
     """Report only the server-observed, token-bound local runner state."""
 
@@ -161,6 +169,7 @@ PROBE_ADAPTERS = {
     "teamcenter": probe_teamcenter,
     "doors": probe_doors,
     "docproof": probe_docproof,
+    "numarator": probe_numarator,
     "office": probe_office,
     "ai": probe_ai,
     "media": probe_media,

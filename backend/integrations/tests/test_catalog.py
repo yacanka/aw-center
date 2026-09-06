@@ -33,6 +33,9 @@ class IntegrationHubTests(TestCase):
         DOCPROOF_ENABLED=True,
         DOCPROOF_USERNAME="service-user",
         DOCPROOF_PASSWORD="service-password",
+        NUMARATOR_ENABLED=True,
+        NUMARATOR_BASE_URL="https://numarator.internal.example",
+        NUMARATOR_PROJECT_FORMATS={"ozgur": "COVER_PAGE"},
     )
     def test_catalog_reports_capabilities_without_secrets(self):
         """Response contains readiness but never credentials or internal URLs."""
@@ -42,7 +45,7 @@ class IntegrationHubTests(TestCase):
         serialized = response.content.decode("utf-8")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()["integrations"]), 7)
+        self.assertEqual(len(response.json()["integrations"]), 8)
         self.assertNotIn("service-password", serialized)
         self.assertNotIn("internal.example", serialized)
 

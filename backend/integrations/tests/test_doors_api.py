@@ -12,7 +12,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from jobs.models import Job
+from jobs.models import Job, WorkerHeartbeat
 
 from integrations.doors.builder_read import list_objects
 from integrations.doors.builder_link import link_requirements
@@ -296,6 +296,28 @@ class DoorsApiTests(TestCase):
         )
         self.assertNotIn("database", response.data)
         self.assertNotIn("password", response.data)
+
+    @override_settings(
+        DOORS_ENABLED=True,
+        DOORS_EXECUTION_MODE="worker",
+        JOB_WORKER_STALE_SECONDS=10,
+    )
+    @patch("integrations.doors.services.sys.platform", "win32")
+    def test_status_accepts_a_live_windows_worker(self):
+        WorkerHeartbeat.objects.create(worker_id="doors-worker:production")
+
+        response = self.client.get(reverse("doors_status"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data,
+            {
+                "configured": True,
+                "available": True,
+                "active_runners": 1,
+                "transport": "windows-worker",
+            },
+        )
 
     @override_settings(DOORS_ENABLED=False)
     @patch("automations.runner_protocol.runner_status")

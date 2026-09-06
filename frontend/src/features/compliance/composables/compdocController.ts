@@ -43,6 +43,7 @@ export interface CompdocController extends CompdocState {
   fetchCompDocFields(): Promise<unknown>
   fetchCompdocs(query?: PaginationQuery): Promise<void>
   createCompdoc(data: ICompDoc): Promise<void>
+  acceptCreatedCompdoc(data: unknown): ICompDoc
   updateCompdoc(id: string, data: CompDocUpdatePayload): Promise<void>
   fetchCompdoc(id: string): Promise<ICompDoc>
   archiveCompdoc(id: string, version: number, reason: string): Promise<void>
@@ -86,6 +87,11 @@ export function createCompdocController(): CompdocController {
   controller.fetchCompDocFields = () => fetchCompDocFields(state)
   controller.fetchCompdocs = (query = {}) => fetchCompdocs(state, query)
   controller.createCompdoc = (data) => createCompdoc(state, data)
+  controller.acceptCreatedCompdoc = (data) => {
+    const created = normalizeCompdoc(data)
+    state.compdocs.unshift(created)
+    return created
+  }
   controller.updateCompdoc = (id, data) => updateCompdoc(state, id, data)
   controller.fetchCompdoc = (id) => fetchCompdoc(state, id)
   controller.archiveCompdoc = (id, version, reason) =>

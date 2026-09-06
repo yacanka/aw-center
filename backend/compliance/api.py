@@ -43,11 +43,18 @@ from .imports import (
 )
 from .models import (
     ComplianceDocument,
+    CoverPageNumberAllocation,
     ImportAudit,
     NotificationPolicy,
     ReviewTask,
     TrackingProfile,
     WorkflowEvent,
+)
+from .numbering import (
+    CoverPageAllocationRequestSerializer,
+    allocation_payload,
+    create_allocation,
+    resume_allocation,
 )
 from .serializers import (
     ComplianceDocumentSerializer,
@@ -181,6 +188,87 @@ class DocumentCollectionView(ProjectComplianceMixin, APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class NumberingOptionsView(ProjectComplianceMixin, APIView):
+    def get(self, request, project_slug):
+        from integrations.numarator.client import is_configured
+
+        return Response(
+            {
+                "provider": "numarator",
+                "available": is_configured(self.project.slug),
+                "supports": ["create_document"],
+            }
+        )
+
+
+class CoverPageAllocationCollectionView(ProjectComplianceMixin, APIView):
+    minimum_role = ProjectRoleAssignment.Role.EDITOR
+
+    def post(self, request, project_slug):
+        serializer = CoverPageAllocationRequestSerializer(
+            data=request.data,
+            context=self.serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
+        allocation = create_allocation(
+            project=self.project,
+            actor=request.user,
+            request_id=getattr(request, "request_id", ""),
+            **serializer.validated_data,
+        )
+        allocation = _allocation_queryset().get(pk=allocation.pk)
+        response_status = (
+            status.HTTP_200_OK
+            if allocation.status == CoverPageNumberAllocation.Status.COMPLETED
+            else status.HTTP_202_ACCEPTED
+        )
+        return Response(
+            allocation_payload(allocation, request),
+            status=response_status,
+        )
+
+
+class CoverPageAllocationDetailView(ProjectComplianceMixin, APIView):
+    def get(self, request, project_slug, allocation_id):
+        allocation = self._allocation(request, allocation_id)
+        return Response(allocation_payload(allocation, request))
+
+    def _allocation(self, request, allocation_id):
+        queryset = _allocation_queryset().filter(project=self.project)
+        is_manager = has_project_role(
+            request.user,
+            self.project,
+            ProjectRoleAssignment.Domain.COMPLIANCE,
+            ProjectRoleAssignment.Role.MANAGER,
+        )
+        if not is_manager:
+            queryset = queryset.filter(actor=request.user)
+        return get_object_or_404(queryset, pk=allocation_id)
+
+
+class CoverPageAllocationResumeView(CoverPageAllocationDetailView):
+    minimum_role = ProjectRoleAssignment.Role.EDITOR
+
+    def post(self, request, project_slug, allocation_id):
+        allocation = self._allocation(request, allocation_id)
+        expected_version = serializers.IntegerField(min_value=1).run_validation(
+            request.data.get("version")
+        )
+        allocation = resume_allocation(
+            allocation=allocation,
+            expected_version=expected_version,
+            request_id=getattr(request, "request_id", ""),
+        )
+        allocation = _allocation_queryset().get(pk=allocation.pk)
+        return Response(allocation_payload(allocation, request), status=status.HTTP_202_ACCEPTED)
+
+
+def _allocation_queryset():
+    return CoverPageNumberAllocation.objects.select_related(
+        "project", "actor", "current_job", "document", "document__cover_page", "document__panel"
+    )
 
 
 class DocumentDetailView(ProjectComplianceMixin, APIView):

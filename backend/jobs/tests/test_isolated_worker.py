@@ -177,3 +177,36 @@ class WorkerCompositionTests(SimpleTestCase):
         execute.assert_called_once()
         self.assertEqual(execute.call_args.kwargs["timeout_seconds"], 73)
         self.assertTrue(execute.call_args.kwargs["isolate"])
+
+    def test_windows_worker_can_consume_local_and_doors_allowlists(self):
+        from jobs.management.commands.run_job_worker import Command
+
+        command = Command()
+        command.stopping = Event()
+        job = SimpleNamespace(kind="doors.run_dxl")
+        with (
+            patch("jobs.management.commands.run_job_worker.touch_worker"),
+            patch(
+                "jobs.management.commands.run_job_worker.claim_next_job",
+                return_value=job,
+            ) as claim,
+            patch(
+                "jobs.management.commands.run_job_worker.worker_job_kinds",
+                return_value=("word.translate", job.kind),
+            ),
+            patch(
+                "jobs.management.commands.run_job_worker.worker_job_timeout",
+                return_value=91,
+            ),
+            patch(
+                "jobs.management.commands.run_job_worker.execute_claimed_job"
+            ) as execute,
+        ):
+            command.run_loop(
+                "doors-worker:test",
+                {"once": True, "poll_interval": 1, "include_doors": True},
+            )
+
+        self.assertEqual(claim.call_args.args[1], ("word.translate", job.kind))
+        self.assertEqual(execute.call_args.kwargs["timeout_seconds"], 91)
+        self.assertTrue(execute.call_args.kwargs["isolate"])

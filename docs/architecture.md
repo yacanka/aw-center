@@ -4,7 +4,12 @@ Bu belge mevcut production contract'ın canonical açıklamasıdır. Tarihsel re
 
 ## Mimari hedef
 
-AW Center tek deployable Django/Vue uygulamasıdır. Modüler monolith sınırları korunur; ayrı process gerektiren işler aynı image'dan çalışan worker lifecycle'larına ayrılır. Production web/data lifecycle'ları aynı Windows cihazdaki Linux container'larında çalışır. Windows'a bağımlı DOORS otomasyonu, DOORS'un kullanıcı oturumunda çalışan native host-local runner'a ayrılır.
+AW Center tek deployable Django/Vue uygulamasıdır. Modüler monolith sınırları
+korunur; ayrı process gerektiren işler launcher-owned worker lifecycle'larına
+ayrılır. Güncel production aynı Windows cihaz ve kullanıcı oturumunda
+`launcher.py prod`, doğrudan TLS ve ayrı SQLite state'iyle çalışır. Windows'a
+bağımlı DOORS işleri aynı genel worker tarafından yürütülür. Linux container,
+PostgreSQL, Redis ve ayrı host-local DOORS runner sonraki olgunluk aşamasıdır.
 
 Temel ilkeler:
 
@@ -14,48 +19,46 @@ Temel ilkeler:
 - Feature executor'ları job kernel'ine import edilmez; composition root static catalog'dan çözer.
 - Browser ve machine identity aynı authentication kanalını paylaşmaz.
 - Private artifact hiçbir static veya unauthenticated file route'undan sunulmaz.
-- Production source/image immutable, runtime state açık volume veya dış servistedir.
+- Production release source'u değiştirilmez; runtime state repository dışında,
+  sürümden bağımsız ve açıkça yapılandırılmış dizinlerdedir.
 
 ## Runtime topolojisi
 
 ```text
-Internet/browser
+Windows browser
     │ HTTPS, same-origin session + CSRF
     ▼
-Nginx ingress :443
-    │ /app, /api, /health
-    ▼
-Django/Gunicorn backend
-    ├── PostgreSQL 17 ── business state, audit, jobs, leases
-    ├── Redis 7 ──────── shared cache, probes, one-use capabilities
-    ├── frontend-dist ── image içindeki immutable Vue artifact
-    └── private volume ─ owner-scoped input/output artifact
-
-Same image, ayrı lifecycle
-    ├── durable job worker
-    ├── password-reset + compliance notification worker
-    └── retention cleanup worker
-
-Windows DOORS runner
-    │ loopback HTTP + dedicated runner token
-    ▼
-Main Nginx local listener 127.0.0.1:8765
-    │ yalnız /internal/doors-runner/v1/
-    └── Django runner API
+launcher.py prod
+    ├── Uvicorn/Django :443 ── /app, /api, /health
+    ├── SQLite ─────────────── business state, audit, jobs, leases
+    ├── file cache ─────────── process-shared ephemeral state
+    ├── general job worker ─── local + isteğe bağlı DOORS queue
+    ├── notification worker
+    ├── cleanup worker
+    ├── collected static ───── built Vue artifact
+    └── private media ──────── owner-scoped input/output artifact
 ```
 
-Public ingress `/internal/` ve `/media/` yollarını 404 ile kapatır. Aynı Nginx container'ındaki ikinci listener hosta yalnız `127.0.0.1` üzerinden publish edilir ve sadece runner path'ini proxy eder. Backend doğrudan host portuna publish edilmez.
+Uvicorn yalnız launcher'a açıkça verilen static IPv4 adresine bind edilir. TLS
+certificate/private key repository dışında tutulur; certificate seçilen IPv4'ü
+SAN olarak taşımalıdır. `/media/` public static route değildir. Gelecekteki
+container ingress'i `/internal/` ve `/media/` yollarını ayrıca kapalı tutar.
 
 Process sınırı yalnız command ayrımı değildir; secret ve filesystem capability'si de daraltılır:
 
-| Lifecycle | Ek environment | Writable/read-only mount |
+| Lifecycle | Ek environment | Erişim |
 |---|---|---|
-| `backend` | Browser/API integration ayarları | private artifact `rw`, model `ro` |
-| `worker` | Yalnız local executor'ların JIRA/Teamcenter ayarları | private artifact `rw`, model `ro` |
-| `notification-worker` | Yalnız mail transport | Ek volume yok |
-| `cleanup-worker` | Yalnız retention ayarı | private artifact `rw` |
+| `backend` | Browser/API integration ayarları | SQLite, private artifact `rw`, AI/DOCX `ro` |
+| `worker` | Local executor ve isteğe bağlı DOORS ayarları | SQLite, private artifact `rw`, AI/DOCX `ro` |
+| `notification-worker` | Mail transport | SQLite |
+| `cleanup-worker` | Retention ayarı | SQLite, private artifact `rw` |
 
-Tüm Django lifecycle'ları aynı image ve minimum ortak database/cache/runtime ayarlarını kullanır; tablodaki capability'ler bunun üstündeki farklardır. Bunlar numeric non-root UID/GID ile, tüm Linux capability'leri drop edilmiş ve `no-new-privileges` altında çalışır. Bir lifecycle'a başka capability'nin credential veya volume'unu vermek desteklenen trust boundary'yi genişletir. Native runner repository-owned `run_doors_runner` komutudur; database/cache/private volume erişimi olmadan DOORS ile aynı logged-in Windows kullanıcısı altında supervise edilir.
+Güncel Windows profilinde process'ler aynı production env dosyasını okur; uygulama
+seviyesindeki sorumluluk sınırları yine korunur. Tek DOORS-capable worker dosya
+kilidiyle zorlanır. SQLite yerel NTFS üzerinde, repository/OneDrive/network share
+dışında ve `CONN_MAX_AGE=0` ile kullanılır. Repository dışındaki file cache geçici
+JIRA session state'ini web ve worker arasında paylaşır. Container profilinde secret ve volume
+capability'leri process başına daha dar biçimde ayrılmaya devam edecektir.
 
 ## Backend sınırları
 
@@ -66,7 +69,7 @@ Tüm Django lifecycle'ları aynı image ve minimum ortak database/cache/runtime 
 | `projects` | Read-only teknik project registry ve küçük policy strategy'leri | Business project satırı veya role sahibi değildir |
 | `orgs` | `Project`, organizasyon verisi ve project-scoped role assignment | Registry slug'ıyla hizalanır |
 | `jobs` | Durable job/workflow state, leases, fencing, private artifact lifecycle | Feature package import etmez |
-| `automations` | Executor metadata catalog ve host-local runner protocol | Generic workflow/event framework değildir |
+| `automations` | Executor metadata catalog ve gelecekteki host-local runner protocol | Generic workflow/event framework değildir |
 | `attention` | Kullanıcının action/decision görünümü | Domain aggregate'lerini sahiplenmez |
 | `integrations` | Vendor transport/session adapterları ile DOORS, Teamcenter ve DocProof HTTP/use-case yüzeyleri | Credential response/log üretmez; vendor başına kök Django app oluşturmaz |
 | `dcc`, tools | Domain HTTP adapterı, validation ve executor | Kernel'e ters bağımlılık oluşturmaz |
@@ -103,7 +106,12 @@ Authorization her request'te URL project'i, object project'i ve `ProjectRoleAssi
 - expired lease recovery ve yeni token;
 - private output + yetkili download + retention.
 
-Executor metadata'sının tek kaynağı `automations.catalog.EXECUTOR_CATALOG`'dur. Her kayıt `kind`, dotted callable path, `queue`, upload policy ve timeout içerir. `awcenter.job_executors` yalnız `local` callable'ları composition root'ta resolve eder. Native runner yalnız `doors` allowlist'ini hem server hem Windows tarafındaki local catalog üzerinden doğrulayarak claim eder. Böylece job kernel feature koduna, feature kodu da worker implementation'ına bağlanmaz.
+Executor metadata'sının tek kaynağı `automations.catalog.EXECUTOR_CATALOG`'dur.
+Her kayıt `kind`, dotted callable path, `queue`, upload policy ve timeout içerir.
+Normal worker `local` allowlist'ini; Windows production'da `--include-doors`
+verildiğinde ayrıca `doors` allowlist'ini composition root üzerinden çözer. Ayrı
+runner yolu gelecekteki container profili için korunur. Böylece job kernel feature
+koduna, feature kodu da worker implementation'ına bağlanmaz.
 
 Workflow/handoff servisleri workflow-agnostic `jobs.persistence` primitive'lerini kullanır. Import graph'ta `services ↔ workflow_services ↔ handoffs` cycle'ı yoktur.
 
@@ -133,7 +141,10 @@ Browser sözleşmesi:
 
 Password-reset request'i public response'ta account existence ayrımı yapmadan bir `PasswordResetDelivery` outbox kaydı oluşturur. Web process'i mail secret'ı taşımaz. Notification worker row lease ile claim eder, account-state fingerprint'ini yeniden doğrular ve deterministic Message-ID/stable token timestamp ile gönderir. Raw reset token'ı saklanmaz. Yalnız aktif lease terminal state yayımlayabilir; dış mail transport'unda sonucu belirsiz kalan tekrar aynı Message-ID ve token timestamp'iyle yürür. Reset capability'si query yerine URL fragment'ında taşınır ve login shell belleğe aldıktan hemen sonra `history.replaceState` ile adres çubuğu/history'den temizlenir.
 
-DOORS runner identity browser session'ından tamamen ayrıdır. Runner yalnız loopback listener'a bağlanır ve dedicated `X-AWC-Runner-Token` credential'ı kullanır. Nginx runner listener'ında browser `Authorization` ve `Cookie` header'larını temizler; Django token'ı constant-time karşılaştırır. Execution ve tek kullanımlık artifact capability'leri runner identity'sinden ayrıca doğrulanır.
+Güncel Windows profilinde DOORS general worker doğrudan SQLite job kuyruğunu ve
+private artifact dizinini kullanır; browser request process'i COM çalıştırmaz.
+Gelecekteki container profilinde DOORS runner identity browser session'ından
+tamamen ayrı kalır, yalnız loopback listener ve dedicated runner token kullanır.
 
 ## API ve hata yüzeyi
 
@@ -154,12 +165,15 @@ Upload request'i önce absolute body limitinden, sonra domain `UploadPolicy` ad/
 
 Runtime verileri dört ayrı sınıfta tutulur:
 
-1. `frontend/dist` ve collected static: image build sırasında üretilen immutable artifact.
-2. AI ağırlıkları: deployment tarafından `/app/ai-models:ro` mount edilir.
-3. Operator-managed DOCX şablonları: `/app/document-templates:ro` mount edilir.
-4. Job input/output: `/app/private_media` shared volume'unda owner-scoped ve hash'li state.
+1. `frontend/dist`: release öncesi üretilen Vue artifact.
+2. Collected static: `%LOCALAPPDATA%\AWCenter\static` altında yeniden üretilebilir state.
+3. AI ağırlıkları: `%LOCALAPPDATA%\AWCenter\assets\<set>\ai-models` altında read-only kullanım.
+4. Operator-managed DOCX şablonları: aynı asset set içindeki `document-templates` dizini.
+5. Job input/output: `%LOCALAPPDATA%\AWCenter\private-media` altında owner-scoped ve hash'li state.
 
-Nginx `/media/` servis etmez. Private download, authenticated owner authorization kontrolü ve stored SHA-256 doğrulamasıyla Django üzerinden akar. Backend, worker ve cleanup aynı private volume'u görür.
+Private media static olarak servis edilmez. Private download, authenticated owner
+authorization kontrolü ve stored SHA-256 doğrulamasıyla Django üzerinden akar.
+Backend, worker ve cleanup aynı açıkça yapılandırılmış dizini görür.
 
 Cache-backed Outlook MSG attachment'ları ayrı fakat aynı ilkeye bağlı bir private transferdir: parse response'u `download_url` açığa çıkarmaz; 48 karakterlik owner-bound capability yalnız authenticated `POST /api/tools/outlook/msg/download/` body içinde kullanılır. Capability kısa ömürlü ve tek kullanımlıktır; backend cache'lenmiş byte'ların SHA-256 değerini indirme response'undan önce yeniden hesaplar.
 
@@ -177,7 +191,20 @@ View/component'ler doğrudan Axios import etmez, global store locator kullanmaz 
 
 ## Deployment ve migration ilkeleri
 
-Production yalnız immutable combined image ile çalışır. Database schema fresh migration baseline'dan kurulur; project seed migration'ın parçasıdır. Production database contract'ı PostgreSQL'dir; source-mounted runtime, ayrı frontend server veya launcher-supervised web process desteklenmez.
+Güncel production Windows'ta versioned release checkout'undan `launcher.py prod`
+ile çalışır. Database ayrı production SQLite dosyasıdır; development database'iyle
+paylaşılmaz. Project seed migration'ın parçasıdır. Frontend ayrı Vite server olarak
+çalışmaz; build edilmiş artifact Django/WhiteNoise üzerinden sunulur.
+
+Release geçişinde web ve worker process'leri birlikte durdurulur; SQLite ile private
+media aynı bakım penceresinde birlikte yedeklenir. Yeni release için dependency ve
+frontend build hazırlanır, `launcher.py prod --migrate` bir kez çalıştırılır. Write
+alındıktan sonra eski schema'ya dönmek yerine corrective migration ile forward-fix
+uygulanır.
+
+Docker/Compose profili gelecekteki hedef olarak korunur. O profilde production
+PostgreSQL 17, authenticated Redis 7, immutable digest-pinned image, Nginx ve ayrı
+Windows DOORS runner kullanır. Aşağıdaki zincir yalnız bu gelecek profil içindir:
 
 Release kimliği aşağıdaki doğrulanabilir zincirdir:
 
@@ -191,7 +218,11 @@ review edilmiş commit
 
 Environment preflight mutable tag, placeholder secret, geçersiz PostgreSQL/Redis/runtime path contract'ı ve tutarsız database password'ünü reddeder. Ayrıca güvenilir CI kaynağından operatorun verdiği release manifest ile image verification kaydını release, commit, manifest digest, frontend tree/count ve `AWCENTER_IMAGE` digest'i üzerinden eşleştirir. Preflight evidence imzası veya registry trust otoritesi değildir; evidence provenance ve repository dışında erişim kontrollü saklama operator sorumluluğudur.
 
-Normal schema evolution yeni forward migration ile yapılır. Upgrade öncesi PostgreSQL ve private artifact state birlikte yedeklenir. Migration sonrası sorunlarda write alınmışsa eski schema'ya dönmek yerine corrective image/migration ile forward-fix yapılır. Ayrıntılı gate [deployment.md](deployment.md), local disposable reset [local-database-reset.md](local-database-reset.md) içindedir.
+Container environment preflight'i mutable tag, placeholder secret, geçersiz
+PostgreSQL/Redis/runtime path contract'ı ve tutarsız database password'ünü reddeder;
+bu kontroller bugünkü Windows env dosyasının yerine geçmez. Ayrıntılı güncel akış
+[deployment.md](deployment.md), disposable local reset ise
+[local-database-reset.md](local-database-reset.md) içindedir.
 
 ## Bilinçli non-goals
 
@@ -200,5 +231,5 @@ Normal schema evolution yeni forward migration ile yapılır. Upgrade öncesi Po
 - Project başına Django app/model
 - Browser için ikinci authentication mekanizması
 - Unauthenticated artifact server
-- Windows üzerinde ana backend/web supervisor
+- Güncel Windows SQLite production'ını yatay ölçeklemek
 - Agent'ın PostgreSQL veya Redis'e doğrudan bağlanması

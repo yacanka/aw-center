@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_setup(commands)
     add_check_and_test(commands)
     add_development(commands)
+    add_production(commands)
     add_offline_commands(commands)
     return parser
 
@@ -52,6 +53,35 @@ def add_development(commands: Subparsers) -> None:
     add_server_options(development, frontend=True)
     development.add_argument("--no-backend-reload", action="store_true")
     development.add_argument("--migrate", action="store_true", help="Apply migrations before startup.")
+
+
+def add_production(commands: Subparsers) -> None:
+    """Register the Windows-native production runtime."""
+
+    production = commands.add_parser(
+        "prod",
+        help="Run the Windows-native HTTPS production lifecycle.",
+    )
+    production.add_argument(
+        "--env-file",
+        type=Path,
+        required=True,
+        help="Untracked production environment file outside the repository.",
+    )
+    production.add_argument("--host", required=True, help="Static production IPv4 address.")
+    production.add_argument("--port", type=int, default=443)
+    production.add_argument("--tls-cert-file", type=Path, required=True)
+    production.add_argument("--tls-key-file", type=Path, required=True)
+    production.add_argument(
+        "--include-doors",
+        action="store_true",
+        help="Let the single Windows worker consume the DOORS queue.",
+    )
+    production.add_argument(
+        "--migrate",
+        action="store_true",
+        help="Apply migrations before startup; omitted during normal restarts.",
+    )
 
 
 def add_offline_commands(commands: Subparsers) -> None:

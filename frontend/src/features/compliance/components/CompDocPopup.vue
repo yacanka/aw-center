@@ -25,24 +25,41 @@
         <CompDocIdentityFields
           :compdoc="compdoc"
           :original="originalCompdoc"
-          :readonly="readonly"
+          :readonly="formReadonly"
+          :show-number-source="popupMode === 'new'"
+          :numbering-available="numberingAvailable"
+          :number-source="numberSource"
+          @update:number-source="numberSource = $event"
         />
+        <n-alert
+          v-if="allocationMessage"
+          :type="allocationFailed ? 'error' : 'info'"
+          :bordered="true"
+          title="Numarator"
+        >
+          {{ allocationMessage }}
+          <template v-if="allocationFailed" #action>
+            <n-button size="small" :loading="allocationActive" @click="retryAllocation">
+              Retry
+            </n-button>
+          </template>
+        </n-alert>
         <CompDocReferenceFields
           :compdoc="compdoc"
           :original="originalCompdoc"
-          :readonly="readonly"
+          :readonly="formReadonly"
           :has-extra-fields="hasExtraFields"
         />
         <CompDocOwnershipFields
           :compdoc="compdoc"
           :original="originalCompdoc"
-          :readonly="readonly"
+          :readonly="formReadonly"
         />
         <CompDocWorkflowFields :compdoc="compdoc" />
         <CompDocNotesFields
           :compdoc="compdoc"
           :original="originalCompdoc"
-          :readonly="readonly"
+          :readonly="formReadonly"
           :show-change-reason="popupMode === 'update'"
         />
         <CompDocHistory :history="compdoc.history" @open="loadHistory" />
@@ -52,6 +69,8 @@
       <n-button
         v-if="popupMode === 'new' || (popupMode === 'update' && canEdit)"
         :type="popupMode === 'new' ? 'success' : 'warning'"
+        :loading="allocationActive"
+        :disabled="allocationActive || allocationFailed"
         @click="save"
       >
         {{ popupMode === 'new' ? 'Create' : 'Update' }}
@@ -76,15 +95,21 @@ const props = withDefaults(defineProps<{ canEdit?: boolean }>(), { canEdit: fals
 const {
   compdoc,
   formRef,
+  formReadonly,
   handleVisibilityChange,
   hasExtraFields,
+  allocationActive,
+  allocationFailed,
+  allocationMessage,
   loadHistory,
   openModal,
   originalCompdoc,
   popupMode,
-  readonly,
+  numberingAvailable,
+  numberSource,
   rules,
   save,
+  retryAllocation,
   setUpdateMode,
   showModal
 } = useCompDocEditor(toRef(props, 'canEdit'))

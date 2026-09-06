@@ -1,5 +1,7 @@
-"""Fail-closed system checks for the supported production topology."""
+"""Fail-closed system checks for supported production topologies."""
 
+import sys
+from pathlib import Path
 from urllib.parse import urlparse, urlsplit
 
 from cryptography.fernet import Fernet
@@ -25,20 +27,17 @@ def production_runtime_checks(app_configs, **kwargs):
     if settings.DEBUG:
         return []
     errors = []
+    deployment_mode = settings.AWCENTER_DEPLOYMENT_MODE
     database_engine = settings.DATABASES["default"]["ENGINE"]
-    if database_engine != "django.db.backends.postgresql":
+    if deployment_mode == "windows-native":
+        errors.extend(_windows_native_runtime_checks(database_engine))
+    elif deployment_mode == "container":
+        errors.extend(_container_runtime_checks(database_engine))
+    else:
         errors.append(
             Error(
-                "Production requires PostgreSQL for transaction and lease semantics.",
-                id="awcenter.E001",
-            )
-        )
-    cache_backend = settings.CACHES["default"]["BACKEND"]
-    if "redis" not in cache_backend.casefold():
-        errors.append(
-            Error(
-                "Production requires a process-shared Redis cache.",
-                id="awcenter.E002",
+                "Production requires an explicit windows-native or container deployment mode.",
+                id="awcenter.E030",
             )
         )
     normalized_secret = settings.SECRET_KEY.strip().casefold()
@@ -66,13 +65,6 @@ def production_runtime_checks(app_configs, **kwargs):
         errors.append(
             Error("Production ALLOWED_HOSTS cannot contain a wildcard.", id="awcenter.E006")
         )
-    if not settings.TRUST_PROXY_HEADERS or settings.TRUSTED_PROXY_COUNT < 1:
-        errors.append(
-            Error(
-                "The supported Nginx topology requires explicit proxy-header trust.",
-                id="awcenter.E007",
-            )
-        )
     if settings.STATIC_ROOT.resolve() == settings.BASE_DIR.resolve():
         errors.append(
             Error("STATIC_ROOT cannot be the backend source root.", id="awcenter.E008")
@@ -84,6 +76,121 @@ def production_runtime_checks(app_configs, **kwargs):
     errors.extend(_frontend_capability_url_checks())
     errors.extend(_integration_checks())
     return errors
+
+
+def _windows_native_runtime_checks(database_engine):
+    """Validate the current single-process Windows and SQLite production mode."""
+
+    checks = []
+    if database_engine != "django.db.backends.sqlite3":
+        checks.append(
+            Error(
+                "Windows-native production requires its isolated SQLite database.",
+                id="awcenter.E001",
+            )
+        )
+    else:
+        database_path = Path(settings.DATABASES["default"]["NAME"])
+        if (
+            not database_path.is_absolute()
+            or _is_within(database_path, settings.REPOSITORY_DIR)
+            or settings.DATABASES["default"].get("CONN_MAX_AGE") != 0
+        ):
+            checks.append(
+                Error(
+                    "Windows production SQLite must be absolute, outside the repository, "
+                    "and use DATABASE_CONN_MAX_AGE=0.",
+                    id="awcenter.E031",
+                )
+            )
+    if _is_within(settings.PRIVATE_MEDIA_ROOT, settings.REPOSITORY_DIR):
+        checks.append(
+            Error(
+                "Windows production private artifacts must be outside the repository.",
+                id="awcenter.E032",
+            )
+        )
+    cache = settings.CACHES["default"]
+    cache_directory = Path(cache.get("LOCATION", ""))
+    if (
+        cache.get("BACKEND")
+        != "django.core.cache.backends.filebased.FileBasedCache"
+        or not cache_directory.is_absolute()
+        or _is_within(cache_directory, settings.REPOSITORY_DIR)
+    ):
+        checks.append(
+            Error(
+                "Windows production requires a shared file cache outside the repository.",
+                id="awcenter.E035",
+            )
+        )
+    for path, label in (
+        (settings.STATIC_ROOT, "collected static"),
+        (settings.MEDIA_ROOT, "media"),
+        (settings.MODEL_RUNTIME_DIR, "AI models"),
+        (settings.CUSTOM_TEMPLATE_DIR, "document templates"),
+    ):
+        if not Path(path).is_absolute() or _is_within(path, settings.REPOSITORY_DIR):
+            checks.append(
+                Error(
+                    f"Windows production {label} must be outside the repository.",
+                    id="awcenter.E036",
+                )
+            )
+    if settings.TRUST_PROXY_HEADERS or settings.TRUSTED_PROXY_COUNT:
+        checks.append(
+            Error(
+                "Direct-TLS Windows production must not trust proxy headers.",
+                id="awcenter.E007",
+            )
+        )
+    if sys.platform != "win32":
+        checks.append(
+            Error(
+                "Windows-native production can run only on Windows.",
+                id="awcenter.E033",
+            )
+        )
+    return checks
+
+
+def _container_runtime_checks(database_engine):
+    """Retain the future PostgreSQL, Redis, and reverse-proxy contract."""
+
+    checks = []
+    if database_engine != "django.db.backends.postgresql":
+        checks.append(
+            Error(
+                "Container production requires PostgreSQL for transaction and lease semantics.",
+                id="awcenter.E001",
+            )
+        )
+    cache_backend = settings.CACHES["default"]["BACKEND"]
+    if "redis" not in cache_backend.casefold():
+        checks.append(
+            Error(
+                "Container production requires a process-shared Redis cache.",
+                id="awcenter.E002",
+            )
+        )
+    if not settings.TRUST_PROXY_HEADERS or settings.TRUSTED_PROXY_COUNT < 1:
+        checks.append(
+            Error(
+                "Container production requires explicit Nginx proxy-header trust.",
+                id="awcenter.E007",
+            )
+        )
+    return checks
+
+
+def _is_within(path, directory):
+    """Return whether one resolved path is inside another."""
+
+    try:
+        Path(path).resolve().relative_to(Path(directory).resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _frontend_capability_url_checks():
@@ -138,6 +245,7 @@ def _integration_checks():
         ("JIRA_ENABLED", "JIRA_URL", "awcenter.E010"),
         ("DOCPROOF_ENABLED", "DOCPROOF_URL", "awcenter.E011"),
         ("TEAMCENTER_ENABLED", "TEAMCENTER_BASE_URL", "awcenter.E012"),
+        ("NUMARATOR_ENABLED", "NUMARATOR_BASE_URL", "awcenter.E027"),
     ):
         if not getattr(settings, enabled_name, False):
             continue
@@ -188,14 +296,39 @@ def _integration_checks():
                 id="awcenter.E021",
             )
         )
+    if settings.NUMARATOR_ENABLED:
+        if not settings.NUMARATOR_CREDENTIAL_ID or not settings.NUMARATOR_PROJECT_FORMATS:
+            checks.append(
+                Error(
+                    "Numarator requires a credential identifier and project format mapping.",
+                    id="awcenter.E028",
+                )
+            )
+        if settings.NUMARATOR_VERIFY_SSL is False:
+            checks.append(
+                Error(
+                    "Numarator TLS verification cannot be disabled in production.",
+                    id="awcenter.E029",
+                )
+            )
     if settings.DOORS_ENABLED:
         from automations.identity import valid_runner_token
 
-        if not valid_runner_token(settings.DOORS_RUNNER_TOKEN):
+        if (
+            settings.DOORS_EXECUTION_MODE == "runner"
+            and not valid_runner_token(settings.DOORS_RUNNER_TOKEN)
+        ):
             checks.append(
                 Error(
                     "DOORS requires a valid host-local runner token.",
                     id="awcenter.E014",
+                )
+            )
+        if settings.DOORS_EXECUTION_MODE == "worker" and sys.platform != "win32":
+            checks.append(
+                Error(
+                    "DOORS worker execution requires Windows.",
+                    id="awcenter.E034",
                 )
             )
     if settings.ASSESSMENT_API_URL:
