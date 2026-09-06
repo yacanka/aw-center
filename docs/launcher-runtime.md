@@ -1,6 +1,8 @@
-# Local Django + Vue launcher
+# Django + Vue launcher
 
-Kök `launcher.py`, repository içindeki local setup, quality, development ve offline packaging akışlarının ince girişidir. Production deployment aracı veya server supervisor'u değildir.
+Kök `launcher.py`, local setup/quality/development/offline packaging akışlarının ve
+güncel Windows-native production lifecycle'ının tek girişidir. macOS'ta yalnız
+development desteklenir; `prod` komutu fail-closed biçimde yalnız Windows'ta çalışır.
 
 ## Sözleşme
 
@@ -8,8 +10,14 @@ Kök `launcher.py`, repository içindeki local setup, quality, development ve of
 - `.env`, `.env.local`, PID veya kalıcı runtime state yazmaz.
 - Child process'ler mevcut shell environment'ını miras alır; host/port ve `VITE_API_URL` yalnız process-local override'dır.
 - Migration örtülü uygulanmaz. Yalnız `dev --migrate` açıkça verilirse startup öncesi `migrate --noinput` çalışır.
+- `prod`, migration'ı yalnız `--migrate` verildiğinde uygular; her başlangıçta
+  migration drift, deploy check ve frontend artifact kontrollerini çalıştırır.
 - Dolu veya geçersiz portta başka port seçmez; fail-fast durur.
 - `dev`, seçilen scope'a göre Django/Vite ile mevcut durable job, password-reset/compliance notification ve cleanup command'larını foreground child process olarak supervise eder.
+- `prod`, Windows'ta static IPv4 üzerinde doğrudan TLS sunan tek Uvicorn process'i
+  ile job, notification ve cleanup worker'larını aynı terminal lifecycle'ında supervise eder.
+- `prod` environment, TLS certificate ve private key girdilerini repository dışından
+  ister. Sertifika seçilen IPv4 adresini SAN olarak içermeli ve private key ile eşleşmelidir.
 - Offline dependency bundle OS, architecture, Python, lock digest ve artifact SHA-256 manifest'ine bağlıdır; başka target veya değiştirilmiş bundle fail-closed reddedilir.
 - Packaging yalnız izinli Git kaynaklarını alır; secret env, key/certificate, database, media, virtualenv, dependency tree ve generated build state'ini dışarıda bırakır. Symlink ve path escape reddedilir.
 
@@ -25,6 +33,8 @@ python launcher.py test
 
 python launcher.py dev --backend-port 8000 --frontend-port 5173
 python launcher.py dev --migrate
+
+python launcher.py prod --help
 
 python launcher.py prepare-offline --offline-dir offline
 python launcher.py package-offline --offline-dir offline --offline-zip project-offline.zip
@@ -75,6 +85,24 @@ python launcher.py setup --mode offline --offline-dir offline
 
 Manifest target veya lock dosyalarıyla eşleşmiyorsa yeni bundle hazırlayın; doğrulamayı atlamayın.
 
-## Production ayrımı
+## Windows production
 
-Production lifecycle `backend/Dockerfile`, `docker-compose.yml`, Nginx config'leri ve orchestrator tarafından yönetilir. Migration, deploy checks ve operator bootstrap one-shot container komutlarıdır. Ayrıntılar [deployment.md](deployment.md) içindedir.
+Güncel production komutu örneği:
+
+```powershell
+python launcher.py prod `
+  --env-file "$env:LOCALAPPDATA\AWCenter\config\production.env" `
+  --host 192.0.2.10 `
+  --tls-cert-file "$env:LOCALAPPDATA\AWCenter\certificates\server.crt" `
+  --tls-key-file "$env:LOCALAPPDATA\AWCenter\certificates\server.key" `
+  --include-doors
+```
+
+İlk kurulumda veya yeni migration içeren kontrollü bir release geçişinde aynı
+komuta `--migrate` eklenir. Normal yeniden başlatmada eklenmez. Production SQLite,
+private artifact, AI ağırlığı, DOCX şablonu, env ve certificate dosyalarının tamamı
+repository dışında `%LOCALAPPDATA%\AWCenter\` altında tutulur.
+
+`backend/Dockerfile`, `docker-compose.yml`, Nginx, PostgreSQL ve Redis sözleşmesi
+sonraki olgunluk aşaması için korunur; bugünkü `launcher.py prod` akışının parçası
+değildir. Ayrıntılar [deployment.md](deployment.md) içindedir.

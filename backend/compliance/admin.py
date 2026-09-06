@@ -4,6 +4,7 @@ from simple_history.admin import SimpleHistoryAdmin
 from .models import (
     ComplianceDocument,
     CoverPage,
+    CoverPageNumberAllocation,
     DocumentPurgeAudit,
     ImportAudit,
     NotificationLog,
@@ -42,6 +43,7 @@ class ComplianceDocumentAdmin(SimpleHistoryAdmin):
 
 
 admin.site.register(CoverPage, SimpleHistoryAdmin)
+admin.site.register(CoverPageNumberAllocation, ImmutableEvidenceAdmin)
 admin.site.register(WorkflowEvent, ImmutableEvidenceAdmin)
 admin.site.register(ReviewTask, ImmutableEvidenceAdmin)
 admin.site.register(TrackingProfile)

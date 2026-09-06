@@ -13,7 +13,12 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from rest_framework.test import APIClient
 
-from awcenter.job_executors import local_job_kinds, resolve_job_executor
+from awcenter.job_executors import (
+    local_job_kinds,
+    resolve_job_executor,
+    resolve_worker_executor,
+    worker_job_kinds,
+)
 from jobs.contracts import JobExecutionFailure
 from jobs.models import Job, JobStatus
 from jobs.services import create_job
@@ -473,6 +478,11 @@ class AutomationArchitectureTests(SimpleTestCase):
         self.assertEqual(set(local_job_kinds()), set(executor_kinds(LOCAL_QUEUE)))
         with self.assertRaises(JobExecutionFailure):
             resolve_job_executor("doors.run_dxl")
+        self.assertEqual(
+            set(worker_job_kinds(include_doors=True)),
+            set(executor_kinds(LOCAL_QUEUE)) | set(executor_kinds(DOORS_QUEUE)),
+        )
+        self.assertTrue(callable(resolve_worker_executor("doors.run_dxl")))
 
     def test_kernel_and_doors_tasks_keep_dependency_direction(self):
         root = Path(__file__).resolve().parents[1]

@@ -1,6 +1,22 @@
 <template>
   <n-card title="Identity" size="small">
     <n-grid responsive="self" item-responsive :x-gap="12" :y-gap="4" :cols="48">
+      <n-form-item-gi
+        v-if="showNumberSource && numberingAvailable"
+        span="48"
+        label="Cover page number source"
+        class="number-source"
+      >
+        <n-radio-group
+          :value="numberSource"
+          name="cover-page-number-source"
+          :disabled="readonly"
+          @update:value="updateNumberSource"
+        >
+          <n-radio-button value="manual">Enter manually</n-radio-button>
+          <n-radio-button value="numarator">Create with Numarator</n-radio-button>
+        </n-radio-group>
+      </n-form-item-gi>
       <n-form-item-gi span="0:48 700:12" path="panel" label="Panel">
         <n-select
           v-model:value="compdoc.panel"
@@ -37,7 +53,8 @@
         <n-input
           v-model:value="compdoc.cover_page_no"
           maxlength="32"
-          :readonly="readonly"
+          :readonly="readonly || numberSource === 'numarator'"
+          :placeholder="numberSource === 'numarator' ? 'Assigned after create' : undefined"
           :status="changed('cover_page_no')"
           @keydown.enter.prevent
         />
@@ -65,6 +82,12 @@ const props = defineProps<{
   compdoc: ICompDoc
   original: ICompDoc
   readonly: boolean
+  showNumberSource?: boolean
+  numberingAvailable?: boolean
+  numberSource?: 'manual' | 'numarator'
+}>()
+const emit = defineEmits<{
+  'update:numberSource': [value: 'manual' | 'numarator']
 }>()
 const orgs = useOrganizationController()
 const panelOptions = computed(() => {
@@ -96,4 +119,15 @@ function optionsForPanel(panelId: number | null) {
     .sort((left, right) => left.ata.localeCompare(right.ata))
     .map((panel) => ({ label: panel.ata, value: panel.ata }))
 }
+
+function updateNumberSource(value: 'manual' | 'numarator'): void {
+  emit('update:numberSource', value)
+}
 </script>
+
+<style scoped>
+.number-source :deep(.n-form-item-blank) {
+  border-top: 1px solid var(--n-border-color);
+  padding-top: 10px;
+}
+</style>

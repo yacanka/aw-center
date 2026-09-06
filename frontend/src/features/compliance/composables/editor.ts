@@ -1,18 +1,25 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
 import type { ICompDoc, IHistory } from '@/features/compliance/models/compdocs'
 import { validateForm } from '@/shared/composables/forms'
 import { RequestError } from '@/shared/composables/promise'
 import { shouldLoadCompdocHistory } from '@/features/compliance/api/compdocHistory'
-import { buildCompdocUpdatePayload } from '@/features/compliance/api/compdocPayload'
+import {
+  buildCompdocCreatePayload,
+  buildCompdocUpdatePayload
+} from '@/features/compliance/api/compdocPayload'
+import {
+  createCoverPageAllocation,
+  fetchCoverPageAllocation,
+  fetchNumberingOptions,
+  resumeCoverPageAllocation,
+  type CoverPageAllocation
+} from '@/features/compliance/api/compdocNumbering'
+import { formatApiError } from '@/shared/api/apiError'
 import { isoToTurkishDateTime } from '@/shared/utils/time'
 import { useCompdocController } from '@/features/compliance/composables/compdocController'
 
-const rules: FormRules = {
-  name: [{ required: true, trigger: 'blur' }],
-  panel: [{ required: true, trigger: 'blur' }],
-  cover_page_no: [{ required: true, trigger: 'blur' }]
-}
+const ALLOCATION_REFRESH_MILLISECONDS = 1500
 
 export function useCompDocEditor(canEdit: Ref<boolean>) {
   const compdocStore = useCompdocController()
@@ -22,25 +29,74 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   const originalCompdoc = ref<ICompDoc>({} as ICompDoc)
   const popupMode = ref<string | null>(null)
   const hasExtraFields = ref(false)
+  const numberingAvailable = ref(false)
+  const numberSource = ref<'manual' | 'numarator'>('manual')
+  const allocation = ref<CoverPageAllocation | null>(null)
+  const allocationOperationId = ref('')
+  const allocationSubmitting = ref(false)
+  const allocationTimer = ref<number | undefined>()
   const readonly = computed(() => popupMode.value === 'view')
+  const formReadonly = computed(
+    () => readonly.value || allocationSubmitting.value || Boolean(allocation.value)
+  )
+  const allocationActive = computed(() => {
+    if (allocationSubmitting.value) return true
+    const jobStatus = allocation.value?.job?.status
+    return jobStatus === 'queued' || jobStatus === 'running' || jobStatus === 'cancel_requested'
+  })
+  const allocationFailed = computed(() => {
+    const jobStatus = allocation.value?.job?.status
+    return jobStatus === 'failed' || jobStatus === 'reconciliation_required'
+  })
+  const allocationMessage = computed(() => {
+    if (!allocation.value) return ''
+    if (allocation.value.status === 'completed') return 'Cover page number assigned.'
+    if (allocationFailed.value) {
+      return (
+        allocation.value.error_detail ||
+        allocation.value.job?.message ||
+        'Allocation needs attention.'
+      )
+    }
+    return allocation.value.job?.message || 'Cover page number allocation queued.'
+  })
+  const rules = computed<FormRules>(() => ({
+    name: [{ required: true, trigger: 'blur' }],
+    panel: [{ required: true, trigger: 'blur' }],
+    cover_page_no: [{ required: numberSource.value === 'manual', trigger: 'blur' }]
+  }))
   const isDirty = computed(
     () => !readonly.value && JSON.stringify(compdoc.value) !== JSON.stringify(originalCompdoc.value)
   )
 
   function openModal(value: ICompDoc, mode: string): void {
+    stopAllocationRefresh()
     popupMode.value = mode
     const draft = JSON.parse(JSON.stringify(value)) as ICompDoc
     originalCompdoc.value = { ...draft }
     compdoc.value = { ...draft }
     hasExtraFields.value = compdocStore.checkBonusFields()
+    allocation.value = null
+    allocationOperationId.value = mode === 'new' ? crypto.randomUUID() : ''
+    numberSource.value = 'manual'
+    numberingAvailable.value = false
+    if (mode === 'new') void loadNumberingOptions()
     showModal.value = true
   }
 
   function closeModal(): void {
+    stopAllocationRefresh()
     showModal.value = false
   }
 
   function handleVisibilityChange(visible: boolean): void {
+    if (
+      !visible &&
+      (allocationSubmitting.value || (allocation.value && allocation.value.status !== 'completed'))
+    ) {
+      window.$message.info('Finish or retry the cover page number allocation before closing.')
+      return
+    }
     if (visible || !isDirty.value) {
       showModal.value = visible
       return
@@ -57,12 +113,97 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   async function save(): Promise<void> {
     if (!(await validateForm(formRef.value))) return
     if (popupMode.value === 'new') {
+      if (numberSource.value === 'numarator') {
+        await startAllocation()
+        return
+      }
       await compdocStore.createCompdoc(compdoc.value)
       closeModal()
       return
     }
     await update()
   }
+
+  async function loadNumberingOptions(): Promise<void> {
+    try {
+      numberingAvailable.value = (
+        await fetchNumberingOptions(compdocStore.getProjectName)
+      ).available
+    } catch {
+      numberingAvailable.value = false
+    }
+  }
+
+  async function startAllocation(): Promise<void> {
+    if (allocationSubmitting.value) return
+    allocationSubmitting.value = true
+    try {
+      allocation.value = await createCoverPageAllocation(
+        compdocStore.getProjectName,
+        allocationOperationId.value,
+        buildCompdocCreatePayload(compdoc.value)
+      )
+      handleAllocationState()
+    } catch (error) {
+      window.$message.error(formatApiError(error))
+    } finally {
+      allocationSubmitting.value = false
+    }
+  }
+
+  async function retryAllocation(): Promise<void> {
+    if (!allocation.value || allocationSubmitting.value) return
+    allocationSubmitting.value = true
+    try {
+      allocation.value = await resumeCoverPageAllocation(
+        compdocStore.getProjectName,
+        allocation.value
+      )
+      handleAllocationState()
+    } catch (error) {
+      window.$message.error(formatApiError(error))
+    } finally {
+      allocationSubmitting.value = false
+    }
+  }
+
+  function scheduleAllocationRefresh(): void {
+    stopAllocationRefresh()
+    if (allocationActive.value && allocation.value) {
+      allocationTimer.value = window.setTimeout(refreshAllocation, ALLOCATION_REFRESH_MILLISECONDS)
+    }
+  }
+
+  async function refreshAllocation(): Promise<void> {
+    if (!allocation.value) return
+    try {
+      allocation.value = await fetchCoverPageAllocation(
+        compdocStore.getProjectName,
+        allocation.value.id
+      )
+      handleAllocationState()
+    } catch (error) {
+      window.$message.error(formatApiError(error))
+      stopAllocationRefresh()
+    }
+  }
+
+  function handleAllocationState(): void {
+    if (allocation.value?.status === 'completed' && allocation.value.document) {
+      compdocStore.acceptCreatedCompdoc(allocation.value.document)
+      window.$message.success(`Cover page ${allocation.value.number} assigned.`)
+      closeModal()
+      return
+    }
+    scheduleAllocationRefresh()
+  }
+
+  function stopAllocationRefresh(): void {
+    if (allocationTimer.value) window.clearTimeout(allocationTimer.value)
+    allocationTimer.value = undefined
+  }
+
+  onBeforeUnmount(stopAllocationRefresh)
 
   async function update(): Promise<void> {
     const documentId = compdoc.value.id
@@ -115,15 +256,21 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
 
   return {
     compdoc,
+    allocationActive,
+    allocationFailed,
+    allocationMessage,
     formRef,
+    formReadonly,
     handleVisibilityChange,
     hasExtraFields,
     loadHistory,
     openModal,
     originalCompdoc,
+    numberingAvailable,
+    numberSource,
     popupMode,
-    readonly,
     rules,
+    retryAllocation,
     save,
     setUpdateMode,
     showModal

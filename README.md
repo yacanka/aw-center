@@ -2,7 +2,7 @@
 
 AW Center; proje-scoped compliance document yönetimi, DCC/JIRA akışları, durable document işleri, engineering integration'ları ve Office/PDF araçlarını aynı Django + Vue uygulamasında birleştirir.
 
-Production hedefi tek ve bilinçli olarak dardır: aynı Windows cihazdaki Linux container'larında immutable image, same-origin HTTPS, PostgreSQL 17, Redis 7, private artifact volume ve bağımsız web/worker/notification/cleanup process'leri. Windows-only DOORS otomasyonu, DOORS'un kullanıcı oturumunda çalışan host-local native runner ile yürütülür; ana backend Windows process'i olarak çalışmaz.
+Güncel production hedefi aynı Windows kullanıcı oturumunda `launcher.py prod`, doğrudan same-origin HTTPS, ayrı SQLite/private-artifact state'i ve launcher-owned worker process'leridir. Windows-only DOORS otomasyonu aynı oturumdaki tek genel worker'da çalışır. Immutable Linux container, PostgreSQL 17, Redis 7 ve host-local runner topolojisi uygulamanın sonraki olgunluk aşaması olarak repository'de korunur.
 
 ## Hızlı başlangıç
 
@@ -23,10 +23,10 @@ python launcher.py dev --migrate
 içermeyen örnektir. Kopyalanan `backend/.env` Git tarafından yok sayılır;
 makineye özel değerleri burada veya daha yüksek öncelikli process environment'da
 verin. Tracked `.env.development` yalnız eski profil seçen kurulumlarla uyumluluk
-için korunur ve credential içermemelidir. Production bu dosyaları ve launcher'ı
-kullanmaz: Docker Compose için canonical şablon repository kökündeki
-`.env.example` dosyasıdır ve gerçek değerler checkout dışında veya secret
-manager'da tutulur.
+için korunur ve credential içermemelidir. Windows production için
+`backend/.env.production` dosyasını `%LOCALAPPDATA%\AWCenter\config\production.env`
+konumuna kopyalayın ve gerçek değerleri yalnız bu ignored, checkout dışı dosyada
+tutun. Repository kökündeki `.env.example` gelecekteki Compose profilidir.
 
 Varsayılan adresler:
 
@@ -35,7 +35,7 @@ Varsayılan adresler:
 - Liveness: `http://127.0.0.1:8000/health/live/`
 - Readiness: `http://127.0.0.1:8000/health/ready/`
 
-`launcher.py dev`, Django, Vite, durable job worker, notification worker ve cleanup worker'ı foreground child process'ler olarak başlatır. Migration yalnız `--migrate` açıkça verildiğinde uygulanır. Launcher production server başlatmaz.
+`launcher.py dev`, Django, Vite, durable job worker, notification worker ve cleanup worker'ı foreground child process'ler olarak başlatır. `launcher.py prod` ise Windows'ta tek TLS-enabled Uvicorn process'i ve production worker lifecycle'larını başlatır. Migration yalnız `--migrate` açıkça verildiğinde uygulanır.
 
 Local yapay zekâ ağırlıkları kaynak koddan ayrı, Git tarafından yok sayılan
 `.runtime/ai-models/` altında tutulur:
@@ -56,12 +56,16 @@ Operator tarafından sağlanan DOCX şablonları ağırlıklardan ayrı tutulur:
 └── <project>_dcc_template.docx
 ```
 
-Production aynı ayrımı `/app/ai-models:ro` ve `/app/document-templates:ro`
-mount'larıyla korur.
+Windows production aynı ayrımı `%LOCALAPPDATA%\AWCenter\assets\sets\<asset-set-id>\`
+altındaki `ai-models` ve `document-templates` dizinleriyle korur. Development ve
+production aynı seçilmiş asset setini okuyabilir; SQLite ve private-media yollarını
+paylaşmaz. Gelecekteki container karşılıkları `/app/ai-models:ro` ve
+`/app/document-templates:ro` olarak kalır.
 
-Repository içindeki Django/Vue `models/` dizinleri ve feature-owned Django HTML
-şablonları kaynak koddur ve normal biçimde Git tarafından izlenir. Üretilmiş SPA
-`backend/templates/index.html` dosyası build artifact'ı olarak ignore edilir.
+Repository içindeki Django/Vue `models/` dizinleri kaynak koddur. HTML mail gövdeleri
+de ilgili feature altında, örneğin `backend/users/templates/users/` ve
+`backend/compliance/templates/compliance/`, tracked kaynak olarak tutulur. Üretilmiş
+SPA `backend/templates/index.html` dosyası ise build artifact'ı olarak ignore edilir.
 Makineye özel farklı bir konum gerekirse yolları ignore edilen `backend/.env`
 içinde değiştirin.
 
@@ -72,19 +76,17 @@ Local veriyi bilinçli olarak sıfırlamanız gerekiyorsa önce [local database 
 ```text
 Browser
   └─ HTTPS / same-origin
-      └─ Nginx ingress
-          └─ Django + DRF + built Vue artifact
-              ├─ PostgreSQL: business state, audit, jobs, leases
-              ├─ Redis: shared cache, probe/capability coordination
-              └─ private-artifacts volume: owner-scoped job files
+      └─ Windows Uvicorn + Django/DRF + built Vue artifact
+          ├─ SQLite: business state, audit, jobs, leases
+          └─ LocalAppData private-media: owner-scoped job files
 
 Background lifecycles
   ├─ worker: local durable executors
   ├─ notification-worker: password-reset outbox + compliance notifications
   └─ cleanup-worker: preview and terminal-artifact retention
 
-Windows DOORS runner
-  └─ loopback HTTP + runner token → /internal/doors-runner/v1/
+Windows DOORS execution
+  └─ tek launcher-owned worker → allowlisted doors queue → OLE/COM
 ```
 
 Temel modül sınırları:
@@ -138,7 +140,7 @@ Proje başına Django app veya model yoktur. `compliance.ComplianceDocument`, `o
 
 ## Durable işler ve private artifact'lar
 
-Job create endpoint'leri private input artifact, SHA-256, owner, idempotency key ve static job kind sözleşmesini kaydeder. Container worker yalnız `local`, native DOORS runner yalnız `doors` queue allowlist'ini claim eder. Her claim yeni execution token ve süreli lease alır; heartbeat lease'i yeniler, progress monotonic ve fenced'dir. Terminal publish tekrar row lock + token kontrolünden geçer. Recovery sonrası eski runner artifact yayımlayamaz.
+Job create endpoint'leri private input artifact, SHA-256, owner, idempotency key ve static job kind sözleşmesini kaydeder. Windows production'daki tek genel worker `local` ve açıkça etkinleştirilmiş `doors` queue allowlist'lerini claim eder. Her claim yeni execution token ve süreli lease alır; heartbeat lease'i yeniler, progress monotonic ve fenced'dir. Terminal publish tekrar transaction + execution token kontrolünden geçer; belirsiz DOORS write işlemi reconciliation gerektirir.
 
 Artifact'lar `PRIVATE_MEDIA_ROOT` altındaki owner-scoped storage'dadır. Nginx `/media/` isteğini 404 ile kapatır; download yalnız yetkili Django view ve stored SHA-256 doğrulaması üzerinden yapılır. `cleanup-worker`, expired confirmation preview'larını ve `JOB_ARTIFACT_RETENTION_DAYS` süresini aşan terminal job/artifact'ları temizler.
 
@@ -170,6 +172,9 @@ python launcher.py test
 python launcher.py dev
 python launcher.py dev --migrate
 
+# Windows production
+python launcher.py prod --help
+
 # Platform-bound, checksum manifestli offline bundle
 python launcher.py prepare-offline --offline-dir offline
 python launcher.py package-offline --offline-dir offline --offline-zip project-offline.zip
@@ -179,7 +184,10 @@ python launcher.py setup --mode offline --offline-dir offline
 python launcher.py package-changes
 ```
 
-Launcher `.env` yazmaz, port değiştirmez, migration'ı örtülü uygulamaz ve production process'i supervise etmez. Ayrıntılar [launcher-runtime.md](docs/launcher-runtime.md) içindedir.
+Launcher `.env` yazmaz, port değiştirmez ve migration'ı örtülü uygulamaz.
+`dev` development process'lerini; Windows'a özel `prod` ise TLS web server ile
+production worker process'lerini birlikte supervise eder. Ayrıntılar
+[launcher-runtime.md](docs/launcher-runtime.md) içindedir.
 
 ## Test ve build
 
@@ -214,46 +222,56 @@ cd backend
 
 İlk local Playwright çalıştırmasından önce `frontend/` dizininde `npx playwright install chromium` çalıştırın. `test:e2e` login+CSRF, protected deep-link ve `reconciliation_required` ECR publication'ın yeni idempotent attempt ile resume edilmesi browser smoke'larını Chromium üzerinde yürütür; backend/container smoke'larının yerine geçmez.
 
-CI, fresh PostgreSQL ve Redis üzerinde migration, full Django tests, launcher/release tests, frontend format/type/test/build, dependency audit, immutable container build, CycloneDX SBOM, resolved image digest/frontend eşlik doğrulaması, session/rol/CompDoc/DCC/private-artifact+notification release smoke, readiness, worker heartbeat ve read-only source kontrollerini uygular. Ayrıntılar [testing-strategy.md](docs/testing-strategy.md) içindedir.
+CI, güncel production hedefi için Windows üzerinde SQLite migration/deploy check ve
+launcher/worker regresyonlarını çalıştırır. PostgreSQL/Redis testleri, immutable
+container build, CycloneDX SBOM ve image evidence kontrolleri gelecekteki container
+profilinin çürümesini önler. Ortak kapılarda full Django testleri ile frontend
+format/type/test/build ve dependency audit çalışır. Ayrıntılar
+[testing-strategy.md](docs/testing-strategy.md) içindedir.
 
-## Production ve release
+## Windows production
 
-Production'da `launcher.py` kullanılmaz. Desteklenen deploy akışı `deployment_preflight.py` ile `AWCENTER_IMAGE=repository@sha256:<digest>` biçimini zorunlu tutar ve schema-2 `release-manifest.json` ile `image-verification.json` evidence'ını birlikte alarak release, commit, manifest SHA-256, frontend tree/count ve image digest eşliğini fail-closed doğrular. Mutable tag desteklenmez. `backend/Dockerfile`:
+Windows production `launcher.py prod` ile çalışır. `backend/.env.production`, gerçek
+değerlerin yazılacağı dosya değil; `%LOCALAPPDATA%\AWCenter\config\production.env`
+için tracked şablondur. Production SQLite ve private-media development'tan ayrıdır.
 
-1. Node 22 aşamasında Vite artifact'ını üretir.
-2. Python 3.11 dependency aşamasında locked requirements'ı kurar ve `pip check` çalıştırır.
-3. Runtime aşamasında frontend artifact'ını kopyalar, static collection ve artifact verification yapar.
-4. Numeric non-root kimlik, dropped Linux capability'leri ve `no-new-privileges` ile çalışır; `/app` source tree'sini read-only bırakır.
+İlk çalıştırmadan önce frontend artifact'ını üretin:
 
-Compose topology; `ingress`, `backend`, `worker`, `notification-worker`, `cleanup-worker`, `database` ve `redis` servislerinden oluşur. AW Center image release evidence digest'iyle; Dockerfile base image'ları ile Nginx, PostgreSQL ve Redis image'ları SHA-256 digest'leriyle, CI action'ları commit SHA ile pinlidir. Process environment ve volume'ları capability'ye göre daraltılmıştır: notification worker integration secret/private/AI-model/template volume'u, cleanup worker integration/mail/AI-model/template volume'u, backend ve local worker ise mail credential'ı almaz. Private artifact volume yalnız backend, local worker ve cleanup worker'da; ayrı AI model ve document template mount'ları yalnız backend ve local worker'da bulunur.
-
-Redis non-root kullanıcı ve restricted runtime config ile authenticated çalışır. Nginx healthcheck'leri public bypass eklemek yerine yalnız container-loopback readiness listener'ından backend readiness'i doğrular.
-
-Main ingress host loopback'ine ayrıca yalnız DOORS runner path'ini geçiren bir listener publish eder; public HTTPS listener bütün `/internal/` yollarını kapatır. Native runner bu repository'deki `run_doors_runner` komutudur ve DOORS ile aynı logged-in Windows kullanıcısı altında supervise edilir. Migration, operator superuser oluşturma ve iki aşamalı `run_release_smoke` one-shot container komutlarıdır; public ingress ancak core/notification smoke, deploy checks, readiness ve worker health geçtikten sonra açılır.
-
-Release evidence:
-
-```bash
+```powershell
 npm --prefix frontend ci
 npm --prefix frontend run build
-export AWCENTER_RELEASE_EVIDENCE_ROOT=/srv/awcenter-release-evidence
-printf '%s' "$AWCENTER_RELEASE" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
-python scripts/build_release_metadata.py \
-  --release "$AWCENTER_RELEASE" \
-  --output "$AWCENTER_RELEASE_EVIDENCE_ROOT/$AWCENTER_RELEASE"
 ```
 
-Evidence root repository checkout'u dışında ve operator erişimli olmalıdır. Komut clean Git worktree ister; tracked kaynak ve built frontend için SHA-256 manifest, frontend tree digest'i ve Python/npm dependency'lerinden CycloneDX SBOM üretir. CI ayrıca BuildKit resolved-image metadata'sını, release manifest hash'ini ve image içindeki frontend tree ile reviewed artifact eşliğini kaydeden `image-verification.json` dosyasını saklar. Preflight secret/host/database/Redis/runtime path contract'ına ek olarak bu iki evidence dosyasını ve immutable image reference'ını tek release zinciri olarak doğrular.
+Production komutu deploy check, pending migration, static collection ve frontend
+artifact kapılarını geçmeden HTTPS server veya worker açmaz:
 
-Kurulum, backup, forward-fix ve atomic ingress gate için [deployment.md](docs/deployment.md) belgesini izleyin.
+```powershell
+python launcher.py prod `
+  --env-file "$env:LOCALAPPDATA\AWCenter\config\production.env" `
+  --host 192.0.2.10 `
+  --tls-cert-file "$env:LOCALAPPDATA\AWCenter\tls\application\tls.crt" `
+  --tls-key-file "$env:LOCALAPPDATA\AWCenter\tls\application\tls.key" `
+  --migrate
+```
+
+Normal yeniden başlatmada `--migrate` kaldırılır. DOORS etkinse production
+profile'ında `DOORS_EXECUTION_MODE=worker` kullanılır ve komuta
+`--include-doors` eklenir. Aynı kullanıcı oturumunda ikinci DOORS-capable worker
+başlatılamaz.
+
+Docker Compose, immutable image, PostgreSQL ve Redis dosyaları silinmemiştir;
+bunlar bugünkü production komutu değil, sonraki olgunluk/migration aşamasıdır.
+Kurulum, yedekleme, TLS ve dizin ayrıntıları için [deployment.md](docs/deployment.md)
+belgesini izleyin.
 
 ## Dokümantasyon
 
 - [Mimari](docs/architecture.md)
+- [Numarator entegrasyon tasarımı](docs/numarator-integration.md)
 - [Deployment ve operasyon](docs/deployment.md)
 - [Test stratejisi](docs/testing-strategy.md)
 - [Local database reset](docs/local-database-reset.md)
-- [Host-local DOORS runner](docs/doors-runner.md)
-- [Local launcher](docs/launcher-runtime.md)
+- [Windows DOORS execution](docs/doors-runner.md)
+- [Launcher runtime](docs/launcher-runtime.md)
 
 Eski review/roadmap dosyaları yalnız tarihsel snapshot notlarıdır; operasyonel sözleşme olarak kullanılmaz.

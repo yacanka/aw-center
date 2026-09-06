@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import environ
+from django.core.cache.backends.filebased import FileBasedCache
 from django.test import SimpleTestCase
 
 from awcenter.settings import load_environment_files
@@ -78,6 +79,7 @@ class DevelopmentEnvironmentTemplateTests(SimpleTestCase):
         example = read_env_values(REPOSITORY_ROOT / "backend/.env.example")
 
         self.assertEqual(example["DEBUG"], "True")
+        self.assertEqual(example["AWCENTER_DEPLOYMENT_MODE"], "development")
         self.assertTrue(example["DATABASE_URL"].startswith("sqlite:///"))
         self.assertNotIn("AWCENTER_ENV_FILE", example)
         self.assertNotIn("SECRET_KEY", example)
@@ -93,7 +95,9 @@ class DevelopmentEnvironmentTemplateTests(SimpleTestCase):
 
     def assert_local_template_is_safe(self, values):
         self.assertEqual(values["DEBUG"], "True")
+        self.assertEqual(values["AWCENTER_DEPLOYMENT_MODE"], "development")
         self.assertTrue(values["DATABASE_URL"].startswith("sqlite:///"))
+        self.assertEqual(values["CACHE_DIRECTORY"], "")
         self.assertEqual(values["TRUST_PROXY_HEADERS"], "False")
         self.assertEqual(values["SESSION_COOKIE_SECURE"], "False")
         self.assertEqual(values["CSRF_COOKIE_SECURE"], "False")
@@ -101,6 +105,7 @@ class DevelopmentEnvironmentTemplateTests(SimpleTestCase):
             "DOCPROOF_ENABLED",
             "DOORS_ENABLED",
             "JIRA_ENABLED",
+            "NUMARATOR_ENABLED",
             "TEAMCENTER_ENABLED",
         ):
             self.assertEqual(values[feature].casefold(), "false")
@@ -108,6 +113,7 @@ class DevelopmentEnvironmentTemplateTests(SimpleTestCase):
             "DOCPROOF_USERNAME",
             "DOCPROOF_PASSWORD",
             "JIRA_SESSION_ENCRYPTION_KEY",
+            "NUMARATOR_API_KEY",
             "TEAMCENTER_USERNAME",
             "TEAMCENTER_PASSWORD",
             "TEAMCENTER_JSESSIONID",
@@ -116,3 +122,31 @@ class DevelopmentEnvironmentTemplateTests(SimpleTestCase):
             self.assertEqual(values.get(credential, ""), "")
         self.assertNotIn("SECRET_KEY", values)
         self.assertNotIn("USE_X_FORWARDED_HOST", values)
+
+
+class WindowsProductionEnvironmentTemplateTests(SimpleTestCase):
+    """Keep the tracked production example aligned with the native runtime."""
+
+    def test_template_uses_isolated_sqlite_shared_file_cache_and_doors_worker(self):
+        values = read_env_values(REPOSITORY_ROOT / "backend/.env.production")
+
+        self.assertEqual(values["AWCENTER_DEPLOYMENT_MODE"], "windows-native")
+        self.assertEqual(values["DEBUG"], "False")
+        self.assertTrue(values["DATABASE_URL"].startswith("sqlite:///C:/Users/"))
+        self.assertEqual(values["DATABASE_CONN_MAX_AGE"], "0")
+        self.assertEqual(values["CACHE_URL"], "")
+        self.assertTrue(values["CACHE_DIRECTORY"].startswith("C:/Users/"))
+        self.assertEqual(values["TRUST_PROXY_HEADERS"], "False")
+        self.assertEqual(values["DOORS_EXECUTION_MODE"], "worker")
+        self.assertEqual(values["DOORS_RUNNER_TOKEN"], "")
+        self.assertIn("/assets/sets/", values["MODEL_RUNTIME_DIR"])
+        self.assertIn("/assets/sets/", values["CUSTOM_TEMPLATE_DIR"])
+
+    def test_file_cache_state_is_visible_to_separate_cache_instances(self):
+        with tempfile.TemporaryDirectory() as directory:
+            web_cache = FileBasedCache(directory, {})
+            worker_cache = FileBasedCache(directory, {})
+
+            web_cache.set("ephemeral-session", "encrypted-value", timeout=60)
+
+            self.assertEqual(worker_cache.get("ephemeral-session"), "encrypted-value")

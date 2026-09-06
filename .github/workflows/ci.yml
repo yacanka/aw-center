@@ -180,8 +180,105 @@ jobs:
       - working-directory: backend
         run: python manage.py check && python manage.py test
 
+  windows-native:
+    name: Windows native production contract
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      SECRET_KEY: development-only-ci-key
+      DEBUG: "True"
+      JIRA_ENABLED: "False"
+      DOCPROOF_ENABLED: "False"
+      DOORS_ENABLED: "False"
+      NUMARATOR_ENABLED: "False"
+      TEAMCENTER_ENABLED: "False"
+      ALLOWED_HOSTS: 127.0.0.1,localhost
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run Windows launcher and worker regressions
+        run: >-
+          python -m unittest
+          scripts.test_launcher
+          scripts.test_launcher_jobs
+
+      - name: Run Windows production-focused Django regressions
+        working-directory: backend
+        run: >-
+          python manage.py test
+          awcenter.test_environment
+          awcenter.test_production_checks
+          jobs.tests.test_isolated_worker.WorkerCompositionTests
+          integrations.tests.test_doors_runner_tasks
+
+      - name: Verify isolated Windows SQLite production profile
+        shell: pwsh
+        run: |
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP "awcenter-windows-native"
+          $stateRoot = Join-Path $runtimeRoot "state"
+          $assetRoot = Join-Path $runtimeRoot "assets"
+          $paths = @(
+            $stateRoot,
+            (Join-Path $stateRoot "private-media"),
+            (Join-Path $stateRoot "media"),
+            (Join-Path $stateRoot "static"),
+            (Join-Path $stateRoot "cache"),
+            (Join-Path $assetRoot "ai-models"),
+            (Join-Path $assetRoot "document-templates")
+          )
+          New-Item -ItemType Directory -Force -Path $paths | Out-Null
+
+          $databasePath = (Join-Path $stateRoot "db.sqlite3").Replace("\", "/")
+          $env:AWCENTER_DEPLOYMENT_MODE = "windows-native"
+          $env:SECRET_KEY = "8f85b66b87c34bc391b19f783dd12945d634ec83b60b4f609992c2e20e2aa2c7"
+          $env:DEBUG = "False"
+          $env:IPV4_ADDRESS = "192.0.2.10"
+          $env:PORT = "443"
+          $env:ALLOWED_HOSTS = "192.0.2.10"
+          $env:CSRF_TRUSTED_ORIGINS = "https://192.0.2.10"
+          $env:DATABASE_URL = "sqlite:///$databasePath"
+          $env:DATABASE_CONN_MAX_AGE = "0"
+          $env:CACHE_URL = ""
+          $env:CACHE_DIRECTORY = Join-Path $stateRoot "cache"
+          $env:PRIVATE_MEDIA_ROOT = Join-Path $stateRoot "private-media"
+          $env:MEDIA_ROOT = Join-Path $stateRoot "media"
+          $env:STATIC_ROOT = Join-Path $stateRoot "static"
+          $env:MODEL_RUNTIME_DIR = Join-Path $assetRoot "ai-models"
+          $env:CUSTOM_TEMPLATE_DIR = Join-Path $assetRoot "document-templates"
+          $env:FRONTEND_RESET_URL = "https://192.0.2.10/app/login"
+          $env:FRONTEND_INVITATION_URL = "https://192.0.2.10/app/invite"
+          $env:SESSION_COOKIE_SECURE = "True"
+          $env:CSRF_COOKIE_SECURE = "True"
+          $env:TRUST_PROXY_HEADERS = "False"
+          $env:TRUSTED_PROXY_COUNT = "0"
+          $env:DOORS_EXECUTION_MODE = "worker"
+          $env:JIRA_ENABLED = "False"
+          $env:DOCPROOF_ENABLED = "False"
+          $env:DOORS_ENABLED = "False"
+          $env:NUMARATOR_ENABLED = "False"
+          $env:TEAMCENTER_ENABLED = "False"
+
+          python backend/manage.py migrate --noinput
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python backend/manage.py migrate --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python backend/manage.py check_project_registry
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python backend/manage.py check --deploy --fail-level ERROR
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   container:
-    name: Immutable runtime image
+    name: Future immutable runtime image
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 45

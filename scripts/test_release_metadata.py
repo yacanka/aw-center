@@ -32,6 +32,7 @@ class ReleaseMetadataTests(unittest.TestCase):
             "DOCPROOF_ENABLED",
             "DOORS_ENABLED",
             "JIRA_ENABLED",
+            "NUMARATOR_ENABLED",
             "TEAMCENTER_ENABLED",
         ):
             self.assertEqual(values[feature], "false")

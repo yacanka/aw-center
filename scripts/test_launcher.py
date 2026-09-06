@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import json
 import io
+import ipaddress
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from scripts.launcher.cli import build_parser, project_path
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+
+from scripts.launcher.cli import build_parser, external_path, project_path
 from scripts.launcher.dependencies import install_backend, prepare_offline
 from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError, Project, Scope
@@ -25,8 +32,14 @@ from scripts.launcher.runtime import (
     dev,
     frontend_env,
     print_urls,
+    prod,
+    production_env,
+    production_url,
+    require_external_file,
+    require_production_host,
     runtime_env,
     test as run_repository_tests,
+    validate_tls_identity,
 )
 
 
@@ -44,6 +57,39 @@ def create_project(root: Path) -> Project:
     requirements = root / "requirements.txt"
     requirements.write_text("Django==5.2\n", encoding="utf-8")
     return Project(root, manage_py, package_json, requirements)
+
+
+def write_test_certificate(directory: Path, host: str) -> tuple[Path, Path]:
+    """Write a short-lived test-only certificate and matching private key."""
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "AW Center test")])
+    now = datetime.now(timezone.utc)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=2))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(host))]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    certificate_file = directory / "tls.crt"
+    private_key_file = directory / "tls.key"
+    certificate_file.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    private_key_file.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return certificate_file, private_key_file
 
 
 def create_sensitive_runtime_files(project: Project) -> None:
@@ -188,6 +234,118 @@ class RuntimeTests(unittest.TestCase):
                 frontend_port=5173, no_backend_reload=False, migrate=False)
         django_mock.assert_not_called()
 
+    @mock.patch("scripts.launcher.runtime.supervise")
+    @mock.patch("scripts.launcher.runtime.start_job_workers", return_value=[mock.sentinel.worker])
+    @mock.patch(
+        "scripts.launcher.runtime.start_production_backend",
+        return_value=mock.sentinel.backend,
+    )
+    @mock.patch("scripts.launcher.runtime.validate_tls_identity")
+    @mock.patch("scripts.launcher.runtime.require_external_file")
+    @mock.patch("scripts.launcher.runtime.require_port")
+    @mock.patch("scripts.launcher.runtime.require_production_host")
+    @mock.patch("scripts.launcher.runtime.require_windows_production")
+    @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
+    @mock.patch("scripts.launcher.runtime.django")
+    def test_production_runs_gates_without_implicit_migration(
+        self,
+        django_mock,
+        _environment,
+        _windows,
+        _host,
+        _port,
+        _external,
+        _tls,
+        backend_start,
+        worker_start,
+        supervise,
+    ) -> None:
+        """Production verifies its environment and artifact before serving HTTPS."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            env_file = Path(temporary).parent / "production.env"
+            certificate = Path(temporary).parent / "tls.crt"
+            private_key = Path(temporary).parent / "tls.key"
+            prod(
+                project,
+                host="192.0.2.10",
+                port=443,
+                env_file=env_file,
+                certificate_file=certificate,
+                private_key_file=private_key,
+                include_doors=True,
+                migrate=False,
+            )
+
+        commands = [call.args[1] for call in django_mock.call_args_list]
+        self.assertEqual(
+            commands,
+            [
+                ["check", "--deploy"],
+                ["migrate", "--check"],
+                ["collectstatic", "--clear", "--noinput"],
+                ["verify_frontend_artifact"],
+            ],
+        )
+        worker_start.assert_called_once()
+        self.assertTrue(worker_start.call_args.kwargs["include_doors"])
+        supervise.assert_called_once_with([mock.sentinel.backend, mock.sentinel.worker])
+
+    def test_production_runtime_values_are_explicit(self) -> None:
+        env_file = Path("C:/runtime/production.env")
+
+        self.assertEqual(
+            production_env(env_file, "192.0.2.10", 443),
+            {
+                "AWCENTER_ENV_FILE": str(env_file),
+                "AWCENTER_DEPLOYMENT_MODE": "windows-native",
+                "IPV4_ADDRESS": "192.0.2.10",
+                "PORT": "443",
+            },
+        )
+        self.assertEqual(production_url("192.0.2.10", 443), "https://192.0.2.10")
+        with self.assertRaises(LauncherError):
+            require_production_host("127.0.0.1")
+
+    def test_production_tls_certificate_must_contain_selected_ip(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            certificate, private_key = write_test_certificate(
+                Path(temporary), "192.0.2.10"
+            )
+
+            validate_tls_identity(certificate, private_key, "192.0.2.10")
+            with self.assertRaises(LauncherError):
+                validate_tls_identity(certificate, private_key, "192.0.2.11")
+
+    def test_production_runtime_files_must_be_outside_the_repository(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as project_directory,
+            tempfile.TemporaryDirectory() as external_directory,
+        ):
+            project = create_project(Path(project_directory))
+            internal_file = project.root / "production.env"
+            internal_file.write_text("DEBUG=False\n", encoding="utf-8")
+            external_file = Path(external_directory) / "production.env"
+            external_file.write_text("DEBUG=False\n", encoding="utf-8")
+
+            require_external_file(project, external_file, "production environment")
+            with self.assertRaises(LauncherError):
+                require_external_file(project, internal_file, "production environment")
+
+    def test_external_path_does_not_hide_a_symlink_from_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.env"
+            target.write_text("DEBUG=False\n", encoding="utf-8")
+            link = root / "production.env"
+            try:
+                link.symlink_to(target)
+            except OSError:
+                self.skipTest("This platform does not allow test symlink creation.")
+
+            self.assertTrue(external_path(link).is_symlink())
+
     @mock.patch("scripts.launcher.runtime.run")
     @mock.patch("scripts.launcher.runtime.django")
     @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
@@ -295,11 +453,26 @@ class CliTests(unittest.TestCase):
         self.assertTrue(package.ignore_packages)
         self.assertTrue(prepare.skip_frontend)
 
-    def test_launcher_does_not_supervise_production(self) -> None:
-        """Production lifecycle belongs to the deployment orchestrator."""
+    def test_windows_production_requires_explicit_runtime_inputs(self) -> None:
+        """Production cannot inherit development paths or transport defaults."""
 
-        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            build_parser().parse_args(["prod"])
+        production = build_parser().parse_args(
+            [
+                "prod",
+                "--env-file",
+                "production.env",
+                "--host",
+                "192.0.2.10",
+                "--tls-cert-file",
+                "tls.crt",
+                "--tls-key-file",
+                "tls.key",
+                "--include-doors",
+            ]
+        )
+
+        self.assertEqual(production.port, 443)
+        self.assertTrue(production.include_doors)
 
     def test_relative_paths_resolve_from_project_root(self) -> None:
         """Outputs should not depend on the shell's current working directory."""

@@ -1,9 +1,11 @@
 import sys
 from collections.abc import Callable
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import TypeVar
 
 from django.conf import settings
+from django.utils import timezone
 
 from integrations.doors import DoorsClient, DoorsClientConfig, DoorsConnectionError
 
@@ -48,7 +50,30 @@ def execute_with_client(operation: Callable[[DoorsClient], Result]) -> Result:
 
 
 def integration_status() -> dict[str, object]:
-    """Return fail-closed readiness for the host-local runner topology."""
+    """Return readiness for the configured Windows execution mode."""
+
+    if settings.DOORS_EXECUTION_MODE == "worker":
+        from jobs.models import WorkerHeartbeat
+
+        stale_seconds = max(5, int(settings.JOB_WORKER_STALE_SECONDS))
+        active_workers = WorkerHeartbeat.objects.filter(
+            worker_id__startswith="doors-worker:",
+            heartbeat_at__gte=timezone.now() - timedelta(seconds=stale_seconds),
+        ).count()
+        platform_supported = sys.platform == "win32"
+        configured = bool(settings.DOORS_ENABLED and platform_supported)
+        return {
+            "configured": configured,
+            "platform_supported": platform_supported,
+            "available": bool(configured and active_workers),
+            "execution_mode": "worker",
+            "runner": {
+                "configured": configured,
+                "available": bool(configured and active_workers),
+                "active_runners": active_workers,
+                "transport": "windows-worker",
+            },
+        }
 
     from automations.runner_protocol import runner_status
 
@@ -57,6 +82,6 @@ def integration_status() -> dict[str, object]:
         "configured": bool(settings.DOORS_ENABLED and runner["configured"]),
         "platform_supported": bool(runner["available"]),
         "available": bool(settings.DOORS_ENABLED and runner["available"]),
-        "execution_mode": "loopback_token",
+        "execution_mode": "runner",
         "runner": runner,
     }

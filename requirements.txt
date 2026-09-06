@@ -29,6 +29,7 @@ click==8.4.2
     # via
     #   huggingface-hub
     #   typer
+    #   uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   click
@@ -90,7 +91,9 @@ fsspec==2026.6.0
 gunicorn==23.0.0
     # via -r requirements.in
 h11==0.16.0
-    # via httpcore
+    # via
+    #   httpcore
+    #   uvicorn
 hf-xet==1.5.1 ; platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
     # via huggingface-hub
 httpcore==1.0.9
@@ -332,6 +335,8 @@ tzlocal==5.4.4
     # via extract-msg
 urllib3==2.7.0
     # via requests
+uvicorn==0.52.4 ; sys_platform == 'win32'
+    # via -r requirements.in
 whitenoise==6.12.0
     # via -r requirements.in
 win-unicode-console==0.5 ; platform_python_implementation != 'PyPy' and sys_platform == 'win32'

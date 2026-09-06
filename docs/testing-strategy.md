@@ -9,12 +9,12 @@ Test stratejisinin amacı yalnız assertion sayısı değil; architecture, secur
 | Backend unit/domain | Django `SimpleTestCase`, `TestCase`; app yanındaki `test*.py`/`tests/` | Service, serializer, permission, transaction, error yolları |
 | Backend API/contract | DRF `APIClient` | Session/CSRF, status/body/error, project scope, idempotency |
 | Architecture fitness | `backend/awcenter/test_architecture.py`, `backend/automations/tests.py` | Import DAG, removed packages, canonical URLs, queue/catalog boundaries |
-| Deployment contract | `backend/awcenter/test_deployment_contract.py`, `test_environment.py` | Digest-pinned image, process env/volume capability'si, Nginx, CI, production settings |
+| Deployment contract | `backend/awcenter/test_deployment_contract.py`, `test_environment.py`, `test_production_checks.py` | Windows launcher/SQLite/TLS sözleşmesi ve gelecekteki container profili |
 | Frontend unit | Vitest, `frontend/src/**/*.test.ts` | Session/project/API normalization ve typed services |
 | Frontend contract | `frontend/scripts/test-*.mjs` | Route/access/menu, store boundaries, upload/jobs/UI registration |
 | Browser smoke | Playwright Chromium, `frontend/e2e/` | Login+CSRF, protected deep-link ve explicit ECR reconciliation resume |
 | Launcher/release | Python unittest `scripts/test_*.py` | CLI, worker lifecycle, safe packaging, manifest/SBOM |
-| Container smoke | GitHub Actions | Fresh PostgreSQL/Redis, session+role+CompDoc+DCC/private-artifact release smoke, notification canary, readiness, worker heartbeat, read-only source |
+| Container smoke | GitHub Actions | Gelecekteki profil için fresh PostgreSQL/Redis, release smoke ve immutable image sözleşmesi |
 
 ## Ana local kapılar
 
@@ -103,7 +103,7 @@ Frontend artifact-serving değişikliğinde build sonrasında, `backend/` içind
 
 | Değişiklik | Minimum ek kontroller |
 |---|---|
-| Model/migration | Target app tests, `makemigrations --check --dry-run`, fresh PostgreSQL `migrate`, `migrate --check` |
+| Model/migration | Target app tests, `makemigrations --check --dry-run`, fresh Windows-production SQLite `migrate`, `migrate --check`; gelecekteki profil için ayrıca fresh PostgreSQL |
 | Project registry/roles | `projects`, `orgs`, `check_project_registry`, frontend project registry tests |
 | Compliance lifecycle/import | Compliance unit/API, optimistic version/confirmation, audit/history ve concurrency testleri |
 | Session/authorization | Backend auth/CSRF/permission + password-reset outbox/lease; frontend session, route access, menu/command tests |
@@ -112,10 +112,10 @@ Frontend artifact-serving değişikliğinde build sonrasında, `backend/` içind
 | ECR workflow | Owner scope, bounded PDF/immutable review create replay'i, versioned approve/reject, ephemeral JIRA session, publish/resume idempotency, job fencing ve no-auto-retry reconciliation |
 | JIRA subtask | Operator/project scope, credential-free manual/Excel plan, live field contract, marker idempotency, uncertain write ve explicit resume |
 | DCC reminder | Record/version/role scope, recipient sınırı, idempotency/cooldown, outbox lease, stable Message-ID ve SMTP'siz web enqueue |
-| DOORS runner | Loopback-only ingress, runner-token rejection, one-use input/output, stale completion, local catalog allowlist ve DOORS adapter tests |
+| DOORS worker/runner | Güncel worker'da combined allowlist, spawn isolation, singleton lock ve adapter belirsizlikleri; gelecek runner'da loopback/token/artifact capability contract'ı |
 | Frontend service/store | Vitest + ilgili script contract + typecheck |
 | Session/router/browser shell | Backend auth/CSRF + frontend unit/route contracts + `test:e2e` |
-| Static/Vite/Docker/Nginx | Frontend build, collectstatic, artifact verify, deployment contract, container build/smoke |
+| Static/Vite/production | Frontend build, collectstatic, artifact verify, Windows launcher/deploy checks; container değişirse ayrıca Docker/Nginx smoke |
 | Launcher/offline/release | Üç launcher/release unittest modülü, checksum/target mismatch ve secret-exclusion cases |
 | Compose/env/release gate | Preflight placeholder/path/password/evidence reddi, resolved digest, reviewed/image frontend tree eşliği, base/action pinleri ve per-process secret/volume assertions |
 
@@ -143,12 +143,18 @@ Test kolaylığı için production guard kaldırılmaz, exception yutulmaz, asse
 
 ## Database ve concurrency
 
-SQLite yalnız hızlı local convenience olabilir; release evidence PostgreSQL ve process-shared Redis üzerinde üretilir. Transaction/locking davranışı içeren testler fresh PostgreSQL'de çalışmalıdır. CI:
+Güncel production contract'ı tek Windows hostunda, yerel NTFS üzerindeki ayrı bir
+SQLite database'idir. `DATABASE_CONN_MAX_AGE=0`, bounded busy timeout, tek ASGI server
+process'i ve tek general worker zorunludur. Release doğrulaması development database'i
+yerine fresh bir production-benzeri SQLite kopyasında `migrate --noinput`,
+`migrate --check`, project seed ve işlevsel smoke kontrollerini kapsamalıdır.
 
-1. PostgreSQL ve Redis servislerini health-check ile başlatır.
-2. Fresh schema'ya `migrate --noinput` uygular.
-3. Project seed sayısını ve `migrate --check` sonucunu doğrular.
-4. Full backend suite'i çalıştırır.
+SQLite'ın write concurrency sınırı kabul edilmiş geçici bir trade-off'tur. Job claim,
+notification lease ve aggregate transition testleri lock/busy senaryolarını ayrıca
+kapsamalı; production database ve private media aynı noktadan backup edilmelidir.
+
+GitHub Actions'taki PostgreSQL/Redis ve container smoke'ları sonraki olgunluk profiline
+geçiş sözleşmesini çürümeye karşı korur; bugünkü Windows deployment girdisi değildir.
 
 Job claim/recovery, compliance/ECR version transition ve notification lease testleri row lock/token değişimini assertion ile kanıtlar; yalnız happy-path status kontrolü yeterli değildir. ECR external write timeout/lease loss `reconciliation_required` üretmeli, otomatik yeni job yaratmamalı ve resume yeni `Idempotency-Key` olmadan ilerlememelidir.
 
@@ -167,7 +173,8 @@ GitHub Actions jobs:
 - Backend: Python 3.11, PostgreSQL/Redis, fresh migration, checks/tests, dependency audit, integrated frontend/static smoke.
 - Frontend: Node 22, `npm ci`, format/type/unit-contract test, Playwright Chromium E2E, build, npm audit ve immutable artifact upload.
 - Compatibility: Python 3.14 üzerinde backend check/test.
-- Container: digest-pinned base/infra image'lar, commit-SHA-pinned actions, combined image, resolved digest/frontend tree verification, release manifest/CycloneDX SBOM, fresh-schema migration, `run_release_smoke` core+notification kapıları, deploy checks, readiness, worker heartbeat ve source read-only assertion.
+- Windows native: Python 3.11 üzerinde launcher/worker/DOORS regresyonları; repository dışındaki geçici dizinlerde production SQLite migration, file cache ve `check --deploy` sözleşmesi.
+- Future container: digest-pinned base/infra image'lar, commit-SHA-pinned actions, combined image, resolved digest/frontend tree verification, release manifest/CycloneDX SBOM, fresh-schema migration, `run_release_smoke` core+notification kapıları, deploy checks, readiness, worker heartbeat ve source read-only assertion.
 
 `verify_release_image.py`, BuildKit digest'i ve image frontend ağacını schema-2 release manifestine bağlar. `deployment_preflight.py` environment/runtime-path sözleşmesinin yanında manifest ve verification kaydındaki release, commit, manifest SHA-256, frontend tree/count ve `AWCENTER_IMAGE` digest eşliğini yeniden doğrular. Testler hem image-verification üretimindeki değiştirilmiş dist/manifest reddini hem deploy-time değiştirilmiş evidence/env reddini ayrı kapsamalıdır.
 

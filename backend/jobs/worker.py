@@ -2,6 +2,7 @@
 
 import logging
 import multiprocessing
+import sys
 from pathlib import Path
 from time import monotonic
 from uuid import uuid4
@@ -181,10 +182,11 @@ def execute_claimed_job(
 
 
 def start_executor_process(job, resolve_executor):
-    """Fork one executor before heartbeat threads start and return its control pipe."""
+    """Start one isolated executor using the platform's safe process method."""
 
+    method = "spawn" if sys.platform == "win32" else "fork"
     try:
-        context = multiprocessing.get_context("fork")
+        context = multiprocessing.get_context(method)
     except ValueError as error:
         raise JobExecutionFailure(
             "This worker platform cannot isolate job executors.",

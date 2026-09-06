@@ -1,6 +1,9 @@
-# Local database reset
+# Disposable development database reset
 
-Bu runbook yalnız disposable local development state'i içindir. Shared, staging veya production database/volume üzerinde kullanmayın. Production'da [deployment.md](deployment.md) backup ve forward-fix prosedürü uygulanır.
+Bu runbook yalnız disposable local development state'i içindir. Windows production
+SQLite dosyası da dahil olmak üzere shared, staging veya production state üzerinde
+kullanmayın. Production'da [deployment.md](deployment.md) backup ve forward-fix
+prosedürü uygulanır.
 
 Migration baseline fresh database contract'ıdır; önceki local schema'yı dönüştüren bir geçiş hattı yoktur. Korunması gereken yerel veri varsa reset yerine export/backup ihtiyacını ayrıca değerlendirin.
 
@@ -15,9 +18,12 @@ Hangi environment'ın aktif olduğunu, credential değerlerini terminale dökmed
 
 Bu çıktı yalnız güvenli sınıflandırma sinyalleridir; verinin disposable olduğunu kanıtlamaz. Aktif deployment bağlamını, Compose project adını ve volume sahipliğini ayrıca doğrulayın. Production/shared olma ihtimali veya tanımadığınız volume varsa durun. Reset aynı anda database, Redis cache ve private artifact referanslarını etkileyebilir.
 
-## Compose ile fresh PostgreSQL + Redis
+## Gelecekteki container profili için fresh PostgreSQL + Redis
 
-Bu yol local container topolojisini tamamen sıfırlar. Aşağıdaki `down --volumes` komutu Compose projesine ait PostgreSQL, Redis ve private artifact named volume'larını geri dönüşsüz siler.
+Bu yol yalnız gelecekteki container profilinin disposable local topolojisini tamamen
+sıfırlar. Bugünkü Windows production kurulumunda kullanılmaz. Aşağıdaki
+`down --volumes` komutu Compose projesine ait PostgreSQL, Redis ve private artifact
+named volume'larını geri dönüşsüz siler.
 
 Repository kökünde, yalnız bu disposable instance için kullanılan env dosyası ve explicit Compose project adıyla ilerleyin. Production preflight burada da placeholder secret, mutable image ve database password uyuşmazlığını reddeder:
 
@@ -89,7 +95,7 @@ awcenter_local_compose exec -T backend python manage.py shell -c \
   "from orgs.models import Project; assert Project.objects.count() == 8"
 ```
 
-## Local SQLite convenience profile
+## Development SQLite profili
 
 `backend/.env.development` SQLite kullanıyorsa dosyayı silmek yerine recoverable bir adla taşıyın. Django/worker process'leri önce durdurun:
 
@@ -127,6 +133,7 @@ Fresh migration canonical project satırlarını seed eder. Ayrı bir runtime pr
 
 ## Yapılmaması gerekenler
 
+- Production SQLite dosyasını silmek, yeniden adlandırmak veya development için kullanmak.
 - Shared/production PostgreSQL volume'unu `down --volumes` ile silmek.
 - Migration table'ını elle düzenlemek veya migration'ı fake etmek.
 - Eski schema dump'ını fresh baseline üstüne kısmi import etmek.

@@ -52,6 +52,81 @@ class CoverPage(models.Model):
         return f"{self.project.slug}: {self.number}"
 
 
+class CoverPageNumberAllocation(models.Model):
+    """Track one idempotent Numarator allocation through local document creation."""
+
+    class Status(models.TextChoices):
+        REQUESTED = "requested", "Requested"
+        ALLOCATED = "allocated", "Allocated"
+        USE_PENDING = "use_pending", "Use pending"
+        COMPLETED = "completed", "Completed"
+        RECONCILIATION_REQUIRED = "reconciliation_required", "Reconciliation required"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.PROTECT,
+        related_name="cover_page_number_allocations",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cover_page_number_allocations",
+    )
+    client_operation_id = models.UUIDField()
+    request_hash = models.CharField(max_length=64)
+    document_snapshot = models.JSONField()
+    format_code = models.CharField(max_length=100)
+    context_data = models.JSONField(default=dict, blank=True)
+    credential_fingerprint = models.CharField(max_length=16)
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.REQUESTED,
+        db_index=True,
+    )
+    remote_id = models.PositiveBigIntegerField(null=True, blank=True)
+    remote_number = models.CharField(max_length=200, blank=True)
+    remote_status = models.CharField(max_length=20, blank=True)
+    remote_request_id = models.CharField(max_length=128, blank=True)
+    cover_page = models.OneToOneField(
+        CoverPage,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="number_allocation",
+    )
+    document = models.OneToOneField(
+        "ComplianceDocument",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="cover_page_number_allocation",
+    )
+    current_job = models.ForeignKey(
+        "jobs.Job",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cover_page_number_allocations",
+    )
+    version = models.PositiveBigIntegerField(default=1)
+    error_code = models.CharField(max_length=64, blank=True)
+    error_detail = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "actor", "client_operation_id"],
+                name="compliance_unique_cover_allocation_request",
+            ),
+        ]
+        indexes = [models.Index(fields=["project", "status", "updated_at"])]
+
+
 class ComplianceDocument(models.Model):
     """Project-scoped compliance register document with optimistic versioning."""
 

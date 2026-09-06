@@ -2,7 +2,7 @@
 
 from django.utils.module_loading import import_string
 
-from automations.catalog import LOCAL_QUEUE, executor_kinds, executor_metadata
+from automations.catalog import DOORS_QUEUE, LOCAL_QUEUE, executor_kinds, executor_metadata
 from jobs.contracts import JobExecutionFailure
 
 
@@ -35,6 +35,48 @@ def local_job_timeout(kind):
 
     metadata = executor_metadata(kind)
     if metadata is None or metadata.queue != LOCAL_QUEUE:
+        raise JobExecutionFailure(
+            "No worker supports this job type.", "JOB_KIND_UNSUPPORTED"
+        )
+    return metadata.timeout_seconds
+
+
+def resolve_worker_executor(kind):
+    """Resolve local jobs and the explicitly enabled Windows DOORS adapter."""
+
+    metadata = executor_metadata(kind)
+    if metadata is None or metadata.queue not in {LOCAL_QUEUE, DOORS_QUEUE}:
+        raise JobExecutionFailure(
+            "No worker supports this job type.", "JOB_KIND_UNSUPPORTED"
+        )
+    dotted_path = metadata.dotted_path
+    if metadata.queue == DOORS_QUEUE:
+        dotted_path = "integrations.doors.job_executor.execute_doors_job"
+    try:
+        return import_string(dotted_path)
+    except ImportError as error:
+        raise JobExecutionFailure(
+            "The configured job executor is unavailable.",
+            "JOB_EXECUTOR_UNAVAILABLE",
+            True,
+        ) from error
+
+
+def worker_job_kinds(include_doors=False):
+    """Return the queue allowlist selected for one worker process."""
+
+    kinds = list(executor_kinds(LOCAL_QUEUE))
+    if include_doors:
+        kinds.extend(executor_kinds(DOORS_QUEUE))
+    return tuple(kinds)
+
+
+def worker_job_timeout(kind, include_doors=False):
+    """Return a timeout only for a kind this worker may execute."""
+
+    metadata = executor_metadata(kind)
+    allowed_queues = {LOCAL_QUEUE, DOORS_QUEUE} if include_doors else {LOCAL_QUEUE}
+    if metadata is None or metadata.queue not in allowed_queues:
         raise JobExecutionFailure(
             "No worker supports this job type.", "JOB_KIND_UNSUPPORTED"
         )

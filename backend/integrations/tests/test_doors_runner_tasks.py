@@ -3,6 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -14,6 +15,8 @@ from integrations.doors.runner_tasks import (
     link_requirements,
     update_object,
 )
+from integrations.doors.job_executor import execute_doors_job
+from jobs.contracts import JobExecutionFailure, JobExecutionUncertain
 
 
 class DoorsRunnerTaskTests(SimpleTestCase):
@@ -318,6 +321,86 @@ class DoorsRunnerTaskTests(SimpleTestCase):
             copied_output = directory / "copied.json"
             copied_output.write_bytes(output_path.read_bytes())
             return result, DetachedPath(copied_output.read_bytes())
+
+
+class DoorsWorkerAdapterTests(SimpleTestCase):
+    """Adapt artifact-only DOORS tasks to the durable Windows worker contract."""
+
+    @override_settings(DOORS_ENABLED=True, DOORS_EXECUTION_MODE="worker")
+    def test_worker_adapter_returns_a_private_job_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            input_path = root / "input.json"
+            output_path = root / "output.json"
+            input_path.write_text("{}", encoding="utf-8")
+
+            def task(_input, output):
+                output.write_text('{"ok":true}', encoding="utf-8")
+                return {
+                    "filename": "doors-result.json",
+                    "sha256_required": True,
+                    "bytes": output.stat().st_size,
+                }
+
+            job = SimpleNamespace(kind="doors.run_dxl", reconcile_on_lease_loss=False)
+            with (
+                patch(
+                    "integrations.doors.job_executor.materialize_job_input",
+                    return_value=input_path,
+                ),
+                patch(
+                    "integrations.doors.job_executor.temporary_output",
+                    return_value=output_path,
+                ),
+                patch.dict(
+                    "integrations.doors.job_executor.DOORS_TASKS",
+                    {"doors.run_dxl": task},
+                    clear=True,
+                ),
+            ):
+                result = execute_doors_job(job)
+
+            self.assertEqual(result.path, output_path)
+            self.assertEqual(result.filename, "doors-result.json")
+
+    @override_settings(DOORS_ENABLED=True, DOORS_EXECUTION_MODE="worker")
+    def test_ambiguous_doors_write_requires_reconciliation(self):
+        from integrations.doors import DoorsConnectionError
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            input_path = root / "input.json"
+            output_path = root / "output.json"
+            input_path.write_text("{}", encoding="utf-8")
+
+            def task(_input, _output):
+                raise DoorsConnectionError("provider detail")
+
+            job = SimpleNamespace(kind="doors.update_object", reconcile_on_lease_loss=True)
+            with (
+                patch(
+                    "integrations.doors.job_executor.materialize_job_input",
+                    return_value=input_path,
+                ),
+                patch(
+                    "integrations.doors.job_executor.temporary_output",
+                    return_value=output_path,
+                ),
+                patch.dict(
+                    "integrations.doors.job_executor.DOORS_TASKS",
+                    {"doors.update_object": task},
+                    clear=True,
+                ),
+                self.assertRaises(JobExecutionUncertain),
+            ):
+                execute_doors_job(job)
+
+    @override_settings(DOORS_ENABLED=False, DOORS_EXECUTION_MODE="worker")
+    def test_worker_adapter_fails_closed_when_doors_is_disabled(self):
+        job = SimpleNamespace(kind="doors.run_dxl", reconcile_on_lease_loss=False)
+
+        with self.assertRaises(JobExecutionFailure):
+            execute_doors_job(job)
 
 
 class DetachedPath:
