@@ -34,7 +34,7 @@ class CoverPage(models.Model):
         on_delete=models.CASCADE,
         related_name="cover_pages",
     )
-    number = models.CharField(max_length=32)
+    number = models.CharField(max_length=32, blank=True)
     issue = models.CharField(max_length=255, null=True, blank=True)
     version = models.PositiveBigIntegerField(default=1)
     history = HistoricalRecords()
@@ -44,6 +44,7 @@ class CoverPage(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["project", "number"],
+                condition=~Q(number=""),
                 name="compliance_unique_project_cover_page",
             )
         ]

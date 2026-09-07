@@ -33,6 +33,7 @@ class AllocationConflict(APIException):
 class CoverPageAllocationRequestSerializer(serializers.Serializer):
     client_operation_id = serializers.UUIDField()
     document = serializers.JSONField()
+    document_id = serializers.UUIDField(required=False)
 
     def validate_document(self, value):
         if not isinstance(value, dict):
@@ -52,8 +53,33 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
         document_serializer.is_valid(raise_exception=True)
         return _json_snapshot(document_serializer.validated_data)
 
+    def validate(self, attrs):
+        document_id = attrs.get("document_id")
+        if document_id is None:
+            return attrs
+        document = self.context["project"].compliance_documents.select_related(
+            "cover_page"
+        ).filter(pk=document_id).first()
+        if document is None:
+            raise serializers.ValidationError({"document_id": "Document not found."})
+        if document.cover_page.number:
+            raise serializers.ValidationError(
+                {"document_id": "The document already has a cover page number."}
+            )
+        attrs["existing_document"] = document
+        return attrs
 
-def create_allocation(*, project, actor, client_operation_id, document, request_id=""):
+
+def create_allocation(
+    *,
+    project,
+    actor,
+    client_operation_id,
+    document,
+    document_id=None,
+    existing_document=None,
+    request_id="",
+):
     """Persist one idempotent allocation intent and ensure it has a durable job."""
 
     if not is_configured(project.slug):
@@ -62,6 +88,7 @@ def create_allocation(*, project, actor, client_operation_id, document, request_
     context_data = {"project": project.slug}
     canonical_request = {
         "document": document,
+        "document_id": str(existing_document.pk) if existing_document else None,
         "format_code": format_code,
         "context_data": context_data,
     }
@@ -84,6 +111,8 @@ def create_allocation(*, project, actor, client_operation_id, document, request_
                 format_code=format_code,
                 context_data=context_data,
                 credential_fingerprint=credential_fingerprint(),
+                document=existing_document,
+                cover_page=existing_document.cover_page if existing_document else None,
             )
     except IntegrityError:
         allocation = CoverPageNumberAllocation.objects.get(

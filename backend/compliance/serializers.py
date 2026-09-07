@@ -165,8 +165,21 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
     def _resolve_cover_page(self, data):
         number = str(data.get("number", "")).strip()
         if not number:
-            raise serializers.ValidationError(
-                {"cover_page": {"number": "This field may not be blank."}}
+            if self.instance is not None and not self.instance.cover_page.number:
+                cover_page = self.instance.cover_page
+                issue = data.get("issue")
+                if cover_page.issue != issue:
+                    if data.get("version") != cover_page.version:
+                        raise CoverPageVersionConflict()
+                    cover_page.issue = issue
+                    cover_page.version += 1
+                    cover_page._history_user = self.context["request"].user
+                    cover_page.save(update_fields=["issue", "version"])
+                return cover_page
+            return CoverPage.objects.create(
+                project=self.context["project"],
+                number="",
+                issue=data.get("issue"),
             )
         issue = data.get("issue")
         expected_version = data.get("version")
