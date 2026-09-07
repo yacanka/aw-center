@@ -34,12 +34,12 @@ export async function fetchPanels(state: OrganizationState): Promise<void> {
     return
   }
   const requestedProject = state.project
-  await runOrganizationRequest<unknown>(
+  await runOrganizationRequest<IPanel[]>(
     state,
     fetchAllPanels(organizationPath(state.project, 'panels')),
-    (data) => {
+    (panels) => {
       if (state.project === requestedProject) {
-        state.panels = getPaginatedResults<IPanel>(data).map((panel) => ({
+        state.panels = panels.map((panel) => ({
           ...panel,
           project: panel.project_slug || requestedProject
         }))
@@ -48,7 +48,7 @@ export async function fetchPanels(state: OrganizationState): Promise<void> {
   )
 }
 
-async function fetchAllPanels(path: string) {
+async function fetchAllPanels(path: string): Promise<AxiosResponse<IPanel[]>> {
   const panels: IPanel[] = []
   let next: string | null = path
   let params: { page_size: number } | undefined = { page_size: 200 }
@@ -62,8 +62,7 @@ async function fetchAllPanels(path: string) {
     params = undefined
   }
   if (!firstResponse) throw new Error('Panel collection URL is missing.')
-  firstResponse.data = { results: panels, count: panels.length, next: null, previous: null }
-  return firstResponse
+  return { ...firstResponse, data: panels }
 }
 
 function isPaginatedPanelResponse(value: unknown): value is { next: string | null } {
