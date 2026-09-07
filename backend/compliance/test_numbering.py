@@ -16,7 +16,7 @@ from jobs.models import Job, JobStatus
 from jobs.worker import claim_next_job, execute_claimed_job
 from orgs.models import Panel, Project, ProjectRoleAssignment
 
-from .models import ComplianceDocument, CoverPageNumberAllocation
+from .models import ComplianceDocument, CoverPage, CoverPageNumberAllocation
 
 
 NUMARATOR_SETTINGS = {
@@ -140,6 +140,48 @@ class CoverPageNumberingTests(TestCase):
         client.mark_used.assert_called_once_with(41)
 
     @patch("compliance.numbering_executor.NumaratorClient")
+    def test_worker_assigns_number_to_existing_unnumbered_document(self, client_class):
+        cover_page = CoverPage.objects.create(project=self.project, number="", issue="A")
+        document = ComplianceDocument.objects.create(
+            project=self.project,
+            panel=self.panel,
+            cover_page=cover_page,
+            name="Waiting for a number",
+            owner=self.editor,
+        )
+        client = client_class.return_value
+        client.generate_number.return_value = GeneratedNumber(
+            43, "CP-2026-0043", "COVER_PAGE", "active", "num-request-1"
+        )
+        client.mark_used.return_value = GeneratedNumber(
+            43, "CP-2026-0043", "COVER_PAGE", "used", "num-request-2"
+        )
+        payload = self.payload(name=document.name)
+        payload["document_id"] = str(document.id)
+
+        response = self.client.post(self.url, payload, format="json")
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+
+        document.refresh_from_db()
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(document.cover_page.number, "CP-2026-0043")
+        self.assertEqual(ComplianceDocument.objects.count(), 1)
+
+    def test_document_can_be_created_without_cover_page_number(self):
+        response = self.client.post(
+            "/api/projects/ozgur/compliance-documents/",
+            {
+                "panel": self.panel.pk,
+                "cover_page": {"number": "", "issue": "A"},
+                "name": "Number later",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["cover_page"]["number"], "")
+
+    @patch("compliance.numbering_executor.NumaratorClient")
     def test_use_notification_retry_does_not_create_another_document(self, client_class):
         from integrations.numarator.client import NumaratorTemporaryError
 
@@ -185,7 +227,7 @@ class CoverPageNumberingTests(TestCase):
             {
                 "provider": "numarator",
                 "available": True,
-                "supports": ["create_document"],
+                "supports": ["create_document", "assign_existing_document"],
             },
         )
         self.assertNotIn("dnk_", response.content.decode("utf-8"))
