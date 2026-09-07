@@ -36,11 +36,13 @@ export async function fetchNumberingOptions(project: string): Promise<NumberingO
 export async function createCoverPageAllocation(
   project: string,
   clientOperationId: string,
-  document: CompDocCreatePayload
+  document: CompDocCreatePayload,
+  documentId?: string
 ): Promise<CoverPageAllocation> {
   const response = await apiClient.post<CoverPageAllocation>(allocationPath(project), {
     client_operation_id: clientOperationId,
-    document
+    document,
+    ...(documentId ? { document_id: documentId } : {})
   })
   return response.data
 }

@@ -198,7 +198,7 @@ class NumberingOptionsView(ProjectComplianceMixin, APIView):
             {
                 "provider": "numarator",
                 "available": is_configured(self.project.slug),
-                "supports": ["create_document"],
+                "supports": ["create_document", "assign_existing_document"],
             }
         )
 

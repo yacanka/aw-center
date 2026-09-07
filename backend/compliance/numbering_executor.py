@@ -49,7 +49,7 @@ def execute_cover_page_number_allocation(job):
             )
             _record_remote_allocation(job, allocation.id, generated)
         allocation.refresh_from_db()
-        if allocation.document_id is None:
+        if allocation.document_id is None or not allocation.cover_page.number:
             update_progress(job.id, 55, "Saving the compliance document.")
             _bind_document(job, allocation.id)
         allocation.refresh_from_db()
@@ -192,6 +192,21 @@ def _record_remote_allocation(job, allocation_id, generated):
 def _bind_document(job, allocation_id):
     allocation = _lock(job, allocation_id)
     if allocation.document_id:
+        cover_page = CoverPage.objects.select_for_update().get(pk=allocation.cover_page_id)
+        if cover_page.number:
+            if cover_page.number != allocation.remote_number:
+                raise NumaratorConflictError("The cover page was numbered while allocation ran.")
+            return allocation.document
+        if CoverPage.objects.filter(
+            project=allocation.project, number=allocation.remote_number
+        ).exists():
+            raise NumaratorConflictError("The generated number already exists in this project.")
+        cover_page.number = allocation.remote_number
+        cover_page.version += 1
+        cover_page._history_user = allocation.actor
+        cover_page.save(update_fields=["number", "version"])
+        allocation.status = CoverPageNumberAllocation.Status.USE_PENDING
+        allocation.save(update_fields=["status", "updated_at"])
         return allocation.document
     if CoverPage.objects.filter(
         project=allocation.project,

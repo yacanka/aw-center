@@ -26,7 +26,7 @@
           :compdoc="compdoc"
           :original="originalCompdoc"
           :readonly="formReadonly"
-          :show-number-source="popupMode === 'new'"
+          :show-number-source="popupMode === 'new' || !compdoc.cover_page_no"
           :numbering-available="numberingAvailable"
           :number-source="numberSource"
           @update:number-source="numberSource = $event"
@@ -73,7 +73,13 @@
         :disabled="allocationActive || allocationFailed"
         @click="save"
       >
-        {{ popupMode === 'new' ? 'Create' : 'Update' }}
+        {{
+          numberSource === 'numarator'
+            ? 'Get number from Numarator'
+            : popupMode === 'new'
+              ? 'Create'
+              : 'Update'
+        }}
       </n-button>
     </template>
   </n-modal>

@@ -63,7 +63,7 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   const rules = computed<FormRules>(() => ({
     name: [{ required: true, trigger: 'blur' }],
     panel: [{ required: true, trigger: 'blur' }],
-    cover_page_no: [{ required: numberSource.value === 'manual', trigger: 'blur' }]
+    cover_page_no: []
   }))
   const isDirty = computed(
     () => !readonly.value && JSON.stringify(compdoc.value) !== JSON.stringify(originalCompdoc.value)
@@ -77,10 +77,10 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     compdoc.value = { ...draft }
     hasExtraFields.value = compdocStore.checkBonusFields()
     allocation.value = null
-    allocationOperationId.value = mode === 'new' ? crypto.randomUUID() : ''
+    allocationOperationId.value = crypto.randomUUID()
     numberSource.value = 'manual'
     numberingAvailable.value = false
-    if (mode === 'new') void loadNumberingOptions()
+    if (mode === 'new' || !draft.cover_page_no) void loadNumberingOptions()
     showModal.value = true
   }
 
@@ -141,7 +141,8 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
       allocation.value = await createCoverPageAllocation(
         compdocStore.getProjectName,
         allocationOperationId.value,
-        buildCompdocCreatePayload(compdoc.value)
+        buildCompdocCreatePayload(compdoc.value),
+        popupMode.value === 'new' ? undefined : compdoc.value.id
       )
       handleAllocationState()
     } catch (error) {
@@ -190,7 +191,8 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
 
   function handleAllocationState(): void {
     if (allocation.value?.status === 'completed' && allocation.value.document) {
-      compdocStore.acceptCreatedCompdoc(allocation.value.document)
+      if (popupMode.value === 'new') compdocStore.acceptCreatedCompdoc(allocation.value.document)
+      else compdocStore.acceptUpdatedCompdoc(allocation.value.document)
       window.$message.success(`Cover page ${allocation.value.number} assigned.`)
       closeModal()
       return

@@ -1,4 +1,5 @@
 import { apiClient as axios } from '@/shared/api/http'
+import type { AxiosResponse } from 'axios'
 import type { IPanel, IProject, IResponsible } from '@/features/organization/models/orgs'
 import { notifyError, notifySuccess } from '@/shared/services/notify'
 import { getPaginatedResults } from '@/shared/services/pagination'
@@ -35,7 +36,7 @@ export async function fetchPanels(state: OrganizationState): Promise<void> {
   const requestedProject = state.project
   await runOrganizationRequest<unknown>(
     state,
-    axios.get(organizationPath(state.project, 'panels'), { params: { page_size: 200 } }),
+    fetchAllPanels(organizationPath(state.project, 'panels')),
     (data) => {
       if (state.project === requestedProject) {
         state.panels = getPaginatedResults<IPanel>(data).map((panel) => ({
@@ -45,6 +46,28 @@ export async function fetchPanels(state: OrganizationState): Promise<void> {
       }
     }
   )
+}
+
+async function fetchAllPanels(path: string) {
+  const panels: IPanel[] = []
+  let next: string | null = path
+  let params: { page_size: number } | undefined = { page_size: 200 }
+  let firstResponse: AxiosResponse<unknown> | undefined
+  while (next) {
+    const response: AxiosResponse<unknown> = await axios.get(next, { params })
+    firstResponse ??= response
+    const page = getPaginatedResults<IPanel>(response.data)
+    panels.push(...page)
+    next = isPaginatedPanelResponse(response.data) ? response.data.next : null
+    params = undefined
+  }
+  if (!firstResponse) throw new Error('Panel collection URL is missing.')
+  firstResponse.data = { results: panels, count: panels.length, next: null, previous: null }
+  return firstResponse
+}
+
+function isPaginatedPanelResponse(value: unknown): value is { next: string | null } {
+  return Boolean(value && typeof value === 'object' && 'next' in value)
 }
 
 /** Create a project panel. */
