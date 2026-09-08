@@ -1,9 +1,13 @@
+import os
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 from threading import Event
+from textwrap import dedent
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -12,7 +16,8 @@ from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from jobs.contracts import JobExecutionResult
 from jobs.models import JobStatus
 from jobs.services import create_job, request_cancellation
-from jobs.worker import claim_next_job, execute_claimed_job
+from jobs.process_bootstrap import bootstrap_executor_process
+from jobs.worker import claim_next_job, execute_claimed_job, start_executor_process
 
 
 def isolated_success_executor(_job):
@@ -145,6 +150,98 @@ class IsolatedWorkerTests(TransactionTestCase):
 
 class WorkerCompositionTests(SimpleTestCase):
     """Lock catalog timeout and process isolation into the production worker loop."""
+
+    def test_spawn_bootstrap_initializes_django_before_worker_import(self):
+        """A fresh spawned interpreter reaches model code only after setup."""
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "spawn-check.sqlite3"
+            code = dedent(
+                """
+                import multiprocessing
+                from jobs.process_bootstrap import bootstrap_executor_process
+
+                if __name__ == "__main__":
+                    context = multiprocessing.get_context("spawn")
+                    parent, child = context.Pipe(duplex=False)
+                    process = context.Process(
+                        target=bootstrap_executor_process,
+                        args=(
+                            "00000000-0000-0000-0000-000000000000",
+                            "doors.run_dxl",
+                            ("awcenter.job_executors", "resolve_worker_executor"),
+                            child,
+                        ),
+                    )
+                    process.start()
+                    child.close()
+                    received = parent.poll(10)
+                    envelope = parent.recv() if received else None
+                    process.join(5)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(5)
+                    exit_code = process.exitcode
+                    parent.close()
+                    assert received, exit_code
+                    assert envelope == {
+                        "outcome": "unhandled",
+                        "error_type": "OperationalError",
+                    }, envelope
+                    assert exit_code == 0, exit_code
+                """
+            )
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "AWCENTER_DEPLOYMENT_MODE": "development",
+                    "DATABASE_URL": f"sqlite:///{database_path.as_posix()}",
+                    "DEBUG": "True",
+                    "DJANGO_SETTINGS_MODULE": "awcenter.settings",
+                    "SECRET_KEY": "spawn-bootstrap-test-only",
+                }
+            )
+
+            completed = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=Path(__file__).resolve().parents[2],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    @patch("jobs.worker.connections.close_all")
+    @patch("jobs.worker.multiprocessing.get_context")
+    @patch("jobs.worker.sys.platform", "win32")
+    def test_windows_process_defers_resolver_import_until_after_bootstrap(
+        self, get_context, _close_connections
+    ):
+        """Spawn receives import-safe strings instead of importing a resolver early."""
+
+        context = get_context.return_value
+        parent_connection = Mock()
+        child_connection = Mock()
+        process = Mock()
+        context.Pipe.return_value = (parent_connection, child_connection)
+        context.Process.return_value = process
+        job = SimpleNamespace(id="12345678-job", kind="doors.run_dxl")
+
+        child = start_executor_process(job, isolated_resolver)
+
+        self.assertIs(child.process, process)
+        process.start.assert_called_once_with()
+        child_connection.close.assert_called_once_with()
+        process_options = context.Process.call_args.kwargs
+        self.assertIs(process_options["target"], bootstrap_executor_process)
+        self.assertEqual(
+            process_options["args"][2],
+            ("jobs.tests.test_isolated_worker", "isolated_resolver"),
+        )
+        self.assertIs(process_options["args"][3], child_connection)
 
     def test_worker_applies_catalog_timeout_to_isolated_executor(self):
         from jobs.management.commands.run_job_worker import Command

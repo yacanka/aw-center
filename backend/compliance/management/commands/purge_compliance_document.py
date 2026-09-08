@@ -4,9 +4,8 @@ from uuid import UUID
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
-from compliance.models import ComplianceDocument, DocumentPurgeAudit
+from compliance.purging import DocumentPurgeError, purge_document
 
 
 class Command(BaseCommand):
@@ -37,35 +36,14 @@ class Command(BaseCommand):
             operator = user_model.objects.get(username=options["operator"], is_active=True)
         except user_model.DoesNotExist as error:
             raise CommandError("The purge operator is unavailable.") from error
-        if not operator.is_superuser:
-            raise CommandError("Only an active superuser may purge compliance documents.")
-
-        with transaction.atomic():
-            try:
-                document = (
-                    ComplianceDocument.objects.select_for_update()
-                    .select_related("project")
-                    .get(pk=document_id)
-                )
-            except ComplianceDocument.DoesNotExist as error:
-                raise CommandError("The compliance document does not exist.") from error
-            if not document.is_archived:
-                raise CommandError("Archive the compliance document before purging it.")
-            if document.version != expected_version:
-                raise CommandError("The compliance document version changed before purge.")
-
-            project = document.project
-            document_version = document.version
-            document._history_user = operator
-            document._change_reason = reason[:100]
-            document.delete()
-            DocumentPurgeAudit.objects.create(
+        try:
+            purge_document(
                 document_id=document_id,
-                project=project,
-                document_version=document_version,
-                purged_by=operator,
-                purged_by_username=operator.get_username(),
+                expected_version=expected_version,
+                operator=operator,
                 reason=reason,
             )
+        except DocumentPurgeError as error:
+            raise CommandError(str(error)) from error
 
         self.stdout.write(self.style.SUCCESS(f"Purged compliance document {document_id}."))
