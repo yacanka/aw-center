@@ -38,15 +38,39 @@ export function buildClientCompdocSummary(
   const actual = new Map<number, number>()
   rows.forEach((row) => {
     statuses[normalizedStatus(row.status)] += 1
-    const entries = normalizedFlow(row.status_flow)
-    accumulatePending(entries, pendingDays, startOfDay(today))
-    accumulateDate(scheduled, entries[0], new Set(['to_be_issued', 'delayed']))
-    accumulateDate(actual, entries[1])
+    const milestones = documentMilestones(row)
+    accumulatePending(milestones.entries, pendingDays, startOfDay(today))
+    accumulateDate(scheduled, milestones.target, new Set(['to_be_issued', 'delayed']))
+    accumulateDate(actual, milestones.delivery)
   })
   return {
     statuses,
     pendingDays,
     timeline: buildTimeline(scheduled, actual, rows.length, startOfDay(today))
+  }
+}
+
+function documentMilestones(row: ICompDoc) {
+  const legacyEntries = normalizedFlow(row.status_flow)
+  if (legacyEntries.length) {
+    return {
+      entries: legacyEntries,
+      target: legacyEntries[0],
+      delivery: legacyEntries[1]
+    }
+  }
+  const target = parseDate(row.ubm_target_date)
+  const delivery = parseDate(row.ubm_delivery_date)
+  const targetEntry = target ? { status: 'to_be_issued', date: target } : undefined
+  const deliveryEntry = delivery
+    ? { status: normalizedStatus(row.status), date: delivery }
+    : undefined
+  return {
+    entries: [targetEntry, deliveryEntry].filter((entry): entry is { status: string; date: Date } =>
+      Boolean(entry)
+    ),
+    target: targetEntry,
+    delivery: deliveryEntry
   }
 }
 

@@ -62,7 +62,6 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   })
   const rules = computed<FormRules>(() => ({
     name: [{ required: true, trigger: 'blur' }],
-    panel: [{ required: true, trigger: 'blur' }],
     cover_page_no: []
   }))
   const isDirty = computed(

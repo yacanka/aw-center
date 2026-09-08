@@ -11,7 +11,13 @@ from django.test import TestCase, override_settings
 from openpyxl import load_workbook
 from rest_framework.test import APIClient
 
-from orgs.models import Panel, Project, ProjectRoleAssignment
+from orgs.models import (
+    Panel,
+    Person,
+    Project,
+    ProjectRoleAssignment,
+    ResponsibleAssignment,
+)
 
 from .models import (
     ComplianceDocument,
@@ -181,6 +187,12 @@ class ComplianceApiTests(TestCase):
         filtered = self.client.get(self.collection_url, {"name": "secondary"})
         ordered = self.client.get(self.collection_url, {"ordering": "name"})
         invalid = self.client.get(self.collection_url, {"ordering": "owner"})
+        invalid_panel = self.client.get(self.collection_url, {"panel": "not-an-id"})
+        invalid_archive = self.client.get(self.collection_url, {"archived": "sometimes"})
+        created_today = self.client.get(
+            self.collection_url,
+            {"created_at": document.created_at.date().isoformat()},
+        )
 
         self.assertEqual(filtered.status_code, 200)
         self.assertEqual(filtered.data["count"], 1)
@@ -191,6 +203,9 @@ class ComplianceApiTests(TestCase):
             ["Alpha secondary document", "Flight Controls Compliance"],
         )
         self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(invalid_panel.status_code, 400)
+        self.assertEqual(invalid_archive.status_code, 400)
+        self.assertEqual(created_today.data["count"], 2)
 
     def test_field_contract_reports_real_filter_and_sort_capabilities(self):
         self.client.force_authenticate(self.viewer)
@@ -204,6 +219,33 @@ class ComplianceApiTests(TestCase):
         self.assertEqual(fields["panel"]["option_source"], "panels")
         self.assertTrue(fields["status"]["choices"])
 
+    def test_reference_options_use_compliance_scope_only(self):
+        team = Group.objects.create(name="Compliance team")
+        ProjectRoleAssignment.objects.create(
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+            role=ProjectRoleAssignment.Role.VIEWER,
+            group=team,
+        )
+        self.client.force_authenticate(self.viewer)
+
+        panels = self.client.get(f"{self.collection_url}options/", {"kind": "panel"})
+        forbidden_users = self.client.get(
+            f"{self.collection_url}options/", {"kind": "user"}
+        )
+        self.client.force_authenticate(self.editor)
+        users = self.client.get(f"{self.collection_url}options/", {"kind": "user"})
+        groups = self.client.get(f"{self.collection_url}options/", {"kind": "group"})
+
+        self.assertEqual(panels.status_code, 200)
+        self.assertEqual(forbidden_users.status_code, 403)
+        self.assertEqual(panels.data["results"][0]["ata"], self.panel.ata)
+        self.assertIn(self.assignee.pk, {item["id"] for item in users.data["results"]})
+        self.assertEqual(
+            groups.data["results"],
+            [{"id": team.pk, "label": team.name, "name": team.name}],
+        )
+
     def test_tracking_read_does_not_create_domain_state(self):
         document = self.create_document()
         self.client.force_authenticate(self.viewer)
@@ -214,6 +256,45 @@ class ComplianceApiTests(TestCase):
         self.assertEqual(response.data["responsible_mode"], "automatic")
         self.assertFalse(response.data["notification_enabled"])
         self.assertFalse(TrackingProfile.objects.filter(document=document).exists())
+
+    def test_tracking_preferences_save_on_tracking_resource(self):
+        person = Person.objects.create(
+            person_id="responsible-1",
+            name="Responsible Engineer",
+            email="responsible@example.com",
+        )
+        ResponsibleAssignment.objects.create(
+            panel=self.panel,
+            person=person,
+            responsibility_role="AS",
+        )
+        document = self.create_document()
+        self.client.force_authenticate(self.editor)
+        url = f"{self.collection_url}{document.pk}/tracking/"
+
+        read = self.client.get(url)
+        saved = self.client.put(
+            url,
+            {
+                "version": 0,
+                "responsible_mode": "custom",
+                "responsible_person_ids": [person.pk],
+                "notification_enabled": True,
+                "notification_events": ["overdue"],
+            },
+            format="json",
+        )
+        wrong_resource = self.client.put(
+            f"{url}docproof/",
+            {"version": 1},
+            format="json",
+        )
+
+        self.assertEqual(read.data["responsible_options"][0]["id"], person.pk)
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.data["version"], 1)
+        self.assertEqual(saved.data["responsible_person_ids"], [person.pk])
+        self.assertEqual(wrong_resource.status_code, 405)
 
     @patch("compliance.services.search_document_issue", return_value=(2, None))
     def test_docproof_refresh_persists_versioned_revision_evidence(self, search_issue):
@@ -231,7 +312,63 @@ class ComplianceApiTests(TestCase):
         self.assertEqual(refreshed.data["docproof_issue"], "2")
         self.assertEqual(refreshed.data["version"], 1)
         self.assertEqual(stale.status_code, 409)
-        self.assertEqual(search_issue.call_count, 2)
+        self.assertEqual(search_issue.call_count, 1)
+
+    def test_partial_cover_page_requires_identity_and_preserves_existing_cover(self):
+        document = self.create_document()
+        original_cover_id = document.cover_page_id
+        self.client.force_authenticate(self.editor)
+
+        response = self.client.patch(
+            f"{self.collection_url}{document.pk}/",
+            {
+                "version": document.version,
+                "cover_page": {
+                    "issue": "B",
+                    "version": document.cover_page.version,
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        document.refresh_from_db()
+        self.assertEqual(document.cover_page_id, original_cover_id)
+
+    def test_partial_cover_page_without_issue_is_a_noop(self):
+        document = self.create_document()
+        self.client.force_authenticate(self.editor)
+
+        response = self.client.patch(
+            f"{self.collection_url}{document.pk}/",
+            {
+                "version": document.version,
+                "cover_page": {
+                    "number": document.cover_page.number,
+                    "version": document.cover_page.version,
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["version"], document.version)
+        self.assertEqual(response.data["cover_page"]["issue"], "A")
+
+    def test_single_line_identifiers_reject_line_breaks(self):
+        self.client.force_authenticate(self.editor)
+
+        response = self.client.post(
+            self.collection_url,
+            {
+                "cover_page": {"number": "CP-LINE", "issue": "A"},
+                "name": "Unsafe\nsubject",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(ComplianceDocument.objects.filter(name__contains="Unsafe").exists())
 
     def test_export_neutralizes_untrusted_formula_values(self):
         document = self.create_document()
@@ -290,6 +427,33 @@ class ComplianceApiTests(TestCase):
         self.assertEqual(document.status, event.status)
         self.assertEqual(document.ubm_target_date, date(2026, 8, 11))
         self.assertEqual(document.version, 2)
+
+    def test_transition_rejects_a_date_before_the_latest_event(self):
+        document = self.create_document()
+        self.client.force_authenticate(self.editor)
+        url = f"{self.collection_url}{document.pk}/transitions/"
+        first = self.client.post(
+            url,
+            {
+                "version": 1,
+                "status": "to_be_issued",
+                "effective_date": "2026-08-11",
+            },
+            format="json",
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "version": first.data["version"],
+                "status": "authority_review",
+                "effective_date": "2026-08-10",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(WorkflowEvent.objects.filter(document=document).count(), 1)
 
     def test_only_manager_can_archive_and_restore(self):
         document = self.create_document()
@@ -407,6 +571,79 @@ class ComplianceApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["version"], document.version)
+
+    def test_work_rejects_group_without_project_compliance_access(self):
+        document = self.create_document(owner=self.editor)
+        unrelated_group = Group.objects.create(name="Unrelated team")
+        self.client.force_authenticate(self.editor)
+
+        response = self.client.put(
+            f"{self.collection_url}{document.pk}/work/",
+            {
+                "version": document.version,
+                "owner_group": unrelated_group.pk,
+                "reason": "Assign team",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        document.refresh_from_db()
+        self.assertIsNone(document.owner_group_id)
+
+    def test_panel_change_rejects_incompatible_custom_tracking_recipients(self):
+        person = Person.objects.create(
+            person_id="tracked-person",
+            name="Tracked Person",
+            email="tracked@example.com",
+        )
+        ResponsibleAssignment.objects.create(
+            panel=self.panel,
+            person=person,
+            responsibility_role="AS",
+        )
+        document = self.create_document()
+        profile = TrackingProfile.objects.create(
+            document=document,
+            responsible_mode=TrackingProfile.ResponsibleMode.CUSTOM,
+            notification_enabled=True,
+            notification_events=["overdue"],
+        )
+        profile.responsible_people.add(person)
+        other_panel = Panel.objects.create(
+            project=self.project,
+            name="Structures",
+            discipline="Structures",
+            ata="53-00",
+        )
+        self.client.force_authenticate(self.editor)
+
+        response = self.client.patch(
+            f"{self.collection_url}{document.pk}/",
+            {"version": document.version, "panel": other_panel.pk},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        document.refresh_from_db()
+        self.assertEqual(document.panel_id, self.panel.pk)
+
+    def test_activity_includes_versioned_document_history(self):
+        document = self.create_document()
+        self.client.force_authenticate(self.editor)
+        self.client.patch(
+            f"{self.collection_url}{document.pk}/",
+            {"version": document.version, "notes": "Audit-visible change"},
+            format="json",
+        )
+
+        response = self.client.get(f"{self.collection_url}{document.pk}/activity/")
+
+        history_items = [
+            item for item in response.data["results"] if item["type"] == "history"
+        ]
+        self.assertTrue(history_items)
+        self.assertEqual(history_items[0]["data"]["version"], 2)
 
     def test_notification_policy_revisions_serialize_on_project_row(self):
         self.client.force_authenticate(self.manager)

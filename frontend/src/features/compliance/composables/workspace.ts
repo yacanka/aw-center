@@ -2,6 +2,7 @@ import { computed, h, ref } from 'vue'
 import { NInput } from 'naive-ui'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import type { CompdocController } from '@/features/compliance/composables/compdocController'
+import { withCompdocDisplayStatus } from '@/features/compliance/api/compdocStatus'
 
 /** Coordinate the selected row and its document workspace. */
 export function useCompdocWorkspace(store: CompdocController) {
@@ -9,7 +10,8 @@ export function useCompdocWorkspace(store: CompdocController) {
   const workspaceVisible = ref(false)
   const activeDocument = computed(() => {
     const id = selectedDocument.value?.id
-    return store.getCompdocs.find((document) => document.id === id) || selectedDocument.value
+    const document = store.getCompdocs.find((item) => item.id === id) || selectedDocument.value
+    return document ? withCompdocDisplayStatus(document) : null
   })
 
   function openWorkspace(document: ICompDoc) {

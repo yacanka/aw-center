@@ -7,6 +7,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
@@ -22,7 +23,12 @@ from .compdoc_import import build_mapping_preview, choose_header_row, read_mappe
 from .compdoc_workflow import WORKFLOW_STATUSES, parse_workflow_date
 from .models import ComplianceDocument, CoverPage, ImportAudit, WorkflowEvent
 from .serializers import ComplianceDocumentSerializer
-from .services import VersionConflict, transition_document, update_document
+from .services import (
+    VersionConflict,
+    require_tracking_panel_compatibility,
+    transition_document,
+    update_document,
+)
 
 
 CONFIRMATION_SALT = "awcenter.compliance-import.v1"
@@ -221,12 +227,50 @@ def prepare_tabular_plan(
         for key in _payload_keys(normalized_row)
     )
     duplicates = {key for key, count in identity_counts.items() if count > 1}
+    document_id_counts = Counter(
+        normalized_row["id"] for _, normalized_row in normalized if normalized_row["id"]
+    )
+    duplicate_document_ids = {
+        document_id for document_id, count in document_id_counts.items() if count > 1
+    }
+    cover_issue_requests = {}
+    for _, normalized_row in normalized:
+        cover_data = normalized_row["payload"]["cover_page"]
+        cover_key = _canonical_identity(cover_data["number"])
+        cover_issue_requests.setdefault(cover_key, set()).add(
+            _normalized_cover_issue(cover_data.get("issue"))
+        )
+    conflicting_cover_issues = {
+        cover_key for cover_key, issues in cover_issue_requests.items() if len(issues) > 1
+    }
     planned = []
     for row_number, normalized_row in normalized:
         payload = normalized_row["payload"]
         target = None
         document_id = normalized_row["id"]
+        if _canonical_identity(payload["cover_page"]["number"]) in conflicting_cover_issues:
+            errors.append(
+                {
+                    "row": row_number,
+                    "code": "IMPORT_CONFLICTING_COVER_PAGE_ISSUE",
+                    "fields": {
+                        "cover_page_issue": (
+                            "Rows sharing a cover-page number must use the same issue."
+                        )
+                    },
+                }
+            )
+            continue
         if document_id:
+            if document_id in duplicate_document_ids:
+                errors.append(
+                    {
+                        "row": row_number,
+                        "code": "IMPORT_DUPLICATE_DOCUMENT_ID",
+                        "fields": {"id": "Workbook contains this document UUID more than once."},
+                    }
+                )
+                continue
             target = by_id.get(document_id)
             if target is None:
                 errors.append(
@@ -309,6 +353,13 @@ def prepare_tabular_plan(
                 }
             )
             continue
+        next_panel = serializer.validated_data.get("panel", target.panel if target else None)
+        if target is not None and getattr(next_panel, "pk", None) != target.panel_id:
+            try:
+                require_tracking_panel_compatibility(target, next_panel)
+            except ValidationError as error:
+                errors.append(_row_error(row_number, error))
+                continue
         try:
             workflow_events = _pending_workflow_events(target, normalized_row)
         except ValidationError as error:
@@ -352,12 +403,22 @@ def _normalize_row(source, panel_lookup):
     status = _normalize_status(values.get("status"))
     workflow_events, reconcile_workflow = _build_workflow_events(values, status)
     return {
-        "id": str(values.get("id") or "").strip(),
+        "id": _document_id(values.get("id")),
         "payload": payload,
         "status": status,
         "workflow_events": workflow_events,
         "reconcile_workflow": reconcile_workflow,
     }
+
+
+def _document_id(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return str(UUID(text))
+    except ValueError as error:
+        raise ValidationError({"id": "Use a valid document UUID."}) from error
 
 
 def _resolve_panel(values, panel_lookup):
@@ -509,6 +570,10 @@ def _document_keys(document):
 
 def _canonical_identity(value):
     return str(value or "").strip().casefold()
+
+
+def _normalized_cover_issue(value):
+    return None if value is None else str(value).strip()
 
 
 def _pending_workflow_events(target, normalized_row):

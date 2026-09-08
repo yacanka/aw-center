@@ -62,9 +62,17 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
         ).filter(pk=document_id).first()
         if document is None:
             raise serializers.ValidationError({"document_id": "Document not found."})
+        if document.is_archived:
+            raise serializers.ValidationError(
+                {"document_id": "Restore the document before assigning its number."}
+            )
         if document.cover_page.number:
             raise serializers.ValidationError(
                 {"document_id": "The document already has a cover page number."}
+            )
+        if document.cover_page.compliance_documents.exclude(pk=document.pk).exists():
+            raise serializers.ValidationError(
+                {"document_id": "The unnumbered cover page is shared by multiple documents."}
             )
         attrs["existing_document"] = document
         return attrs

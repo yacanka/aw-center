@@ -3,7 +3,7 @@
     <n-form-item path="responsible" label="Legacy / external responsible">
       <n-input
         v-model:value="compdoc.responsible"
-        maxlength="256"
+        maxlength="64"
         :readonly="readonly"
         :status="original.responsible === compdoc.responsible ? '' : 'warning'"
         @keydown.enter.prevent

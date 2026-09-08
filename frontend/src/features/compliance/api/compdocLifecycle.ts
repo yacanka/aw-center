@@ -49,6 +49,14 @@ export interface CompdocReview {
   }
 }
 
+export interface CompdocReviewRequest {
+  version: number
+  kind: 'review' | 'approval'
+  assignee: number | null
+  due_date: string | null
+  request_note: string
+}
+
 /** Load the bounded unified audit timeline for one document. */
 export async function fetchCompdocActivity(
   project: string,
@@ -76,6 +84,15 @@ function normalizeActivity(value: unknown): ICompDocActivity {
       reason: stringValue(data.reason),
       status: stringValue(data.status),
       previous_status: stringValue(data.previous_status)
+    }
+  }
+  if (value.type === 'history') {
+    return {
+      type: 'history',
+      occurred_at: value.at,
+      actor: stringValue(data.history_user),
+      reason: stringValue(data.history_change_reason),
+      status: stringValue(data.history_type)
     }
   }
   const type = data.kind === 'approval' ? 'approval' : 'review'
@@ -143,7 +160,7 @@ export async function fetchCompdocReviews(
 export async function createCompdocReview(
   project: string,
   documentId: string,
-  request: Record<string, unknown>
+  request: CompdocReviewRequest
 ): Promise<CompdocReview> {
   const response = await axios.post<CompdocReview>(
     `${compdocDocumentPath(project, documentId)}/reviews/`,

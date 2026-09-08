@@ -4,17 +4,17 @@ import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import { statusColors } from '@/features/compliance/api/compdocCatalog'
 import { humanizeCompdocStatus } from '@/features/compliance/api/compdocWorkspace'
 import { useCompdocIssueColumns } from '@/features/compliance/composables/issueColumns'
-import type { OrganizationController } from '@/features/organization/composables/organizationController'
+import type { CompdocController } from '@/features/compliance/composables/compdocController'
 
 /** Return renderer-only overrides layered onto the server field schema. */
-export function useCompdocColumnOverrides(orgs: OrganizationController) {
+export function useCompdocColumnOverrides(store: CompdocController) {
   const issueColumns = useCompdocIssueColumns()
   const columns = ref<DataTableColumns<ICompDoc>>([
     ...issueColumns.columns,
     {
       key: 'panel',
       render: (row) =>
-        row.panel_name || orgs.getPanels.find((panel) => panel.id === row.panel)?.name || '—'
+        row.panel_name || store.getPanels.find((panel) => panel.id === row.panel)?.name || '—'
     },
     { key: 'status', render: renderStatus }
   ])

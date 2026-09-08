@@ -7,6 +7,7 @@ export type CompDocNotificationEvent = 'overdue' | 'due_soon' | 'revision_availa
 export interface CompDocTracking {
   responsible_mode: ResponsibleMode
   responsible_person_ids: number[]
+  responsible_options: Array<{ id: number; name: string; email: string }>
   notification_enabled: boolean
   notification_events: CompDocNotificationEvent[]
   docproof_status: string

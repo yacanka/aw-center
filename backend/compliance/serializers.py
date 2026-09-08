@@ -22,15 +22,76 @@ from .models import (
 
 
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+LINE_BREAKS = re.compile(r"[\r\n]")
+SINGLE_LINE_FIELDS = frozenset(
+    {
+        "name",
+        "tech_doc_no",
+        "tech_doc_issue",
+        "delivered_tech_doc_issue",
+        "tech_doc_no_2",
+        "tech_doc_issue_2",
+        "delivered_tech_doc_issue_2",
+        "responsible",
+        "path",
+    }
+)
+
+
+def tracking_responsible_options(document):
+    if document is None or not document.panel_id:
+        return []
+    people = (
+        Person.objects.filter(responsible_assignments__panel_id=document.panel_id)
+        .exclude(email="")
+        .order_by("name", "person_id")
+        .distinct()
+    )
+    return [
+        {
+            "id": person.pk,
+            "name": person.name,
+            "email": person.email,
+        }
+        for person in people
+    ]
 
 
 class CoverPageSerializer(serializers.ModelSerializer):
+    number = serializers.CharField(
+        max_length=32,
+        allow_blank=True,
+        required=True,
+        trim_whitespace=True,
+    )
+    issue = serializers.CharField(
+        max_length=255,
+        allow_blank=True,
+        allow_null=True,
+        required=False,
+    )
     version = serializers.IntegerField(min_value=1, required=False)
 
     class Meta:
         model = CoverPage
         fields = ("id", "number", "issue", "version")
         read_only_fields = ("id",)
+
+    def validate(self, attributes):
+        invalid = [
+            field
+            for field in ("number", "issue")
+            if isinstance(attributes.get(field), str)
+            and (
+                CONTROL_CHARACTERS.search(attributes[field])
+                or LINE_BREAKS.search(attributes[field])
+            )
+        ]
+        if invalid:
+            raise serializers.ValidationError(
+                {field: "Control characters are not allowed." for field in invalid}
+            )
+        return attributes
 
 
 class CoverPageVersionConflict(APIException):
@@ -127,6 +188,11 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         project = self.context.get("project")
         if project is None:
             raise serializers.ValidationError("Project context is required.")
+        cover_page = attributes.get("cover_page")
+        if cover_page is not None and "number" not in cover_page:
+            raise serializers.ValidationError(
+                {"cover_page": {"number": "This field is required."}}
+            )
         attributes.pop("change_reason", None)
         self._normalize_lists(attributes)
         self._reject_control_characters(attributes)
@@ -146,17 +212,32 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             cleaned = []
             for value in values:
                 text = str(value).strip()
+                if CONTROL_CHARACTERS.search(text) or LINE_BREAKS.search(text):
+                    raise serializers.ValidationError(
+                        {field: "Control characters are not allowed."}
+                    )
+                if len(text) > 256:
+                    raise serializers.ValidationError(
+                        {field: "Each value must contain at most 256 characters."}
+                    )
                 if text and text not in cleaned:
-                    cleaned.append(text[:256])
+                    cleaned.append(text)
             attributes[field] = cleaned
 
     @staticmethod
     def _reject_control_characters(attributes):
-        invalid = [
+        invalid_controls = [
             field
             for field, value in attributes.items()
             if isinstance(value, str) and CONTROL_CHARACTERS.search(value)
         ]
+        invalid_lines = [
+            field
+            for field in SINGLE_LINE_FIELDS
+            if isinstance(attributes.get(field), str)
+            and LINE_BREAKS.search(attributes[field])
+        ]
+        invalid = set(invalid_controls + invalid_lines)
         if invalid:
             raise serializers.ValidationError(
                 {field: "Control characters are not allowed." for field in invalid}
@@ -164,11 +245,12 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
 
     def _resolve_cover_page(self, data):
         number = str(data.get("number", "")).strip()
+        issue_provided = "issue" in data
+        issue = data.get("issue")
         if not number:
             if self.instance is not None and not self.instance.cover_page.number:
                 cover_page = self.instance.cover_page
-                issue = data.get("issue")
-                if cover_page.issue != issue:
+                if issue_provided and cover_page.issue != issue:
                     if data.get("version") != cover_page.version:
                         raise CoverPageVersionConflict()
                     cover_page.issue = issue
@@ -179,9 +261,8 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             return CoverPage.objects.create(
                 project=self.context["project"],
                 number="",
-                issue=data.get("issue"),
+                issue=issue,
             )
-        issue = data.get("issue")
         expected_version = data.get("version")
         cover_page = CoverPage.objects.select_for_update().filter(
             project=self.context["project"],
@@ -195,7 +276,7 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             )
         if self.instance is None and expected_version is None and issue in (None, ""):
             return cover_page
-        if cover_page.issue != issue:
+        if issue_provided and cover_page.issue != issue:
             if expected_version != cover_page.version:
                 raise CoverPageVersionConflict()
             cover_page.issue = issue
@@ -302,12 +383,14 @@ class TrackingProfileSerializer(serializers.ModelSerializer):
         many=True,
         required=False,
     )
+    responsible_options = serializers.SerializerMethodField()
 
     class Meta:
         model = TrackingProfile
         fields = (
             "responsible_mode",
             "responsible_person_ids",
+            "responsible_options",
             "notification_enabled",
             "notification_events",
             "docproof_issue",
@@ -324,7 +407,12 @@ class TrackingProfileSerializer(serializers.ModelSerializer):
             "notification_checked_at",
             "version",
             "updated_at",
+            "responsible_options",
         )
+
+    def get_responsible_options(self, profile):
+        document = profile.document if profile else self.context.get("document")
+        return tracking_responsible_options(document)
 
     def validate_notification_events(self, values):
         events = list(dict.fromkeys(values or []))
@@ -391,6 +479,8 @@ class TrackingProfileSerializer(serializers.ModelSerializer):
 
 
 class ImportAuditSerializer(serializers.ModelSerializer):
+    imported_by_username = serializers.SerializerMethodField()
+
     class Meta:
         model = ImportAudit
         fields = (
@@ -400,6 +490,7 @@ class ImportAuditSerializer(serializers.ModelSerializer):
             "source_size",
             "source_sha256",
             "imported_by",
+            "imported_by_username",
             "request_id",
             "header_row",
             "mapped_columns",
@@ -417,3 +508,6 @@ class ImportAuditSerializer(serializers.ModelSerializer):
             "duration_ms",
         )
         read_only_fields = fields
+
+    def get_imported_by_username(self, audit):
+        return getattr(audit.imported_by, "username", "")

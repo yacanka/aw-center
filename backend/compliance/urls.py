@@ -8,6 +8,7 @@ from .api import (
     DocumentDetailView,
     DocumentFieldsView,
     DocumentHistoryView,
+    ReferenceOptionCollectionView,
     DocProofRefreshView,
     DoorsImportConfirmView,
     DoorsImportPreviewView,
@@ -34,6 +35,7 @@ from .api import (
 urlpatterns = [
     path("", DocumentCollectionView.as_view(), name="compliance-document-list"),
     path("fields/", DocumentFieldsView.as_view(), name="compliance-document-fields"),
+    path("options/", ReferenceOptionCollectionView.as_view(), name="compliance-document-options"),
     path("dashboard/", DashboardView.as_view(), name="compliance-dashboard"),
     path("notification-policy/", NotificationPolicyView.as_view(), name="compliance-notification-policy"),
     path("numbering-options/", NumberingOptionsView.as_view(), name="compliance-numbering-options"),

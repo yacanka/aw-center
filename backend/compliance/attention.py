@@ -106,7 +106,9 @@ def _owner_item(item_factory, document):
         detail="Owner action is overdue." if overdue else "Owner action is due within seven days.",
         guidance="Review ownership, deadline, and the next lifecycle action.",
         action_label="Open document",
-        action_path=f"/compdocs/{document.project.slug}?document={document.pk}",
+        action_path=(
+            f"/compdocs/{document.project.slug}?document={document.pk}&workspace=ownership"
+        ),
         occurred_at=timezone.now(),
         due_at=_due_datetime(document.next_action_due_date),
     )
@@ -123,7 +125,7 @@ def _review_item(item_factory, task):
         guidance="Open the document, review its evidence, and record a decision.",
         action_label="Open review",
         action_path=(
-            f"/compdocs/{task.document.project.slug}?document={task.document_id}"
+            f"/compdocs/{task.document.project.slug}?document={task.document_id}&workspace=reviews"
         ),
         occurred_at=task.created_at,
         due_at=_due_datetime(task.due_date),
@@ -140,7 +142,9 @@ def _revision_item(item_factory, profile):
         detail=f"DocProof issue {profile.docproof_issue} differs from the tracked document issue.",
         guidance="Review the published revision and update the compliance evidence.",
         action_label="Open tracking",
-        action_path=f"/compdocs/{document.project.slug}?document={document.pk}",
+        action_path=(
+            f"/compdocs/{document.project.slug}?document={document.pk}&workspace=tracking"
+        ),
         occurred_at=profile.docproof_checked_at or profile.updated_at,
         due_at=None,
     )
@@ -156,7 +160,9 @@ def _notification_failure_item(item_factory, log):
         detail="A compliance notification could not be delivered.",
         guidance="Review recipients and mail availability before the next retry.",
         action_label="Open tracking",
-        action_path=f"/compdocs/{document.project.slug}?document={document.pk}",
+        action_path=(
+            f"/compdocs/{document.project.slug}?document={document.pk}&workspace=tracking"
+        ),
         occurred_at=log.updated_at,
         due_at=log.next_attempt_at,
     )

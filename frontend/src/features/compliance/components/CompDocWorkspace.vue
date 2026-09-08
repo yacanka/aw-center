@@ -16,12 +16,15 @@ import {
 } from '@/features/compliance/api/compdocWorkspace'
 import './CompDocWorkspace.css'
 
+type WorkspaceTab = 'overview' | 'tracking' | 'ownership' | 'reviews' | 'transition' | 'activity'
+
 const props = defineProps<{
   show: boolean
   document: ICompDoc | null
   project: string
   canEdit: boolean
   canDelete: boolean
+  initialTab?: WorkspaceTab
 }>()
 const emit = defineEmits<{
   'update:show': [value: boolean]
@@ -36,11 +39,17 @@ const emit = defineEmits<{
 const statusLabel = computed(() => humanizeCompdocStatus(props.document?.status))
 const reference = computed(() => (props.document ? getCompdocReference(props.document) : ''))
 const statusColor = computed(() => statusColors[String(props.document?.status || '')])
-const activeTab = ref('overview')
+const activeTab = ref<WorkspaceTab>('overview')
 
 watch(
   () => props.document?.id,
-  () => (activeTab.value = 'overview')
+  () => (activeTab.value = props.initialTab || 'overview')
+)
+watch(
+  () => props.initialTab,
+  (tab) => {
+    if (props.show && tab) activeTab.value = tab
+  }
 )
 watch(
   () => props.show,

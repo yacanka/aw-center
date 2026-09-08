@@ -79,7 +79,12 @@ const pagination = computed<Partial<PaginationInfo>>(() => ({
 }))
 const columns: DataTableColumns<ImportAudit> = [
   { title: 'File', key: 'source_filename', width: 240, ellipsis: { tooltip: true } },
-  { title: 'Importer ID', key: 'imported_by', width: 130 },
+  {
+    title: 'Importer',
+    key: 'imported_by_username',
+    width: 160,
+    render: (row) => row.imported_by_username || `User ${row.imported_by}`
+  },
   {
     title: 'Status',
     key: 'status',

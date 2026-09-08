@@ -1,5 +1,8 @@
 <template>
   <n-modal v-model:show="showModal" preset="card" title="Document Summary" class="summary-modal">
+    <n-alert type="info" :bordered="false">
+      This summary covers the documents currently visible on the table page.
+    </n-alert>
     <n-tabs v-model:value="activeTab" :animated="false" type="segment">
       <n-tab-pane name="status" tab="Status" display-directive="if">
         <div class="status-pane">

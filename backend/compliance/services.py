@@ -1,14 +1,13 @@
 """Transaction-bound commands for compliance-document mutations."""
 
 from django.db import IntegrityError, transaction
-from django.db.models import Max
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from orgs.access_policy import has_project_role
-from orgs.models import ProjectRoleAssignment
+from orgs.models import Person, ProjectRoleAssignment
 from integrations.docproof import normalize_document_number, search_document_issue
 
 from .compdoc_workflow import WORKFLOW_STATUSES
@@ -57,6 +56,9 @@ def update_document(*, project, document_id, expected_version, serializer, user)
     document = _lock_document(project, document_id)
     _require_active(document)
     _require_version(document, expected_version)
+    panel = serializer.validated_data.get("panel", document.panel)
+    if getattr(panel, "pk", None) != document.panel_id:
+        require_tracking_panel_compatibility(document, panel)
     if not _serializer_changes_document(document, serializer.validated_data):
         return document
     serializer.instance = document
@@ -65,12 +67,49 @@ def update_document(*, project, document_id, expected_version, serializer, user)
     return updated
 
 
+def require_tracking_panel_compatibility(document, panel):
+    """Keep existing tracking recipients valid when a document changes panel."""
+
+    profile = TrackingProfile.objects.filter(document=document).first()
+    if profile is None:
+        return
+    allowed_ids = (
+        set(
+            Person.objects.filter(responsible_assignments__panel=panel)
+            .exclude(email="")
+            .values_list("pk", flat=True)
+        )
+        if panel is not None
+        else set()
+    )
+    selected_ids = set(profile.responsible_people.values_list("pk", flat=True))
+    if (
+        profile.responsible_mode == TrackingProfile.ResponsibleMode.CUSTOM
+        and not selected_ids.issubset(allowed_ids)
+    ):
+        raise ValidationError(
+            {"panel": "Update custom tracking recipients before changing the panel."}
+        )
+    recipients = (
+        allowed_ids
+        if profile.responsible_mode == TrackingProfile.ResponsibleMode.AUTOMATIC
+        else selected_ids
+    )
+    if profile.notification_enabled and not recipients:
+        raise ValidationError(
+            {"panel": "Disable notifications or assign recipients before changing the panel."}
+        )
+
+
 def _serializer_changes_document(document, values):
     for field, value in values.items():
         if field == "cover_page":
             if (
                 document.cover_page.number != str(value.get("number", "")).strip()
-                or document.cover_page.issue != value.get("issue")
+                or (
+                    "issue" in value
+                    and document.cover_page.issue != value.get("issue")
+                )
             ):
                 return True
             continue
@@ -103,13 +142,11 @@ def transition_document(
     if new_status == document.status:
         raise ValidationError({"status": "Select a status different from the current status."})
 
-    sequence = (
-        WorkflowEvent.objects.filter(document=document).aggregate(value=Max("sequence"))["value"]
-        or 0
-    ) + 1
-    if sequence == 2 and document.ubm_target_date and effective_date < document.ubm_target_date:
+    latest_event = WorkflowEvent.objects.filter(document=document).order_by("-sequence").first()
+    sequence = (latest_event.sequence if latest_event else 0) + 1
+    if latest_event and effective_date < latest_event.effective_date:
         raise ValidationError(
-            {"effective_date": "The delivery date cannot be before the UBM target date."}
+            {"effective_date": "The effective date cannot precede the latest transition."}
         )
     event = WorkflowEvent.objects.create(
         document=document,
@@ -152,6 +189,26 @@ def update_work(*, project, document_id, expected_version, values, reason, user)
     document = _lock_document(project, document_id)
     _require_active(document)
     _require_version(document, expected_version)
+    owner = values.get("owner")
+    if owner is not None and not has_project_role(
+        owner,
+        project,
+        ProjectRoleAssignment.Domain.COMPLIANCE,
+        ProjectRoleAssignment.Role.VIEWER,
+    ):
+        raise ValidationError({"owner": "Owner cannot view this project."})
+    owner_group = values.get("owner_group")
+    if owner_group is not None and not ProjectRoleAssignment.objects.filter(
+        project=project,
+        domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+        group=owner_group,
+        role__in=ProjectRoleAssignment.VALID_ROLES[
+            ProjectRoleAssignment.Domain.COMPLIANCE
+        ],
+    ).exists():
+        raise ValidationError(
+            {"owner_group": "Owner team cannot view this project."}
+        )
     changed = []
     for field in ("owner", "owner_group", "next_action_due_date"):
         if field not in values:
@@ -263,6 +320,15 @@ def refresh_docproof_tracking(*, project, document_id, expected_version, user):
         ComplianceDocument.objects.filter(project=project, is_archived=False),
         pk=document_id,
     )
+    current_profile_version = (
+        TrackingProfile.objects.filter(document=document)
+        .values_list("version", flat=True)
+        .first()
+        or 0
+    )
+    if current_profile_version != expected_version:
+        raise VersionConflict("Tracking evidence changed after you opened it.")
+    document_version = document.version
     document_number = normalize_document_number(document.tech_doc_no or "")
     if not document_number:
         raise ValidationError({"tech_doc_no": "A technical document number is required."})
@@ -279,6 +345,8 @@ def refresh_docproof_tracking(*, project, document_id, expected_version, user):
     with transaction.atomic():
         locked_document = _lock_document(project, document_id)
         _require_active(locked_document)
+        if locked_document.version != document_version:
+            raise VersionConflict("The document changed while DocProof was checked.")
         profile = TrackingProfile.objects.select_for_update().filter(
             document=locked_document
         ).first()

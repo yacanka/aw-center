@@ -12,6 +12,7 @@ import {
   reconcileColumnSettings
 } from '../src/features/compliance/api/compdocColumns.ts'
 import { buildClientCompdocSummary } from '../src/features/compliance/api/compdocChartAlgorithms.ts'
+import { withCompdocDisplayStatus } from '../src/features/compliance/api/compdocStatus.ts'
 import {
   createStatusChartData,
   createStatusChartRows,
@@ -112,6 +113,48 @@ test('builds resilient CompDoc chart aggregates without changing status buckets'
   assert.equal(summary.statuses.unknown, 1)
   assert.deepEqual(summary.pendingDays, { authority: 5, ubm: 6, aw: 0 })
   assert.equal(summary.timeline.scheduled.length, 2)
+})
+
+test('builds chart milestones from canonical workflow projections', () => {
+  const summary = buildClientCompdocSummary(
+    [
+      {
+        ...document('authority_review', []),
+        ubm_target_date: '2026-07-20',
+        ubm_delivery_date: '2026-07-21'
+      }
+    ],
+    new Date(2026, 6, 22)
+  )
+
+  assert.equal(summary.timeline.scheduled.length, 1)
+  assert.equal(summary.timeline.actual[0].x, '21.07.2026')
+})
+
+test('keeps delivery-only workflow projections out of the scheduled series', () => {
+  const summary = buildClientCompdocSummary(
+    [
+      {
+        ...document('authority_review', []),
+        ubm_target_date: null,
+        ubm_delivery_date: '2026-07-21'
+      }
+    ],
+    new Date(2026, 6, 22)
+  )
+
+  assert.equal(summary.timeline.scheduled.length, 0)
+  assert.equal(summary.timeline.actual[0].x, '21.07.2026')
+})
+
+test('marks yesterday as delayed without a UTC/local timezone offset', () => {
+  const row = {
+    ...document('to_be_issued', []),
+    ubm_target_date: '2026-07-21'
+  }
+
+  assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 22)).status, 'delayed')
+  assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 21)).status, 'to_be_issued')
 })
 
 test('creates zero-safe doughnut data and anchored stepped burndown lines', () => {

@@ -23,6 +23,7 @@
           placeholder="Select Panel"
           :options="panelOptions"
           :disabled="readonly"
+          clearable
           :status="changed('panel')"
           @update:value="syncAtaFromPanel"
         />
@@ -42,7 +43,7 @@
       <n-form-item-gi span="0:48 700:20" path="signature_panel" label="Signature Panel">
         <n-select
           v-model:value="compdoc.signature_panel"
-          :options="orgs.getPanelOptions"
+          :options="store.getSignaturePanelOptions"
           multiple
           max-tag-count="responsive"
           :disabled="readonly"
@@ -62,7 +63,7 @@
       <n-form-item-gi span="0:48 700:8" path="cover_page_issue" label="Issue">
         <n-input
           v-model:value="compdoc.cover_page_issue"
-          maxlength="32"
+          maxlength="255"
           :readonly="readonly"
           :status="changed('cover_page_issue')"
           @keydown.enter.prevent
@@ -75,7 +76,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
-import { useOrganizationController } from '@/features/organization/composables/organizationController'
+import { useCompdocController } from '@/features/compliance/composables/compdocController'
 import { checkArrayEquals } from '@/shared/utils/array'
 
 const props = defineProps<{
@@ -89,9 +90,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:numberSource': [value: 'manual' | 'numarator']
 }>()
-const orgs = useOrganizationController()
+const store = useCompdocController()
 const panelOptions = computed(() => {
-  const options = orgs.getCompdocPanelOptions
+  const options = store.getPanelOptions
   const selectedPanel = props.compdoc.panel
   if (selectedPanel === null || options.some((option) => option.value === selectedPanel)) {
     return options
@@ -114,7 +115,7 @@ function syncAtaFromPanel(panelId: number | null): void {
 
 function optionsForPanel(panelId: number | null) {
   if (!panelId) return []
-  return orgs.getPanels
+  return store.getPanels
     .filter((panel) => panel.id === panelId)
     .sort((left, right) => left.ata.localeCompare(right.ata))
     .map((panel) => ({ label: panel.ata, value: panel.ata }))

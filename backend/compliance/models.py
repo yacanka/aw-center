@@ -379,6 +379,7 @@ class NotificationLog(models.Model):
         CLAIMED = "claimed", "Claimed"
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     profile = models.ForeignKey(

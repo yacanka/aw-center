@@ -33,6 +33,38 @@ function updateEvents(value: CompDocNotificationEvent[]) {
 </script>
 
 <template>
+  <n-card title="Notification recipients" size="small">
+    <n-space vertical>
+      <n-select
+        :value="tracking.responsible_mode"
+        :options="[
+          { label: 'All panel responsibles', value: 'automatic' },
+          { label: 'Selected panel responsibles', value: 'custom' }
+        ]"
+        :disabled="disabled"
+        @update:value="update({ responsible_mode: $event })"
+      />
+      <n-select
+        v-if="tracking.responsible_mode === 'custom'"
+        :value="tracking.responsible_person_ids"
+        :options="
+          tracking.responsible_options.map((person) => ({
+            label: `${person.name} · ${person.email}`,
+            value: person.id
+          }))
+        "
+        :disabled="disabled"
+        multiple
+        filterable
+        placeholder="Choose panel responsibles"
+        @update:value="update({ responsible_person_ids: $event })"
+      />
+      <n-text v-if="!tracking.responsible_options.length" depth="3">
+        This document's panel has no responsible person with an email address.
+      </n-text>
+    </n-space>
+  </n-card>
+
   <n-card title="Automatic alerts" size="small">
     <n-space vertical>
       <n-flex justify="space-between" align="center">

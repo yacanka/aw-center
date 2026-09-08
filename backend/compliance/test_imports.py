@@ -165,6 +165,94 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn(response.data["code"], {"IMPORT_PREVIEW_MISMATCH", "VALIDATION_ERROR"})
 
+    def test_preview_rejects_duplicate_explicit_document_ids(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-DUP")
+        document = ComplianceDocument.objects.create(
+            project=self.project,
+            cover_page=cover,
+            name="Existing document",
+            tech_doc_no="TD-DUP",
+        )
+        output = BytesIO()
+        pd.DataFrame(
+            [
+                {
+                    "id": str(document.pk),
+                    "name": "First update",
+                    "cover_page_no": "CP-DUP",
+                },
+                {
+                    "id": str(document.pk),
+                    "name": "Second update",
+                    "cover_page_no": "CP-DUP",
+                },
+            ]
+        ).to_excel(output, index=False)
+
+        preview = self.preview(output.getvalue())
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["updated_count"], 0)
+        self.assertEqual(preview.data["rejected_count"], 2)
+        self.assertEqual(
+            {item["code"] for item in preview.data["invalid_documents"]},
+            {"IMPORT_DUPLICATE_DOCUMENT_ID"},
+        )
+
+    def test_preview_rejects_conflicting_issues_for_a_shared_cover_page(self):
+        output = BytesIO()
+        pd.DataFrame(
+            [
+                {
+                    "name": "First shared-cover document",
+                    "cover_page_no": "CP-SHARED",
+                    "cover_page_issue": "A",
+                },
+                {
+                    "name": "Second shared-cover document",
+                    "cover_page_no": "CP-SHARED",
+                    "cover_page_issue": "B",
+                },
+            ]
+        ).to_excel(output, index=False)
+
+        preview = self.preview(output.getvalue())
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["created_count"], 0)
+        self.assertEqual(preview.data["rejected_count"], 2)
+        self.assertEqual(
+            {item["code"] for item in preview.data["invalid_documents"]},
+            {"IMPORT_CONFLICTING_COVER_PAGE_ISSUE"},
+        )
+
+    def test_import_canonicalizes_uppercase_explicit_document_id(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-ID")
+        document = ComplianceDocument.objects.create(
+            project=self.project,
+            cover_page=cover,
+            name="Before ID import",
+        )
+        output = BytesIO()
+        pd.DataFrame(
+            [
+                {
+                    "id": str(document.pk).upper(),
+                    "name": "After ID import",
+                    "cover_page_no": cover.number,
+                }
+            ]
+        ).to_excel(output, index=False)
+        content = output.getvalue()
+
+        preview = self.preview(content)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(preview.data["updated_count"], 1)
+        self.assertEqual(confirmed.status_code, 201)
+        document.refresh_from_db()
+        self.assertEqual(document.name, "After ID import")
+
     def test_import_resolves_flexibly_formatted_ata_column(self):
         for index, ata_value in enumerate((27, 2700, "27-00", "27.00", "ATA 27"), start=1):
             with self.subTest(ata_value=ata_value):

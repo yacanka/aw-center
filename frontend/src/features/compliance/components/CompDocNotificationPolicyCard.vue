@@ -29,8 +29,11 @@ watch(() => props.project, resetProject, { immediate: true })
 
 function resetProject() {
   editing.value = false
+  saving.value = false
+  policy.value = null
   draft.value = {}
   changeNote.value = ''
+  error.value = ''
   void load()
 }
 
@@ -61,21 +64,27 @@ function setEnabled(event: CompDocNotificationEvent, enabled: boolean) {
 
 async function save() {
   if (!policy.value || changeNote.value.trim().length < 3) return
+  const sequence = loadSequence
+  const project = props.project
   saving.value = true
   error.value = ''
   try {
-    policy.value = await saveCompDocNotificationPolicy(props.project, {
+    const updated = await saveCompDocNotificationPolicy(project, {
       version: policy.value.version,
       change_note: changeNote.value.trim(),
       event_rules: draft.value
     })
+    if (sequence !== loadSequence || props.project !== project) return
+    policy.value = updated
     editing.value = false
     emit('saved')
     window.$message.success(`Notification policy v${policy.value.version} published.`)
   } catch (cause) {
-    error.value = formatApiError(cause)
+    if (sequence === loadSequence && props.project === project) {
+      error.value = formatApiError(cause)
+    }
   } finally {
-    saving.value = false
+    if (sequence === loadSequence && props.project === project) saving.value = false
   }
 }
 </script>

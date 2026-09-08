@@ -12,10 +12,14 @@ const props = defineProps<{
 }>()
 const activity = ref<ICompDocActivity[]>([])
 const loading = ref(false)
+let loadSequence = 0
 
 watch(
   () => [props.show, props.document.id, props.document.version],
   ([show]) => {
+    loadSequence += 1
+    loading.value = false
+    activity.value = []
     if (show) void loadActivity()
   },
   { immediate: true }
@@ -23,13 +27,17 @@ watch(
 
 async function loadActivity() {
   if (!props.document.id) return
+  const sequence = ++loadSequence
+  const documentId = props.document.id
+  const project = props.project
   loading.value = true
   try {
-    activity.value = await fetchCompdocActivity(props.project, props.document.id)
+    const loaded = await fetchCompdocActivity(project, documentId)
+    if (sequence === loadSequence) activity.value = loaded
   } catch (error) {
-    window.$message.error(formatApiError(error))
+    if (sequence === loadSequence) window.$message.error(formatApiError(error))
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 
@@ -39,8 +47,7 @@ function activityContent(item: ICompDocActivity): string {
     return item.reason ? `${transitionLabel}: ${item.reason}` : transitionLabel
   }
   if (item.type === 'history') {
-    const fields = item.changes?.map((change) => change.field).join(', ') || 'record'
-    return `${item.reason || 'Document updated'} (${fields})`
+    return item.reason || `Document ${String(item.status || 'updated').toLowerCase()}`
   }
   return `${item.type}: ${item.status}${item.reason ? ` — ${item.reason}` : ''}`
 }
