@@ -151,6 +151,20 @@ class IsolatedWorkerTests(TransactionTestCase):
 class WorkerCompositionTests(SimpleTestCase):
     """Lock catalog timeout and process isolation into the production worker loop."""
 
+    @patch("jobs.worker.connections.close_all")
+    @patch("jobs.worker.multiprocessing.get_context")
+    def test_macos_and_windows_use_spawn_while_linux_keeps_fork(self, get_context, _close):
+        job = SimpleNamespace(id="12345678-job", kind="test.success")
+        get_context.return_value.Pipe.return_value = (Mock(), Mock())
+        for platform, method in (("darwin", "spawn"), ("win32", "spawn"), ("linux", "fork")):
+            with self.subTest(platform=platform), patch("jobs.worker.sys.platform", platform):
+                start_executor_process(job, isolated_resolver)
+                get_context.assert_called_with(method)
+                self.assertIs(
+                    get_context.return_value.Process.call_args.kwargs["target"],
+                    bootstrap_executor_process,
+                )
+
     def test_spawn_bootstrap_initializes_django_before_worker_import(self):
         """A fresh spawned interpreter reaches model code only after setup."""
 

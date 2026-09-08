@@ -8,7 +8,9 @@ from django.db import IntegrityError, transaction
 from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
 
-from integrations.numarator.client import credential_fingerprint, is_configured, project_format_code
+from integrations.numarator.client import (
+    credential_fingerprint, is_configured, project_format_code, project_format_codes,
+)
 from jobs.models import JobStatus
 from jobs.serializers import JobSerializer
 from jobs.services import create_job
@@ -34,6 +36,7 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
     client_operation_id = serializers.UUIDField()
     document = serializers.JSONField()
     document_id = serializers.UUIDField(required=False)
+    format_code = serializers.CharField(max_length=100, required=False)
 
     def validate_document(self, value):
         if not isinstance(value, dict):
@@ -51,9 +54,23 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
             context=self.context,
         )
         document_serializer.is_valid(raise_exception=True)
-        return _json_snapshot(document_serializer.validated_data)
+        snapshot = _json_snapshot(document_serializer.validated_data)
+        if "version" in value:
+            snapshot["version"] = serializers.IntegerField(min_value=1).run_validation(
+                value["version"]
+            )
+        return snapshot
 
     def validate(self, attrs):
+        project = self.context["project"]
+        if not is_configured(project.slug):
+            raise NumaratorUnavailable()
+        format_code = attrs.get("format_code", project_format_code(project.slug))
+        if format_code not in project_format_codes(project.slug):
+            raise serializers.ValidationError(
+                {"format_code": "Select an allowed cover page format for this project."}
+            )
+        attrs["format_code"] = format_code
         document_id = attrs.get("document_id")
         if document_id is None:
             return attrs
@@ -62,6 +79,14 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
         ).filter(pk=document_id).first()
         if document is None:
             raise serializers.ValidationError({"document_id": "Document not found."})
+        attrs["existing_document"] = document
+        # A successful replay must survive the original document becoming numbered.
+        if CoverPageNumberAllocation.objects.filter(
+            project=project,
+            actor=self.context["request"].user,
+            client_operation_id=attrs["client_operation_id"],
+        ).exists():
+            return attrs
         if document.is_archived:
             raise serializers.ValidationError(
                 {"document_id": "Restore the document before assigning its number."}
@@ -74,10 +99,15 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"document_id": "The unnumbered cover page is shared by multiple documents."}
             )
-        attrs["existing_document"] = document
+        snapshot = attrs["document"]
+        if snapshot.get("version", document.version) != document.version:
+            raise VersionConflict()
+        if snapshot["cover_page"].get("version", document.cover_page.version) != document.cover_page.version:
+            raise VersionConflict("The cover page changed after you opened it.")
         return attrs
 
 
+@transaction.atomic
 def create_allocation(
     *,
     project,
@@ -86,13 +116,16 @@ def create_allocation(
     document,
     document_id=None,
     existing_document=None,
+    format_code=None,
     request_id="",
 ):
     """Persist one idempotent allocation intent and ensure it has a durable job."""
 
     if not is_configured(project.slug):
         raise NumaratorUnavailable()
-    format_code = project_format_code(project.slug)
+    format_code = format_code or project_format_code(project.slug)
+    if format_code not in project_format_codes(project.slug):
+        raise serializers.ValidationError({"format_code": "Select an allowed format."})
     context_data = {"project": project.slug}
     canonical_request = {
         "document": document,
@@ -110,12 +143,17 @@ def create_allocation(
     ).hexdigest()
     try:
         with transaction.atomic():
+            snapshot = dict(document)
+            if existing_document is not None:
+                snapshot.setdefault("version", existing_document.version)
+                snapshot["cover_page"] = dict(snapshot["cover_page"])
+                snapshot["cover_page"].setdefault("version", existing_document.cover_page.version)
             allocation = CoverPageNumberAllocation.objects.create(
                 project=project,
                 actor=actor,
                 client_operation_id=client_operation_id,
                 request_hash=request_hash,
-                document_snapshot=document,
+                document_snapshot=snapshot,
                 format_code=format_code,
                 context_data=context_data,
                 credential_fingerprint=credential_fingerprint(),
@@ -123,12 +161,12 @@ def create_allocation(
                 cover_page=existing_document.cover_page if existing_document else None,
             )
     except IntegrityError:
-        allocation = CoverPageNumberAllocation.objects.get(
+        allocation = CoverPageNumberAllocation.objects.filter(
             project=project,
             actor=actor,
             client_operation_id=client_operation_id,
-        )
-        if allocation.request_hash != request_hash:
+        ).first()
+        if allocation is None or allocation.request_hash != request_hash:
             raise AllocationConflict()
     ensure_allocation_job(allocation, request_id=request_id)
     allocation.refresh_from_db()
@@ -205,6 +243,7 @@ def allocation_payload(allocation, request=None):
         "version": allocation.version,
         "status": allocation.status,
         "number": allocation.remote_number,
+        "format_code": allocation.format_code,
         "error_code": allocation.error_code,
         "error_detail": allocation.error_detail,
         "job": JobSerializer(allocation.current_job).data if allocation.current_job_id else None,
@@ -221,7 +260,7 @@ def _json_snapshot(validated_data):
             snapshot[field] = value.pk if value is not None else None
         elif field == "cover_page":
             snapshot[field] = {
-                "issue": value.get("issue"),
+                **({"issue": value["issue"]} if "issue" in value else {}),
                 **({"version": value["version"]} if "version" in value else {}),
             }
         elif hasattr(value, "pk"):

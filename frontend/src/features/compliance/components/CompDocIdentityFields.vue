@@ -55,7 +55,7 @@
           v-model:value="compdoc.cover_page_no"
           maxlength="32"
           :readonly="readonly || numberSource === 'numarator'"
-          :placeholder="numberSource === 'numarator' ? 'Assigned after create' : undefined"
+          :placeholder="numberSource === 'numarator' ? 'Assigned after save' : undefined"
           :status="changed('cover_page_no')"
           @keydown.enter.prevent
         />

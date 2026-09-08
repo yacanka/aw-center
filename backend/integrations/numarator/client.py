@@ -55,13 +55,27 @@ def credential_fingerprint() -> str:
 
 
 def project_format_code(project_slug: str) -> str:
-    """Return one server-owned project mapping or an empty string."""
+    """Return the legacy default only when a project has one allowed format."""
+
+    codes = project_format_codes(project_slug)
+    return codes[0] if len(codes) == 1 else ""
+
+
+def project_format_codes(project_slug: str) -> list[str]:
+    """Read the server-owned allowlist, accepting legacy single-code mappings."""
 
     mappings = settings.NUMARATOR_PROJECT_FORMATS
     if not isinstance(mappings, dict):
-        return ""
-    value = str(mappings.get(project_slug, "")).strip()
-    return value if FORMAT_CODE_PATTERN.fullmatch(value) else ""
+        return []
+    values = mappings.get(project_slug, [])
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list):
+        return []
+    return list(dict.fromkeys(
+        value.strip() for value in values
+        if isinstance(value, str) and FORMAT_CODE_PATTERN.fullmatch(value.strip())
+    ))
 
 
 def is_configured(project_slug: str, *, require_credential: bool = False) -> bool:
@@ -71,7 +85,7 @@ def is_configured(project_slug: str, *, require_credential: bool = False) -> boo
         settings.NUMARATOR_ENABLED
         and settings.NUMARATOR_BASE_URL
         and settings.NUMARATOR_CREDENTIAL_ID
-        and project_format_code(project_slug)
+        and project_format_codes(project_slug)
     )
     return configured and (bool(settings.NUMARATOR_API_KEY) or not require_credential)
 

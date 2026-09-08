@@ -189,6 +189,9 @@ def start_backend(
     """Prepare and start the Django development child."""
     ensure_virtual_environment(project, create=False)
     extra_env = runtime_env(host, port, frontend_port)
+    # Only the local job worker performs number allocation; dotenv must not
+    # reintroduce the generation credential into the development web process.
+    extra_env["NUMARATOR_API_KEY"] = ""
     if migrate:
         django(project, ["migrate", "--noinput"], extra_env)
     command = [project.python, "manage.py", "runserver", f"{host}:{port}"]
@@ -305,7 +308,7 @@ def production_url(host: str, port: int) -> str:
 
 def frontend_env(backend_url: str) -> dict[str, str]:
     """Expose the backend URL only to the Vite child process."""
-    return {"VITE_API_URL": backend_url}
+    return {"VITE_API_URL": backend_url, "NUMARATOR_API_KEY": ""}
 
 
 def require_port(host: str, port: int | None) -> None:

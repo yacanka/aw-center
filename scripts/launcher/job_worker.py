@@ -23,6 +23,7 @@ def start_job_workers(
     """Start the repository's durable worker when its command is available."""
 
     workers = []
+    auxiliary_env = {**extra_env, "NUMARATOR_API_KEY": ""}
     if (project.backend / WORKER_COMMAND_PATH).is_file():
         command = [project.python, "manage.py", "run_job_worker", "--poll-interval", "1"]
         if include_doors_if_enabled:
@@ -30,7 +31,7 @@ def start_job_workers(
         workers.append(start(command, project.backend, extra_env=extra_env))
     if (project.backend / NOTIFICATION_COMMAND_PATH).is_file():
         command = [project.python, "manage.py", "run_compdoc_notification_worker"]
-        workers.append(start(command, project.backend, extra_env=extra_env))
+        workers.append(start(command, project.backend, extra_env=auxiliary_env))
     if (project.backend / CLEANUP_COMMAND_PATH).is_file():
         command = [
             project.python,
@@ -39,5 +40,5 @@ def start_job_workers(
             "--poll-interval",
             "300",
         ]
-        workers.append(start(command, project.backend, extra_env=extra_env))
+        workers.append(start(command, project.backend, extra_env=auxiliary_env))
     return workers

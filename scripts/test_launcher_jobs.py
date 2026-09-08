@@ -115,6 +115,12 @@ class LauncherJobWorkerTests(unittest.TestCase):
         self.assertTrue(any("run_job_worker" in command for command in commands))
         self.assertTrue(any("run_compdoc_notification_worker" in command for command in commands))
         self.assertTrue(any("run_job_cleanup_worker" in command for command in commands))
+        self.assertEqual(backend_start.call_args.kwargs["extra_env"]["NUMARATOR_API_KEY"], "")
+        for call in worker_start.call_args_list:
+            if "run_job_worker" in call.args[0]:
+                self.assertNotIn("NUMARATOR_API_KEY", call.kwargs["extra_env"])
+            else:
+                self.assertEqual(call.kwargs["extra_env"]["NUMARATOR_API_KEY"], "")
         supervise.assert_called_once_with(
             [backend_start.return_value, *[worker_start.return_value] * 3]
         )

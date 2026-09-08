@@ -7,6 +7,7 @@ export interface NumberingOptions {
   provider: 'numarator'
   available: boolean
   supports: string[]
+  formats: string[]
 }
 
 export interface CoverPageAllocation {
@@ -14,6 +15,7 @@ export interface CoverPageAllocation {
   version: number
   status: 'requested' | 'allocated' | 'use_pending' | 'completed' | 'reconciliation_required'
   number: string
+  format_code: string
   error_code: string
   error_detail: string
   job: Job | null
@@ -37,11 +39,13 @@ export async function createCoverPageAllocation(
   project: string,
   clientOperationId: string,
   document: CompDocCreatePayload,
-  documentId?: string
+  documentId?: string,
+  formatCode?: string
 ): Promise<CoverPageAllocation> {
   const response = await apiClient.post<CoverPageAllocation>(allocationPath(project), {
     client_operation_id: clientOperationId,
     document,
+    ...(formatCode ? { format_code: formatCode } : {}),
     ...(documentId ? { document_id: documentId } : {})
   })
   return response.data
@@ -53,6 +57,17 @@ export async function fetchCoverPageAllocation(
 ): Promise<CoverPageAllocation> {
   const response = await apiClient.get<CoverPageAllocation>(allocationPath(project, allocationId))
   return response.data
+}
+
+export async function fetchExistingCoverPageAllocation(
+  project: string,
+  documentId: string
+): Promise<CoverPageAllocation | null> {
+  const response = await apiClient.get<{ allocation: CoverPageAllocation | null }>(
+    allocationPath(project),
+    { params: { document_id: documentId } }
+  )
+  return response.data.allocation
 }
 
 export async function resumeCoverPageAllocation(
