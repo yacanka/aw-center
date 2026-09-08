@@ -10,6 +10,8 @@ from django.test import TestCase
 from openpyxl import Workbook
 from rest_framework.test import APIClient
 
+from compliance.models import ComplianceDocument, CoverPage
+
 from .access_policy import effective_role, has_role_for_all_projects
 from .models import (
     Panel,
@@ -173,6 +175,39 @@ class OrganizationApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.person.refresh_from_db()
         self.assertEqual(self.person.name, "Ada Engineer")
+
+    def test_manager_can_delete_an_unused_panel_and_its_assignments(self):
+        ResponsibleAssignment.objects.create(
+            panel=self.panel,
+            person=self.person,
+            responsibility_role="AS",
+        )
+        self.client.force_authenticate(self.manager)
+
+        response = self.client.delete(f"{self.root}panels/{self.panel.pk}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Panel.objects.filter(pk=self.panel.pk).exists())
+        self.assertFalse(ResponsibleAssignment.objects.exists())
+
+    def test_panel_used_by_compliance_document_returns_a_conflict(self):
+        cover_page = CoverPage.objects.create(project=self.project, number="CP-001")
+        document = ComplianceDocument.objects.create(
+            project=self.project,
+            panel=self.panel,
+            cover_page=cover_page,
+            name="Flight controls compliance",
+        )
+        self.client.force_authenticate(self.manager)
+
+        response = self.client.delete(f"{self.root}panels/{self.panel.pk}/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "PANEL_IN_USE")
+        self.assertIn("compliance documents", response.data["detail"])
+        self.assertFalse(response.data["retryable"])
+        self.assertTrue(Panel.objects.filter(pk=self.panel.pk).exists())
+        self.assertTrue(ComplianceDocument.objects.filter(pk=document.pk).exists())
 
 
 class PanelImportApiTests(TestCase):

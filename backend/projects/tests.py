@@ -14,10 +14,20 @@ from .registry import (
 
 
 class ProjectRegistryTests(TestCase):
-    def test_catalog_contains_exact_first_production_projects(self):
+    def test_catalog_contains_exact_production_projects(self):
         self.assertEqual(
             set(PROJECT_DEFINITIONS),
-            {"ozgur", "piku", "aesa", "havasoj", "hys", "blok30", "blok4050", "gokbey"},
+            {
+                "ozgur",
+                "piku",
+                "aesa",
+                "havasoj",
+                "hys",
+                "blok30",
+                "blok4050",
+                "gokbey",
+                "hurjet",
+            },
         )
         self.assertIsInstance(PROJECT_DEFINITIONS, MappingProxyType)
 
@@ -41,4 +51,9 @@ class ProjectRegistryTests(TestCase):
         self.assertEqual(
             PROJECT_DEFINITIONS["gokbey"].dcc_controller,
             GOKBEY_DCC_CONTROLLER,
+        )
+        self.assertEqual(PROJECT_DEFINITIONS["hurjet"].jira_component, "HURJET")
+        self.assertEqual(
+            PROJECT_DEFINITIONS["hurjet"].dcc_template_name,
+            "hurjet_dcc_template.docx",
         )

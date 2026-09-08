@@ -6,7 +6,7 @@ from django.forms import FileField, Form
 from django.shortcuts import get_object_or_404
 
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -29,6 +29,13 @@ from .serializers import PanelSerializer, PersonSerializer, ResponsibleAssignmen
 
 
 SAFE_ACTIONS = {"list", "retrieve"}
+
+
+class PanelInUse(APIException):
+    """Report the data-integrity conflict instead of leaking it as a server error."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "PANEL_IN_USE"
 
 
 class ProjectOrganizationMixin:
@@ -70,6 +77,15 @@ class PanelViewSet(ProjectOrganizationMixin, ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(project=self.project)
+
+    def perform_destroy(self, instance):
+        try:
+            instance.delete()
+        except ProtectedError as error:
+            raise PanelInUse(
+                "This panel is used by compliance documents. Reassign or remove those "
+                "document references before deleting the panel."
+            ) from error
 
 
 class PanelImportPreviewView(ProjectOrganizationMixin, APIView):

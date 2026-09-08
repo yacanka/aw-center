@@ -15,6 +15,7 @@ class ProjectRegistryApiTests(TestCase):
         self.client = APIClient()
         self.user = get_user_model().objects.create_user("registry-user")
         self.ozgur = Project.objects.get(slug="ozgur")
+        self.hurjet = Project.objects.get(slug="hurjet")
 
     def test_catalog_requires_authentication_and_has_no_static_fallback(self):
         anonymous = self.client.get("/api/projects/")
@@ -64,3 +65,22 @@ class ProjectRegistryApiTests(TestCase):
         self.client.force_authenticate(self.user)
 
         self.assertEqual(self.client.get("/api/projects/").data, [])
+
+    def test_hurjet_is_exposed_through_the_dynamic_project_catalog(self):
+        ProjectRoleAssignment.objects.create(
+            project=self.hurjet,
+            domain=ProjectRoleAssignment.Domain.ORGANIZATION,
+            role=ProjectRoleAssignment.Role.VIEWER,
+            user=self.user,
+        )
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get("/api/projects/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["slug"], "hurjet")
+        self.assertEqual(response.data[0]["name"], "Hürjet")
+        self.assertEqual(
+            set(response.data[0]["capabilities"]),
+            {"dcc", "compliance", "organization"},
+        )

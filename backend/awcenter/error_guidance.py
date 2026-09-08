@@ -78,6 +78,9 @@ _EXACT_GUIDANCE = {
     "COMPDOC_POLICY_PERMISSION_DENIED": ErrorGuidance(
         False, "Request the CompDoc notification-policy manager permission."
     ),
+    "PANEL_IN_USE": ErrorGuidance(
+        False, "Reassign or remove the panel from its compliance documents, then try again."
+    ),
     "IDEMPOTENCY_CONFLICT": ErrorGuidance(False, "Refresh the job list before submitting new data."),
     "NUMARATOR_TEMPORARY_FAILURE": ErrorGuidance(
         True, "Check Numarator availability, then retry this allocation."

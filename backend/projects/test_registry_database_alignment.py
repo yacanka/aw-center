@@ -13,6 +13,12 @@ class ProjectRegistryDatabaseAlignmentTests(TestCase):
     def test_seeded_catalog_passes(self):
         call_command("check_project_registry")
 
+    def test_hurjet_is_seeded_with_its_business_name(self):
+        project = Project.objects.get(slug="hurjet")
+
+        self.assertEqual(project.name, "Hürjet")
+        self.assertTrue(project.enabled)
+
     def test_missing_catalog_project_fails(self):
         Project.objects.filter(slug="ozgur").delete()
         with self.assertRaisesMessage(CommandError, "ozgur"):

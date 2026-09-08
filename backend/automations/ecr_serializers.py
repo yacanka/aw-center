@@ -12,7 +12,7 @@ from projects.registry import get_project_definitions_by_capability
 from .ecr_access import OPERATOR, PUBLISHER, has_ecr_role
 from .models import EcrWorkflow, EcrWorkflowEvent, EcrWorkflowStatus
 
-MAX_ECR_PROJECTS = 8
+MAX_ECR_PROJECTS = 9
 MAX_ECR_SUBTASKS = 20
 DCC_PROJECT_SLUGS = frozenset(
     definition.slug for definition in get_project_definitions_by_capability("dcc")
