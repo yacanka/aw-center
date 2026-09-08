@@ -128,7 +128,7 @@ Canonical `/api/` dışında root-level feature alias'ları ve unauthenticated f
 
 ## Proje ve compliance modeli
 
-`projects.registry.PROJECT_DEFINITIONS` teknik capability metadata'sının read-only kaynağıdır. `orgs.Project` bunun database karşılığıdır; fresh migration sekiz canonical project satırını seed eder. Alignment salt-okunur kontrol edilir:
+`projects.registry.PROJECT_DEFINITIONS` teknik capability metadata'sının read-only kaynağıdır. `orgs.Project` bunun database karşılığıdır; fresh migration canonical project satırlarını seed eder. Alignment salt-okunur kontrol edilir:
 
 ```bash
 cd backend

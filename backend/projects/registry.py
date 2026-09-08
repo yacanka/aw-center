@@ -39,6 +39,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
             "GOKBEY",
             dcc_controller=GOKBEY_DCC_CONTROLLER,
         ),
+        "hurjet": _definition("hurjet", "HURJET"),
     }
 )
 
