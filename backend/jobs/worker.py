@@ -35,6 +35,7 @@ from .execution import (
     update_progress,
 )
 from .models import Job, JobStatus
+from .process_bootstrap import bootstrap_executor_process
 from .services import record_event, set_job_state
 
 logger = logging.getLogger(__name__)
@@ -192,11 +193,12 @@ def start_executor_process(job, resolve_executor):
             "This worker platform cannot isolate job executors.",
             "JOB_ISOLATION_UNAVAILABLE",
         ) from error
+    serialized_resolver = resolver_path(resolve_executor)
     parent_connection, child_connection = context.Pipe(duplex=False)
     connections.close_all()
     process = context.Process(
-        target=execute_in_child,
-        args=(job.id, job.kind, resolve_executor, child_connection),
+        target=bootstrap_executor_process,
+        args=(job.id, job.kind, serialized_resolver, child_connection),
         name=f"job-executor-{str(job.id)[:8]}",
         daemon=False,
     )
@@ -209,6 +211,20 @@ def start_executor_process(job, resolve_executor):
     child_connection.close()
     connections.close_all()
     return ExecutorProcess(process, parent_connection)
+
+
+def resolver_path(resolve_executor):
+    """Return a spawn-safe reference to one trusted module-level resolver."""
+
+    module_name = getattr(resolve_executor, "__module__", "")
+    qualified_name = getattr(resolve_executor, "__qualname__", "")
+    if not module_name or not qualified_name or "<locals>" in qualified_name:
+        raise JobExecutionFailure(
+            "The isolated executor could not start.",
+            "JOB_EXECUTOR_START_FAILED",
+            True,
+        )
+    return module_name, qualified_name
 
 
 class ExecutorProcess:
@@ -327,6 +343,17 @@ def decode_child_outcome(job, lease, envelope):
     """Convert a child envelope into the existing sanitized executor contracts."""
 
     outcome = envelope.get("outcome") if isinstance(envelope, dict) else ""
+    if outcome == "startup_failed":
+        logger.error(
+            "Isolated executor bootstrap failed: %s",
+            str(envelope.get("error_type") or "UnknownError"),
+            extra={"job_id": str(job.id)},
+        )
+        raise JobExecutionFailure(
+            "The isolated executor could not start.",
+            "JOB_EXECUTOR_START_FAILED",
+            True,
+        )
     if outcome == "succeeded":
         payload = envelope.get("result") or {}
         from .contracts import JobExecutionResult
