@@ -1,9 +1,9 @@
 <template>
   <n-space vertical size="large">
     <n-card title="Developer / DOORS Automation Jobs">
-      <n-alert :type="runner?.available ? 'success' : 'warning'" title="Host-local execution">
-        Browser requests only queue validated jobs. The native Windows DOORS runner performs the
-        operation without browser credentials, arbitrary DXL, or direct COM access from this server.
+      <n-alert :type="worker?.available ? 'success' : 'warning'" title="Windows worker execution">
+        Browser requests only queue validated jobs. The Windows DOORS worker performs the operation
+        without browser credentials, arbitrary DXL, or direct COM access from this server.
       </n-alert>
       <n-form label-placement="top" style="margin-top: 16px">
         <n-grid cols="1 700:2" responsive="screen" :x-gap="16">
@@ -30,7 +30,7 @@
         </n-grid>
       </n-form>
       <n-space>
-        <n-button :loading="statusLoading" @click="loadStatus">Refresh runner status</n-button>
+        <n-button :loading="statusLoading" @click="loadStatus">Refresh worker status</n-button>
         <n-button :disabled="!canQueue" :loading="busy === 'check'" @click="queueModuleCheck">
           Queue module check
         </n-button>
@@ -87,7 +87,7 @@ const relativeAbsoluteNumber = ref(1)
 const attributesJson = ref(
   '{\n  "Object Heading": "Developer test",\n  "Object Text": "DOORS job test"\n}'
 )
-const runner = ref<DoorsStatus | null>(null)
+const worker = ref<DoorsStatus | null>(null)
 const statusLoading = ref(false)
 const busy = ref<Operation | null>(null)
 const lastJob = ref<Job | null>(null)
@@ -99,7 +99,7 @@ const positionOptions = ['first', 'after', 'before', 'below', 'below_last'].map(
   value
 }))
 const canQueue = computed(() =>
-  Boolean(runner.value?.available && modulePath.value.trim() && !busy.value)
+  Boolean(worker.value?.available && modulePath.value.trim() && !busy.value)
 )
 const responseText = computed(() =>
   JSON.stringify(lastJob.value || { error: lastError.value }, null, 2)
@@ -110,9 +110,9 @@ onMounted(loadStatus)
 async function loadStatus(): Promise<void> {
   statusLoading.value = true
   try {
-    runner.value = await fetchDoorsStatus()
+    worker.value = await fetchDoorsStatus()
   } catch (error) {
-    runner.value = null
+    worker.value = null
     lastError.value = formatApiError(error)
   } finally {
     statusLoading.value = false
@@ -154,7 +154,7 @@ async function queue(
   input: object,
   action: (idempotencyKey: string) => Promise<Job>
 ): Promise<void> {
-  if (!runner.value?.available || !modulePath.value.trim() || busy.value) return
+  if (!worker.value?.available || !modulePath.value.trim() || busy.value) return
   const fingerprint = JSON.stringify(input)
   const currentAttempt = attempts.get(operation)
   if (!currentAttempt || currentAttempt.fingerprint !== fingerprint) {

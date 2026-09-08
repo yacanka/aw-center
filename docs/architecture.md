@@ -9,7 +9,7 @@ korunur; ayrı process gerektiren işler launcher-owned worker lifecycle'larına
 ayrılır. Güncel production aynı Windows cihaz ve kullanıcı oturumunda
 `launcher.py prod`, doğrudan TLS ve ayrı SQLite state'iyle çalışır. Windows'a
 bağımlı DOORS işleri aynı genel worker tarafından yürütülür. Linux container,
-PostgreSQL, Redis ve ayrı host-local DOORS runner sonraki olgunluk aşamasıdır.
+PostgreSQL ve Redis sonraki olgunluk aşamasıdır.
 
 Temel ilkeler:
 
@@ -69,11 +69,11 @@ capability'leri process başına daha dar biçimde ayrılmaya devam edecektir.
 | `projects` | Read-only teknik project registry ve küçük policy strategy'leri | Business project satırı veya role sahibi değildir |
 | `orgs` | `Project`, organizasyon verisi ve project-scoped role assignment | Registry slug'ıyla hizalanır |
 | `jobs` | Durable job/workflow state, leases, fencing, private artifact lifecycle | Feature package import etmez |
-| `automations` | Executor metadata catalog ve gelecekteki host-local runner protocol | Generic workflow/event framework değildir |
+| `automations` | Executor metadata catalog ve workflow use-case'leri | Generic workflow/event framework değildir |
 | `attention` | Kullanıcının action/decision görünümü | Domain aggregate'lerini sahiplenmez |
 | `integrations` | Vendor transport/session adapterları ile DOORS, Teamcenter ve DocProof HTTP/use-case yüzeyleri | Credential response/log üretmez; vendor başına kök Django app oluşturmaz |
 | `dcc`, tools | Domain HTTP adapterı, validation ve executor | Kernel'e ters bağımlılık oluşturmaz |
-| `users` | Browser session, users, invitations, preferences ve password-reset outbox | Runner authentication'ına karışmaz; SMTP web process'ine verilmez |
+| `users` | Browser session, users, invitations, preferences ve password-reset outbox | SMTP web process'ine verilmez |
 
 `backend/awcenter/test_architecture.py`, production import graph'ini, jobs kernel bağımsızlığını, kaldırılmış runtime package'larını, browser auth sınırını ve canonical URL yüzeyini fitness function olarak kilitler.
 
@@ -108,10 +108,10 @@ Authorization her request'te URL project'i, object project'i ve `ProjectRoleAssi
 
 Executor metadata'sının tek kaynağı `automations.catalog.EXECUTOR_CATALOG`'dur.
 Her kayıt `kind`, dotted callable path, `queue`, upload policy ve timeout içerir.
-Normal worker `local` allowlist'ini; Windows production'da `--include-doors`
-verildiğinde ayrıca `doors` allowlist'ini composition root üzerinden çözer. Ayrı
-runner yolu gelecekteki container profili için korunur. Böylece job kernel feature
-koduna, feature kodu da worker implementation'ına bağlanmaz.
+Normal worker `local` allowlist'ini; development ve Windows production'da DOORS
+etkinse varsayılan olarak ayrıca `doors` allowlist'ini composition root üzerinden
+çözer. Her iki runtime'daki `--exclude-doors` açık opt-out'tur.
+Böylece job kernel feature koduna, feature kodu da worker implementation'ına bağlanmaz.
 
 Workflow/handoff servisleri workflow-agnostic `jobs.persistence` primitive'lerini kullanır. Import graph'ta `services ↔ workflow_services ↔ handoffs` cycle'ı yoktur.
 
@@ -143,8 +143,6 @@ Password-reset request'i public response'ta account existence ayrımı yapmadan 
 
 Güncel Windows profilinde DOORS general worker doğrudan SQLite job kuyruğunu ve
 private artifact dizinini kullanır; browser request process'i COM çalıştırmaz.
-Gelecekteki container profilinde DOORS runner identity browser session'ından
-tamamen ayrı kalır, yalnız loopback listener ve dedicated runner token kullanır.
 
 ## API ve hata yüzeyi
 
@@ -154,10 +152,9 @@ Canonical root surface:
 - `/api/projects/` ve project-scoped organization/compliance
 - `/api/attention/`, `/api/dcc/`, `/api/jobs/`, `/api/workflows/` ve `/api/workflows/ecr/`
 - `/api/integrations/...`, `/api/tools/...`, `/api/releases/`
-- `/internal/doors-runner/v1/`
 - `/app/`, `/health/live/`, `/health/ready/`, `/admin/`
 
-API error'ları `awcenter.api_errors` ile `{ detail, code, ... }` biçimindedir; request correlation middleware `X-Request-ID`/`request_id` üretir. Structured JSON log yalnız bounded operational alanları içerir. Cookie, authorization, runner token, payload, private path ve upstream secret loglanmaz.
+API error'ları `awcenter.api_errors` ile `{ detail, code, ... }` biçimindedir; request correlation middleware `X-Request-ID`/`request_id` üretir. Structured JSON log yalnız bounded operational alanları içerir. Cookie, authorization, payload, private path ve upstream secret loglanmaz.
 
 ## File, static ve private artifact sınırı
 
@@ -203,8 +200,8 @@ alındıktan sonra eski schema'ya dönmek yerine corrective migration ile forwar
 uygulanır.
 
 Docker/Compose profili gelecekteki hedef olarak korunur. O profilde production
-PostgreSQL 17, authenticated Redis 7, immutable digest-pinned image, Nginx ve ayrı
-Windows DOORS runner kullanır. Aşağıdaki zincir yalnız bu gelecek profil içindir:
+PostgreSQL 17, authenticated Redis 7, immutable digest-pinned image ve Nginx kullanır.
+Aşağıdaki zincir yalnız bu gelecek profil içindir:
 
 Release kimliği aşağıdaki doğrulanabilir zincirdir:
 

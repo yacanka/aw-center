@@ -42,8 +42,6 @@ x-awcenter-backend-integrations: &awcenter-backend-integrations
   TEAMCENTER_USERNAME: "${TEAMCENTER_USERNAME:-}"
   TEAMCENTER_PASSWORD: "${TEAMCENTER_PASSWORD:-}"
   TEAMCENTER_VERIFY_SSL: "True"
-  DOORS_ENABLED: "${DOORS_ENABLED:-false}"
-  DOORS_RUNNER_TOKEN: "${DOORS_RUNNER_TOKEN:-}"
   ASSESSMENT_API_URL: "${ASSESSMENT_API_URL:-}"
   ASSESSMENT_API_ALLOWED_HOSTS: "${ASSESSMENT_API_ALLOWED_HOSTS:-}"
 
@@ -108,7 +106,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "127.0.0.1:${DOORS_RUNNER_PORT:-8765}:8765"
     volumes:
       - ./deploy/nginx/awcenter.conf:/etc/nginx/templates/default.conf.template:ro
       - "${TLS_CERTIFICATE_FILE:?Set TLS_CERTIFICATE_FILE}:/etc/nginx/tls/tls.crt:ro"

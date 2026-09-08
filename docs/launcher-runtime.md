@@ -13,7 +13,7 @@ development desteklenir; `prod` komutu fail-closed biçimde yalnız Windows'ta �
 - `prod`, migration'ı yalnız `--migrate` verildiğinde uygular; her başlangıçta
   migration drift, deploy check ve frontend artifact kontrollerini çalıştırır.
 - Dolu veya geçersiz portta başka port seçmez; fail-fast durur.
-- `dev`, seçilen scope'a göre Django/Vite ile mevcut durable job, password-reset/compliance notification ve cleanup command'larını foreground child process olarak supervise eder.
+- `dev`, seçilen scope'a göre Django/Vite ile mevcut durable job, password-reset/compliance notification ve cleanup command'larını foreground child process olarak supervise eder. `DOORS_ENABLED=True` olduğunda durable worker DOORS queue'sunu varsayılan olarak tüketir; `--exclude-doors` bu davranışı kapatır.
 - `prod`, Windows'ta static IPv4 üzerinde doğrudan TLS sunan tek Uvicorn process'i
   ile job, notification ve cleanup worker'larını aynı terminal lifecycle'ında supervise eder.
 - `prod` environment, TLS certificate ve private key girdilerini repository dışından
@@ -33,6 +33,7 @@ python launcher.py test
 
 python launcher.py dev --backend-port 8000 --frontend-port 5173
 python launcher.py dev --migrate
+python launcher.py dev --exclude-doors
 
 python launcher.py prod --help
 
@@ -94,14 +95,16 @@ python launcher.py prod `
   --env-file "$env:LOCALAPPDATA\AWCenter\config\production.env" `
   --host 192.0.2.10 `
   --tls-cert-file "$env:LOCALAPPDATA\AWCenter\certificates\server.crt" `
-  --tls-key-file "$env:LOCALAPPDATA\AWCenter\certificates\server.key" `
-  --include-doors
+  --tls-key-file "$env:LOCALAPPDATA\AWCenter\certificates\server.key"
 ```
 
 İlk kurulumda veya yeni migration içeren kontrollü bir release geçişinde aynı
 komuta `--migrate` eklenir. Normal yeniden başlatmada eklenmez. Production SQLite,
 private artifact, AI ağırlığı, DOCX şablonu, env ve certificate dosyalarının tamamı
 repository dışında `%LOCALAPPDATA%\AWCenter\` altında tutulur.
+
+`DOORS_ENABLED=True` ise production worker DOORS queue'sunu varsayılan olarak
+tüketir. Yalnız local queue'ları çalıştırmak için komuta `--exclude-doors` eklenir.
 
 `backend/Dockerfile`, `docker-compose.yml`, Nginx, PostgreSQL ve Redis sözleşmesi
 sonraki olgunluk aşaması için korunur; bugünkü `launcher.py prod` akışının parçası

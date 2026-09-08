@@ -25,12 +25,10 @@ class ReleaseMetadataTests(unittest.TestCase):
 
         self.assertEqual(len(template_keys), len(set(template_keys)))
         self.assertEqual(compose_inputs - set(template_keys), set())
-        self.assertIn("DOORS_RUNNER_PORT", template_keys)
 
         values = deployment_preflight.read_env_file(template_path)
         for feature in (
             "DOCPROOF_ENABLED",
-            "DOORS_ENABLED",
             "JIRA_ENABLED",
             "NUMARATOR_ENABLED",
             "TEAMCENTER_ENABLED",
@@ -336,19 +334,6 @@ class ReleaseMetadataTests(unittest.TestCase):
                     "DOCUMENT_TEMPLATE_DIRECTORY",
                 ],
             )
-
-    def test_doors_runner_token_is_required_only_when_doors_is_enabled(self):
-        self.assertEqual(deployment_preflight._validate_doors_runner({}), [])
-        self.assertEqual(
-            deployment_preflight._validate_doors_runner({"DOORS_ENABLED": "true"}),
-            ["DOORS_RUNNER_TOKEN"],
-        )
-        self.assertEqual(
-            deployment_preflight._validate_doors_runner(
-                {"DOORS_ENABLED": "true", "DOORS_RUNNER_TOKEN": "a" * 43}
-            ),
-            [],
-        )
 
     def test_deployment_preflight_rejects_template_environment(self):
         root = Path(__file__).resolve().parents[1]

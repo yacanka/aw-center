@@ -312,19 +312,7 @@ def _integration_checks():
                 )
             )
     if settings.DOORS_ENABLED:
-        from automations.identity import valid_runner_token
-
-        if (
-            settings.DOORS_EXECUTION_MODE == "runner"
-            and not valid_runner_token(settings.DOORS_RUNNER_TOKEN)
-        ):
-            checks.append(
-                Error(
-                    "DOORS requires a valid host-local runner token.",
-                    id="awcenter.E014",
-                )
-            )
-        if settings.DOORS_EXECUTION_MODE == "worker" and sys.platform != "win32":
+        if sys.platform != "win32":
             checks.append(
                 Error(
                     "DOORS worker execution requires Windows.",

@@ -235,6 +235,39 @@ class RuntimeTests(unittest.TestCase):
         django_mock.assert_not_called()
 
     @mock.patch("scripts.launcher.runtime.supervise")
+    @mock.patch("scripts.launcher.runtime.start")
+    @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
+    @mock.patch("scripts.launcher.runtime.require_port")
+    @mock.patch("scripts.launcher.runtime.django")
+    def test_dev_migrates_with_explicit_flag(
+        self,
+        django_mock: mock.Mock,
+        _: mock.Mock,
+        __: mock.Mock,
+        ___: mock.Mock,
+        ____: mock.Mock,
+    ) -> None:
+        """The development migration option must run before child startup."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            dev(
+                project,
+                Scope(frontend=False),
+                host="127.0.0.1",
+                backend_port=8000,
+                frontend_port=5173,
+                no_backend_reload=False,
+                migrate=True,
+            )
+
+        django_mock.assert_called_once_with(
+            project,
+            ["migrate", "--noinput"],
+            runtime_env("127.0.0.1", 8000, 5173),
+        )
+
+    @mock.patch("scripts.launcher.runtime.supervise")
     @mock.patch("scripts.launcher.runtime.start_job_workers", return_value=[mock.sentinel.worker])
     @mock.patch(
         "scripts.launcher.runtime.start_production_backend",
@@ -274,7 +307,7 @@ class RuntimeTests(unittest.TestCase):
                 env_file=env_file,
                 certificate_file=certificate,
                 private_key_file=private_key,
-                include_doors=True,
+                exclude_doors=False,
                 migrate=False,
             )
 
@@ -289,8 +322,42 @@ class RuntimeTests(unittest.TestCase):
             ],
         )
         worker_start.assert_called_once()
-        self.assertTrue(worker_start.call_args.kwargs["include_doors"])
+        self.assertTrue(worker_start.call_args.kwargs["include_doors_if_enabled"])
         supervise.assert_called_once_with([mock.sentinel.backend, mock.sentinel.worker])
+
+    def test_production_can_exclude_doors_queue(self) -> None:
+        """Production opt-out must leave the general worker on local queues."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            external = Path(temporary).parent
+            with (
+                mock.patch("scripts.launcher.runtime.require_windows_production"),
+                mock.patch("scripts.launcher.runtime.ensure_virtual_environment"),
+                mock.patch("scripts.launcher.runtime.require_production_host"),
+                mock.patch("scripts.launcher.runtime.require_port"),
+                mock.patch("scripts.launcher.runtime.require_external_file"),
+                mock.patch("scripts.launcher.runtime.validate_tls_identity"),
+                mock.patch("scripts.launcher.runtime.django"),
+                mock.patch("scripts.launcher.runtime.start_production_backend"),
+                mock.patch(
+                    "scripts.launcher.runtime.start_job_workers", return_value=[]
+                ) as worker_start,
+                mock.patch("scripts.launcher.runtime.supervise"),
+            ):
+                prod(
+                    project,
+                    host="192.0.2.10",
+                    port=443,
+                    env_file=external / "production.env",
+                    certificate_file=external / "tls.crt",
+                    private_key_file=external / "tls.key",
+                    exclude_doors=True,
+                    migrate=False,
+                )
+
+        worker_start.assert_called_once()
+        self.assertFalse(worker_start.call_args.kwargs["include_doors_if_enabled"])
 
     def test_production_runtime_values_are_explicit(self) -> None:
         env_file = Path("C:/runtime/production.env")
@@ -450,11 +517,13 @@ class CliTests(unittest.TestCase):
         prepare = parser.parse_args(["prepare-offline", "--skip-frontend"])
         self.assertEqual(development.backend_port, 8010)
         self.assertTrue(development.migrate)
+        self.assertFalse(development.exclude_doors)
+        self.assertTrue(parser.parse_args(["dev", "--exclude-doors"]).exclude_doors)
         self.assertTrue(package.ignore_packages)
         self.assertTrue(prepare.skip_frontend)
 
-    def test_windows_production_requires_explicit_runtime_inputs(self) -> None:
-        """Production cannot inherit development paths or transport defaults."""
+    def test_windows_production_exposes_doors_opt_out(self) -> None:
+        """Production consumes enabled DOORS jobs unless explicitly excluded."""
 
         production = build_parser().parse_args(
             [
@@ -467,12 +536,26 @@ class CliTests(unittest.TestCase):
                 "tls.crt",
                 "--tls-key-file",
                 "tls.key",
-                "--include-doors",
+            ]
+        )
+        excluded = build_parser().parse_args(
+            [
+                "prod",
+                "--env-file",
+                "production.env",
+                "--host",
+                "192.0.2.10",
+                "--tls-cert-file",
+                "tls.crt",
+                "--tls-key-file",
+                "tls.key",
+                "--exclude-doors",
             ]
         )
 
         self.assertEqual(production.port, 443)
-        self.assertTrue(production.include_doors)
+        self.assertFalse(production.exclude_doors)
+        self.assertTrue(excluded.exclude_doors)
 
     def test_relative_paths_resolve_from_project_root(self) -> None:
         """Outputs should not depend on the shell's current working directory."""

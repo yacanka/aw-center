@@ -32,10 +32,16 @@ class Command(BaseCommand):
         parser.add_argument("--once", action="store_true")
         parser.add_argument("--poll-interval", type=float, default=1.0)
         parser.add_argument("--heartbeat-file")
-        parser.add_argument(
+        doors_mode = parser.add_mutually_exclusive_group()
+        doors_mode.add_argument(
             "--include-doors",
             action="store_true",
             help="Consume the DOORS queue in this Windows user session.",
+        )
+        doors_mode.add_argument(
+            "--include-doors-if-enabled",
+            action="store_true",
+            help="Consume the DOORS queue when DOORS_ENABLED is true.",
         )
 
     def handle(self, *args, **options):
@@ -43,7 +49,8 @@ class Command(BaseCommand):
 
         self.stopping = Event()
         self.install_signal_handlers()
-        include_doors = bool(options.get("include_doors", False))
+        include_doors = resolve_include_doors(options)
+        options["include_doors"] = include_doors
         validate_doors_worker(include_doors)
         prefix = "doors-worker:" if include_doors else "worker:"
         worker_id = f"{prefix}{socket.gethostname()[:90]}:{uuid4().hex[:12]}"
@@ -106,10 +113,16 @@ def validate_doors_worker(include_doors):
         return
     if sys.platform != "win32":
         raise CommandError("Embedded DOORS execution is supported only on Windows.")
-    if not settings.DOORS_ENABLED or settings.DOORS_EXECUTION_MODE != "worker":
-        raise CommandError(
-            "--include-doors requires DOORS_ENABLED=True and DOORS_EXECUTION_MODE=worker."
-        )
+    if not settings.DOORS_ENABLED:
+        raise CommandError("--include-doors requires DOORS_ENABLED=True.")
+
+
+def resolve_include_doors(options):
+    """Resolve strict production and settings-aware development worker modes."""
+
+    if options.get("include_doors_if_enabled", False):
+        return bool(settings.DOORS_ENABLED)
+    return bool(options.get("include_doors", False))
 
 
 @contextmanager

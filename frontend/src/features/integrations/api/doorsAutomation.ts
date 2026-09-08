@@ -8,8 +8,8 @@ export type DoorsScalarAttributes = Record<string, string | number | boolean | n
 export interface DoorsStatus {
   configured: boolean
   available: boolean
-  active_runners: number
-  transport: 'loopback_token'
+  active_workers: number
+  transport: 'windows-worker'
 }
 
 export interface DoorsObjectUpdateInput {
@@ -64,12 +64,12 @@ export interface DoorsRequirementLinkResult {
   missing_targets: string[]
 }
 
-/** Return DOORS feature-flag and live-runner readiness as one fail-closed decision. */
+/** Return DOORS feature-flag and Windows-worker readiness as one fail-closed decision. */
 export async function fetchDoorsStatus(): Promise<DoorsStatus> {
   return (await apiClient.get<DoorsStatus>(`${API_PATHS.doors}/status/`)).data
 }
 
-/** Queue a module accessibility check for the host-local DOORS runner. */
+/** Queue a module accessibility check for the Windows DOORS worker. */
 export async function enqueueDoorsModuleCheck(
   modulePath: string,
   idempotencyKey: string

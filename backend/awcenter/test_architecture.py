@@ -161,7 +161,6 @@ class ArchitectureFitnessTests(SimpleTestCase):
                 "app/",
                 "health/live/",
                 "health/ready/",
-                "internal/doors-runner/v1/",
             }:
                 continue
             self.assertTrue(route.startswith("api/"), route)

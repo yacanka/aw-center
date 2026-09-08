@@ -50,38 +50,21 @@ def execute_with_client(operation: Callable[[DoorsClient], Result]) -> Result:
 
 
 def integration_status() -> dict[str, object]:
-    """Return readiness for the configured Windows execution mode."""
+    """Return readiness for the single supported Windows worker architecture."""
 
-    if settings.DOORS_EXECUTION_MODE == "worker":
-        from jobs.models import WorkerHeartbeat
+    from jobs.models import WorkerHeartbeat
 
-        stale_seconds = max(5, int(settings.JOB_WORKER_STALE_SECONDS))
-        active_workers = WorkerHeartbeat.objects.filter(
-            worker_id__startswith="doors-worker:",
-            heartbeat_at__gte=timezone.now() - timedelta(seconds=stale_seconds),
-        ).count()
-        platform_supported = sys.platform == "win32"
-        configured = bool(settings.DOORS_ENABLED and platform_supported)
-        return {
-            "configured": configured,
-            "platform_supported": platform_supported,
-            "available": bool(configured and active_workers),
-            "execution_mode": "worker",
-            "runner": {
-                "configured": configured,
-                "available": bool(configured and active_workers),
-                "active_runners": active_workers,
-                "transport": "windows-worker",
-            },
-        }
-
-    from automations.runner_protocol import runner_status
-
-    runner = runner_status()
+    stale_seconds = max(5, int(settings.JOB_WORKER_STALE_SECONDS))
+    active_workers = WorkerHeartbeat.objects.filter(
+        worker_id__startswith="doors-worker:",
+        heartbeat_at__gte=timezone.now() - timedelta(seconds=stale_seconds),
+    ).count()
+    platform_supported = sys.platform == "win32"
+    configured = bool(settings.DOORS_ENABLED and platform_supported)
     return {
-        "configured": bool(settings.DOORS_ENABLED and runner["configured"]),
-        "platform_supported": bool(runner["available"]),
-        "available": bool(settings.DOORS_ENABLED and runner["available"]),
-        "execution_mode": "runner",
-        "runner": runner,
+        "configured": configured,
+        "platform_supported": platform_supported,
+        "available": bool(configured and active_workers),
+        "active_workers": active_workers if configured else 0,
+        "transport": "windows-worker",
     }

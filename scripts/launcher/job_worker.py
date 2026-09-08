@@ -18,15 +18,15 @@ def start_job_workers(
     project: Project,
     extra_env: dict[str, str],
     *,
-    include_doors: bool = False,
+    include_doors_if_enabled: bool = False,
 ) -> list[subprocess.Popen]:
     """Start the repository's durable worker when its command is available."""
 
     workers = []
     if (project.backend / WORKER_COMMAND_PATH).is_file():
         command = [project.python, "manage.py", "run_job_worker", "--poll-interval", "1"]
-        if include_doors:
-            command.append("--include-doors")
+        if include_doors_if_enabled:
+            command.append("--include-doors-if-enabled")
         workers.append(start(command, project.backend, extra_env=extra_env))
     if (project.backend / NOTIFICATION_COMMAND_PATH).is_file():
         command = [project.python, "manage.py", "run_compdoc_notification_worker"]

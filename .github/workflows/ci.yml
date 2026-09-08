@@ -219,7 +219,7 @@ jobs:
           awcenter.test_environment
           awcenter.test_production_checks
           jobs.tests.test_isolated_worker.WorkerCompositionTests
-          integrations.tests.test_doors_runner_tasks
+          integrations.tests.test_doors_worker_tasks
 
       - name: Verify isolated Windows SQLite production profile
         shell: pwsh
@@ -261,7 +261,6 @@ jobs:
           $env:CSRF_COOKIE_SECURE = "True"
           $env:TRUST_PROXY_HEADERS = "False"
           $env:TRUSTED_PROXY_COUNT = "0"
-          $env:DOORS_EXECUTION_MODE = "worker"
           $env:JIRA_ENABLED = "False"
           $env:DOCPROOF_ENABLED = "False"
           $env:DOORS_ENABLED = "False"

@@ -13,13 +13,6 @@ APPROVED_PUBLIC_ROUTES = {
     "api/users/invitations/accept/",
     "health/live/",
     "health/ready/",
-    # These routes deliberately bypass browser authentication; the views require
-    # the dedicated token available only to the host-local DOORS runner.
-    "internal/doors-runner/v1/claims/",
-    "internal/doors-runner/v1/jobs/<uuid:job_id>/complete/",
-    "internal/doors-runner/v1/jobs/<uuid:job_id>/heartbeat/",
-    "internal/doors-runner/v1/jobs/<uuid:job_id>/input/",
-    "internal/doors-runner/v1/status/",
 }
 
 

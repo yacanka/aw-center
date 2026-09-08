@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from django.conf import settings
 import requests
 
-from automations.runner_protocol import runner_status
+from integrations.doors.services import integration_status as doors_status
 from integrations.teamcenter.services import parse_tls_verification
 
 
@@ -66,16 +66,16 @@ def probe_numarator() -> ProbeOutcome:
 
 
 def probe_doors() -> ProbeOutcome:
-    """Report only the server-observed, token-bound local runner state."""
+    """Report only the server-observed Windows worker state."""
 
     if not settings.DOORS_ENABLED:
         return ProbeOutcome("not_configured", "DOORS automation is disabled.")
-    status = runner_status()
+    status = doors_status()
     if not status["configured"]:
-        return ProbeOutcome("not_configured", "The local DOORS runner is not configured.")
+        return ProbeOutcome("not_configured", "The DOORS worker is not configured.")
     if status["available"]:
-        return ProbeOutcome("available", "The local DOORS runner is active.")
-    return ProbeOutcome("unavailable", "The local DOORS runner is not active.")
+        return ProbeOutcome("available", "The DOORS worker is active.")
+    return ProbeOutcome("unavailable", "The DOORS worker is not active.")
 
 
 def probe_office() -> ProbeOutcome:

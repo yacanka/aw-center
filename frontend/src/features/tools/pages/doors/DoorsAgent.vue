@@ -17,13 +17,13 @@
           >
             Queue module check
           </n-button>
-          <n-button :loading="statusLoading" @click="loadStatus">Refresh runner status</n-button>
+          <n-button :loading="statusLoading" @click="loadStatus">Refresh worker status</n-button>
         </n-space>
       </n-form>
     </n-card>
 
     <n-alert v-if="lastJob" type="info" title="Windows automation queued">
-      Job {{ lastJob.id }} will run when the host-local DOORS runner claims it.
+      Job {{ lastJob.id }} will run when the Windows DOORS worker claims it.
       <template #action>
         <n-button text type="primary" @click="openJob">Open in Job Center</n-button>
       </template>
@@ -44,19 +44,19 @@ import type { Job } from '@/features/jobs/api/jobs'
 
 const router = useRouter()
 const modulePath = ref('')
-const runner = ref<DoorsStatus | null>(null)
+const worker = ref<DoorsStatus | null>(null)
 const lastJob = ref<Job | null>(null)
 const statusLoading = ref(false)
 const queueing = ref(false)
 let pendingAttempt: { fingerprint: string; key: string } | null = null
 
-const canQueue = computed(() => Boolean(runner.value?.available && modulePath.value.trim()))
-const readinessType = computed(() => (runner.value?.available ? 'success' : 'warning'))
+const canQueue = computed(() => Boolean(worker.value?.available && modulePath.value.trim()))
+const readinessType = computed(() => (worker.value?.available ? 'success' : 'warning'))
 const readinessMessage = computed(() => {
-  if (!runner.value) return 'Windows automation availability has not been verified.'
-  if (!runner.value.configured) return 'The host-local DOORS runner is not configured.'
-  if (!runner.value.available) return 'The host-local DOORS runner is not currently live.'
-  return `${runner.value.active_runners} DOORS runner(s) available.`
+  if (!worker.value) return 'Windows automation availability has not been verified.'
+  if (!worker.value.configured) return 'The Windows DOORS worker is not configured.'
+  if (!worker.value.available) return 'The Windows DOORS worker is not currently live.'
+  return `${worker.value.active_workers} DOORS worker(s) available.`
 })
 
 onMounted(loadStatus)
@@ -64,9 +64,9 @@ onMounted(loadStatus)
 async function loadStatus(): Promise<void> {
   statusLoading.value = true
   try {
-    runner.value = await fetchDoorsStatus()
+    worker.value = await fetchDoorsStatus()
   } catch (error) {
-    runner.value = null
+    worker.value = null
     window.$message.error(formatApiError(error))
   } finally {
     statusLoading.value = false
@@ -75,7 +75,7 @@ async function loadStatus(): Promise<void> {
 
 async function queueModuleCheck(): Promise<void> {
   const path = modulePath.value.trim()
-  if (!runner.value?.available || !path) return
+  if (!worker.value?.available || !path) return
   const fingerprint = JSON.stringify({ operation: 'check_module', module_path: path })
   if (pendingAttempt?.fingerprint !== fingerprint) {
     pendingAttempt = { fingerprint, key: crypto.randomUUID() }

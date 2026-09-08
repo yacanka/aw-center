@@ -1,4 +1,4 @@
-"""DOORS runner callables using only artifact payloads and the OLE client."""
+"""DOORS worker callables using only artifact payloads and the OLE client."""
 
 import json
 from pathlib import Path
@@ -28,8 +28,8 @@ READ_OPERATIONS = frozenset(
 )
 
 
-class RunnerTaskPayloadError(ValueError):
-    """Reject an invalid or unsupported DOORS runner artifact."""
+class WorkerTaskPayloadError(ValueError):
+    """Reject an invalid or unsupported DOORS worker artifact."""
 
 
 def execute_dxl(input_path, output_path):
@@ -38,7 +38,7 @@ def execute_dxl(input_path, output_path):
     payload = load_payload(input_path)
     operation = payload.get("operation")
     if operation not in READ_OPERATIONS:
-        raise RunnerTaskPayloadError("Unsupported DOORS read operation.")
+        raise WorkerTaskPayloadError("Unsupported DOORS read operation.")
     if operation == "check_module":
         values = validated(ModuleSerializer, payload)
         result = execute_with_client(
@@ -144,12 +144,12 @@ def load_payload(input_path):
     try:
         size = path.stat().st_size
         if size < 2 or size > JSON_OPERATION_POLICY.maximum_bytes:
-            raise RunnerTaskPayloadError("DOORS automation payload size is invalid.")
+            raise WorkerTaskPayloadError("DOORS automation payload size is invalid.")
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise RunnerTaskPayloadError("DOORS automation payload is invalid.") from error
+        raise WorkerTaskPayloadError("DOORS automation payload is invalid.") from error
     if not isinstance(payload, dict):
-        raise RunnerTaskPayloadError("DOORS automation payload must be an object.")
+        raise WorkerTaskPayloadError("DOORS automation payload must be an object.")
     return payload
 
 
@@ -159,7 +159,7 @@ def validated(serializer_class, payload):
     values = {key: value for key, value in payload.items() if key != "operation"}
     serializer = serializer_class(data=values)
     if set(values) - set(serializer.fields) or not serializer.is_valid():
-        raise RunnerTaskPayloadError("DOORS automation payload failed validation.")
+        raise WorkerTaskPayloadError("DOORS automation payload failed validation.")
     return serializer.validated_data
 
 
@@ -169,7 +169,7 @@ def write_result(output_path, payload):
     path = Path(output_path)
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if not encoded or len(encoded) > MAX_RESULT_BYTES:
-        raise RunnerTaskPayloadError("DOORS automation result exceeds the safety limit.")
+        raise WorkerTaskPayloadError("DOORS automation result exceeds the safety limit.")
     path.write_bytes(encoded)
     return {
         "filename": "doors-result.json",

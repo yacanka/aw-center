@@ -69,6 +69,7 @@ def dev(
     frontend_port: int,
     no_backend_reload: bool,
     migrate: bool,
+    exclude_doors: bool = False,
 ) -> None:
     """Run Django and Vite as launcher-owned foreground children."""
     scope.require_any()
@@ -86,7 +87,11 @@ def dev(
             )
         )
         processes.extend(
-            start_job_workers(project, runtime_env(host, backend_port, frontend_port))
+            start_job_workers(
+                project,
+                runtime_env(host, backend_port, frontend_port),
+                include_doors_if_enabled=not exclude_doors,
+            )
         )
     if scope.frontend:
         processes.append(start_frontend(project, host, backend_port, frontend_port))
@@ -102,7 +107,7 @@ def prod(
     env_file: Path,
     certificate_file: Path,
     private_key_file: Path,
-    include_doors: bool,
+    exclude_doors: bool,
     migrate: bool,
 ) -> None:
     """Run the single-host Windows HTTPS production lifecycle."""
@@ -137,7 +142,11 @@ def prod(
         )
     ]
     processes.extend(
-        start_job_workers(project, extra_env, include_doors=include_doors)
+        start_job_workers(
+            project,
+            extra_env,
+            include_doors_if_enabled=not exclude_doors,
+        )
     )
     print(f"Production: {production_url(host, port)}")
     print("Press Ctrl+C to stop.")

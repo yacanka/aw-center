@@ -52,6 +52,11 @@ def add_development(commands: Subparsers) -> None:
     add_scope(development)
     add_server_options(development, frontend=True)
     development.add_argument("--no-backend-reload", action="store_true")
+    development.add_argument(
+        "--exclude-doors",
+        action="store_true",
+        help="Keep the development worker from consuming the DOORS queue.",
+    )
     development.add_argument("--migrate", action="store_true", help="Apply migrations before startup.")
 
 
@@ -73,9 +78,9 @@ def add_production(commands: Subparsers) -> None:
     production.add_argument("--tls-cert-file", type=Path, required=True)
     production.add_argument("--tls-key-file", type=Path, required=True)
     production.add_argument(
-        "--include-doors",
+        "--exclude-doors",
         action="store_true",
-        help="Let the single Windows worker consume the DOORS queue.",
+        help="Keep the production worker from consuming the DOORS queue.",
     )
     production.add_argument(
         "--migrate",
