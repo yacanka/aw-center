@@ -185,7 +185,9 @@ def execute_claimed_job(
 def start_executor_process(job, resolve_executor):
     """Start one isolated executor using the platform's safe process method."""
 
-    method = "spawn" if sys.platform == "win32" else "fork"
+    # macOS system libraries can start threads; forking their initialized
+    # Objective-C runtime can abort a later executor before it reaches Django.
+    method = "spawn" if sys.platform in {"win32", "darwin"} else "fork"
     try:
         context = multiprocessing.get_context(method)
     except ValueError as error:

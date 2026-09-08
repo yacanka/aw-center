@@ -26,23 +26,36 @@
           :compdoc="compdoc"
           :original="originalCompdoc"
           :readonly="formReadonly"
-          :show-number-source="popupMode === 'new' || !compdoc.cover_page_no"
+          :show-number-source="popupMode === 'new' || !originalCompdoc.cover_page_no"
           :numbering-available="numberingAvailable"
           :number-source="numberSource"
           @update:number-source="numberSource = $event"
         />
+        <n-form-item v-if="numberSource === 'numarator'" label="Cover page number format">
+          <n-select
+            v-model:value="numberingFormat"
+            :options="numberingFormats.map((code) => ({ label: code, value: code }))"
+            :disabled="formReadonly"
+            placeholder="Select a Numarator format"
+          />
+        </n-form-item>
         <n-alert
           v-if="allocationMessage"
           :type="allocationFailed ? 'error' : 'info'"
           :bordered="true"
           title="Numarator"
         >
-          {{ allocationMessage }}
-          <template v-if="allocationFailed" #action>
-            <n-button size="small" :loading="allocationActive" @click="retryAllocation">
+          <n-space vertical>
+            <span>{{ allocationMessage }}</span>
+            <n-button
+              v-if="allocationFailed"
+              size="small"
+              :loading="allocationActive"
+              @click="retryAllocation"
+            >
               Retry
             </n-button>
-          </template>
+          </n-space>
         </n-alert>
         <CompDocReferenceFields
           :compdoc="compdoc"
@@ -112,6 +125,8 @@ const {
   originalCompdoc,
   popupMode,
   numberingAvailable,
+  numberingFormats,
+  numberingFormat,
   numberSource,
   rules,
   save,

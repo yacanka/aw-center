@@ -25,6 +25,7 @@ from orgs.models import ProjectRoleAssignment
 
 from .models import ComplianceDocument, CoverPage, CoverPageNumberAllocation, ReviewTask
 from .serializers import ComplianceDocumentSerializer
+from .services import require_tracking_panel_compatibility
 
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -50,7 +51,10 @@ def execute_cover_page_number_allocation(job):
             )
             _record_remote_allocation(job, allocation.id, generated)
         allocation.refresh_from_db()
-        if allocation.document_id is None or not allocation.cover_page.number:
+        if allocation.status not in {
+            CoverPageNumberAllocation.Status.USE_PENDING,
+            CoverPageNumberAllocation.Status.COMPLETED,
+        }:
             update_progress(job.id, 55, "Saving the compliance document.")
             _bind_document(job, allocation.id)
         allocation.refresh_from_db()
@@ -205,55 +209,7 @@ def _bind_document(job, allocation_id):
             "The requester can no longer edit this project.", "PROJECT_ROLE_REQUIRED"
         )
     if allocation.document_id:
-        document = ComplianceDocument.objects.select_for_update().get(
-            pk=allocation.document_id,
-            project=allocation.project,
-        )
-        if document.is_archived:
-            raise JobExecutionFailure(
-                "Restore the compliance document before assigning its number.",
-                "COMPDOC_ARCHIVED",
-            )
-        if document.cover_page_id != allocation.cover_page_id:
-            raise JobExecutionFailure(
-                "The compliance document cover page changed while allocation ran.",
-                "COMPDOC_ALLOCATION_STALE",
-            )
-        cover_page = CoverPage.objects.select_for_update().get(pk=allocation.cover_page_id)
-        if cover_page.compliance_documents.exclude(pk=document.pk).exists():
-            raise JobExecutionFailure(
-                "The unnumbered cover page is shared by more than one document.",
-                "COMPDOC_COVER_PAGE_SHARED",
-            )
-        if cover_page.number:
-            if cover_page.number != allocation.remote_number:
-                raise NumaratorConflictError("The cover page was numbered while allocation ran.")
-            return document
-        if CoverPage.objects.filter(
-            project=allocation.project, number=allocation.remote_number
-        ).exists():
-            raise NumaratorConflictError("The generated number already exists in this project.")
-        cover_page.number = allocation.remote_number
-        cover_page.version += 1
-        cover_page._history_user = allocation.actor
-        cover_page.save(update_fields=["number", "version"])
-        document.version += 1
-        document._history_user = allocation.actor
-        document._change_reason = "Cover page number assigned"
-        document.save(update_fields=["version", "updated_at"])
-        ReviewTask.objects.filter(
-            document=document,
-            status=ReviewTask.Status.PENDING,
-        ).exclude(source_version=document.version).update(
-            status=ReviewTask.Status.SUPERSEDED,
-            decision_note="Document changed after this review was requested.",
-            decided_by=allocation.actor,
-            decided_by_username=allocation.actor.get_username(),
-            decided_at=timezone.now(),
-        )
-        allocation.status = CoverPageNumberAllocation.Status.USE_PENDING
-        allocation.save(update_fields=["status", "updated_at"])
-        return document
+        return _bind_existing_document(allocation)
     if CoverPage.objects.filter(
         project=allocation.project,
         number=allocation.remote_number,
@@ -283,6 +239,78 @@ def _bind_document(job, allocation_id):
     allocation.cover_page = document.cover_page
     allocation.status = CoverPageNumberAllocation.Status.USE_PENDING
     allocation.save()
+    return document
+
+
+def _bind_existing_document(allocation):
+    """Apply the versioned form and number to the original blank cover page."""
+
+    document = ComplianceDocument.objects.select_for_update().get(
+        pk=allocation.document_id,
+        project=allocation.project,
+    )
+    if document.is_archived:
+        raise JobExecutionFailure(
+            "Restore the compliance document before assigning its number.",
+            "COMPDOC_ARCHIVED",
+        )
+    if document.cover_page_id != allocation.cover_page_id:
+        raise JobExecutionFailure(
+            "The compliance document cover page changed while allocation ran.",
+            "COMPDOC_ALLOCATION_STALE",
+        )
+    cover_page = CoverPage.objects.select_for_update().get(pk=allocation.cover_page_id)
+    snapshot = allocation.document_snapshot
+    if (
+        document.version != snapshot.get("version")
+        or cover_page.version != snapshot.get("cover_page", {}).get("version")
+    ):
+        raise NumaratorConflictError("The document changed while allocation ran.")
+    if cover_page.compliance_documents.exclude(pk=document.pk).exists():
+        raise JobExecutionFailure(
+            "The unnumbered cover page is shared by more than one document.",
+            "COMPDOC_COVER_PAGE_SHARED",
+        )
+    if cover_page.number:
+        raise NumaratorConflictError("The cover page was numbered while allocation ran.")
+    if CoverPage.objects.filter(
+        project=allocation.project, number=allocation.remote_number
+    ).exists():
+        raise NumaratorConflictError("The generated number already exists in this project.")
+    payload = dict(snapshot)
+    cover_data = payload.pop("cover_page")
+    serializer = ComplianceDocumentSerializer(
+        document,
+        data=payload,
+        partial=True,
+        context={"project": allocation.project, "request": SimpleNamespace(user=allocation.actor)},
+    )
+    try:
+        serializer.is_valid(raise_exception=True)
+        require_tracking_panel_compatibility(
+            document, serializer.validated_data.get("panel", document.panel)
+        )
+    except ValidationError as error:
+        raise NumaratorConflictError("The document must be reviewed before assigning its number.") from error
+    cover_page.number = allocation.remote_number
+    cover_page.issue = cover_data.get("issue", cover_page.issue)
+    cover_page.version += 1
+    cover_page._history_user = allocation.actor
+    cover_page.save(update_fields=["number", "issue", "version"])
+    serializer.initial_data["change_reason"] = "Cover page number assigned"
+    document = serializer.save(version=document.version + 1)
+    ReviewTask.objects.filter(
+        document=document,
+        status=ReviewTask.Status.PENDING,
+    ).exclude(source_version=document.version).update(
+        status=ReviewTask.Status.SUPERSEDED,
+        decision_note="Document changed after this review was requested.",
+        decided_by=allocation.actor,
+        decided_by_username=allocation.actor.get_username(),
+        decided_at=timezone.now(),
+    )
+    allocation.status = CoverPageNumberAllocation.Status.USE_PENDING
+    allocation.save(update_fields=["status", "updated_at"])
     return document
 
 

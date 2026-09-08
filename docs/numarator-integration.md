@@ -1,9 +1,10 @@
 # Numarator entegrasyon mimarisi
 
-Durum: ilk runtime dilimi uygulanmıştır; create-document tahsisi, durable job,
+Durum: yeni belge ve mevcut boş cover page tahsisi, arayüzden format seçimi, durable job,
 idempotent retry, yerel bağlama ve `used` bildirimi hazırdır. Replacement, cancel
 ve operatör mutabakat ekranı bu belgedeki sonraki dilim olarak kalır.
 İlk kullanım: Compliance Documents içinde cover page numarası oluşturma ve kullanma.
+Yerel kurulum ve birlikte çalıştırma: [yerel entegrasyon rehberi](numarator-local-development.md).
 İncelenen kaynaklar: AW Center `4a636f8`, Numarator `27a7d86` (5 Eylül 2026).
 
 ## Karar
@@ -183,10 +184,11 @@ Mevcut create/update endpointlerinin manuel sözleşmesi değişmez.
 | --- | --- |
 | `GET numbering-options/` | Viewer; yalnız bu projedeki uygun seçenekler ve güvenli context alanları. Secret, origin ve internal handler metadata'sı dönmez. |
 | `POST number-allocations/` | Editor + CSRF; istemci UUID'si ve yeni belge formu; `202` ve allocation/job ID. |
+| `GET number-allocations/?document_id=<uuid>` | Editor; actor/manager görünürlüğüyle mevcut belgenin tamamlanmamış tek tahsisini döndürür. Form yeniden açılınca aynı işlem sürdürülebilir. |
 | `GET number-allocations/<uuid>/` | Proje erişimi ve actor/manager kontrolü; aşama, güvenli hata, kaydedilmiş belge/numara. |
 | `POST number-allocations/<uuid>/resume/` | Editor + actor/manager + CSRF; güncel allocation/domain sürümü ve gerekiyorsa açık bağlama onayı. Aynı tahsisle devam eder. |
 
-Listeleme ve cancel endpointleri ile replacement işlemi henüz açılmamıştır.
+Genel listeleme ve cancel endpointleri ile replacement işlemi henüz açılmamıştır.
 
 Numarator base URL'si, serbest format kodu, metadata ve project context'i
 tarayıcıdan güvenilir kabul edilmez. Backend proje eşlemesinden üretir; kullanıcı
@@ -202,6 +204,13 @@ sözleşmesine çevrilir; upstream mesajları doğrudan yansıtılmaz.
   doğrulanan deployment ayarıdır. İş verisi/rol registry'ye taşınmaz. Formatın
   gerçek kodu, format UUID'si ve gerekli alanları kurulum sırasında okunur;
   örnek bir format adı production'da var kabul edilmez.
+  `NUMARATOR_PROJECT_FORMATS` değerleri tek kod veya kod listesi olabilir:
+  `{"ozgur":["COVER_PAGE","COVER_PAGE_YEAR"]}`. Seçenekler bu sunucu allowlist'inden
+  arayüze verilir. Birden fazla format varsa kullanıcı seçim yapmalıdır;
+  tek kodlu eski yapılandırma varsayılanını korur. İstemcinin `format_code` alanı
+  aynı allowlist'e karşı doğrulanır ve idempotency snapshot'ına kaydedilir.
+  Liste Numarator'dan her form açılışında otomatik keşfedilmez; yönetici gerçek
+  aktif format kodlarıyla API anahtarının format izinlerini birlikte yapılandırır.
 - Proje için ayrı sayaç gerekiyorsa ayrı Numarator formatı gerekir. Mevcut sayaç
   `(format, period)` kapsamındadır; yalnız context'e project eklemek sayacı ayırmaz.
 - İlk sürümde AW Center ortamına ayrılmış formatlar ve bu UUID'lerle sınırlı API

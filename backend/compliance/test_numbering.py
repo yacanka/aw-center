@@ -289,6 +289,102 @@ class CoverPageNumberingTests(TestCase):
                 "provider": "numarator",
                 "available": True,
                 "supports": ["create_document", "assign_existing_document"],
+                "formats": ["COVER_PAGE"],
             },
         )
         self.assertNotIn("dnk_", response.content.decode("utf-8"))
+
+    @override_settings(NUMARATOR_PROJECT_FORMATS={"ozgur": ["COVER_PAGE", "CP_ALT"]})
+    def test_format_selection_is_required_allowlisted_and_idempotent(self):
+        options = self.client.get(self.url.replace("number-allocations", "numbering-options"))
+        self.assertEqual(options.data["formats"], ["COVER_PAGE", "CP_ALT"])
+        payload = self.payload()
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 400)
+        payload["format_code"] = "OTHER_PROJECT"
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 400)
+        payload["format_code"] = "CP_ALT"
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(CoverPageNumberAllocation.objects.get(pk=response.data["id"]).format_code, "CP_ALT")
+        payload["format_code"] = "COVER_PAGE"
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 409)
+        self.assertEqual(Job.objects.count(), 1)
+
+    def existing_payload(self):
+        cover = CoverPage.objects.create(project=self.project, number="", issue="A")
+        document = ComplianceDocument.objects.create(
+            project=self.project, panel=self.panel, cover_page=cover, name="Unnumbered",
+        )
+        payload = self.payload(name="Edited before numbering")
+        payload["document_id"] = str(document.pk)
+        payload["document"]["version"] = document.version
+        payload["document"]["notes"] = "Saved with the selected number"
+        payload["document"]["cover_page"] = {"issue": "B", "version": cover.version}
+        return document, payload
+
+    @patch("compliance.numbering_executor.NumaratorClient")
+    def test_existing_allocation_saves_edits_and_replays_after_completion(self, client_class):
+        document, payload = self.existing_payload()
+        client = client_class.return_value
+        client.generate_number.return_value = GeneratedNumber(45, "CP-0045", "COVER_PAGE", "active", "")
+        client.mark_used.return_value = GeneratedNumber(45, "CP-0045", "COVER_PAGE", "used", "")
+        response = self.client.post(self.url, payload, format="json")
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        replay = self.client.post(self.url, payload, format="json")
+        document.refresh_from_db()
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(replay.data["id"], response.data["id"])
+        self.assertEqual(document.name, "Edited before numbering")
+        self.assertEqual(document.notes, "Saved with the selected number")
+        self.assertEqual(document.cover_page.number, "CP-0045")
+        self.assertEqual(document.cover_page.issue, "B")
+        self.assertEqual(document.version, 2)
+        self.assertEqual(document.cover_page.version, 2)
+        self.assertEqual(Job.objects.count(), 1)
+
+    def test_existing_allocation_rejects_stale_versions_and_duplicate_operations(self):
+        document, payload = self.existing_payload()
+        payload["document"]["version"] = 20
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 409)
+        payload["document"]["version"] = document.version
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 202)
+        payload["client_operation_id"] = str(uuid4())
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 409)
+        self.assertEqual(Job.objects.count(), 1)
+
+    def test_unfinished_existing_allocation_can_be_reopened_only_by_its_actor(self):
+        document, payload = self.existing_payload()
+        created = self.client.post(self.url, payload, format="json")
+        restored = self.client.get(self.url, {"document_id": str(document.pk)})
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.data["allocation"]["id"], created.data["id"])
+        self.assertEqual(restored.data["allocation"]["format_code"], "COVER_PAGE")
+        other = get_user_model().objects.create_user("another-number-editor")
+        ProjectRoleAssignment.objects.create(
+            project=self.project, domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+            role=ProjectRoleAssignment.Role.EDITOR, user=other,
+        )
+        self.client.force_authenticate(other)
+        hidden = self.client.get(self.url, {"document_id": str(document.pk)})
+        self.assertIsNone(hidden.data["allocation"])
+        self.assertEqual(self.client.get(self.url, {"document_id": "invalid"}).status_code, 400)
+        self.client.force_authenticate(self.viewer)
+        self.assertEqual(self.client.get(self.url, {"document_id": str(document.pk)}).status_code, 403)
+
+    @patch("compliance.numbering_executor.NumaratorClient")
+    def test_edit_during_remote_allocation_does_not_overwrite_or_mark_used(self, client_class):
+        document, payload = self.existing_payload()
+        response = self.client.post(self.url, payload, format="json")
+        def concurrent_edit(**kwargs):
+            document.version += 1
+            document.name = "Another editor's change"
+            document.save()
+            return GeneratedNumber(46, "CP-0046", "COVER_PAGE", "active", "")
+        client_class.return_value.generate_number.side_effect = concurrent_edit
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        allocation = CoverPageNumberAllocation.objects.get(pk=response.data["id"])
+        document.refresh_from_db()
+        self.assertEqual(allocation.status, CoverPageNumberAllocation.Status.RECONCILIATION_REQUIRED)
+        self.assertEqual(document.cover_page.number, "")
+        self.assertEqual(document.name, "Another editor's change")
+        client_class.return_value.mark_used.assert_not_called()

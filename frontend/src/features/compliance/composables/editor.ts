@@ -11,6 +11,7 @@ import {
 import {
   createCoverPageAllocation,
   fetchCoverPageAllocation,
+  fetchExistingCoverPageAllocation,
   fetchNumberingOptions,
   resumeCoverPageAllocation,
   type CoverPageAllocation
@@ -30,6 +31,8 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   const popupMode = ref<string | null>(null)
   const hasExtraFields = ref(false)
   const numberingAvailable = ref(false)
+  const numberingFormats = ref<string[]>([])
+  const numberingFormat = ref<string | null>(null)
   const numberSource = ref<'manual' | 'numarator'>('manual')
   const allocation = ref<CoverPageAllocation | null>(null)
   const allocationOperationId = ref('')
@@ -79,7 +82,9 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     allocationOperationId.value = crypto.randomUUID()
     numberSource.value = 'manual'
     numberingAvailable.value = false
-    if (mode === 'new' || !draft.cover_page_no) void loadNumberingOptions()
+    numberingFormats.value = []
+    numberingFormat.value = null
+    if (mode === 'new' || !draft.cover_page_no || canEdit.value) void loadNumberingOptions()
     showModal.value = true
   }
 
@@ -110,12 +115,17 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   }
 
   async function save(): Promise<void> {
+    if (readonly.value || !canEdit.value || allocationActive.value || allocation.value) return
     if (!(await validateForm(formRef.value))) return
-    if (popupMode.value === 'new') {
-      if (numberSource.value === 'numarator') {
-        await startAllocation()
+    if (numberSource.value === 'numarator') {
+      if (!numberingFormat.value || !numberingFormats.value.includes(numberingFormat.value)) {
+        window.$message.error('Select a cover page number format.')
         return
       }
+      await startAllocation()
+      return
+    }
+    if (popupMode.value === 'new') {
       await compdocStore.createCompdoc(compdoc.value)
       closeModal()
       return
@@ -124,12 +134,32 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   }
 
   async function loadNumberingOptions(): Promise<void> {
+    const operationId = allocationOperationId.value
+    const documentId = popupMode.value !== 'new' && canEdit.value ? compdoc.value.id : undefined
+    allocationSubmitting.value = true
     try {
-      numberingAvailable.value = (
-        await fetchNumberingOptions(compdocStore.getProjectName)
-      ).available
-    } catch {
+      const [options, pending] = await Promise.all([
+        fetchNumberingOptions(compdocStore.getProjectName),
+        documentId
+          ? fetchExistingCoverPageAllocation(compdocStore.getProjectName, documentId)
+          : Promise.resolve(null)
+      ])
+      if (operationId !== allocationOperationId.value) return
+      numberingAvailable.value = options.available
+      numberingFormats.value = options.formats
+      numberingFormat.value = options.formats.length === 1 ? options.formats[0] : null
+      if (pending) {
+        allocation.value = pending
+        numberSource.value = 'numarator'
+        numberingFormat.value = pending.format_code
+        handleAllocationState()
+      }
+    } catch (error) {
+      if (operationId !== allocationOperationId.value) return
       numberingAvailable.value = false
+      window.$message.error(formatApiError(error))
+    } finally {
+      if (operationId === allocationOperationId.value) allocationSubmitting.value = false
     }
   }
 
@@ -140,8 +170,11 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
       allocation.value = await createCoverPageAllocation(
         compdocStore.getProjectName,
         allocationOperationId.value,
-        buildCompdocCreatePayload(compdoc.value),
-        popupMode.value === 'new' ? undefined : compdoc.value.id
+        popupMode.value === 'new'
+          ? buildCompdocCreatePayload(compdoc.value)
+          : buildCompdocUpdatePayload(compdoc.value),
+        popupMode.value === 'new' ? undefined : compdoc.value.id,
+        numberingFormat.value || undefined
       )
       handleAllocationState()
     } catch (error) {
@@ -268,6 +301,8 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     openModal,
     originalCompdoc,
     numberingAvailable,
+    numberingFormats,
+    numberingFormat,
     numberSource,
     popupMode,
     rules,

@@ -201,19 +201,32 @@ class DocumentCollectionView(ProjectComplianceMixin, APIView):
 
 class NumberingOptionsView(ProjectComplianceMixin, APIView):
     def get(self, request, project_slug):
-        from integrations.numarator.client import is_configured
+        from integrations.numarator.client import is_configured, project_format_codes
 
         return Response(
             {
                 "provider": "numarator",
                 "available": is_configured(self.project.slug),
                 "supports": ["create_document", "assign_existing_document"],
+                "formats": project_format_codes(self.project.slug)
+                if is_configured(self.project.slug) else [],
             }
         )
 
 
 class CoverPageAllocationCollectionView(ProjectComplianceMixin, APIView):
     minimum_role = ProjectRoleAssignment.Role.EDITOR
+
+    def get(self, request, project_slug):
+        document_id = serializers.UUIDField().run_validation(
+            request.query_params.get("document_id")
+        )
+        allocation = _visible_allocations(self.project, request.user).filter(
+            document_id=document_id,
+        ).exclude(status=CoverPageNumberAllocation.Status.COMPLETED).first()
+        return Response({
+            "allocation": allocation_payload(allocation, request) if allocation else None,
+        })
 
     def post(self, request, project_slug):
         serializer = CoverPageAllocationRequestSerializer(
@@ -245,16 +258,9 @@ class CoverPageAllocationDetailView(ProjectComplianceMixin, APIView):
         return Response(allocation_payload(allocation, request))
 
     def _allocation(self, request, allocation_id):
-        queryset = _allocation_queryset().filter(project=self.project)
-        is_manager = has_project_role(
-            request.user,
-            self.project,
-            ProjectRoleAssignment.Domain.COMPLIANCE,
-            ProjectRoleAssignment.Role.MANAGER,
+        return get_object_or_404(
+            _visible_allocations(self.project, request.user), pk=allocation_id
         )
-        if not is_manager:
-            queryset = queryset.filter(actor=request.user)
-        return get_object_or_404(queryset, pk=allocation_id)
 
 
 class CoverPageAllocationResumeView(CoverPageAllocationDetailView):
@@ -278,6 +284,15 @@ def _allocation_queryset():
     return CoverPageNumberAllocation.objects.select_related(
         "project", "actor", "current_job", "document", "document__cover_page", "document__panel"
     )
+
+
+def _visible_allocations(project, actor):
+    queryset = _allocation_queryset().filter(project=project)
+    if not has_project_role(
+        actor, project, ProjectRoleAssignment.Domain.COMPLIANCE, ProjectRoleAssignment.Role.MANAGER,
+    ):
+        queryset = queryset.filter(actor=actor)
+    return queryset
 
 
 class DocumentDetailView(ProjectComplianceMixin, APIView):

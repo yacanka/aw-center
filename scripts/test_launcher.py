@@ -201,7 +201,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(values["PORT"], "8000")
         self.assertNotIn("AWCENTER_ENV_FILE", values)
         self.assertEqual(frontend_env("http://127.0.0.1:8000"), {
-            "VITE_API_URL": "http://127.0.0.1:8000"
+            "VITE_API_URL": "http://127.0.0.1:8000", "NUMARATOR_API_KEY": ""
         })
 
     def test_dev_urls_warn_that_browser_hostname_must_match(self) -> None:
@@ -264,7 +264,7 @@ class RuntimeTests(unittest.TestCase):
         django_mock.assert_called_once_with(
             project,
             ["migrate", "--noinput"],
-            runtime_env("127.0.0.1", 8000, 5173),
+            {**runtime_env("127.0.0.1", 8000, 5173), "NUMARATOR_API_KEY": ""},
         )
 
     @mock.patch("scripts.launcher.runtime.supervise")
