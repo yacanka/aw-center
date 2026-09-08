@@ -5,6 +5,7 @@ import re
 from types import SimpleNamespace
 
 from django.db import transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from integrations.numarator.client import (
@@ -22,7 +23,7 @@ from jobs.execution import current_execution_lease, lock_active_execution, updat
 from orgs.access_policy import has_project_role
 from orgs.models import ProjectRoleAssignment
 
-from .models import CoverPage, CoverPageNumberAllocation
+from .models import ComplianceDocument, CoverPage, CoverPageNumberAllocation, ReviewTask
 from .serializers import ComplianceDocumentSerializer
 
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
@@ -119,16 +120,24 @@ def _load_authorized_allocation(job):
         raise JobExecutionFailure(
             "This cover page allocation attempt is stale.", "NUMARATOR_ALLOCATION_STALE"
         )
-    if not allocation.actor.is_active or not has_project_role(
-        allocation.actor,
-        allocation.project,
-        ProjectRoleAssignment.Domain.COMPLIANCE,
-        ProjectRoleAssignment.Role.EDITOR,
-    ):
+    if not _actor_can_edit_allocation(allocation):
         raise JobExecutionFailure(
             "The requester can no longer edit this project.", "PROJECT_ROLE_REQUIRED"
         )
     return allocation
+
+
+def _actor_can_edit_allocation(allocation):
+    return (
+        allocation.project.enabled
+        and allocation.actor.is_active
+        and has_project_role(
+            allocation.actor,
+            allocation.project,
+            ProjectRoleAssignment.Domain.COMPLIANCE,
+            ProjectRoleAssignment.Role.EDITOR,
+        )
+    )
 
 
 def _client_for(allocation):
@@ -191,12 +200,35 @@ def _record_remote_allocation(job, allocation_id, generated):
 @transaction.atomic
 def _bind_document(job, allocation_id):
     allocation = _lock(job, allocation_id)
+    if not _actor_can_edit_allocation(allocation):
+        raise JobExecutionFailure(
+            "The requester can no longer edit this project.", "PROJECT_ROLE_REQUIRED"
+        )
     if allocation.document_id:
+        document = ComplianceDocument.objects.select_for_update().get(
+            pk=allocation.document_id,
+            project=allocation.project,
+        )
+        if document.is_archived:
+            raise JobExecutionFailure(
+                "Restore the compliance document before assigning its number.",
+                "COMPDOC_ARCHIVED",
+            )
+        if document.cover_page_id != allocation.cover_page_id:
+            raise JobExecutionFailure(
+                "The compliance document cover page changed while allocation ran.",
+                "COMPDOC_ALLOCATION_STALE",
+            )
         cover_page = CoverPage.objects.select_for_update().get(pk=allocation.cover_page_id)
+        if cover_page.compliance_documents.exclude(pk=document.pk).exists():
+            raise JobExecutionFailure(
+                "The unnumbered cover page is shared by more than one document.",
+                "COMPDOC_COVER_PAGE_SHARED",
+            )
         if cover_page.number:
             if cover_page.number != allocation.remote_number:
                 raise NumaratorConflictError("The cover page was numbered while allocation ran.")
-            return allocation.document
+            return document
         if CoverPage.objects.filter(
             project=allocation.project, number=allocation.remote_number
         ).exists():
@@ -205,9 +237,23 @@ def _bind_document(job, allocation_id):
         cover_page.version += 1
         cover_page._history_user = allocation.actor
         cover_page.save(update_fields=["number", "version"])
+        document.version += 1
+        document._history_user = allocation.actor
+        document._change_reason = "Cover page number assigned"
+        document.save(update_fields=["version", "updated_at"])
+        ReviewTask.objects.filter(
+            document=document,
+            status=ReviewTask.Status.PENDING,
+        ).exclude(source_version=document.version).update(
+            status=ReviewTask.Status.SUPERSEDED,
+            decision_note="Document changed after this review was requested.",
+            decided_by=allocation.actor,
+            decided_by_username=allocation.actor.get_username(),
+            decided_at=timezone.now(),
+        )
         allocation.status = CoverPageNumberAllocation.Status.USE_PENDING
         allocation.save(update_fields=["status", "updated_at"])
-        return allocation.document
+        return document
     if CoverPage.objects.filter(
         project=allocation.project,
         number=allocation.remote_number,

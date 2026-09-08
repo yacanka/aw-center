@@ -2,7 +2,6 @@ import { computed, onUnmounted, ref, watch, type Ref } from 'vue'
 import type { DataTableColumns, DataTableSortState, PaginationInfo, PopoverProps } from 'naive-ui'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import type { CompdocController } from '@/features/compliance/composables/compdocController'
-import type { OrganizationController } from '@/features/organization/composables/organizationController'
 import { buildCompdocTableQuery } from '@/features/compliance/composables/table'
 import { useCompdocColumnSettings } from '@/features/compliance/composables/columnSettings'
 
@@ -12,7 +11,6 @@ interface RemoteTableDependencies {
   columnOverrides: Ref<DataTableColumns<ICompDoc>>
   initialFilters?: Ref<Record<string, unknown>>
   store: CompdocController
-  organization: OrganizationController
 }
 
 const filterIconPopover: PopoverProps = {
@@ -24,7 +22,6 @@ const filterIconPopover: PopoverProps = {
 /** Coordinate remote pagination, filters, sorting, and server-owned columns. */
 export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
   const store = dependencies.store
-  const orgs = dependencies.organization
   const page = ref(1)
   const pageSize = ref(readPageSize())
   const ordering = ref<string | null>(null)
@@ -56,7 +53,10 @@ export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
     currentColumns: columns,
     ordering,
     filterValue: filters,
-    optionSources: () => ({ panels: orgs.getPanelOptions, atas: orgs.getAtaOptions }),
+    optionSources: () => ({
+      panels: store.getPanelOptions,
+      atas: store.getAtaOptions
+    }),
     onFilter,
     onClean
   })
@@ -78,8 +78,7 @@ export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
     store.setProjectName(project)
     resetQueryState()
     if (!hasViewPermission) return clearTable()
-    orgs.setProject(project)
-    await Promise.allSettled([store.fetchCompDocFields(), orgs.fetchPanels()])
+    await Promise.allSettled([store.fetchCompDocFields(), store.fetchReferencePanels()])
     if (store.projectName !== project) return
     if (store.fields.length) {
       settings.load()

@@ -8,7 +8,9 @@
     <n-spin :show="loading">
       <n-descriptions v-if="audit" bordered :column="isNarrow ? 1 : 3" label-placement="top">
         <n-descriptions-item label="File">{{ audit.source_filename }}</n-descriptions-item>
-        <n-descriptions-item label="Importer ID">{{ audit.imported_by }}</n-descriptions-item>
+        <n-descriptions-item label="Importer">
+          {{ audit.imported_by_username || `User ${audit.imported_by}` }}
+        </n-descriptions-item>
         <n-descriptions-item label="Status">{{ titleCase(audit.status) }}</n-descriptions-item>
         <n-descriptions-item label="Rows">{{ audit.total_rows }}</n-descriptions-item>
         <n-descriptions-item label="Result">
@@ -77,8 +79,24 @@ const errorColumns: DataTableColumns<ImportAuditError> = [
   { title: 'Row', key: 'row', width: 70 },
   { title: 'Document', key: 'name', minWidth: 240, ellipsis: { tooltip: true } },
   { title: 'Code', key: 'code', width: 190 },
-  { title: 'Detail', key: 'detail', minWidth: 420, ellipsis: { tooltip: true } }
+  {
+    title: 'Detail',
+    key: 'detail',
+    minWidth: 420,
+    ellipsis: { tooltip: true },
+    render: renderErrorDetail
+  }
 ]
+
+function renderErrorDetail(row: ImportAuditError): string {
+  if (row.detail) return row.detail
+  return Object.entries(row.fields || {})
+    .map(([field, value]) => {
+      const detail = Array.isArray(value) ? value.map(String).join(', ') : String(value)
+      return `${field}: ${detail}`
+    })
+    .join(' · ')
+}
 
 async function open(auditId: string): Promise<void> {
   show.value = true

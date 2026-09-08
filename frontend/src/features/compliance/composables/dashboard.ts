@@ -52,7 +52,8 @@ export function useCompdocDashboard() {
 
   async function loadProjectOptions() {
     try {
-      projectOptions.value = (await projectCatalog.load()).map(createProjectOption)
+      await projectCatalog.load()
+      projectOptions.value = projectCatalog.complianceProjects.map(createProjectOption)
     } catch (requestError) {
       projectOptions.value = []
       message.warning(`Project list could not be refreshed: ${formatApiError(requestError)}`)

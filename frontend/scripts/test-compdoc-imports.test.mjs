@@ -13,6 +13,7 @@ const { normalizeCompdoc, normalizeCompdocFields } =
   await import('../src/features/compliance/api/compdocContract.ts')
 const { fetchCompdocDashboard } = await import('../src/features/compliance/api/compdocDashboard.ts')
 const { fetchCompdocActivity } = await import('../src/features/compliance/api/compdocLifecycle.ts')
+const { fetchCompdocOptions } = await import('../src/features/compliance/api/compdocOptions.ts')
 const { getCompdocReference, humanizeCompdocStatus, joinCompdocValues } =
   await import('../src/features/compliance/api/compdocWorkspace.ts')
 const { fetchCompDocTracking, formatTrackingTimestamp, saveCompDocTracking } =
@@ -164,14 +165,15 @@ test('consolidates tab and section guidance into one contextual help control', a
   assert.match(contextHelp, /reviews:[\s\S]*transition:[\s\S]*activity:/)
   assert.match(contextHelp, /Document identity/)
   assert.match(contextHelp, /Responsible team/)
-  assert.match(contextHelp, /Notification delivery/)
+  assert.match(contextHelp, /Notification policy/)
+  assert.match(contextHelp, /notification worker/)
   assert.match(contextHelp, /Pending tasks/)
   assert.match(contextHelp, /Timeline/)
 })
 
 test('CompDoc panel names remain visible and ATA is derived from the selected panel', () => {
   assert.match(identityFieldsSource, /:options="panelOptions"/)
-  assert.match(identityFieldsSource, /const options = orgs\.getCompdocPanelOptions/)
+  assert.match(identityFieldsSource, /const options = store\.getPanelOptions/)
   assert.match(identityFieldsSource, /props\.compdoc\.panel_name/)
   assert.match(identityFieldsSource, /:value="compdoc\.ata \|\| ''"/)
   assert.match(identityFieldsSource, /placeholder="—" readonly/)
@@ -180,7 +182,7 @@ test('CompDoc panel names remain visible and ATA is derived from the selected pa
     identityFieldsSource,
     /options\.length === 1 \? String\(options\[0\]\.value\) : null/
   )
-  assert.doesNotMatch(identityFieldsSource, /:options="orgs\.getAtaOptions"/)
+  assert.doesNotMatch(identityFieldsSource, /useOrganizationController/)
 })
 
 test('regular document updates send only canonical editable fields and version', () => {
@@ -210,7 +212,8 @@ test('regular document updates send only canonical editable fields and version',
     status_flow: []
   })
   assert.equal('version' in createPayload, false)
-  assert.match(workflowFieldsSource, /<n-timeline/)
+  assert.match(workflowFieldsSource, /UBM target/)
+  assert.match(workflowFieldsSource, /Activity tab/)
   assert.match(workflowFieldsSource, /Current status/)
   assert.match(workflowFieldsSource, /audit-controlled/)
 })
@@ -454,16 +457,10 @@ test('CompDoc UI gates every mutation with canonical project-domain roles', asyn
 })
 
 test('CompDoc table rejects stale project and list responses', async () => {
-  const [store, organizations] = await Promise.all([
-    readFile(
-      new URL('../src/features/compliance/composables/compdocController.ts', import.meta.url),
-      'utf8'
-    ),
-    readFile(
-      new URL('../src/features/organization/api/organizationProjects.ts', import.meta.url),
-      'utf8'
-    )
-  ])
+  const store = await readFile(
+    new URL('../src/features/compliance/composables/compdocController.ts', import.meta.url),
+    'utf8'
+  )
 
   assert.match(store, /const requestedProject = state\.projectName/)
   assert.match(store, /const requestId = \+\+state\.listRequestId/)
@@ -471,10 +468,28 @@ test('CompDoc table rejects stale project and list responses', async () => {
     store,
     /state\.projectName === requestedProject && state\.listRequestId === requestId/
   )
-  assert.match(
-    organizations,
-    /if \(state\.project === requestedProject\) \{[\s\S]*state\.panels = getPaginatedResults<IPanel>\(data\)\.map[\s\S]*panel\.project_slug \|\| requestedProject/
+  assert.match(store, /const options = await fetchCompdocOptions\(requestedProject, 'panel'\)/)
+  assert.match(store, /if \(state\.projectName !== requestedProject\) return/)
+  assert.doesNotMatch(tableSource, /provideOrganizationController/)
+})
+
+test('loads project-scoped compliance selector options', async () => {
+  let options
+  const captured = await captureRequest(
+    async () => {
+      options = await fetchCompdocOptions('ozgur', 'user')
+    },
+    {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [{ id: 7, label: 'Reviewer' }]
+    }
   )
+
+  assert.equal(captured.url, 'projects/ozgur/compliance-documents/options/')
+  assert.equal(captured.params.kind, 'user')
+  assert.deepEqual(options, [{ id: 7, label: 'Reviewer' }])
 })
 
 test('dashboard requests complete project analytics with cancellation support', async () => {
@@ -549,6 +564,15 @@ test('adapts canonical workflow and review activity envelopes', async () => {
             request_note: 'Please approve',
             status: 'pending'
           }
+        },
+        {
+          type: 'history',
+          at: '2026-08-03T10:00:00Z',
+          data: {
+            history_user: 'editor',
+            history_change_reason: 'Corrected reference',
+            history_type: 'Changed'
+          }
         }
       ]
     }
@@ -558,6 +582,8 @@ test('adapts canonical workflow and review activity envelopes', async () => {
   assert.equal(activity[0].occurred_at, '2026-08-01T10:00:00Z')
   assert.equal(activity[1].type, 'approval')
   assert.equal(activity[1].actor, 'manager')
+  assert.equal(activity[2].type, 'history')
+  assert.equal(activity[2].reason, 'Corrected reference')
 })
 
 test('CompDoc charts use responsive modern Chart.js rendering paths', async () => {
@@ -584,38 +610,61 @@ test('CompDoc charts use responsive modern Chart.js rendering paths', async () =
   assert.doesNotMatch(legacyStore, /Outlabels|\$compdocStore/)
 })
 
-test('exposes supported lifecycle resources and removes unsupported bulk/assignee calls', async () => {
-  const [service, workspace, table, activity, transition] = await Promise.all([
-    readFile(
-      new URL('../src/features/compliance/api/compdocLifecycle.ts', import.meta.url),
-      'utf8'
-    ),
-    readFile(
-      new URL('../src/features/compliance/components/CompDocWorkspace.vue', import.meta.url),
-      'utf8'
-    ),
-    readFile(new URL('../src/features/compliance/pages/CompDocTable.vue', import.meta.url), 'utf8'),
-    readFile(
-      new URL('../src/features/compliance/components/CompDocActivity.vue', import.meta.url),
-      'utf8'
-    ),
-    readFile(
-      new URL('../src/features/compliance/components/CompDocTransitionPanel.vue', import.meta.url),
-      'utf8'
-    )
-  ])
+test('exposes supported lifecycle resources and project-scoped assignee calls', async () => {
+  const [service, options, workspace, table, activity, transition, reviews, work] =
+    await Promise.all([
+      readFile(
+        new URL('../src/features/compliance/api/compdocLifecycle.ts', import.meta.url),
+        'utf8'
+      ),
+      readFile(
+        new URL('../src/features/compliance/api/compdocOptions.ts', import.meta.url),
+        'utf8'
+      ),
+      readFile(
+        new URL('../src/features/compliance/components/CompDocWorkspace.vue', import.meta.url),
+        'utf8'
+      ),
+      readFile(
+        new URL('../src/features/compliance/pages/CompDocTable.vue', import.meta.url),
+        'utf8'
+      ),
+      readFile(
+        new URL('../src/features/compliance/components/CompDocActivity.vue', import.meta.url),
+        'utf8'
+      ),
+      readFile(
+        new URL(
+          '../src/features/compliance/components/CompDocTransitionPanel.vue',
+          import.meta.url
+        ),
+        'utf8'
+      ),
+      readFile(
+        new URL('../src/features/compliance/components/CompDocReviewPanel.vue', import.meta.url),
+        'utf8'
+      ),
+      readFile(
+        new URL('../src/features/compliance/components/CompDocWorkPanel.vue', import.meta.url),
+        'utf8'
+      )
+    ])
 
   assert.match(service, /\/activity\//)
   assert.match(service, /\/transitions\//)
   assert.match(service, /\/reviews\//)
   assert.match(service, /\/work\//)
-  assert.doesNotMatch(service, /bulk\/|assignees\//)
+  assert.doesNotMatch(service, /bulk\//)
+  assert.match(options, /options\//)
+  assert.match(reviews, /fetchCompdocOptions\(project, 'user'\)/)
+  assert.match(work, /fetchCompdocOptions\(project, 'group'\)/)
   assert.match(workspace, /CompDocWorkPanel/)
   assert.match(workspace, /CompDocReviewPanel/)
   assert.match(workspace, /CompDocActivity/)
   assert.doesNotMatch(table, /type: 'selection'|CompDocBulkActions/)
   assert.match(activity, /fetchCompdocActivity/)
   assert.doesNotMatch(activity, /Record transition/)
+  assert.match(transition, /status === 'delayed' \? 'to_be_issued'/)
   assert.match(workspace, /Record transition/)
 })
 

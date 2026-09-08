@@ -93,7 +93,15 @@ const mappingColumns: DataTableColumns<ImportMappingRow> = [
 const validationColumns: DataTableColumns<ImportInvalidDocument> = [
   { title: 'Row', key: 'row', width: 80 },
   { title: 'Name', key: 'name', minWidth: 240 },
-  { title: 'Validation Error', key: 'error_text', minWidth: 440 }
+  {
+    title: 'Validation Error',
+    key: 'fields',
+    minWidth: 440,
+    render: (row) =>
+      Object.entries(row.fields || {})
+        .map(([field, value]) => `${field}: ${Array.isArray(value) ? value.join(', ') : value}`)
+        .join(' · ')
+  }
 ]
 
 const props = defineProps<{

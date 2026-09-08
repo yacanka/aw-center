@@ -20,11 +20,10 @@ import { useCompdocColumnOverrides } from '@/features/compliance/composables/col
 import { useCompdocIssueChecks } from '@/features/compliance/composables/issueChecks'
 import { useCompdocRemoteTable } from '@/features/compliance/composables/remoteTable'
 import { useCompdocWorkspace } from '@/features/compliance/composables/workspace'
-import { provideOrganizationController } from '@/features/organization/composables/organizationController'
+import { formatApiError } from '@/shared/api/apiError'
 import './CompDocTable.css'
 
 const route = useRoute()
-const organization = provideOrganizationController()
 const store = provideCompdocController()
 const projectCatalog = useProjectCatalogStore()
 const project = computed(() => String(route.params.project || ''))
@@ -36,6 +35,13 @@ const canImport = computed(() => canAdd.value && canChange.value)
 const canViewAudits = canView
 const catalogReady = computed(() => projectCatalog.status === 'ready')
 const initialFilters = computed(() => compdocRouteFilters(route.query))
+const workspaceTab = computed(() => {
+  const requested = String(route.query.workspace || '')
+  if (requested === 'transition' && !canChange.value) return 'overview'
+  return ['tracking', 'ownership', 'reviews', 'transition', 'activity'].includes(requested)
+    ? (requested as 'tracking' | 'ownership' | 'reviews' | 'transition' | 'activity')
+    : 'overview'
+})
 const popup = ref()
 const upload = ref()
 const doorsImport = ref()
@@ -50,14 +56,13 @@ const {
   rowProps,
   workspaceVisible
 } = workspace
-const overrides = useCompdocColumnOverrides(organization)
+const overrides = useCompdocColumnOverrides(store)
 const table = useCompdocRemoteTable({
   project,
   canView,
   columnOverrides: overrides.columns,
   initialFilters,
-  store,
-  organization
+  store
 })
 const displayColumns = computed(() => table.columns.value)
 const tableScrollX = computed(() =>
@@ -71,14 +76,40 @@ const issueChecks = useCompdocIssueChecks(
   computed(() => store.getCompdocs),
   overrides.issueValues
 )
+let linkedDocumentRequest = 0
+let workspaceRefreshRequest = 0
 watch(project, closeWorkspace)
 watch(
-  () => [route.query.document, store.getCompdocs],
-  ([document]) => {
-    if (typeof document !== 'string' || workspaceVisible.value) return
+  () => [route.query.document, project.value, canView.value, store.getProjectName] as const,
+  async ([document, selectedProject, hasAccess, loadedProject]) => {
+    const requestId = ++linkedDocumentRequest
+    if (
+      typeof document !== 'string' ||
+      !hasAccess ||
+      loadedProject !== selectedProject ||
+      workspaceVisible.value
+    )
+      return
     const match = store.getCompdocs.find((item) => item.id === document)
-    if (match) workspace.openWorkspace(match)
-  }
+    if (match) {
+      workspace.openWorkspace(match)
+      return
+    }
+    try {
+      const fetched = await store.fetchCompdoc(document)
+      if (
+        requestId === linkedDocumentRequest &&
+        route.query.document === document &&
+        project.value === selectedProject &&
+        !workspaceVisible.value
+      ) {
+        workspace.openWorkspace(fetched)
+      }
+    } catch (error) {
+      if (requestId === linkedDocumentRequest) window.$message.error(formatApiError(error))
+    }
+  },
+  { immediate: true }
 )
 
 function permission(minimum: 'viewer' | 'editor' | 'manager') {
@@ -91,6 +122,32 @@ function createDocument() {
 
 function applyQuickFilter(value: string) {
   table.replaceQuickFilters(compdocQuickFilter(value))
+}
+
+async function refreshWorkspaceDocument() {
+  const requestId = ++workspaceRefreshRequest
+  const documentId = activeDocument.value?.id
+  const selectedProject = project.value
+  await store.fetchCompdocs()
+  if (
+    !documentId ||
+    !workspaceVisible.value ||
+    requestId !== workspaceRefreshRequest ||
+    project.value !== selectedProject
+  )
+    return
+  try {
+    const refreshed = await store.fetchCompdoc(documentId)
+    if (
+      requestId === workspaceRefreshRequest &&
+      workspaceVisible.value &&
+      project.value === selectedProject
+    ) {
+      workspace.openWorkspace(refreshed)
+    }
+  } catch (error) {
+    if (requestId === workspaceRefreshRequest) window.$message.error(formatApiError(error))
+  }
 }
 
 void projectCatalog.load().catch(() => undefined)
@@ -163,12 +220,13 @@ void projectCatalog.load().catch(() => undefined)
       :project="project"
       :can-edit="canChange && !activeDocument?.is_archived"
       :can-delete="canDelete"
+      :initial-tab="workspaceTab"
       @view="popup?.openModal($event, 'view')"
       @edit="popup?.openModal($event, 'update')"
       @export="download?.openModal('Compliance Document Register')"
       @copy="copyDocumentPath"
       @delete="confirmDocumentDeletion"
-      @changed="table.initialize(project, true)"
+      @changed="refreshWorkspaceDocument"
     />
     <UploadPopup v-if="canImport" ref="upload" :upload-url="store.getUploadUrl" />
     <DoorsImportPopup v-if="canImport" ref="doorsImport" :collection-path="store.getUploadUrl" />

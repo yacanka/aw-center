@@ -4,6 +4,7 @@
       <n-form-item-gi span="0:48 700:30" path="tech_doc_no" label="Tech Doc No">
         <n-input
           v-model:value="compdoc.tech_doc_no"
+          maxlength="64"
           :readonly="readonly"
           :status="changed('tech_doc_no')"
           @keydown.enter.prevent
@@ -12,6 +13,7 @@
       <n-form-item-gi span="0:48 700:9" path="tech_doc_issue" label="Issue">
         <n-input
           v-model:value="compdoc.tech_doc_issue"
+          maxlength="255"
           :readonly="readonly"
           :status="changed('tech_doc_issue')"
           @keydown.enter.prevent
@@ -20,6 +22,7 @@
       <n-form-item-gi span="0:48 700:9" path="delivered_tech_doc_issue" label="Delivered">
         <n-input
           v-model:value="compdoc.delivered_tech_doc_issue"
+          maxlength="255"
           :readonly="readonly"
           :status="changed('delivered_tech_doc_issue')"
           @keydown.enter.prevent
@@ -29,6 +32,7 @@
         <n-form-item-gi span="0:48 700:30" path="tech_doc_no_2" label="Tech Doc No 2">
           <n-input
             v-model:value="compdoc.tech_doc_no_2"
+            maxlength="64"
             :readonly="readonly"
             :status="changed('tech_doc_no_2')"
           />
@@ -36,6 +40,7 @@
         <n-form-item-gi span="0:48 700:9" path="tech_doc_issue_2" label="Issue 2">
           <n-input
             v-model:value="compdoc.tech_doc_issue_2"
+            maxlength="255"
             :readonly="readonly"
             :status="changed('tech_doc_issue_2')"
           />
@@ -43,6 +48,7 @@
         <n-form-item-gi span="0:48 700:9" path="delivered_tech_doc_issue_2" label="Delivered 2">
           <n-input
             v-model:value="compdoc.delivered_tech_doc_issue_2"
+            maxlength="255"
             :readonly="readonly"
             :status="changed('delivered_tech_doc_issue_2')"
           />
@@ -69,6 +75,7 @@
       <n-form-item-gi span="0:48 700:32" path="mom_no" label="MoM No">
         <n-input
           v-model:value="compdoc.mom_no"
+          maxlength="128"
           type="textarea"
           :autosize="{ minRows: 1, maxRows: 3 }"
           :readonly="readonly"
@@ -81,6 +88,7 @@
       <n-form-item-gi span="48" path="path" label="Reference Path">
         <n-input
           v-model:value="compdoc.path"
+          maxlength="512"
           :readonly="readonly"
           :status="changed('path')"
           @click="readonly ? copyPath() : undefined"

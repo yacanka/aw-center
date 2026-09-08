@@ -8,6 +8,7 @@ export interface ImportAudit {
   project: number
   source_filename: string
   imported_by: number
+  imported_by_username: string
   status: ImportAuditStatus
   total_rows: number
   created_count: number
@@ -23,8 +24,8 @@ export interface ImportAuditError {
   row?: number
   name?: string
   code: string
-  detail: string
-  fields?: Record<string, string[]>
+  detail?: string
+  fields?: Record<string, unknown>
 }
 
 export interface ImportAuditDetail extends ImportAudit {

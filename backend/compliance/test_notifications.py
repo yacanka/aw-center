@@ -15,6 +15,7 @@ from .notifications import (
     claim_notifications,
     deliver_notification,
     materialize_profile_events,
+    scan_notifications,
 )
 
 
@@ -26,6 +27,7 @@ from .notifications import (
 class ComplianceNotificationTests(TestCase):
     def setUp(self):
         project = Project.objects.get(slug="ozgur")
+        self.project = project
         panel = Panel.objects.create(
             project=project,
             name="Flight",
@@ -77,3 +79,64 @@ class ComplianceNotificationTests(TestCase):
         self.assertEqual(log.recipient_count, 1)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].extra_headers["Message-ID"], log.message_id)
+
+    def test_delivery_sanitizes_a_legacy_multiline_document_name(self):
+        self.profile.document.name = "Legacy\nDocument"
+        self.profile.document.save(update_fields=["name"])
+        materialize_profile_events(self.profile)
+        log_id, token = claim_notifications()[0]
+
+        self.assertTrue(deliver_notification(log_id, token))
+
+        self.assertEqual(mail.outbox[0].subject, "AW Center compliance alert: Legacy Document")
+
+    def test_project_scan_does_not_claim_another_projects_notification(self):
+        other_project = Project.objects.get(slug="piku")
+        other_panel = Panel.objects.create(
+            project=other_project,
+            name="Other Flight",
+            discipline="Systems",
+            ata="28-00",
+        )
+        other_person = Person.objects.create(
+            person_id="10002",
+            name="Other Engineer",
+            email="other@example.com",
+        )
+        ResponsibleAssignment.objects.create(
+            panel=other_panel,
+            person=other_person,
+            responsibility_role="AS",
+        )
+        other_profile = TrackingProfile.objects.create(
+            document=ComplianceDocument.objects.create(
+                project=other_project,
+                panel=other_panel,
+                cover_page=CoverPage.objects.create(project=other_project, number="CP-O"),
+                name="Other notification document",
+                status="to_be_issued",
+                ubm_target_date=timezone.localdate() - timedelta(days=1),
+            ),
+            notification_enabled=True,
+            notification_events=["overdue"],
+        )
+        materialize_profile_events(other_profile)
+
+        result = scan_notifications(project_slug=self.project.slug)
+
+        other_log = NotificationLog.objects.get(profile=other_profile)
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(other_log.status, NotificationLog.Status.PENDING)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_stale_event_is_cancelled_before_delivery(self):
+        materialize_profile_events(self.profile)
+        self.profile.document.ubm_target_date = timezone.localdate() + timedelta(days=30)
+        self.profile.document.save(update_fields=["ubm_target_date"])
+
+        result = scan_notifications(project_slug=self.project.slug)
+
+        log = NotificationLog.objects.get(profile=self.profile)
+        self.assertEqual(result["cancelled"], 1)
+        self.assertEqual(log.status, NotificationLog.Status.CANCELLED)
+        self.assertEqual(len(mail.outbox), 0)

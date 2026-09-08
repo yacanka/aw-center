@@ -62,6 +62,7 @@ from .serializers import (
     ReviewTaskSerializer,
     TrackingProfileSerializer,
     WorkflowEventSerializer,
+    tracking_responsible_options,
 )
 from .services import (
     VersionConflict,
@@ -100,6 +101,10 @@ DATE_FILTER_FIELDS = frozenset(
 FILTER_FIELD_LOOKUPS = {
     "cover_page_no": "cover_page__number",
     "cover_page_issue": "cover_page__issue",
+}
+DATE_FILTER_FIELD_LOOKUPS = {
+    "created_at": "created_at__date",
+    "updated_at": "updated_at__date",
 }
 ORDERING_FIELDS = {
     **{field: FILTER_FIELD_LOOKUPS.get(field, field) for field in TEXT_FILTER_FIELDS},
@@ -151,6 +156,10 @@ class DocumentCollectionView(ProjectComplianceMixin, APIView):
             "project", "panel", "cover_page", "owner", "owner_group"
         )
         archived = request.query_params.get("archived")
+        if archived not in (None, "", "false", "true", "all"):
+            raise serializers.ValidationError(
+                {"archived": "Use false, true, or all."}
+            )
         if archived == "true":
             queryset = queryset.filter(is_archived=True)
         elif archived != "all":
@@ -356,6 +365,78 @@ class DocumentFieldsView(ProjectComplianceMixin, APIView):
         )
 
 
+class ReferenceOptionCollectionView(ProjectComplianceMixin, APIView):
+    """Expose project-scoped selectors without requiring organization access."""
+
+    def get(self, request, project_slug):
+        kind = serializers.ChoiceField(choices=("panel", "user", "group")).run_validation(
+            request.query_params.get("kind")
+        )
+        if kind in {"user", "group"}:
+            require_project_role(
+                request.user,
+                self.project,
+                ProjectRoleAssignment.Domain.COMPLIANCE,
+                ProjectRoleAssignment.Role.EDITOR,
+            )
+        queryset = self._queryset(kind)
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        return paginator.get_paginated_response(
+            [self._option(kind, subject) for subject in page]
+        )
+
+    def _queryset(self, kind):
+        valid_roles = ProjectRoleAssignment.VALID_ROLES[
+            ProjectRoleAssignment.Domain.COMPLIANCE
+        ]
+        if kind == "panel":
+            return self.project.panels.order_by("ata", "name", "id")
+        if kind == "group":
+            return Group.objects.filter(
+                project_role_assignments__project=self.project,
+                project_role_assignments__domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+                project_role_assignments__role__in=valid_roles,
+            ).order_by("name", "id")
+        return (
+            get_user_model()
+            .objects.filter(is_active=True)
+            .filter(
+                Q(is_superuser=True)
+                | Q(
+                    project_role_assignments__project=self.project,
+                    project_role_assignments__domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+                    project_role_assignments__role__in=valid_roles,
+                )
+                | Q(
+                    groups__project_role_assignments__project=self.project,
+                    groups__project_role_assignments__domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+                    groups__project_role_assignments__role__in=valid_roles,
+                )
+            )
+            .distinct()
+            .order_by("username", "id")
+        )
+
+    @staticmethod
+    def _option(kind, subject):
+        if kind == "panel":
+            return {
+                "id": subject.pk,
+                "label": f"{subject.ata} · {subject.name}",
+                "name": subject.name,
+                "ata": subject.ata,
+            }
+        if kind == "user":
+            name = subject.get_full_name().strip()
+            return {
+                "id": subject.pk,
+                "label": f"{name} ({subject.username})" if name else subject.username,
+                "username": subject.username,
+            }
+        return {"id": subject.pk, "label": subject.name, "name": subject.name}
+
+
 class DashboardView(ProjectComplianceMixin, APIView):
     def get(self, request, project_slug):
         active = ComplianceDocument.objects.filter(project=self.project, is_archived=False)
@@ -437,14 +518,6 @@ class WorkView(ProjectComplianceMixin, APIView):
         serializer = WorkInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
-        for subject in (values.get("owner"),):
-            if subject and not has_project_role(
-                subject,
-                self.project,
-                ProjectRoleAssignment.Domain.COMPLIANCE,
-                ProjectRoleAssignment.Role.VIEWER,
-            ):
-                raise serializers.ValidationError({"owner": "Owner cannot view this project."})
         updated = update_work(
             project=self.project,
             document_id=document_id,
@@ -495,6 +568,9 @@ class ActivityView(ProjectComplianceMixin, APIView):
         document = self.document(document_id)
         events = WorkflowEventSerializer(document.workflow_events.all()[:100], many=True).data
         reviews = ReviewTaskSerializer(document.review_tasks.all()[:100], many=True).data
+        history = document.history.select_related("history_user").order_by(
+            "-history_date", "-history_id"
+        )[:100]
         items = sorted(
             [
                 {"type": "workflow", "at": item["created_at"], "data": item}
@@ -503,6 +579,19 @@ class ActivityView(ProjectComplianceMixin, APIView):
             + [
                 {"type": "review", "at": item["created_at"], "data": item}
                 for item in reviews
+            ]
+            + [
+                {
+                    "type": "history",
+                    "at": serializers.DateTimeField().to_representation(row.history_date),
+                    "data": {
+                        "version": row.version,
+                        "history_type": row.get_history_type_display(),
+                        "history_user": str(row.history_user or ""),
+                        "history_change_reason": row.history_change_reason or "",
+                    },
+                }
+                for row in history
             ],
             key=lambda item: item["at"],
             reverse=True,
@@ -597,7 +686,23 @@ class TrackingView(ProjectComplianceMixin, APIView):
         document = self.document(document_id)
         profile = TrackingProfile.objects.filter(document=document).first()
         if profile is None:
-            return Response(_empty_tracking_payload())
+            return Response(_empty_tracking_payload(document))
+        return Response(TrackingProfileSerializer(profile).data)
+
+    def put(self, request, project_slug, document_id):
+        require_project_role(
+            request.user,
+            self.project,
+            ProjectRoleAssignment.Domain.COMPLIANCE,
+            ProjectRoleAssignment.Role.EDITOR,
+        )
+        profile = update_tracking_profile(
+            project=self.project,
+            document_id=document_id,
+            expected_version=_expected_version(request.data, minimum=0),
+            payload=request.data,
+            user=request.user,
+        )
         return Response(TrackingProfileSerializer(profile).data)
 
 
@@ -625,23 +730,6 @@ class DocProofRefreshView(ProjectComplianceMixin, APIView):
                 response_status=503,
             )
         return Response(TrackingProfileSerializer(profile).data)
-
-    def put(self, request, project_slug, document_id):
-        require_project_role(
-            request.user,
-            self.project,
-            ProjectRoleAssignment.Domain.COMPLIANCE,
-            ProjectRoleAssignment.Role.EDITOR,
-        )
-        profile = update_tracking_profile(
-            project=self.project,
-            document_id=document_id,
-            expected_version=_expected_version(request.data, minimum=0),
-            payload=request.data,
-            user=request.user,
-        )
-        return Response(TrackingProfileSerializer(profile).data)
-
 
 class NotificationPolicyInputSerializer(serializers.Serializer):
     version = serializers.IntegerField(min_value=0)
@@ -985,7 +1073,15 @@ def _apply_document_filters(queryset, query_params):
     for field in SELECT_FILTER_FIELDS:
         values = [str(value).strip() for value in query_params.getlist(field) if str(value).strip()]
         if values:
-            queryset = queryset.filter(**{f"{field}__in": values[:100]})
+            validator = (
+                serializers.IntegerField(min_value=1)
+                if field == "panel"
+                else serializers.ChoiceField(
+                    choices=ComplianceDocument._meta.get_field(field).choices
+                )
+            )
+            validated = [validator.run_validation(value) for value in values[:100]]
+            queryset = queryset.filter(**{f"{field}__in": validated})
     archived_filter = query_params.get("is_archived")
     if archived_filter is not None:
         queryset = queryset.filter(is_archived=_parse_query_boolean(archived_filter, "is_archived"))
@@ -997,7 +1093,7 @@ def _apply_document_filters(queryset, query_params):
             if raw_value in (None, ""):
                 continue
             value = date_field.run_validation(raw_value)
-            lookup = f"{field}{lookup_suffix}"
+            lookup = f"{DATE_FILTER_FIELD_LOOKUPS.get(field, field)}{lookup_suffix}"
             if suffix == "__not":
                 queryset = queryset.exclude(**{lookup: value})
             else:
@@ -1067,10 +1163,11 @@ def _field_capabilities(field):
     }
 
 
-def _empty_tracking_payload():
+def _empty_tracking_payload(document):
     return {
         "responsible_mode": TrackingProfile.ResponsibleMode.AUTOMATIC,
         "responsible_person_ids": [],
+        "responsible_options": tracking_responsible_options(document),
         "notification_enabled": False,
         "notification_events": [],
         "docproof_issue": "",

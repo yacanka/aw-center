@@ -73,6 +73,7 @@ const detectedColumns = ref<string[]>([])
 const missingColumns = ref<string[]>([])
 const inspecting = ref(false)
 const queueing = ref(false)
+let inspectionSequence = 0
 const {
   active,
   cancel,
@@ -87,13 +88,20 @@ const {
 const selectedFile = computed(() => selectedUploadFile(files.value, false))
 
 async function handleFileChange(value: { fileList: UploadFileInfo[] }): Promise<void> {
+  const sequence = ++inspectionSequence
   files.value = value.fileList
   detectedColumns.value = []
   missingColumns.value = []
-  if (!selectedFile.value) return
+  const file = selectedFile.value
+  if (!file) {
+    inspecting.value = false
+    return
+  }
   inspecting.value = true
   try {
-    detectedColumns.value = await inspectExcelColumns(selectedFile.value)
+    const columns = await inspectExcelColumns(file)
+    if (sequence !== inspectionSequence) return
+    detectedColumns.value = columns
     const detected = new Set(
       detectedColumns.value.map((column) => column.trim().toLocaleLowerCase())
     )
@@ -101,10 +109,11 @@ async function handleFileChange(value: { fileList: UploadFileInfo[] }): Promise<
       (column) => !detected.has(column.toLocaleLowerCase())
     )
   } catch (error) {
+    if (sequence !== inspectionSequence) return
     missingColumns.value = [...requiredColumns]
     window.$message.error(formatApiError(error))
   } finally {
-    inspecting.value = false
+    if (sequence === inspectionSequence) inspecting.value = false
   }
 }
 

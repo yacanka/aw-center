@@ -7,11 +7,11 @@ import {
 } from '@vicons/fluent'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import { joinCompdocValues } from '@/features/compliance/api/compdocWorkspace'
-import { useOrganizationController } from '@/features/organization/composables/organizationController'
+import { useCompdocController } from '@/features/compliance/composables/compdocController'
 import { useMediaQuery } from '@/shared/composables/mediaQuery'
 
 const props = defineProps<{ document: ICompDoc; canEdit: boolean }>()
-const orgs = useOrganizationController()
+const store = useCompdocController()
 const isNarrow = useMediaQuery('(max-width: 640px)')
 const emit = defineEmits<{
   view: []
@@ -21,14 +21,14 @@ const emit = defineEmits<{
 }>()
 
 function panelLabel(): string {
-  const panel = orgs.getPanels.find((item) => item.id === props.document.panel)
+  const panel = store.getPanels.find((item) => item.id === props.document.panel)
   return props.document.panel_name || panel?.name || 'Not assigned'
 }
 
 function panelAta(): string {
   return (
     props.document.ata ||
-    orgs.getPanels.find((item) => item.id === props.document.panel)?.ata ||
+    store.getPanels.find((item) => item.id === props.document.panel)?.ata ||
     'Not assigned'
   )
 }

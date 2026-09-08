@@ -40,17 +40,24 @@ def scan_notifications(*, project_slug=None):
             notification_checked_at=timezone.now()
         )
 
+    cancelled = cancel_ineligible_notifications(project_slug=project_slug)
     sent = failed = 0
-    for log_id, lease_token in claim_notifications():
+    for log_id, lease_token in claim_notifications(project_slug=project_slug):
         if deliver_notification(log_id, lease_token):
             sent += 1
+        elif NotificationLog.objects.filter(
+            pk=log_id,
+            status=NotificationLog.Status.CANCELLED,
+        ).exists():
+            cancelled += 1
         else:
             failed += 1
     return {
-        "processed": materialized + sent + failed,
+        "processed": materialized + sent + failed + cancelled,
         "materialized": materialized,
         "sent": sent,
         "failed": failed,
+        "cancelled": cancelled,
     }
 
 
@@ -70,7 +77,7 @@ def materialize_profile_events(profile, *, today=None):
         raw_key = f"{profile.pk}:{event_type}:{evidence}"
         event_key = hashlib.sha256(raw_key.encode()).hexdigest()
         message_id = f"<{event_key}@awcenter>"
-        _log, was_created = NotificationLog.objects.get_or_create(
+        log, was_created = NotificationLog.objects.get_or_create(
             event_key=event_key,
             defaults={
                 "profile": profile,
@@ -78,6 +85,15 @@ def materialize_profile_events(profile, *, today=None):
                 "message_id": message_id,
             },
         )
+        if not was_created and log.status == NotificationLog.Status.CANCELLED:
+            NotificationLog.objects.filter(
+                pk=log.pk,
+                status=NotificationLog.Status.CANCELLED,
+            ).update(
+                status=NotificationLog.Status.PENDING,
+                error_code="",
+                next_attempt_at=None,
+            )
         created += int(was_created)
     return created
 
@@ -99,7 +115,7 @@ def detect_events(profile, *, today=None):
 
 
 @transaction.atomic
-def claim_notifications(*, now=None):
+def claim_notifications(*, now=None, project_slug=None):
     """Fence pending or expired claims and return opaque claim pairs."""
 
     current_time = now or timezone.now()
@@ -107,7 +123,14 @@ def claim_notifications(*, now=None):
         Q(status=NotificationLog.Status.PENDING)
         | Q(status=NotificationLog.Status.FAILED, next_attempt_at__lte=current_time)
         | Q(status=NotificationLog.Status.CLAIMED, claim_expires_at__lte=current_time)
-    ).order_by("created_at", "id")
+    ).filter(
+        profile__notification_enabled=True,
+        profile__document__is_archived=False,
+        profile__document__project__enabled=True,
+    )
+    if project_slug:
+        queryset = queryset.filter(profile__document__project__slug=project_slug)
+    queryset = queryset.order_by("created_at", "id")
     if connection.features.has_select_for_update_skip_locked:
         queryset = queryset.select_for_update(skip_locked=True)
     else:
@@ -147,6 +170,8 @@ def deliver_notification(log_id, lease_token):
             "profile__document__project",
             "profile__document__panel",
         ).get(pk=log_id, status=NotificationLog.Status.CLAIMED, lease_token=lease_token)
+        if not notification_is_enabled(log.profile, log.event_type, log.event_key):
+            return _finish_cancelled(log_id, lease_token)
         recipients = resolve_recipients(log.profile)
         if not recipients:
             return _finish_failure(log_id, lease_token, "NO_RECIPIENTS")
@@ -176,8 +201,60 @@ def resolve_recipients(profile):
     return sorted(set(people.values_list("email", flat=True)))
 
 
+def notification_is_enabled(profile, event_type, event_key=None):
+    if (
+        not profile.notification_enabled
+        or profile.document.is_archived
+        or not profile.document.project.enabled
+        or event_type not in set(profile.notification_events or [])
+    ):
+        return False
+    evidence = detect_events(profile).get(event_type)
+    if evidence is None:
+        return False
+    if event_key:
+        current_key = hashlib.sha256(
+            f"{profile.pk}:{event_type}:{evidence}".encode()
+        ).hexdigest()
+        if current_key != event_key:
+            return False
+    policy = NotificationPolicy.objects.filter(
+        project=profile.document.project,
+        is_active=True,
+    ).first()
+    return not policy or policy.event_rules.get(event_type, {}).get("enabled", True)
+
+
+def cancel_ineligible_notifications(*, project_slug=None):
+    current_time = timezone.now()
+    claimable = Q(
+        status__in=(NotificationLog.Status.PENDING, NotificationLog.Status.FAILED)
+    ) | Q(
+        status=NotificationLog.Status.CLAIMED,
+        claim_expires_at__lte=current_time,
+    )
+    queryset = NotificationLog.objects.filter(claimable).select_related(
+        "profile__document__project"
+    )
+    if project_slug:
+        queryset = queryset.filter(profile__document__project__slug=project_slug)
+    cancelled = 0
+    for log in queryset.iterator(chunk_size=100):
+        if notification_is_enabled(log.profile, log.event_type, log.event_key):
+            continue
+        cancelled += NotificationLog.objects.filter(claimable, pk=log.pk).update(
+            status=NotificationLog.Status.CANCELLED,
+            error_code="NOTIFICATION_DISABLED",
+            lease_token=None,
+            claim_expires_at=None,
+            next_attempt_at=None,
+        )
+    return cancelled
+
+
 def send_notification_email(log, recipients):
     document = log.profile.document
+    safe_document_name = " ".join(str(document.name).splitlines()).strip()
     context = {
         "document": document,
         "event_type": log.event_type,
@@ -185,7 +262,7 @@ def send_notification_email(log, recipients):
     }
     body = render_to_string("compliance/compdoc_notification.html", context)
     send_html_email(
-        f"AW Center compliance alert: {document.name}",
+        f"AW Center compliance alert: {safe_document_name}",
         body,
         recipients,
         message_id=log.message_id,
@@ -212,7 +289,7 @@ def _finish_success(log_id, lease_token, recipient_count):
 
 @transaction.atomic
 def _finish_failure(log_id, lease_token, error_code):
-    updated = NotificationLog.objects.filter(
+    NotificationLog.objects.filter(
         pk=log_id,
         status=NotificationLog.Status.CLAIMED,
         lease_token=lease_token,
@@ -224,4 +301,20 @@ def _finish_failure(log_id, lease_token, error_code):
         next_attempt_at=timezone.now()
         + timedelta(seconds=max(int(settings.COMPDOC_NOTIFICATION_RETRY_SECONDS), 30)),
     )
-    return False if updated == 1 else False
+    return False
+
+
+@transaction.atomic
+def _finish_cancelled(log_id, lease_token):
+    NotificationLog.objects.filter(
+        pk=log_id,
+        status=NotificationLog.Status.CLAIMED,
+        lease_token=lease_token,
+    ).update(
+        status=NotificationLog.Status.CANCELLED,
+        error_code="NOTIFICATION_DISABLED",
+        lease_token=None,
+        claim_expires_at=None,
+        next_attempt_at=None,
+    )
+    return False

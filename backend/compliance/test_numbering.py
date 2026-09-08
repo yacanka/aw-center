@@ -16,7 +16,7 @@ from jobs.models import Job, JobStatus
 from jobs.worker import claim_next_job, execute_claimed_job
 from orgs.models import Panel, Project, ProjectRoleAssignment
 
-from .models import ComplianceDocument, CoverPage, CoverPageNumberAllocation
+from .models import ComplianceDocument, CoverPage, CoverPageNumberAllocation, ReviewTask
 
 
 NUMARATOR_SETTINGS = {
@@ -140,6 +140,21 @@ class CoverPageNumberingTests(TestCase):
         client.mark_used.assert_called_once_with(41)
 
     @patch("compliance.numbering_executor.NumaratorClient")
+    def test_worker_rejects_an_allocation_after_project_is_disabled(self, client_class):
+        response = self.client.post(self.url, self.payload(), format="json")
+        self.project.enabled = False
+        self.project.save(update_fields=["enabled"])
+
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+
+        allocation = CoverPageNumberAllocation.objects.get(pk=response.data["id"])
+        allocation.current_job.refresh_from_db()
+        self.assertEqual(allocation.current_job.status, JobStatus.FAILED)
+        self.assertEqual(allocation.current_job.error_code, "PROJECT_ROLE_REQUIRED")
+        self.assertEqual(ComplianceDocument.objects.count(), 0)
+        client_class.assert_not_called()
+
+    @patch("compliance.numbering_executor.NumaratorClient")
     def test_worker_assigns_number_to_existing_unnumbered_document(self, client_class):
         cover_page = CoverPage.objects.create(project=self.project, number="", issue="A")
         document = ComplianceDocument.objects.create(
@@ -148,6 +163,16 @@ class CoverPageNumberingTests(TestCase):
             cover_page=cover_page,
             name="Waiting for a number",
             owner=self.editor,
+        )
+        review = ReviewTask.objects.create(
+            document=document,
+            kind=ReviewTask.Kind.REVIEW,
+            assignee=self.editor,
+            assignee_username=self.editor.username,
+            requested_by=self.editor,
+            requested_by_username=self.editor.username,
+            request_note="Review the unnumbered document.",
+            source_version=document.version,
         )
         client = client_class.return_value
         client.generate_number.return_value = GeneratedNumber(
@@ -165,7 +190,43 @@ class CoverPageNumberingTests(TestCase):
         document.refresh_from_db()
         self.assertEqual(response.status_code, 202)
         self.assertEqual(document.cover_page.number, "CP-2026-0043")
+        self.assertEqual(document.version, 2)
+        review.refresh_from_db()
+        self.assertEqual(review.status, ReviewTask.Status.SUPERSEDED)
         self.assertEqual(ComplianceDocument.objects.count(), 1)
+
+    def test_existing_document_allocation_rejects_archived_or_shared_cover_page(self):
+        cover_page = CoverPage.objects.create(project=self.project, number="", issue="A")
+        archived = ComplianceDocument.objects.create(
+            project=self.project,
+            panel=self.panel,
+            cover_page=cover_page,
+            name="Archived document",
+            is_archived=True,
+        )
+        archived_response = self.client.post(
+            self.url,
+            {**self.payload(name=archived.name), "document_id": str(archived.pk)},
+            format="json",
+        )
+        archived.is_archived = False
+        archived.save(update_fields=["is_archived"])
+        ComplianceDocument.objects.create(
+            project=self.project,
+            panel=self.panel,
+            cover_page=cover_page,
+            name="Shared-cover document",
+        )
+        shared_response = self.client.post(
+            self.url,
+            {**self.payload(name=archived.name), "document_id": str(archived.pk)},
+            format="json",
+        )
+
+        self.assertEqual(archived_response.status_code, 400)
+        self.assertEqual(shared_response.status_code, 400)
+        self.assertEqual(CoverPageNumberAllocation.objects.count(), 0)
+        self.assertEqual(Job.objects.count(), 0)
 
     def test_document_can_be_created_without_cover_page_number(self):
         response = self.client.post(

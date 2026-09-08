@@ -31,9 +31,8 @@ const HELP_BY_TAB: Record<string, TabHelp> = {
       section('DocProof revision', 'Compare the recorded issue with the latest DocProof issue.'),
       section('Responsible team', 'Choose which ATA contacts receive alerts.'),
       section('Automatic alerts', 'Select the document events AW Center should monitor.'),
-      section('Notification policy', 'Manage project cadence, roles, retries, and escalation.'),
-      section('Notification delivery', 'Send an applicable alert or download an Outlook draft.'),
-      section('Delivery activity', 'Review recent delivery outcomes and policy evidence.')
+      section('Notification policy', 'Enable or disable alert types for the whole project.'),
+      section('Delivery', 'Alerts are delivered by the notification worker when an event applies.')
     ]
   },
   ownership: {
@@ -64,7 +63,7 @@ const HELP_BY_TAB: Record<string, TabHelp> = {
     title: 'Activity',
     purpose: 'Inspect the chronological audit trail.',
     sections: [
-      section('Timeline', 'See who changed the document, what changed, and when it occurred.')
+      section('Timeline', 'See document revisions, workflow transitions, and review decisions.')
     ]
   }
 }

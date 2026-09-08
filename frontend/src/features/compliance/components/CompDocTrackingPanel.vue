@@ -25,24 +25,35 @@ const loading = ref(false)
 const actionLoading = ref(false)
 const error = ref('')
 const dirty = ref(false)
+let loadSequence = 0
 watch(
   () => [props.show, props.document.id, props.project],
   ([show]) => {
-    if (show) load()
+    loadSequence += 1
+    loading.value = false
+    actionLoading.value = false
+    tracking.value = null
+    dirty.value = false
+    if (show) void load()
   },
   { immediate: true }
 )
 async function load() {
   if (!props.document.id) return
+  const sequence = ++loadSequence
+  const documentId = props.document.id
+  const project = props.project
   loading.value = true
   error.value = ''
   try {
-    tracking.value = await fetchCompDocTracking(props.project, props.document.id)
+    const loaded = await fetchCompDocTracking(project, documentId)
+    if (sequence !== loadSequence) return
+    tracking.value = loaded
     dirty.value = false
   } catch (cause) {
-    error.value = formatApiError(cause)
+    if (sequence === loadSequence) error.value = formatApiError(cause)
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 function applyPreferences(value: CompDocTrackingPreferenceValues) {
@@ -52,38 +63,45 @@ function applyPreferences(value: CompDocTrackingPreferenceValues) {
 }
 async function save() {
   if (!tracking.value || !props.document.id) return
+  const sequence = loadSequence
+  const documentId = props.document.id
+  const project = props.project
   await runAction(async () => {
-    tracking.value = await saveCompDocTracking(props.project, props.document.id!, {
+    const updated = await saveCompDocTracking(project, documentId, {
       responsible_mode: tracking.value!.responsible_mode,
       responsible_person_ids: tracking.value!.responsible_person_ids,
       notification_enabled: tracking.value!.notification_enabled,
       notification_events: tracking.value!.notification_events,
       version: tracking.value!.version
     })
+    if (sequence !== loadSequence) return
+    tracking.value = updated
     dirty.value = false
     window.$message.success('Tracking preferences saved.')
   })
 }
 async function refreshDocProof() {
   if (!tracking.value || !props.document.id || dirty.value) return
+  const sequence = loadSequence
+  const documentId = props.document.id
+  const project = props.project
   await runAction(async () => {
-    tracking.value = await refreshCompDocTracking(
-      props.project,
-      props.document.id!,
-      tracking.value!.version
-    )
+    const updated = await refreshCompDocTracking(project, documentId, tracking.value!.version)
+    if (sequence !== loadSequence) return
+    tracking.value = updated
     window.$message.success('DocProof evidence refreshed.')
   })
 }
 async function runAction(action: () => Promise<void>) {
+  const sequence = loadSequence
   actionLoading.value = true
   error.value = ''
   try {
     await action()
   } catch (cause) {
-    error.value = formatApiError(cause)
+    if (sequence === loadSequence) error.value = formatApiError(cause)
   } finally {
-    actionLoading.value = false
+    if (sequence === loadSequence) actionLoading.value = false
   }
 }
 </script>

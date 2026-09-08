@@ -21,8 +21,13 @@ const BASE_STATUS_OPTIONS: CompdocOption[] = [
   { value: 'authority_approved', label: 'Authority Approved' }
 ]
 
-export const statusOptions: CompdocOption[] = [
+export const workflowStatusOptions: CompdocOption[] = [
   ...BASE_STATUS_OPTIONS,
+  { value: 'unknown', label: 'Unknown' }
+]
+
+export const statusOptions: CompdocOption[] = [
+  ...workflowStatusOptions,
   { value: 'delayed', label: 'Delayed' }
 ]
 
