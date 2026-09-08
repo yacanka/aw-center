@@ -57,8 +57,8 @@ Dar backend örnekleri:
 ../.venv/bin/python manage.py test users.test_auth_csrf
 ../.venv/bin/python manage.py test compliance
 ../.venv/bin/python manage.py test jobs
-../.venv/bin/python manage.py test automations integrations.tests.test_doors_runner \
-  integrations.tests.test_doors_runner_tasks
+../.venv/bin/python manage.py test automations integrations.tests.test_doors_api \
+  integrations.tests.test_doors_worker_tasks
 ../.venv/bin/python manage.py test awcenter.test_architecture awcenter.test_deployment_contract
 ```
 
@@ -112,7 +112,7 @@ Frontend artifact-serving değişikliğinde build sonrasında, `backend/` içind
 | ECR workflow | Owner scope, bounded PDF/immutable review create replay'i, versioned approve/reject, ephemeral JIRA session, publish/resume idempotency, job fencing ve no-auto-retry reconciliation |
 | JIRA subtask | Operator/project scope, credential-free manual/Excel plan, live field contract, marker idempotency, uncertain write ve explicit resume |
 | DCC reminder | Record/version/role scope, recipient sınırı, idempotency/cooldown, outbox lease, stable Message-ID ve SMTP'siz web enqueue |
-| DOORS worker/runner | Güncel worker'da combined allowlist, spawn isolation, singleton lock ve adapter belirsizlikleri; gelecek runner'da loopback/token/artifact capability contract'ı |
+| DOORS worker | Combined allowlist, spawn isolation, singleton lock ve adapter belirsizlikleri |
 | Frontend service/store | Vitest + ilgili script contract + typecheck |
 | Session/router/browser shell | Backend auth/CSRF + frontend unit/route contracts + `test:e2e` |
 | Static/Vite/production | Frontend build, collectstatic, artifact verify, Windows launcher/deploy checks; container değişirse ayrıca Docker/Nginx smoke |
@@ -134,7 +134,6 @@ Değişen yüzeyle orantılı olarak en az şunları değerlendirin:
 - subtask create/resume'da legacy credential reddi, unknown/required field kontrolü, marker reuse ve uncertain provider write sonrası otomatik retry olmaması;
 - Watcher reminder'da record/project scope, stale version, aynı idempotency replay'i, saatlik cooldown, alıcıların response'ta gizlenmesi ve stale mail lease;
 - expired/recovered lease ve stale worker publish;
-- browser cookie/authorization ile internal runner erişimi;
 - untrusted proxy, missing/invalid/expired certificate ve fingerprint mismatch;
 - Redis authenticated health + unauthenticated command rejection ve Nginx loopback-only readiness;
 - response/log içinde secret, path, certificate veya upstream exception sızıntısı.

@@ -210,3 +210,23 @@ class WorkerCompositionTests(SimpleTestCase):
         self.assertEqual(claim.call_args.args[1], ("word.translate", job.kind))
         self.assertEqual(execute.call_args.kwargs["timeout_seconds"], 91)
         self.assertTrue(execute.call_args.kwargs["isolate"])
+
+    @override_settings(DOORS_ENABLED=True)
+    def test_settings_aware_worker_includes_enabled_doors_queue(self):
+        from jobs.management.commands.run_job_worker import resolve_include_doors
+
+        self.assertTrue(
+            resolve_include_doors(
+                {"include_doors": False, "include_doors_if_enabled": True}
+            )
+        )
+
+    @override_settings(DOORS_ENABLED=False)
+    def test_settings_aware_worker_keeps_disabled_doors_queue_excluded(self):
+        from jobs.management.commands.run_job_worker import resolve_include_doors
+
+        self.assertFalse(
+            resolve_include_doors(
+                {"include_doors": False, "include_doors_if_enabled": True}
+            )
+        )

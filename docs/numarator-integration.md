@@ -226,7 +226,7 @@ sözleşmesine çevrilir; upstream mesajları doğrudan yansıtılmaz.
   mutabakata gitmelidir. Sistemler arası atomiklik iddiasında bulunulmaz.
 - Üretim/status credential'ı yalnız local worker'a verilir. Web süreci seçenekleri
   yerel doğrulanmış eşlemeden sunar; gerekiyorsa format keşfi de local job üzerinden
-  yapılır. Notification/cleanup worker ve DOORS runner bu credential'ı almaz.
+  yapılır. Notification/cleanup worker ve DOORS worker bu credential'ı almaz.
   Numarator kesintisi AW Center liveness'ını veya mevcut belge okumalarını bozmaz.
 
 ## Uygulama sırası ve kabul testleri

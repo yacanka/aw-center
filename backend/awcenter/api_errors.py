@@ -36,12 +36,9 @@ class ApiErrorContractMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        """Return downstream responses and prevent runner protocol caching."""
+        """Return downstream responses."""
 
         response = self.get_response(request)
-        if request.path.startswith("/internal/doors-runner/"):
-            response["Cache-Control"] = "no-store"
-            response["Pragma"] = "no-cache"
         return response
 
     def process_template_response(self, request, response):

@@ -140,22 +140,22 @@ Production environment'ında:
 
 ```text
 DOORS_ENABLED=True
-DOORS_EXECUTION_MODE=worker
 DOORS_EXECUTABLE=C:/IBM/DOORS/bin/doors.exe
 DOORS_DATABASE=36677@doors-server
 ```
 
-Production komutuna `--include-doors` ekleyin. Worker yalnız catalog'daki `doors`
-kind'larını kabul eder, her executor'ü child process'te çalıştırır ve belirsiz write
-sonucunu `reconciliation_required` yapar. Aynı lock dosyasını kullanan Windows
-process'leri arasında alınan kilit, ikinci DOORS-capable worker'ı reddeder.
+Production worker'ı DOORS etkin olduğunda `doors` queue'sunu varsayılan olarak
+tüketir; yalnız local queue'lar için komuta `--exclude-doors` ekleyin. Worker yalnız
+catalog'daki `doors` kind'larını kabul eder, her executor'ü child process'te çalıştırır
+ve belirsiz write sonucunu `reconciliation_required` yapar. Aynı lock dosyasını
+kullanan Windows process'leri arasında alınan kilit, ikinci DOORS-capable worker'ı reddeder.
 
-Development'ta DOORS testi yapılacaksa production worker durdurulmalı veya
-`--include-doors` olmadan yeniden başlatılmalıdır. Aynı masaüstü DOORS instance'ına
-iki ortamın eşzamanlı yazmasına izin verilmez.
+Development worker'ı `DOORS_ENABLED=True` olduğunda DOORS queue'sunu varsayılan
+olarak tüketir. Yalnız local queue'ları çalıştırmak için
+`launcher.py dev --exclude-doors` kullanın. Aynı masaüstü DOORS instance'ına iki ortamın eşzamanlı
+yazmasına izin vermeyin; development başlatmadan önce production worker'ını durdurun.
 
-Credential Manager ve Task Scheduler kullanılmaz. Gelecekte container backend'e
-geçildiğinde mevcut loopback/token runner protokolü yeniden devreye alınabilir.
+Credential Manager, Task Scheduler ve ayrı bir loopback servisi kullanılmaz.
 
 ## Release ve güncelleme
 
@@ -198,7 +198,7 @@ geçiş ayrı bir repository-wide migration olarak ele alınacaktır:
 - authenticated Redis 7;
 - digest-pinned immutable image;
 - private artifact volume ve read-only AI/template mount'ları;
-- Windows'ta CLI-supervised host-local DOORS runner;
+- DOORS entegrasyonu için ayrıca tasarlanacak Windows execution sınırı;
 - SQLite verisinin taşınması gerekiyorsa ayrıca review edilmiş, one-shot ve
   geri-dönüş kapılı veri migration'ı.
 

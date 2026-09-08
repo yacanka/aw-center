@@ -15,7 +15,6 @@ from urllib.parse import unquote, urlsplit
 RELEASE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 IMAGE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 REDIS_PASSWORD = re.compile(r"^[A-Za-z0-9._~-]{24,128}$")
-DOORS_RUNNER_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 HOST = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -98,7 +97,6 @@ def validate(values) -> list[str]:
     if not REDIS_PASSWORD.fullmatch(redis_password) or _placeholder(redis_password):
         errors.append("REDIS_PASSWORD")
     errors.extend(_validate_runtime_paths(values))
-    errors.extend(_validate_doors_runner(values))
     return errors
 
 
@@ -177,15 +175,6 @@ def _validate_runtime_paths(values: dict[str, str]) -> list[str]:
     return errors
 
 
-def _validate_doors_runner(values: dict[str, str]) -> list[str]:
-    """Require a strong shared secret only when the local runner is enabled."""
-
-    if not _truthy(values.get("DOORS_ENABLED")):
-        return []
-    token = str(values.get("DOORS_RUNNER_TOKEN", ""))
-    return [] if DOORS_RUNNER_TOKEN.fullmatch(token) else ["DOORS_RUNNER_TOKEN"]
-
-
 def _read_json(path: Path) -> dict | None:
     try:
         if (
@@ -230,10 +219,6 @@ def _directory(value) -> Path | None:
         return None
     path = supplied_path.resolve()
     return path if path.is_dir() else None
-
-
-def _truthy(value) -> bool:
-    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def read_env_file(path: Path) -> dict[str, str]:

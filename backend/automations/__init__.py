@@ -1,1 +1,1 @@
-"""Static automation metadata and isolated runner boundaries."""
+"""Static automation metadata and workflow use cases."""

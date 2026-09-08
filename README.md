@@ -2,7 +2,7 @@
 
 AW Center; proje-scoped compliance document yönetimi, DCC/JIRA akışları, durable document işleri, engineering integration'ları ve Office/PDF araçlarını aynı Django + Vue uygulamasında birleştirir.
 
-Güncel production hedefi aynı Windows kullanıcı oturumunda `launcher.py prod`, doğrudan same-origin HTTPS, ayrı SQLite/private-artifact state'i ve launcher-owned worker process'leridir. Windows-only DOORS otomasyonu aynı oturumdaki tek genel worker'da çalışır. Immutable Linux container, PostgreSQL 17, Redis 7 ve host-local runner topolojisi uygulamanın sonraki olgunluk aşaması olarak repository'de korunur.
+Güncel production hedefi aynı Windows kullanıcı oturumunda `launcher.py prod`, doğrudan same-origin HTTPS, ayrı SQLite/private-artifact state'i ve launcher-owned worker process'leridir. Windows-only DOORS otomasyonu aynı oturumdaki tek genel worker'da çalışır. Immutable Linux container, PostgreSQL 17 ve Redis 7 uygulamanın sonraki olgunluk aşaması olarak repository'de korunur.
 
 ## Hızlı başlangıç
 
@@ -35,7 +35,7 @@ Varsayılan adresler:
 - Liveness: `http://127.0.0.1:8000/health/live/`
 - Readiness: `http://127.0.0.1:8000/health/ready/`
 
-`launcher.py dev`, Django, Vite, durable job worker, notification worker ve cleanup worker'ı foreground child process'ler olarak başlatır. `launcher.py prod` ise Windows'ta tek TLS-enabled Uvicorn process'i ve production worker lifecycle'larını başlatır. Migration yalnız `--migrate` açıkça verildiğinde uygulanır.
+`launcher.py dev`, Django, Vite, durable job worker, notification worker ve cleanup worker'ı foreground child process'ler olarak başlatır. `DOORS_ENABLED=True` ise durable worker development ve production'da varsayılan olarak DOORS queue'sunu da tüketir; bunu kapatmak için ilgili komuta `--exclude-doors` eklenir. Development migration'ı yalnız `launcher.py dev --migrate` ile uygulanır. `launcher.py prod` ise Windows'ta tek TLS-enabled Uvicorn process'i ve production worker lifecycle'larını başlatır.
 
 Local yapay zekâ ağırlıkları kaynak koddan ayrı, Git tarafından yok sayılan
 `.runtime/ai-models/` altında tutulur:
@@ -96,7 +96,7 @@ Temel modül sınırları:
 - `backend/projects/`: read-only teknik capability registry'si ve küçük project policy strategy'leri.
 - `backend/orgs/`: business project kayıtları, organizasyon verisi ve project-scoped roller.
 - `backend/jobs/`: feature bağımsız durable job/workflow kernel'i, lease ve execution fencing.
-- `backend/automations/`: static executor metadata kataloğu ve host-local runner protocol'u.
+- `backend/automations/`: static executor metadata kataloğu ve workflow use-case'leri.
 - `backend/integrations/` ve domain app'leri: dış sistem adapterları.
 - `frontend/src/app/`, `frontend/src/shared/`, `frontend/src/features/`: composition/router, ortak HTTP-güvenlik primitive'leri ve feature-owned API/composable/UI sınırları. Page/component doğrudan HTTP client kullanmaz; route-local state global Pinia'ya taşınmaz.
 
@@ -123,7 +123,6 @@ Canonical yüzey:
 - `/api/projects/<slug>/compliance-documents/`: canonical compliance aggregate
 - `/api/dcc/`, `/api/jobs/`, `/api/workflows/` ve owner-scoped `/api/workflows/ecr/`
 - `/api/integrations/` ve `/api/tools/...`
-- `/internal/doors-runner/v1/`: yalnız host loopback'ine açık DOORS runner data plane
 
 Canonical `/api/` dışında root-level feature alias'ları ve unauthenticated file/download route'ları desteklenmez.
 
@@ -154,7 +153,7 @@ JIRA, orijinal `Subtask Generator (List)` ve `Subtask Generator (Excel)` sekmele
 
 Watcher reminder akışı `/api/dcc/records/<uuid>/reminders/` üzerinden güncel record `version`, DCC operator rolü ve saatlik kayıt bazlı cooldown doğrular. Alıcılar açık JIRA subtasks assignee adreslerinden server tarafında alınır; browser'a dönmez. Web process'i yalnız durable outbox kaydı üretir, SMTP gönderimi lease-fenced notification worker'da stable `Message-ID` ile yapılır.
 
-Windows hattı için [doors-runner.md](docs/doors-runner.md) belgesine bakın.
+Windows hattı için [doors-worker.md](docs/doors-worker.md) belgesine bakın.
 
 ## Local komutlar
 
@@ -254,9 +253,9 @@ python launcher.py prod `
   --migrate
 ```
 
-Normal yeniden başlatmada `--migrate` kaldırılır. DOORS etkinse production
-profile'ında `DOORS_EXECUTION_MODE=worker` kullanılır ve komuta
-`--include-doors` eklenir. Aynı kullanıcı oturumunda ikinci DOORS-capable worker
+Normal yeniden başlatmada `--migrate` kaldırılır. DOORS etkinse production worker
+DOORS queue'sunu varsayılan olarak tüketir; yalnız local queue'lar için komuta
+`--exclude-doors` eklenir. Aynı kullanıcı oturumunda ikinci DOORS-capable worker
 başlatılamaz.
 
 Docker Compose, immutable image, PostgreSQL ve Redis dosyaları silinmemiştir;
@@ -271,7 +270,7 @@ belgesini izleyin.
 - [Deployment ve operasyon](docs/deployment.md)
 - [Test stratejisi](docs/testing-strategy.md)
 - [Local database reset](docs/local-database-reset.md)
-- [Windows DOORS execution](docs/doors-runner.md)
+- [Windows DOORS execution](docs/doors-worker.md)
 - [Launcher runtime](docs/launcher-runtime.md)
 
 Eski review/roadmap dosyaları yalnız tarihsel snapshot notlarıdır; operasyonel sözleşme olarak kullanılmaz.

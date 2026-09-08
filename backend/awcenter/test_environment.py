@@ -137,8 +137,7 @@ class WindowsProductionEnvironmentTemplateTests(SimpleTestCase):
         self.assertEqual(values["CACHE_URL"], "")
         self.assertTrue(values["CACHE_DIRECTORY"].startswith("C:/Users/"))
         self.assertEqual(values["TRUST_PROXY_HEADERS"], "False")
-        self.assertEqual(values["DOORS_EXECUTION_MODE"], "worker")
-        self.assertEqual(values["DOORS_RUNNER_TOKEN"], "")
+        self.assertEqual(values["JOB_JSON_MAX_INPUT_BYTES"], "1048576")
         self.assertIn("/assets/sets/", values["MODEL_RUNTIME_DIR"])
         self.assertIn("/assets/sets/", values["CUSTOM_TEMPLATE_DIR"])
 

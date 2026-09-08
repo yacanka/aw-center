@@ -74,23 +74,12 @@ class ProductionConfigurationCheckTests(SimpleTestCase):
     def test_assessment_host_requires_explicit_allowlist(self):
         self.assertIn("awcenter.E023", self.error_ids())
 
-    @override_settings(
-        DEBUG=False,
-        DOORS_ENABLED=True,
-        DOORS_RUNNER_TOKEN="invalid",
-    )
-    def test_doors_runner_token_is_semantically_validated(self):
-        self.assertIn("awcenter.E014", self.error_ids())
-
-    @override_settings(
-        DEBUG=False,
-        DOORS_ENABLED=True,
-        DOORS_EXECUTION_MODE="worker",
-        DOORS_RUNNER_TOKEN="",
-    )
-    def test_windows_worker_mode_does_not_require_runner_token(self):
+    @override_settings(DEBUG=False, DOORS_ENABLED=True)
+    def test_doors_requires_windows(self):
         with patch("awcenter.checks.sys.platform", "win32"):
-            self.assertNotIn("awcenter.E014", self.error_ids())
+            self.assertNotIn("awcenter.E034", self.error_ids())
+        with patch("awcenter.checks.sys.platform", "linux"):
+            self.assertIn("awcenter.E034", self.error_ids())
 
     @override_settings(
         DEBUG=False,

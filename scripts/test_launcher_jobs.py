@@ -51,8 +51,39 @@ class LauncherJobWorkerTests(unittest.TestCase):
             dev(project, Scope(frontend=False), host="127.0.0.1", backend_port=8000,
                 frontend_port=5173, no_backend_reload=False, migrate=False)
 
-        self.assertIn("run_job_worker", worker_start.call_args.args[0])
+        worker_command = worker_start.call_args.args[0]
+        self.assertIn("run_job_worker", worker_command)
+        self.assertIn("--include-doors-if-enabled", worker_command)
         self.assertEqual(worker_start.call_args.kwargs["extra_env"]["PORT"], "8000")
+        supervise.assert_called_once_with([backend_start.return_value, worker_start.return_value])
+
+    @mock.patch("scripts.launcher.runtime.supervise")
+    @mock.patch("scripts.launcher.job_worker.start")
+    @mock.patch("scripts.launcher.runtime.start")
+    @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
+    @mock.patch("scripts.launcher.runtime.require_port")
+    def test_development_can_exclude_doors_queue(
+        self, _port, _environment, backend_start, worker_start, supervise
+    ) -> None:
+        """The opt-out must leave the development worker on local queues only."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            add_worker_command(project)
+            dev(
+                project,
+                Scope(frontend=False),
+                host="127.0.0.1",
+                backend_port=8000,
+                frontend_port=5173,
+                no_backend_reload=False,
+                migrate=False,
+                exclude_doors=True,
+            )
+
+        worker_command = worker_start.call_args.args[0]
+        self.assertNotIn("--include-doors", worker_command)
+        self.assertNotIn("--include-doors-if-enabled", worker_command)
         supervise.assert_called_once_with([backend_start.return_value, worker_start.return_value])
 
     @mock.patch("scripts.launcher.runtime.supervise")

@@ -70,7 +70,7 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertNotIn("frontend", compose["services"])
         self.assertEqual(
             services["ingress"]["ports"],
-            ["80:80", "443:443", "127.0.0.1:${DOORS_RUNNER_PORT:-8765}:8765"],
+            ["80:80", "443:443"],
         )
         self.assertNotIn("ports", backend)
         self.assertNotIn("build", backend)
@@ -149,7 +149,6 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("requirepass %s", " ".join(services["redis"]["command"]))
         self.assertNotIn("--requirepass", services["redis"]["command"][-1])
         self.assertIn("unset REDIS_PASSWORD", services["redis"]["command"][-1])
-        self.assertIn("DOORS_RUNNER_TOKEN", services["backend"]["environment"])
 
     def test_ci_uses_strict_read_only_and_container_quality_gates(self):
         """CI cannot mutate sources or bypass type and artifact checks."""
@@ -232,10 +231,7 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("return 308 https://${AWCENTER_HOST}$request_uri;", nginx)
         self.assertIn('"$request_method $uri $server_protocol"', nginx)
         self.assertIn("access_log /var/log/nginx/access.log awcenter_safe;", nginx)
-        self.assertIn("listen 8765;", nginx)
-        self.assertIn("location ^~ /internal/doors-runner/v1/", nginx)
-        self.assertIn('proxy_set_header Authorization "";', nginx)
-        self.assertIn('proxy_set_header Cookie "";', nginx)
+        self.assertNotIn("listen 8765;", nginx)
         self.assertFalse((REPOSITORY_ROOT / "deploy/nginx/windows-bridge.conf").exists())
 
     def read(self, relative_path):

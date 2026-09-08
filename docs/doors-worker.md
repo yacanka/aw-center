@@ -1,10 +1,16 @@
 # Windows DOORS execution
 
 Güncel production'da AW Center ve IBM Rational DOORS aynı Windows cihazda, aynı
-logged-in kullanıcı oturumunda çalışır. `launcher.py prod --include-doors`, genel
-job worker'ına hem `local` hem `doors` queue allowlist'ini verir. Ayrı Task Scheduler
-kaydı, Windows Credential Manager token'ı, loopback HTTP runner veya ikinci Python
+logged-in kullanıcı oturumunda çalışır. `DOORS_ENABLED=True` olduğunda
+`launcher.py prod`, genel job worker'ına varsayılan olarak hem `local` hem `doors`
+queue allowlist'ini verir. Ayrı Task Scheduler
+kaydı, Windows Credential Manager token'ı, loopback HTTP servisi veya ikinci Python
 process'i elle başlatılmaz.
+
+Development'ta `DOORS_ENABLED=True` ise `launcher.py dev` aynı allowlist'i
+varsayılan olarak açar. Yalnız local queue'ları çalıştırmak için
+`launcher.py dev --exclude-doors` kullanılır. Gerekiyorsa migration startup'tan önce
+`launcher.py dev --migrate` ile açıkça uygulanır.
 
 ## Güncel çalışma şekli
 
@@ -37,7 +43,6 @@ Repository dışındaki production env dosyasında:
 
 ```text
 DOORS_ENABLED=True
-DOORS_EXECUTION_MODE=worker
 DOORS_EXECUTABLE=C:\IBM\DOORS\doors.exe
 DOORS_DATABASE=36677@doors-server
 DOORS_PREFER_ACTIVE_INSTANCE=True
@@ -57,14 +62,12 @@ python launcher.py prod `
   --env-file "$env:LOCALAPPDATA\AWCenter\config\production.env" `
   --host 192.0.2.10 `
   --tls-cert-file "$env:LOCALAPPDATA\AWCenter\certificates\server.crt" `
-  --tls-key-file "$env:LOCALAPPDATA\AWCenter\certificates\server.key" `
-  --include-doors
+  --tls-key-file "$env:LOCALAPPDATA\AWCenter\certificates\server.key"
 ```
 
-`--include-doors` verilmezse web uygulaması çalışır fakat DOORS queue'sunu tüketen
-worker olmaz; integration status bunu unavailable olarak bildirir. `DOORS_ENABLED`
-yanlışlıkla açık bırakılıp worker Windows dışında başlatılırsa production check
-fail-closed durur.
+DOORS queue'sunu tüketmeden production çalıştırmak için `--exclude-doors` verilir;
+integration status bunu unavailable olarak bildirir. `DOORS_ENABLED` yanlışlıkla
+açık bırakılıp worker Windows dışında başlatılırsa production check fail-closed durur.
 
 ## Güvenlik sınırı
 
@@ -75,14 +78,6 @@ fail-closed durur.
 - DOORS output'u bounded size ve SHA-256 doğrulamasıyla yayımlanır.
 - Browser session/CSRF sınırı worker execution identity'si yerine geçmez.
 
-## Gelecekteki container profili
-
-Backend Docker/PostgreSQL/Redis'e taşındığında mevcut host-local runner protokolü
-kullanılacaktır. O profilde native runner database, Redis ve private-media volume'una
-erişmez; yalnız `127.0.0.1` loopback API'sini dedicated `DOORS_RUNNER_TOKEN`, execution
-token ve tek kullanımlık artifact capability'leriyle kullanır. Credential Manager ve
-Task Scheduler yönergeleri ancak o profile geçiş planı onaylandığında devreye alınır.
-
 ## Doğrulama
 
 Platformdan bağımsız contract testleri:
@@ -91,7 +86,7 @@ Platformdan bağımsız contract testleri:
 cd backend
 ../.venv/bin/python manage.py test automations \
   integrations.tests.test_doors_api \
-  integrations.tests.test_doors_runner_tasks \
+  integrations.tests.test_doors_worker_tasks \
   jobs.tests.test_isolated_worker
 ```
 

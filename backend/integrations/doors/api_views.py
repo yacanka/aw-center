@@ -1,4 +1,4 @@
-"""Durable, runner-backed HTTP adapters for IBM Rational DOORS operations."""
+"""Durable, worker-backed HTTP adapters for IBM Rational DOORS operations."""
 
 import json
 
@@ -28,16 +28,16 @@ from .services import integration_status
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def status_view(request):
-    """Expose only the fail-closed local runner capability state."""
+    """Expose only the fail-closed local worker capability state."""
 
-    status = doors_runner_status()
+    status = doors_worker_status()
     return Response(status)
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def create_module_check_job(request):
-    """Queue one module accessibility check for the host-local DOORS runner."""
+    """Queue one module accessibility check for the Windows DOORS worker."""
 
     return enqueue_read_job(
         request,
@@ -180,7 +180,7 @@ def enqueue_validated_job(
 ):
     """Persist an already validated JSON automation payload."""
 
-    unavailable = runner_unavailable_response()
+    unavailable = worker_unavailable_response()
     if unavailable:
         return unavailable
     idempotency_key = str(request.headers.get("Idempotency-Key", "")).strip()
@@ -219,26 +219,25 @@ def enqueue_validated_job(
     return job_creation_response(job, created)
 
 
-def runner_unavailable_response():
+def worker_unavailable_response():
     """Fail closed instead of building an unclaimable external-write backlog."""
 
-    if doors_runner_status()["available"]:
+    if doors_worker_status()["available"]:
         return None
     return error_response(
-        "The local DOORS runner is unavailable.",
-        code="DOORS_RUNNER_UNAVAILABLE",
+        "The DOORS worker is unavailable.",
+        code="DOORS_WORKER_UNAVAILABLE",
         response_status=503,
     )
 
 
-def doors_runner_status():
-    """Combine the integration feature flag with live runner readiness."""
+def doors_worker_status():
+    """Combine the integration feature flag with live worker readiness."""
 
     status = integration_status()
-    runner = status["runner"]
     return {
         "configured": status["configured"],
         "available": status["available"],
-        "active_runners": runner["active_runners"] if status["configured"] else 0,
-        "transport": runner["transport"],
+        "active_workers": status["active_workers"],
+        "transport": status["transport"],
     }

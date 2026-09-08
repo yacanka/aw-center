@@ -1,4 +1,4 @@
-"""Tests for DB-independent DOORS runner task adapters."""
+"""Tests for DB-independent DOORS worker task adapters."""
 
 import json
 import tempfile
@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from integrations.doors.runner_tasks import (
-    RunnerTaskPayloadError,
+from integrations.doors.worker_tasks import (
+    WorkerTaskPayloadError,
     create_object,
     execute_dxl,
     link_requirements,
@@ -19,10 +19,10 @@ from integrations.doors.job_executor import execute_doors_job
 from jobs.contracts import JobExecutionFailure, JobExecutionUncertain
 
 
-class DoorsRunnerTaskTests(SimpleTestCase):
+class DoorsWorkerTaskTests(SimpleTestCase):
     """Verify artifact-only payloads delegate to allowlisted client methods."""
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_execute_dxl_dispatches_only_named_read_operation(self, execute):
         client = Mock()
         client.check_module.return_value.ok = True
@@ -37,7 +37,7 @@ class DoorsRunnerTaskTests(SimpleTestCase):
         self.assertEqual(result["filename"], "doors-result.json")
         client.check_module.assert_called_once_with("/Project/Module")
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_execute_dxl_lists_objects_with_validated_bounds(self, execute):
         """List artifacts delegate all validated bounds to the Windows client."""
 
@@ -63,7 +63,7 @@ class DoorsRunnerTaskTests(SimpleTestCase):
         )
         self.assertEqual(json.loads(output.read_text())["count"], 1)
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_execute_dxl_exports_module_for_compliance_import(self, execute):
         client = Mock()
         client.export_module.return_value = {
@@ -91,7 +91,7 @@ class DoorsRunnerTaskTests(SimpleTestCase):
         self.assertFalse(payload["truncated"])
         self.assertFalse(payload["attributes_truncated"])
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_execute_dxl_reads_one_object(self, execute):
         """Object-detail artifacts cannot select an arbitrary client method."""
 
@@ -115,7 +115,7 @@ class DoorsRunnerTaskTests(SimpleTestCase):
             "/Project/Module", 42, ["Object Text"]
         )
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_execute_dxl_checks_disciplines(self, execute):
         """Discipline checks dispatch only the fixed high-level client operation."""
 
@@ -136,18 +136,18 @@ class DoorsRunnerTaskTests(SimpleTestCase):
         client.check_applicable_disciplines.assert_called_once_with("/Project/Module")
         self.assertEqual(json.loads(output.read_text())["count"], 1)
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_execute_dxl_rejects_arbitrary_operation(self, execute):
-        with self.assertRaises(RunnerTaskPayloadError):
+        with self.assertRaises(WorkerTaskPayloadError):
             self.run_task(execute_dxl, {"operation": "raw_dxl", "script": "delete all"})
         execute.assert_not_called()
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_execute_dxl_rejects_unknown_or_credential_fields(self, execute):
         """Artifacts cannot smuggle credentials past an operation serializer."""
 
         with self.assertRaisesRegex(
-            RunnerTaskPayloadError,
+            WorkerTaskPayloadError,
             "DOORS automation payload failed validation.",
         ):
             self.run_task(
@@ -155,30 +155,30 @@ class DoorsRunnerTaskTests(SimpleTestCase):
                 {
                     "operation": "check_module",
                     "module_path": "/Project/Module",
-                    "password": "must-not-cross-the-runner",
+                    "password": "must-not-cross-the-worker",
                 },
             )
         execute.assert_not_called()
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_malformed_payload_returns_sanitized_error(self, execute):
         """Parser details and invalid content never escape the task boundary."""
 
         with self.assertRaisesRegex(
-            RunnerTaskPayloadError,
+            WorkerTaskPayloadError,
             "^DOORS automation payload is invalid\\.$",
         ) as raised:
             self.run_raw_task(execute_dxl, b'{"sensitive-value"')
         self.assertNotIn("sensitive-value", str(raised.exception))
         execute.assert_not_called()
 
-    @override_settings(DOORS_RUNNER_MAX_INPUT_BYTES=16)
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @override_settings(JOB_JSON_MAX_INPUT_BYTES=16)
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_payload_limit_matches_runner_catalog_policy(self, execute):
-        """Oversized artifacts fail before client construction on the runner."""
+        """Oversized artifacts fail before client construction in the worker."""
 
         with self.assertRaisesRegex(
-            RunnerTaskPayloadError,
+            WorkerTaskPayloadError,
             "DOORS automation payload size is invalid.",
         ):
             self.run_task(
@@ -187,7 +187,7 @@ class DoorsRunnerTaskTests(SimpleTestCase):
             )
         execute.assert_not_called()
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_update_object_uses_validated_scalar_contract(self, execute):
         client = Mock()
         execute.side_effect = lambda operation: operation(client)
@@ -206,12 +206,12 @@ class DoorsRunnerTaskTests(SimpleTestCase):
         )
         self.assertTrue(json.loads(output.read_text())["updated"])
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_update_object_rejects_nested_values(self, execute):
         """Unsupported nested values fail before any Windows-side call."""
 
         with self.assertRaisesRegex(
-            RunnerTaskPayloadError,
+            WorkerTaskPayloadError,
             "DOORS automation payload failed validation.",
         ):
             self.run_task(
@@ -224,7 +224,7 @@ class DoorsRunnerTaskTests(SimpleTestCase):
             )
         execute.assert_not_called()
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_create_object_writes_bounded_representation(self, execute):
         client = Mock()
         created = Mock()
@@ -252,7 +252,7 @@ class DoorsRunnerTaskTests(SimpleTestCase):
         )
         self.assertEqual(json.loads(output.read_text())["absolute_number"], 43)
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_link_requirements_uses_only_the_validated_client_operation(self, execute):
         """The agent receives structured Linker fields rather than executable DXL."""
 
@@ -282,12 +282,12 @@ class DoorsRunnerTaskTests(SimpleTestCase):
         client.link_requirements.assert_called_once_with(payload)
         self.assertEqual(json.loads(output.read_text())["mode"], "preview")
 
-    @patch("integrations.doors.runner_tasks.execute_with_client")
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_link_requirements_rejects_script_or_unknown_fields(self, execute):
-        """A runner artifact cannot append arbitrary code to the Linker contract."""
+        """A worker artifact cannot append arbitrary code to the Linker contract."""
 
         with self.assertRaisesRegex(
-            RunnerTaskPayloadError,
+            WorkerTaskPayloadError,
             "DOORS automation payload failed validation.",
         ):
             self.run_task(
@@ -326,7 +326,7 @@ class DoorsRunnerTaskTests(SimpleTestCase):
 class DoorsWorkerAdapterTests(SimpleTestCase):
     """Adapt artifact-only DOORS tasks to the durable Windows worker contract."""
 
-    @override_settings(DOORS_ENABLED=True, DOORS_EXECUTION_MODE="worker")
+    @override_settings(DOORS_ENABLED=True)
     def test_worker_adapter_returns_a_private_job_result(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -363,7 +363,7 @@ class DoorsWorkerAdapterTests(SimpleTestCase):
             self.assertEqual(result.path, output_path)
             self.assertEqual(result.filename, "doors-result.json")
 
-    @override_settings(DOORS_ENABLED=True, DOORS_EXECUTION_MODE="worker")
+    @override_settings(DOORS_ENABLED=True)
     def test_ambiguous_doors_write_requires_reconciliation(self):
         from integrations.doors import DoorsConnectionError
 
@@ -395,7 +395,7 @@ class DoorsWorkerAdapterTests(SimpleTestCase):
             ):
                 execute_doors_job(job)
 
-    @override_settings(DOORS_ENABLED=False, DOORS_EXECUTION_MODE="worker")
+    @override_settings(DOORS_ENABLED=False)
     def test_worker_adapter_fails_closed_when_doors_is_disabled(self):
         job = SimpleNamespace(kind="doors.run_dxl", reconcile_on_lease_loss=False)
 

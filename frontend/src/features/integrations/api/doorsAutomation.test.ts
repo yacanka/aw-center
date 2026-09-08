@@ -20,8 +20,8 @@ describe('DOORS durable automation API', () => {
     const status = {
       configured: true,
       available: false,
-      active_runners: 0,
-      transport: 'loopback_token'
+      active_workers: 0,
+      transport: 'windows-worker'
     }
     http.get.mockResolvedValue({ data: status })
 

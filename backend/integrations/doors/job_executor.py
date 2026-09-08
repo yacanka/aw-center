@@ -7,21 +7,21 @@ from jobs.contracts import JobExecutionFailure, JobExecutionResult, JobExecution
 
 from integrations.doors import DoorsError
 
-from . import runner_tasks
+from . import worker_tasks
 
 
 DOORS_TASKS = {
-    "doors.run_dxl": runner_tasks.execute_dxl,
-    "doors.update_object": runner_tasks.update_object,
-    "doors.create_object": runner_tasks.create_object,
-    "doors.link_requirements": runner_tasks.link_requirements,
+    "doors.run_dxl": worker_tasks.execute_dxl,
+    "doors.update_object": worker_tasks.update_object,
+    "doors.create_object": worker_tasks.create_object,
+    "doors.link_requirements": worker_tasks.link_requirements,
 }
 
 
 def execute_doors_job(job):
     """Execute one catalogued DOORS job inside the supervised Windows worker."""
 
-    if not settings.DOORS_ENABLED or settings.DOORS_EXECUTION_MODE != "worker":
+    if not settings.DOORS_ENABLED:
         raise JobExecutionFailure(
             "DOORS worker execution is not configured.",
             "DOORS_NOT_CONFIGURED",
@@ -36,7 +36,7 @@ def execute_doors_job(job):
     try:
         try:
             metadata = task(input_path, output_path)
-        except runner_tasks.RunnerTaskPayloadError as error:
+        except worker_tasks.WorkerTaskPayloadError as error:
             raise JobExecutionFailure(
                 "DOORS automation input is invalid.",
                 "DOORS_INPUT_INVALID",
