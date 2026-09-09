@@ -4,13 +4,28 @@
 class DoorsError(RuntimeError):
     """Base IBM Rational DOORS integration error."""
 
+    code = "DOORS_OPERATION_FAILED"
+
 
 class DoorsConnectionError(DoorsError):
     """Raised when the DOORS OLE client cannot be reached."""
 
+    def __init__(self, message, code="DOORS_CONNECTION_FAILED"):
+        super().__init__(message)
+        self.code = code
+
 
 class DoorsDxlError(DoorsError):
     """Raised when DXL execution fails."""
+
+    code = "DOORS_DXL_FAILED"
+
+
+class DoorsConfigurationError(DoorsConnectionError):
+    """Reject invalid local settings before attempting a DOORS operation."""
+
+    def __init__(self):
+        super().__init__("DOORS client configuration is invalid.", "DOORS_CONFIG_INVALID")
 
 
 class DoorsOperationError(DoorsError):

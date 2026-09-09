@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 from unittest.mock import Mock
 
 from django.test import SimpleTestCase
@@ -57,4 +58,5 @@ class ApplicationResultTransportTests(SimpleTestCase):
 
     def publish_result(self, _script):
         """Simulate DXL calling oleSetResult after runStr starts."""
-        self.application.Result = f"{APPLICATION_RESULT_PREFIX}OK\tAPPLICATION_RESULT_AVAILABLE\n"
+        prefix = re.search(r'oleSetResult\("(AW_DOORS_RESULT\|[^"]*)"', _script).group(1)
+        self.application.Result = f"{prefix}OK\tAPPLICATION_RESULT_AVAILABLE\n"

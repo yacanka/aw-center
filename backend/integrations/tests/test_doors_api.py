@@ -64,11 +64,14 @@ class DoorsClientFoundationTests(SimpleTestCase):
         )
 
         self.assertIn('string awc_ref_module_name = "Reference\\"\\nunsafe"', script)
-        self.assertIn("Module awc_ref_module = edit", script)
+        self.assertIn("awc_ref_module = edit", script)
         self.assertIn("Module awc_target_module = read", script)
         self.assertIn("awc_link_source -> awc_link_module_name -> awc_link_target", script)
         self.assertIn("save(awc_ref_module)", script)
         self.assertIn("Skip awc_groups = createString", script)
+        self.assertIn("put(awc_requirements, identifier(awc_ref_object), awc_ref_object)", script)
+        self.assertIn("AMBIGUOUS_TARGET", script)
+        self.assertIn("if (null awc_key) continue", script)
         self.assertNotIn("yck.dxl", script)
 
     def test_linker_builder_reverses_source_without_changing_matching(self):
@@ -88,7 +91,7 @@ class DoorsClientFoundationTests(SimpleTestCase):
         )
 
         self.assertIn("Module awc_ref_module = read", script)
-        self.assertIn("Module awc_target_module = edit", script)
+        self.assertIn("awc_target_module = edit", script)
         self.assertIn("Object awc_link_source = awc_matched_target", script)
         self.assertIn("Object awc_link_target = awc_group_object", script)
         self.assertIn("save(awc_target_module)", script)
@@ -139,8 +142,8 @@ class DoorsClientFoundationTests(SimpleTestCase):
         self.assertEqual(command, [r"C:\IBM\DOORS\doors.exe", "-d", "36677@doors.example"])
 
     @override_settings(AW_USERNAME="unused", AW_PASSWORD="unused")
-    def test_start_command_never_places_credentials_in_process_arguments(self):
-        """The dedicated Windows session supplies authentication outside argv."""
+    def test_start_command_uses_existing_login_policy_without_configured_credentials(self):
+        """Empty dedicated credentials leave authentication to the desktop policy."""
 
         command = DoorsOleTransport(DoorsClientConfig("doors.exe")).start_command()
 
@@ -165,7 +168,9 @@ class DoorsClientFoundationTests(SimpleTestCase):
         """Process inspection identifies the configured DOORS executable."""
         transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
         inspector = Mock()
-        inspector.return_value.Win32_Process.return_value = [Mock(Name="DOORS.EXE")]
+        inspector.return_value.Win32_Process.side_effect = [
+            [Mock(SessionId=7)], [Mock(Name="DOORS.EXE", SessionId=7)]
+        ]
 
         with patch.object(transport, "load_process_inspector", return_value=inspector):
             is_running = transport.is_client_running()
@@ -664,6 +669,8 @@ class DoorsApiTests(TestCase):
         self.assertIn(r'"Identifier\""', response.data["script"])
         self.assertIn(r'"REQ-\"1\"\nunsafe"', response.data["script"])
         self.assertIn(r'"value\"; delete all"', response.data["script"])
+        self.assertNotIn("yck.dxl", response.data["script"])
+        self.assertIn("Object awc_find_object(", response.data["script"])
 
     def test_script_generator_rejects_ambiguous_or_missing_mappings(self):
         """Exactly one unique search key must resolve to a workbook column."""

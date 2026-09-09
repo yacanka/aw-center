@@ -20,8 +20,11 @@ if (!null awc_open_error || null module) {{
         bool awc_has_error = false
         {assignments}
         if (!awc_has_error) {{
+            noError
             save(module)
-            awc_ok("ATTRIBUTES_SAVED")
+            string awc_save_error = lastError
+            if (!null awc_save_error) awc_error("SAVE_MODULE", awc_save_error)
+            else awc_ok("ATTRIBUTES_SAVED")
         }}
         close(module, false)
     }}
@@ -46,9 +49,14 @@ if (!null awc_open_error || null module) {{
             bool awc_has_error = false
             {assignments}
             if (!awc_has_error) {{
+                noError
                 save(module)
-                awc_emit("CREATED\t" (created."Absolute Number" "") "\t" (awc_escape(identifier(created))"") "\t" (level(created) ""))
-                awc_ok("OBJECT_CREATED")
+                string awc_save_error = lastError
+                if (!null awc_save_error) awc_error("SAVE_MODULE", awc_save_error)
+                else {{
+                    awc_emit("CREATED\t" (created."Absolute Number" "") "\t" (awc_escape(identifier(created))"") "\t" (level(created) ""))
+                    awc_ok("OBJECT_CREATED")
+                }}
             }}
         }}
     }}

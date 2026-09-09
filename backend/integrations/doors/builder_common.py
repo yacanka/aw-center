@@ -34,11 +34,11 @@ void awc_ok(string message) {
 '''.strip()
 
 
-def wrap_dxl(body: str, result_file: Path | None, result_mode: str) -> str:
+def wrap_dxl(body: str, result_file: Path | None, result_mode: str, result_token: str = "") -> str:
     """Wrap DXL with the configured bounded result transport."""
     preamble = build_result_preamble(result_file, result_mode)
     emitter = build_emitter(result_mode)
-    footer = build_result_footer(result_file, result_mode)
+    footer = build_result_footer(result_file, result_mode, result_token)
     return f"""pragma runLim, 0
 
 {preamble}
@@ -60,7 +60,13 @@ def build_result_preamble(result_file: Path | None, result_mode: str) -> str:
     if result_mode != RESULT_MODE_FILE or result_file is None:
         raise ValueError("A result file is required for file result mode.")
     return f'''string awc_result_file = {dxl_quote(str(result_file))}
-Stream awc_result = write awc_result_file'''
+noError
+Stream awc_result = write(awc_result_file, CP_UTF8)
+string awc_result_error = lastError
+if (!null awc_result_error || null awc_result) {{
+    oleSetResult("AW_DOORS_ERR|" awc_result_file)
+    halt
+}}'''
 
 
 def build_emitter(result_mode: str) -> str:
@@ -77,18 +83,19 @@ def build_emitter(result_mode: str) -> str:
     raise ValueError("Unsupported DOORS result mode.")
 
 
-def build_result_footer(result_file: Path | None, result_mode: str) -> str:
+def build_result_footer(result_file: Path | None, result_mode: str, result_token: str = "") -> str:
     """Build the DXL footer for file or Application.Result delivery."""
     if result_mode == RESULT_MODE_APPLICATION:
-        return application_result_footer()
+        return application_result_footer(result_token)
     if result_mode != RESULT_MODE_FILE or result_file is None:
         raise ValueError("A result file is required for file result mode.")
     return file_result_footer()
 
 
-def application_result_footer() -> str:
+def application_result_footer(result_token: str = "") -> str:
     """Return DXL that publishes the buffered payload through OLE Result."""
-    return '''oleSetResult("AW_DOORS_RESULT|" stringOf(awc_result))
+    prefix = "AW_DOORS_RESULT|" + (result_token + "|" if result_token else "")
+    return f'''oleSetResult({dxl_quote(prefix)} stringOf(awc_result))
 delete awc_result'''
 
 
@@ -101,17 +108,30 @@ oleSetResult("AW_DOORS_OK|" awc_result_file)
 
 def open_module(module_path: str, mode: str) -> str:
     """Build an escaped DXL module-open statement."""
-    path = dxl_quote(module_path)
+    return open_named_module(dxl_quote(module_path), mode, "module")
+
+
+def open_named_module(path: str, mode: str, variable: str) -> str:
+    """Open a module from a trusted DXL expression while tracking ownership."""
     statements = {
-        "read": f"Module module = read({path}, false)",
-        "edit": f"Module module = edit({path}, false, true)",
-        "share": f"Module module = share({path}, false, true)",
+        "read": f"read({path}, false)",
+        "edit": f"edit({path}, false, true)",
+        "share": f"share({path}, false, true)",
     }
     if mode not in statements:
         raise ValueError("Unsupported module mode.")
-    return statements[mode]
+    owned = f"bool awc_owns_{variable} = !(open(module({path})))"
+    if mode == "read":
+        return f"{owned}\nModule {variable} = {statements[mode]}"
+    return f'''{owned}
+Module {variable} = null
+if (awc_owns_{variable}) {{
+    {variable} = {statements[mode]}
+}} else {{
+    awc_error("MODULE_ALREADY_OPEN", "Close the module in the desktop client before submitting a write")
+}}'''
 
-def attribute_fragments(attributes: Iterable[str]) -> tuple[str, str]:
+def attribute_fragments(attributes: Iterable[str]) -> tuple[str, list[str], list[str]]:
     """Build safe attribute declarations and output fragments."""
     declarations = []
     objects = []
@@ -119,7 +139,7 @@ def attribute_fragments(attributes: Iterable[str]) -> tuple[str, str]:
     for index, attribute in enumerate(attributes):
         variable = f"awc_attribute_{index}"
         declarations.append(f"string {variable} = {dxl_quote(attribute)}")
-        objects.append(f'awc_escape(object.{variable})')
+        objects.append(f'awc_escape(object.{variable} "")')
         variables.append(variable)
     return "\n".join(declarations), objects, variables
 

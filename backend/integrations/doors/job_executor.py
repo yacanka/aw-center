@@ -6,6 +6,7 @@ from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobExecutionFailure, JobExecutionResult, JobExecutionUncertain
 
 from integrations.doors import DoorsError
+from .exceptions import DoorsConnectionError, DoorsConfigurationError, DoorsOperationError
 
 from . import worker_tasks
 
@@ -41,14 +42,26 @@ def execute_doors_job(job):
                 "DOORS automation input is invalid.",
                 "DOORS_INPUT_INVALID",
             ) from error
-        except DoorsError as error:
-            if job.reconcile_on_lease_loss:
-                raise JobExecutionUncertain() from error
+        except DoorsConnectionError as error:
+            # Connection/probe failures happen before any business DXL is sent.
+            code = error.code if error.code in CONNECTION_FAILURES else "DOORS_CONNECTION_FAILED"
             raise JobExecutionFailure(
-                "The DOORS operation could not be completed.",
-                "DOORS_OPERATION_FAILED",
+                CONNECTION_FAILURES[code], code, not isinstance(error, DoorsConfigurationError)
+            ) from None
+        except DoorsError as error:
+            rejected_before_write = isinstance(error, DoorsOperationError) and error.code in PRE_WRITE_ERRORS
+            if job.reconcile_on_lease_loss and not rejected_before_write:
+                raise JobExecutionUncertain() from error
+            # Upstream detail may contain module paths or data. Expose only a
+            # code produced by our fixed builders, never arbitrary DXL text.
+            code = error.code
+            if isinstance(error, DoorsOperationError):
+                code = SAFE_OPERATION_CODES.get(code, "DOORS_OPERATION_FAILED")
+            raise JobExecutionFailure(
+                "The DOORS operation could not be completed. Check the DOORS client and module access.",
+                code,
                 True,
-            ) from error
+            ) from None
         if metadata.get("sha256_required") is not True:
             raise JobExecutionFailure(
                 "DOORS produced an invalid result.",
@@ -64,3 +77,27 @@ def execute_doors_job(job):
         input_path.unlink(missing_ok=True)
         if not result_ready:
             output_path.unlink(missing_ok=True)
+
+
+SAFE_OPERATION_CODES = {
+    code: "DOORS_" + code for code in (
+        "OPEN_MODULE", "OPEN_MODULE_EDIT", "OPEN_REFERENCE_MODULE", "OPEN_TARGET_MODULE",
+        "OBJECT_NOT_FOUND", "ATTRIBUTE_NOT_FOUND", "ATTRIBUTE_AMBIGUOUS", "MODULE_ALREADY_OPEN",
+        "READ_ATTRIBUTE", "SET_ATTRIBUTE", "SAVE_MODULE", "CREATE_OBJECT", "AMBIGUOUS_TARGET",
+        "BASE_OBJECT_NOT_FOUND", "REFERENCE_OBJECT_LIMIT", "LINK_CANDIDATE_LIMIT", "TARGET_OBJECT_LIMIT",
+    )
+}
+
+PRE_WRITE_ERRORS = frozenset({
+    "MODULE_ALREADY_OPEN", "OPEN_MODULE_EDIT", "OPEN_REFERENCE_MODULE", "OPEN_TARGET_MODULE",
+    "OBJECT_NOT_FOUND", "BASE_OBJECT_NOT_FOUND", "ATTRIBUTE_NOT_FOUND", "AMBIGUOUS_TARGET",
+    "REFERENCE_OBJECT_LIMIT", "LINK_CANDIDATE_LIMIT", "TARGET_OBJECT_LIMIT", "LINK_KEY_LIMIT",
+})
+
+CONNECTION_FAILURES = {
+    "DOORS_CONFIG_INVALID": "DOORS settings are invalid. Check the client configuration.",
+    "DOORS_CONNECTION_FAILED": "Cannot connect to DOORS. Check the Windows desktop session, client installation and login.",
+    "DOORS_EXECUTABLE_UNAVAILABLE": "DOORS executable was not found. Check DOORS_EXECUTABLE and DOORS_OLE_PROG_ID.",
+    "DOORS_STARTUP_TIMEOUT": "DOORS did not become ready. Check login, database, license and open dialogs.",
+    "DOORS_MULTIPLE_CLIENTS": "Multiple DOORS clients are open. Keep one client in the worker's Windows session.",
+}
