@@ -49,7 +49,15 @@ def generate_dxl_script(excel_file, mappings):
     arrays = build_arrays(ordered_mappings, rows)
     assignments = build_assignments(ordered_mappings)
     search_attribute = dxl_quote(ordered_mappings[0]["doors"])
-    script = f'''#include <addins/user/yck.dxl>
+    script = f'''Object awc_find_object(Module source, string attribute_name, string expected) {{
+    AttrDef definition = find(source, attribute_name)
+    if (null definition || !definition.object) return null
+    Object candidate
+    for candidate in entire(source) do {{
+        if (candidate.attribute_name "" == expected) return candidate
+    }}
+    return null
+}}
 
 Module refModule = current
 if (null refModule) {{
@@ -62,7 +70,7 @@ if (null refModule) {{
 Object o
 int i = 0
 for (i = 0; i < {len(rows)}; i++) {{
-    o = FindObjectByAttribute(refModule, {search_attribute}, awc_arr_1[i])
+    o = awc_find_object(refModule, {search_attribute}, awc_arr_1[i])
     if (null o) {{
         print "Object not found: " awc_arr_1[i] "\\n"
     }}

@@ -41,7 +41,7 @@ class ModuleExportSerializer(ModuleSerializer):
 class ObjectDetailSerializer(ObjectReadSerializer):
     """Validate a DOORS object detail request."""
 
-    absolute_number = serializers.IntegerField(min_value=1)
+    absolute_number = serializers.IntegerField(min_value=1, max_value=2_147_483_647)
 
 
 class ScalarAttributesSerializer(ModuleSerializer):
@@ -62,6 +62,11 @@ class ScalarAttributesSerializer(ModuleSerializer):
                 "Attribute names must contain between 1 and 256 characters."
             )
         if any(
+            "\x00" in name or (isinstance(value, str) and "\x00" in value)
+            for name, value in attributes.items()
+        ):
+            raise serializers.ValidationError("Attribute names and values cannot contain null characters.")
+        if any(
             isinstance(value, float) and not math.isfinite(value)
             for value in attributes.values()
         ):
@@ -72,7 +77,7 @@ class ScalarAttributesSerializer(ModuleSerializer):
 class ObjectUpdateSerializer(ScalarAttributesSerializer):
     """Validate a DOORS object update request."""
 
-    absolute_number = serializers.IntegerField(min_value=1)
+    absolute_number = serializers.IntegerField(min_value=1, max_value=2_147_483_647)
 
 
 class ObjectCreateSerializer(ScalarAttributesSerializer):
@@ -81,7 +86,7 @@ class ObjectCreateSerializer(ScalarAttributesSerializer):
     position = serializers.ChoiceField(
         choices=("first", "after", "before", "below", "below_last"), default="after"
     )
-    relative_absolute_number = serializers.IntegerField(min_value=1, required=False)
+    relative_absolute_number = serializers.IntegerField(min_value=1, max_value=2_147_483_647, required=False)
 
     def validate(self, attributes):
         """Require a relative object for relative positions."""

@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from . import builder_link, builder_read, builder_write
+from . import checklist
 from .builder_common import wrap_dxl
 from .config import RESULT_MODE_APPLICATION, RESULT_MODE_FILE, DoorsClientConfig
 from .escape import decode_field
@@ -30,9 +31,12 @@ class DoorsClient:
         """Execute generated DXL using the requested result transport."""
         mode = result_mode or self.config.result_mode
         result_file = self.create_result_file(mode)
+        result_token = uuid4().hex if mode == RESULT_MODE_APPLICATION else ""
         try:
-            script = wrap_dxl(body, result_file, mode)
-            execution = self.transport.run_dxl(script, result_file, mode)
+            script = wrap_dxl(body, result_file, mode, result_token)
+            execution = self.transport.run_dxl(script, result_file, mode, result_token)
+            if not execution.lines or not any(execution.lines):
+                raise DoorsDxlError("DOORS returned an empty operation result.")
             errors = tuple(line for line in execution.lines if line.startswith("ERR\t"))
             return OperationResult(not errors, errors[0] if errors else "OK", execution.lines)
         finally:
@@ -128,7 +132,10 @@ class DoorsClient:
         summary = {}
         for line in result.raw_lines:
             if line.startswith("GROUP\t"):
-                _, key, requirement = line.split("\t", 2)
+                parts = line.split("\t")
+                if len(parts) != 3:
+                    raise DoorsDxlError("DOORS returned a malformed linker group.")
+                _, key, requirement = parts
                 groups.setdefault(decode_field(key) or "", []).append(
                     decode_field(requirement) or ""
                 )
@@ -166,6 +173,8 @@ class DoorsClient:
             raise DoorsDxlError("DOORS returned a malformed linker summary.")
         try:
             counts = [int(value) for value in values]
+            if any(value < 0 for value in counts):
+                raise ValueError
         except ValueError as error:
             raise DoorsDxlError("DOORS returned a malformed linker summary.") from error
         return dict(
@@ -184,7 +193,7 @@ class DoorsClient:
         )
     
     def get_attr(self, module_path: str, search_text: str):
-        """Create one DOORS object in a module."""
+        """Find one unambiguous object attribute by name fragment."""
         body = builder_read.get_attr(module_path, search_text)
         result = self.run_dxl(body)
         self.raise_on_error(result)
@@ -198,39 +207,53 @@ class DoorsClient:
         """Return the bounded attributes used by the discipline check."""
         applicable_attr = self.get_attr(module_path, "Applicable")
         discipline_attr = self.get_attr(module_path, "Discipline")
-        return self.list_objects(
-            module_path,
-            [applicable_attr, discipline_attr],
-            "entire",
-            20,
-        )
+        result = self.run_dxl(checklist.check_applicable_disciplines(
+            module_path, applicable_attr, discipline_attr
+        ))
+        self.raise_on_error(result)
+        return [
+            self.parse_object(line, [applicable_attr, discipline_attr])
+            for line in result.raw_lines if line.startswith("OBJECT\t")
+        ]
 
     @staticmethod
     def parse_info(line: str) -> str:
         """Parse one line-oriented DOORS object result."""
-        try:
-            return decode_field(line.split("\t")[1])
-        except ValueError:
-            raise DoorsDxlError("DOORS returned a malformed info.") 
+        values = line.split("\t")
+        if len(values) != 2 or not values[1] or decode_field(values[1]) is None:
+            raise DoorsDxlError("DOORS returned a malformed attribute name.")
+        return decode_field(values[1])
 
     @staticmethod
     def parse_object(line: str, attributes: Iterable[str]) -> DoorsObject:
         """Parse one line-oriented DOORS object result."""
         values = [decode_field(part) for part in line.split("\t")[1:]]
-        if len(values) < 3:
+        names = list(attributes)
+        if len(values) != 3 + len(names):
             raise DoorsDxlError("DOORS returned a malformed object row.")
-        attribute_values = dict(zip(attributes, values[3:]))
-        level = int(values[2]) if values[2] not in {None, ""} else None
-        return DoorsObject(int(values[0]), values[1] or "", level, attribute_values)
+        absolute_number, level = DoorsClient.parse_object_numbers(values)
+        return DoorsObject(absolute_number, values[1] or "", level, dict(zip(names, values[3:])))
 
     @staticmethod
     def parse_created_object(line: str, attributes: dict) -> DoorsObject:
         """Parse one line-oriented created-object result."""
         values = [decode_field(part) for part in line.split("\t")[1:]]
-        if len(values) < 3:
+        if len(values) != 3:
             raise DoorsDxlError("DOORS returned a malformed created-object row.")
-        level = int(values[2]) if values[2] not in {None, ""} else None
-        return DoorsObject(int(values[0]), values[1] or "", level, attributes)
+        absolute_number, level = DoorsClient.parse_object_numbers(values)
+        return DoorsObject(absolute_number, values[1] or "", level, attributes)
+
+    @staticmethod
+    def parse_object_numbers(values):
+        """Reject corrupt object identities instead of publishing partial JSON."""
+        try:
+            absolute_number = int(values[0])
+            level = int(values[2]) if values[2] not in {None, ""} else None
+            if absolute_number < 1 or (level is not None and level < 0):
+                raise ValueError
+            return absolute_number, level
+        except (ValueError, TypeError):
+            raise DoorsDxlError("DOORS returned malformed object numbers.") from None
 
     @staticmethod
     def raise_on_error(result: OperationResult) -> None:

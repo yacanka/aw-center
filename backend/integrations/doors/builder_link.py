@@ -3,6 +3,7 @@
 import re
 
 from .escape import dxl_quote
+from .builder_common import open_named_module
 
 MAX_MODULE_OBJECTS = 10_000
 MAX_LINK_CANDIDATES = 50_000
@@ -49,17 +50,17 @@ int awc_start_index = __START_INDEX__
 int awc_text_length = __TEXT_LENGTH__
 
 noError
-Module awc_ref_module = __REF_OPEN__(awc_ref_module_name, false, true)
+__REF_OPEN__
 string awc_ref_open_error = lastError
 if (!null awc_ref_open_error || null awc_ref_module) {
     awc_error("OPEN_REFERENCE_MODULE", awc_ref_open_error)
 } else {
     noError
-    Module awc_target_module = __TARGET_OPEN__(awc_target_module_name, false, true)
+    __TARGET_OPEN__
     string awc_target_open_error = lastError
     if (!null awc_target_open_error || null awc_target_module) {
         awc_error("OPEN_TARGET_MODULE", awc_target_open_error)
-        close(awc_ref_module, false)
+        if (awc_owns_awc_ref_module) close(awc_ref_module, false)
     } else {
         bool awc_has_error = false
         AttrDef awc_ref_poc_def = find(awc_ref_module, awc_ref_poc_attr)
@@ -107,6 +108,7 @@ if (!null awc_ref_open_error || null awc_ref_module) {
                     string awc_key = awc_slice(
                         awc_trim(awc_line), awc_start_index, awc_text_length
                     )
+                    if (null awc_key) continue
                     if (length(awc_key) > __MAX_KEY_LENGTH__) {
                         awc_error("LINK_KEY_LIMIT", "A derived PoC key exceeds the length limit")
                         awc_has_error = true
@@ -117,7 +119,7 @@ if (!null awc_ref_open_error || null awc_ref_module) {
                         awc_requirements = createString
                         put(awc_groups, awc_key, awc_requirements)
                     }
-                    if (put(awc_requirements, awc_requirement, awc_ref_object)) {
+                    if (put(awc_requirements, identifier(awc_ref_object), awc_ref_object)) {
                         awc_candidate_count++
                         if (awc_candidate_count > __MAX_CANDIDATES__) {
                             awc_error("LINK_CANDIDATE_LIMIT", "Link candidates exceed the limit")
@@ -142,7 +144,12 @@ if (!null awc_ref_open_error || null awc_ref_module) {
                 }
                 awc_target_count++
                 string awc_target_key = awc_target_object.awc_target_poc_attr ""
-                put(awc_targets, awc_target_key, awc_target_object)
+                if (null awc_target_key) continue
+                if (!put(awc_targets, awc_target_key, awc_target_object)) {
+                    awc_error("AMBIGUOUS_TARGET", "Multiple target objects have the same PoC key")
+                    awc_has_error = true
+                    break
+                }
             }
         }
 
@@ -158,7 +165,7 @@ if (!null awc_ref_open_error || null awc_ref_module) {
                 awc_group_count++
                 Object awc_group_object
                 for awc_group_object in awc_group_requirements do {
-                    string awc_group_requirement = (string key awc_group_requirements)
+                    string awc_group_requirement = awc_group_object.awc_ref_req_attr ""
                     awc_emit("GROUP\t" awc_escape(awc_group_key) "\t" awc_escape(awc_group_requirement))
                 }
                 Object awc_matched_target
@@ -225,8 +232,8 @@ if (!null awc_ref_open_error || null awc_ref_module) {
         for awc_cleanup in awc_groups do delete(awc_cleanup)
         delete(awc_groups)
         delete(awc_targets)
-        close(awc_target_module, false)
-        close(awc_ref_module, false)
+        if (awc_owns_awc_target_module) close(awc_target_module, false)
+        if (awc_owns_awc_ref_module) close(awc_ref_module, false)
     }
 }
 '''.strip()
@@ -264,8 +271,12 @@ def link_requirements(
         "__MAX_CANDIDATES__": str(MAX_LINK_CANDIDATES),
         "__MAX_KEY_LENGTH__": str(MAX_LINK_KEY_LENGTH),
         "__ACTIVE__": "true" if active else "false",
-        "__REF_OPEN__": "edit" if active and direction == "ref2tar" else "read",
-        "__TARGET_OPEN__": "edit" if active and direction == "tar2ref" else "read",
+        "__REF_OPEN__": open_named_module(
+            "awc_ref_module_name", "edit" if active and direction == "ref2tar" else "read", "awc_ref_module"
+        ),
+        "__TARGET_OPEN__": open_named_module(
+            "awc_target_module_name", "edit" if active and direction == "tar2ref" else "read", "awc_target_module"
+        ),
         "__LINK_SOURCE__": "awc_group_object" if direction == "ref2tar" else "awc_matched_target",
         "__LINK_TARGET__": "awc_matched_target" if direction == "ref2tar" else "awc_group_object",
         "__SOURCE_MODULE__": "awc_ref_module" if direction == "ref2tar" else "awc_target_module",

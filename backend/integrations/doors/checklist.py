@@ -1,60 +1,40 @@
-"""Checklist-specific DXL helpers."""
+"""Bounded applicable-discipline validation for DOORS objects."""
 
-from .builder_common import open_module, attribute_fragments, create_func_declarations
+from .builder_common import attribute_fragments, open_module
 
-CHECK_APPLICABLE_DISCIPLINES = r'''
-{func_declarations}
+CHECK_TEMPLATE = r'''
 noError
 {open_statement}
 string awc_open_error = lastError
 if (!null awc_open_error || null module) {{
     awc_error("OPEN_MODULE", awc_open_error)
 }} else {{
-    {field_declarations}
-    if (null {applicable_var} || null {discipline_var}) {
-		awc_error("READ_ATTRIBUTE", "Attribute not found.")
-		halt
-	}
+    {declarations}
     Object object
     int awc_count = 0
-    bool exists = false
-    for object in {iterable} do {{
-        if (awc_count >= {limit}) break
-		if ({applicable_object} != "Applicable") {
-			continue
-		}
-
-		if ({discipline_object} != null){
-			continue
-		}else if(!exists){
-			exists = true
-		}
-
-		print " + " o.("Absolute Number") "\n\n"
-        awc_emit("OBJECT\t" (object."Absolute Number" "") "\t" (awc_escape(identifier(object))"") "\t" (level(object) "") {fields})
+    for object in entire(module) do {{
+        if (awc_count >= 20) break
+        string awc_applicable = object.awc_attribute_0 ""
+        string awc_discipline = object.awc_attribute_1 ""
+        if (awc_applicable != "Applicable" || !null awc_discipline) continue
+        awc_emit("OBJECT\t" (object."Absolute Number" "") "\t" awc_escape(identifier(object)) "\t" (level(object) "") {fields})
         awc_count++
     }}
-    close(module, false)
-    if (exists){
-		awc_ok("Some issues were found. Check absolute numbers.")
-	}else{
-		awc_ok("No issues found.")
-	}
+    if (awc_owns_module) close(module, false)
+    awc_ok("DISCIPLINE_CHECK_DONE")
 }}
 '''.strip()
 
-def check_applicable_disciplines(module_path: str) -> str:
-    """Build bounded DXL that lists module objects."""
-    attributes = ["Applicable or Not Applicable", "Discipline"]
-    declarations, objects, variables = attribute_fragments(attributes)
-    return CHECK_APPLICABLE_DISCIPLINES.format(
-        func_declarations=create_func_declarations(),
+
+def check_applicable_disciplines(
+    module_path: str,
+    applicable_attribute: str = "Applicable or Not Applicable",
+    discipline_attribute: str = "Discipline",
+) -> str:
+    """Return up to 20 applicable objects whose discipline is empty."""
+    declarations, fields, _ = attribute_fragments([applicable_attribute, discipline_attribute])
+    return CHECK_TEMPLATE.format(
         open_statement=open_module(module_path, "read"),
         declarations=declarations,
-        iterable="entire",
-        limit=25,
-        applicable_var=variables[0],
-        discipline_var=variables[1],
-        applicable_object=objects[0],
-        discipline_object=objects[1],
+        fields="".join(f' "\\t" ({field})' for field in fields),
     )

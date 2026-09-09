@@ -15,6 +15,7 @@ from .serializers import (
     RequirementLinkSerializer,
 )
 from .services import execute_with_client
+from .exceptions import DoorsDxlError
 
 MAX_RESULT_BYTES = 10 * 1024 * 1024
 READ_OPERATIONS = frozenset(
@@ -37,7 +38,7 @@ def execute_dxl(input_path, output_path):
 
     payload = load_payload(input_path)
     operation = payload.get("operation")
-    if operation not in READ_OPERATIONS:
+    if not isinstance(operation, str) or operation not in READ_OPERATIONS:
         raise WorkerTaskPayloadError("Unsupported DOORS read operation.")
     if operation == "check_module":
         values = validated(ModuleSerializer, payload)
@@ -169,7 +170,7 @@ def write_result(output_path, payload):
     path = Path(output_path)
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if not encoded or len(encoded) > MAX_RESULT_BYTES:
-        raise WorkerTaskPayloadError("DOORS automation result exceeds the safety limit.")
+        raise DoorsDxlError("DOORS automation result exceeds the safety limit.")
     path.write_bytes(encoded)
     return {
         "filename": "doors-result.json",

@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 
 from .builder_common import open_module, attribute_fragments
+from .escape import dxl_quote
 
 CHECK_TEMPLATE = r'''
 noError
@@ -12,7 +13,7 @@ if (!null awc_open_error || null module) {{
     awc_error("OPEN_MODULE", awc_open_error)
 }} else {{
     awc_ok("MODULE_OPENED")
-    close(module, false)
+    if (awc_owns_module) close(module, false)
 }}
 '''.strip()
 
@@ -31,7 +32,7 @@ if (!null awc_open_error || null module) {{
         awc_emit("OBJECT\t" (object."Absolute Number" "") "\t" (awc_escape(identifier(object))"") "\t" (level(object) "") {fields})
         awc_count++
     }}
-    close(module, false)
+    if (awc_owns_module) close(module, false)
     awc_ok("LIST_OBJECTS_DONE")
 }}
 '''.strip()
@@ -50,7 +51,7 @@ if (!null awc_open_error || null module) {{
     }} else {{
         awc_emit("OBJECT\t" (object."Absolute Number" "") "\t" (awc_escape(identifier(object))"") "\t" (level(object) "") {fields})
     }}
-    close(module, false)
+    if (awc_owns_module) close(module, false)
 }}
 '''.strip()
 
@@ -61,21 +62,25 @@ string awc_open_error = lastError
 if (!null awc_open_error || null module) {{
     awc_error("OPEN_MODULE", awc_open_error)
 }} else {{
-    AttrDef object
-	int offset, length
-    bool isFound
-	for object in module do {{
-		isFound = findPlainText(object.name, "{search_text}", offset, length, {case_sensitive})
-		if (isFound) {{
-			break
-		}}
-	}}
-    close(module, false)
-	if (isFound) {{
-        awc_emit("OBJECT\t" (object.name ""))
-        awc_ok("OBJECT_FOUND")
+    AttrDef awc_attribute
+    int awc_offset, awc_length
+    int awc_matches = 0
+    string awc_name = ""
+    for awc_attribute in module do {{
+        if (!awc_attribute.object) continue
+        if (findPlainText(awc_attribute.name, {search_text}, awc_offset, awc_length, {case_sensitive})) {{
+            awc_name = awc_attribute.name
+            awc_matches++
+        }}
+    }}
+    if (awc_owns_module) close(module, false)
+    if (awc_matches == 1) {{
+        awc_emit("OBJECT\t" awc_escape(awc_name))
+        awc_ok("ATTRIBUTE_FOUND")
+    }} else if (awc_matches > 1) {{
+        awc_error("ATTRIBUTE_AMBIGUOUS", "More than one object attribute matches")
     }} else {{
-	    awc_error("OBJECT_NOT_FOUND", "Object was not found")
+        awc_error("ATTRIBUTE_NOT_FOUND", "Object attribute was not found")
     }}
 }}
 '''
@@ -120,7 +125,7 @@ if (!null awc_open_error || null module) {{
         delete awc_row
         awc_count++
     }}
-    close(module, false)
+    if (awc_owns_module) close(module, false)
     awc_ok("EXPORT_MODULE_DONE")
 }}
 '''.strip()
@@ -163,7 +168,7 @@ def get_attr(module_path: str, search_text: str, case_sensitive: bool = False) -
     """Build bounded DXL that lists module objects."""
     return GET_ATTR.format(
         open_statement=open_module(module_path, "read"),
-        search_text=search_text,
+        search_text=dxl_quote(search_text),
         case_sensitive="true" if case_sensitive else "false"
     )
 

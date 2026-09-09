@@ -1,6 +1,7 @@
 """Durable, worker-backed HTTP adapters for IBM Rational DOORS operations."""
 
 import json
+from collections.abc import Mapping
 
 from django.core.files.base import ContentFile
 from rest_framework.decorators import api_view, permission_classes
@@ -131,7 +132,7 @@ def create_requirement_link_job(request):
     """Queue a preview or administrator-only Requirement PoC link operation."""
 
     serializer = RequirementLinkSerializer(data=request.data)
-    if set(request.data) - set(serializer.fields):
+    if not isinstance(request.data, Mapping) or set(request.data) - set(serializer.fields):
         raise ValidationError({"fields": "Unsupported request fields were provided."})
     serializer.is_valid(raise_exception=True)
     values = dict(serializer.validated_data)
@@ -166,7 +167,7 @@ def enqueue_job(request, serializer_class, kind, title, operation=None):
     """Create or replay one owner-scoped Windows automation job."""
 
     serializer = serializer_class(data=request.data)
-    if set(request.data) - set(serializer.fields):
+    if not isinstance(request.data, Mapping) or set(request.data) - set(serializer.fields):
         raise ValidationError({"fields": "Unsupported request fields were provided."})
     serializer.is_valid(raise_exception=True)
     payload = dict(serializer.validated_data)

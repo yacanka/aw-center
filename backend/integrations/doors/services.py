@@ -8,16 +8,27 @@ from django.conf import settings
 from django.utils import timezone
 
 from integrations.doors import DoorsClient, DoorsClientConfig, DoorsConnectionError
+from .exceptions import DoorsConfigurationError
 
 Result = TypeVar("Result")
 
 
 def build_client_config() -> DoorsClientConfig:
+    """Reject invalid settings without including credentials in exceptions."""
+    try:
+        return _client_config()
+    except (ValueError, TypeError):
+        raise DoorsConfigurationError() from None
+
+
+def _client_config() -> DoorsClientConfig:
     """Build an IBM Rational DOORS client config from Django settings."""
     return DoorsClientConfig(
         executable_path=settings.DOORS_EXECUTABLE,
         database=settings.DOORS_DATABASE,
         ole_program_id=settings.DOORS_OLE_PROG_ID,
+        username=settings.DOORS_USERNAME,
+        password=settings.DOORS_PASSWORD,
         prefer_active_instance=settings.DOORS_PREFER_ACTIVE_INSTANCE,
         auto_start_client=settings.DOORS_AUTO_START_CLIENT,
         startup_timeout_seconds=settings.DOORS_STARTUP_TIMEOUT_SECONDS,
@@ -46,7 +57,12 @@ def initialized_com():
 def execute_with_client(operation: Callable[[DoorsClient], Result]) -> Result:
     """Execute a DOORS operation within a COM-initialized worker thread."""
     with initialized_com():
-        return operation(DoorsClient(build_client_config()))
+        client = DoorsClient(build_client_config())
+        try:
+            return operation(client)
+        finally:
+            # Release the apartment-bound proxy before CoUninitialize, without Quit.
+            client.transport.application = None
 
 
 def integration_status() -> dict[str, object]:
@@ -61,6 +77,11 @@ def integration_status() -> dict[str, object]:
     ).count()
     platform_supported = sys.platform == "win32"
     configured = bool(settings.DOORS_ENABLED and platform_supported)
+    if configured:
+        try:
+            build_client_config()
+        except DoorsConfigurationError:
+            configured = False
     return {
         "configured": configured,
         "platform_supported": platform_supported,

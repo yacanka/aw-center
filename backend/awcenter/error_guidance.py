@@ -173,6 +173,10 @@ _EXACT_GUIDANCE = {
     "TEAMCENTER_NOT_CONFIGURED": ErrorGuidance(False, "Ask an administrator to configure Teamcenter."),
     "TEAMCENTER_AUTH_FAILED": ErrorGuidance(False, "Ask an administrator to verify Teamcenter credentials."),
     "DOORS_UNAVAILABLE": ErrorGuidance(False, "Start or configure the DOORS client, then retry."),
+    "DOORS_CONFIG_INVALID": ErrorGuidance(False, "Correct the DOORS client settings and restart AW Center."),
+    "DOORS_EXECUTABLE_UNAVAILABLE": ErrorGuidance(False, "Check DOORS_EXECUTABLE and the DOORS_OLE_PROG_ID registration."),
+    "DOORS_STARTUP_TIMEOUT": ErrorGuidance(True, "Check DOORS login, database, license and desktop dialogs, then submit again."),
+    "DOORS_MODULE_ALREADY_OPEN": ErrorGuidance(False, "Save and close the target module in DOORS before submitting the write again."),
     "WORD_MODEL_UNAVAILABLE": ErrorGuidance(False, "Ask an administrator to deploy the local AI model."),
     "WORD_ANALYZER_MODEL_UNAVAILABLE": ErrorGuidance(
         False, "Ask an administrator to deploy the analyzer models."

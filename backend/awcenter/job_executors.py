@@ -1,6 +1,7 @@
 """Composition-root resolver for statically allowlisted local executors."""
 
 from django.utils.module_loading import import_string
+from django.conf import settings
 
 from automations.catalog import DOORS_QUEUE, LOCAL_QUEUE, executor_kinds, executor_metadata
 from jobs.contracts import JobExecutionFailure
@@ -79,5 +80,14 @@ def worker_job_timeout(kind, include_doors=False):
     if metadata is None or metadata.queue not in allowed_queues:
         raise JobExecutionFailure(
             "No worker supports this job type.", "JOB_KIND_UNSUPPORTED"
+        )
+    if metadata.queue == DOORS_QUEUE:
+        # Discipline reads perform two attribute lookups and one object listing.
+        # The parent must allow client startup in addition to all bounded runs;
+        # it also fences COM calls that block inside runStr itself.
+        runs = 3 if kind == "doors.run_dxl" else 1
+        return max(
+            metadata.timeout_seconds,
+            settings.DOORS_STARTUP_TIMEOUT_SECONDS + runs * settings.DOORS_RUN_TIMEOUT_SECONDS + 15,
         )
     return metadata.timeout_seconds

@@ -365,7 +365,7 @@ class DoorsWorkerAdapterTests(SimpleTestCase):
 
     @override_settings(DOORS_ENABLED=True)
     def test_ambiguous_doors_write_requires_reconciliation(self):
-        from integrations.doors import DoorsConnectionError
+        from integrations.doors import DoorsDxlError
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -374,7 +374,7 @@ class DoorsWorkerAdapterTests(SimpleTestCase):
             input_path.write_text("{}", encoding="utf-8")
 
             def task(_input, _output):
-                raise DoorsConnectionError("provider detail")
+                raise DoorsDxlError("provider detail")
 
             job = SimpleNamespace(kind="doors.update_object", reconcile_on_lease_loss=True)
             with (
