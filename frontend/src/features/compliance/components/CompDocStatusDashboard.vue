@@ -72,6 +72,7 @@ const chartOptions = computed(() => createStatusChartOptions(theme.value))
 <style scoped>
 .dashboard-card {
   width: 100%;
+  min-width: 0;
   background: linear-gradient(145deg, rgba(59, 130, 246, 0.045), transparent 45%);
 }
 
@@ -86,7 +87,7 @@ const chartOptions = computed(() => createStatusChartOptions(theme.value))
 
 .status-layout {
   display: grid;
-  grid-template-columns: minmax(240px, 0.9fr) minmax(270px, 1.1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 24px;
   align-items: center;
 }
@@ -100,11 +101,12 @@ const chartOptions = computed(() => createStatusChartOptions(theme.value))
 .status-list {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .status-row {
   display: grid;
-  grid-template-columns: 10px minmax(140px, 1fr) 34px 42px;
+  grid-template-columns: 10px minmax(0, 1fr) 34px 42px;
   gap: 8px;
   align-items: center;
 }

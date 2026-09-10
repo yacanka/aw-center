@@ -12,6 +12,8 @@ const { buildCompdocCreatePayload, buildCompdocUpdatePayload } =
 const { normalizeCompdoc, normalizeCompdocFields } =
   await import('../src/features/compliance/api/compdocContract.ts')
 const { fetchCompdocDashboard } = await import('../src/features/compliance/api/compdocDashboard.ts')
+const { dashboardSummary } =
+  await import('../src/features/compliance/models/compdocDashboard.fixtures.ts')
 const { fetchCompdocActivity } = await import('../src/features/compliance/api/compdocLifecycle.ts')
 const { fetchCompdocOptions } = await import('../src/features/compliance/api/compdocOptions.ts')
 const { getCompdocReference, humanizeCompdocStatus, joinCompdocValues } =
@@ -530,11 +532,15 @@ test('dashboard isolates paginated table state and stale project responses', asy
   assert.match(menu, /menuItem\('Home', '\/compdocs\/home', 'compdocsHome'/)
   assert.match(composable, /activeController\?\.abort\(\)/)
   assert.match(composable, /sequence === requestSequence/)
-  assert.match(dashboard, /summary\.total/)
-  assert.match(dashboard, /summary\.overdue/)
+  assert.match(dashboard, /focusedAnalytics\.total/)
+  assert.match(dashboard, /focusedAnalytics\.overdue/)
   assert.match(dashboard, /summary\.archived/)
-  assert.match(dashboard, /summary\.status_counts/)
-  assert.doesNotMatch(dashboard, /CompDocRiskDashboard|CompDocTrackingSummary|data_quality/)
+  assert.match(dashboard, /focusedAnalytics\.chart_status_counts/)
+  assert.match(dashboard, /CompDocRiskDashboard/)
+  assert.match(dashboard, /focusedAnalytics\.timeline/)
+  assert.match(dashboard, /focusedAnalytics\.pending_days/)
+  assert.match(dashboard, /focusedAnalytics\.data_quality/)
+  assert.doesNotMatch(composable, /useCompdocController|fetchCompdocs/)
 })
 
 test('adapts canonical workflow and review activity envelopes', async () => {
@@ -706,13 +712,7 @@ function previewResponse() {
 }
 
 function dashboardResponse() {
-  return {
-    project: 'project name',
-    total: 4,
-    archived: 1,
-    overdue: 2,
-    status_counts: { authority_review: 4 }
-  }
+  return dashboardSummary('project name')
 }
 
 function trackingResponse() {

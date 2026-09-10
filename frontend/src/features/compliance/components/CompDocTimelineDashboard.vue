@@ -3,7 +3,7 @@
     <n-card class="chart-card" :bordered="false">
       <template #header>
         <div>
-          <div class="card-title">Schedule and delivery trend</div>
+          <div class="card-title">Schedule and delivery burndown</div>
           <n-text depth="3" class="card-subtitle">Remaining documents over time</n-text>
         </div>
       </template>
@@ -78,7 +78,7 @@ ensureCompdocChartsRegistered()
 const userStore = useSessionStore()
 const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const hasTimeline = computed(
-  () => props.timeline.scheduled.length > 0 || props.timeline.actual.length > 1
+  () => props.timeline.scheduled.length > 0 || props.timeline.last_actual !== null
 )
 const chartData = computed(() => createTimelineChartData(props.timeline, props.documentCount))
 const chartOptions = computed(() =>
@@ -107,6 +107,7 @@ const metrics = computed(() => [
 
 .chart-card,
 .metric-card {
+  min-width: 0;
   background: linear-gradient(145deg, rgba(37, 99, 235, 0.04), transparent 44%);
 }
 
@@ -129,6 +130,7 @@ const metrics = computed(() => [
 .pending-surface {
   position: relative;
   height: 190px;
+  min-width: 0;
 }
 
 .metric + .metric {

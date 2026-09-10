@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Max, OuterRef, Q, Subquery
+from django.db.models import Max, OuterRef, Q, Subquery
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -25,6 +25,7 @@ from orgs.models import Project, ProjectRoleAssignment
 from projects.registry import PROJECT_DEFINITIONS
 
 from .compdoc_workflow import WORKFLOW_STATUSES
+from .dashboard import build_dashboard
 from .doors_imports import (
     create_doors_confirmation,
     default_mapping,
@@ -454,24 +455,7 @@ class ReferenceOptionCollectionView(ProjectComplianceMixin, APIView):
 
 class DashboardView(ProjectComplianceMixin, APIView):
     def get(self, request, project_slug):
-        active = ComplianceDocument.objects.filter(project=self.project, is_archived=False)
-        status_counts = {
-            row["status"]: row["count"]
-            for row in active.values("status").annotate(count=Count("id"))
-        }
-        today = timezone.localdate()
-        return Response(
-            {
-                "project": self.project.slug,
-                "total": active.count(),
-                "archived": ComplianceDocument.objects.filter(
-                    project=self.project,
-                    is_archived=True,
-                ).count(),
-                "overdue": active.filter(next_action_due_date__lt=today).count(),
-                "status_counts": status_counts,
-            }
-        )
+        return Response(build_dashboard(self.project))
 
 
 class TransitionInputSerializer(serializers.Serializer):

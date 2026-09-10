@@ -31,7 +31,7 @@
     </div>
 
     <n-empty v-if="!visiblePriorities.length" :description="emptyDescription" size="small" />
-    <n-scrollbar v-else style="max-height: 470px">
+    <n-scrollbar v-else style="max-height: 470px; height: auto">
       <n-collapse accordion>
         <n-collapse-item
           v-for="priority in visiblePriorities"
@@ -63,7 +63,7 @@
               </n-flex>
               <n-text depth="3">{{ signal.detail }}</n-text>
             </div>
-            <n-button text type="primary" @click="reviewDocument(priority.name)">
+            <n-button text type="primary" @click="reviewDocument(priority.document_id)">
               Review document
             </n-button>
           </div>
@@ -131,8 +131,8 @@ function statusLabel(value: string) {
   return STATUS_PRESENTATION.find((status) => status.value === value)?.label || value
 }
 
-function reviewDocument(name: string) {
-  void router.push({ name: 'compdocs', params: { project: props.project }, query: { name } })
+function reviewDocument(document: string) {
+  void router.push({ name: 'compdocs', params: { project: props.project }, query: { document } })
 }
 </script>
 

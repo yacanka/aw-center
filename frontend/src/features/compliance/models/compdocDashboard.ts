@@ -10,9 +10,10 @@ export interface DashboardMetric {
 }
 
 export interface DashboardPanel {
+  id: string
   panel: string
-  total: number
-  [status: string]: string | number
+  ata: string
+  analytics: DashboardAnalytics
 }
 
 export interface DashboardTimeline {
@@ -25,12 +26,9 @@ export interface DashboardTimeline {
 
 export interface DashboardDataQuality {
   issue_count: number
-  invalid_status_flow: number
-  invalid_dates: number
   out_of_order_dates: number
   missing_panel: number
   unknown_status: number
-  panel_ata_mismatch: number
   blank_cover_page: number
 }
 
@@ -95,10 +93,21 @@ export interface DashboardOperationalSummary {
   filters: Record<string, Record<string, string>>
 }
 
-export interface CompDocDashboardSummary {
-  project: string
+export interface DashboardAnalytics {
   total: number
-  archived: number
   overdue: number
   status_counts: Record<string, number>
+  chart_status_counts: Record<string, number>
+  timeline: DashboardTimeline
+  performance: Record<'scheduled' | 'actual' | 'approved', DashboardMetric>
+  pending_days: Record<'authority' | 'ubm' | 'aw', number>
+  risk: DashboardRiskSummary
+  data_quality: DashboardDataQuality
+}
+
+export interface CompDocDashboardSummary extends DashboardAnalytics {
+  project: string
+  archived: number
+  generated_at: string
+  panels: DashboardPanel[]
 }
