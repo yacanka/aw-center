@@ -18,6 +18,7 @@ import {
 } from '@/features/compliance/api/compdocNumbering'
 import { formatApiError } from '@/shared/api/apiError'
 import { isoToTurkishDateTime } from '@/shared/utils/time'
+import { useNumberingContext } from './numberingContext'
 import { useCompdocController } from '@/features/compliance/composables/compdocController'
 
 const ALLOCATION_REFRESH_MILLISECONDS = 1500
@@ -35,6 +36,12 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   const numberingFormat = ref<string | null>(null)
   const numberSource = ref<'manual' | 'numarator'>('manual')
   const allocation = ref<CoverPageAllocation | null>(null)
+  const numberingContext = useNumberingContext(
+    computed(() => compdocStore.getProjectName),
+    numberingFormat,
+    computed(() => showModal.value && numberSource.value === 'numarator'),
+    computed(() => allocation.value?.context_data)
+  )
   const allocationOperationId = ref('')
   const allocationSubmitting = ref(false)
   const allocationTimer = ref<number | undefined>()
@@ -122,6 +129,10 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
         window.$message.error('Select a cover page number format.')
         return
       }
+      if (!numberingContext.valid.value) {
+        window.$message.error('Load and complete the number format fields.')
+        return
+      }
       await startAllocation()
       return
     }
@@ -174,7 +185,8 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
           ? buildCompdocCreatePayload(compdoc.value)
           : buildCompdocUpdatePayload(compdoc.value),
         popupMode.value === 'new' ? undefined : compdoc.value.id,
-        numberingFormat.value || undefined
+        numberingFormat.value || undefined,
+        numberingContext.payload.value
       )
       handleAllocationState()
     } catch (error) {
@@ -300,6 +312,7 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     loadHistory,
     openModal,
     originalCompdoc,
+    numberingContext,
     numberingAvailable,
     numberingFormats,
     numberingFormat,

@@ -76,6 +76,13 @@ EXECUTOR_CATALOG = (
         timeout_seconds=120,
     ),
     ExecutorMetadata(
+        kind="compliance.describe_numbering_format",
+        dotted_path="compliance.numbering_formats.execute_numbering_format_description",
+        queue=LOCAL_QUEUE,
+        upload_policy=JSON_OPERATION_POLICY,
+        timeout_seconds=60,
+    ),
+    ExecutorMetadata(
         kind="media.convert",
         dotted_path="media_tools.job_executor.execute_media_conversion",
         queue=LOCAL_QUEUE,

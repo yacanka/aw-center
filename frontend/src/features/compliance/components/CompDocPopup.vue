@@ -39,6 +39,17 @@
             placeholder="Select a Numarator format"
           />
         </n-form-item>
+        <NumberingContextFields
+          v-if="numberSource === 'numarator' && numberingFormat"
+          id-prefix="document-context"
+          :fields="numberingContext.fields.value"
+          :values="numberingContext.values.value"
+          :loading="numberingContext.loading.value"
+          :error="numberingContext.error.value"
+          :disabled="formReadonly"
+          @update:values="numberingContext.values.value = $event"
+          @retry="numberingContext.load"
+        />
         <n-alert
           v-if="allocationMessage"
           :type="allocationFailed ? 'error' : 'info'"
@@ -83,7 +94,11 @@
         v-if="popupMode === 'new' || (popupMode === 'update' && canEdit)"
         :type="popupMode === 'new' ? 'success' : 'warning'"
         :loading="allocationActive"
-        :disabled="allocationActive || allocationFailed"
+        :disabled="
+          allocationActive ||
+          allocationFailed ||
+          (numberSource === 'numarator' && !numberingContext.valid.value)
+        "
         @click="save"
       >
         {{
@@ -101,6 +116,7 @@
 <script setup lang="ts">
 import { toRef } from 'vue'
 import { Edit24Regular } from '@vicons/fluent'
+import NumberingContextFields from './NumberingContextFields.vue'
 import CompDocHistory from '@/features/compliance/components/CompDocHistory.vue'
 import CompDocIdentityFields from '@/features/compliance/components/CompDocIdentityFields.vue'
 import CompDocNotesFields from '@/features/compliance/components/CompDocNotesFields.vue'
@@ -124,6 +140,7 @@ const {
   openModal,
   originalCompdoc,
   popupMode,
+  numberingContext,
   numberingAvailable,
   numberingFormats,
   numberingFormat,

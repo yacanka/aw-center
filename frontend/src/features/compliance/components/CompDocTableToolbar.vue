@@ -15,6 +15,7 @@ defineProps<{
   project: string
   canImport: boolean
   canCreate: boolean
+  numberingDisabled?: boolean
   canDelete: boolean
   canViewAudits: boolean
   count: number
@@ -26,6 +27,7 @@ const emit = defineEmits<{
   import: []
   importDoors: []
   create: []
+  numberMissing: []
   summary: []
   check: []
   export: []
@@ -62,6 +64,9 @@ function updatePageSize(value: number | null) {
           ><n-icon size="24"><Add24Regular /></n-icon
         ></template>
         New
+      </n-button>
+      <n-button v-if="canCreate" :disabled="numberingDisabled" @click="emit('numberMissing')">
+        Assign missing numbers
       </n-button>
       <n-button @click="emit('summary')">
         <template #icon

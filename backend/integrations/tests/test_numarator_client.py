@@ -90,3 +90,22 @@ class NumaratorClientTests(SimpleTestCase):
             NumaratorClient(session=session).mark_used(1)
 
         self.assertTrue(response.closed)
+
+    def test_format_contract_exposes_only_input_metadata(self):
+        response = FakeResponse({"success": True, "data": {
+            "code": "COVER_PAGE", "internal": "not exposed",
+            "required_context": [{"key": "department", "required": False, "default": "GEN", "max_length": 10}],
+        }})
+        session = FakeSession(response)
+        result = NumaratorClient(session=session).describe_format("COVER_PAGE")
+        self.assertEqual(result, {"code": "COVER_PAGE", "fields": [
+            {"key": "department", "required": False, "default": "GEN", "max_length": 10},
+        ]})
+        self.assertEqual(session.calls[0][0:2], ("GET", "https://numarator.example.test/api/private/v1/formats/COVER_PAGE/"))
+        self.assertIsNone(session.calls[0][2]["json"])
+        self.assertTrue(response.closed)
+
+    def test_format_contract_rejects_missing_fields_instead_of_assuming_no_input(self):
+        response = FakeResponse({"success": True, "data": {"code": "COVER_PAGE"}})
+        with self.assertRaises(NumaratorConflictError):
+            NumaratorClient(session=FakeSession(response)).describe_format("COVER_PAGE")

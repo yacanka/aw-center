@@ -13,9 +13,9 @@ mevcut local job worker'ından Numarator özel API'sine gider.
 ## Format ve erişim hazırlığı
 
 1. Numarator arayüzünde kullanılacak formatları oluştur ve aktif hale getir.
-   Cover page çıktısı en fazla 32 karakter olmalıdır. AW Center context olarak
-   `project` slug'ını gönderir; diğer dinamik alanlar format içinde varsayılan
-   değer taşımalıdır.
+   Cover page çıktısı en fazla 32 karakter olmalıdır. Formattaki dinamik
+   `context` alanları AW Center üzerinde de gösterilir. Varsayılan değerler
+   ipucu olarak görünür; varsayılanı olmayan alanlar kullanıcıdan istenir.
 2. Numarator'de AW Center için ayrı API anahtarı oluştur. `allowed_formats`
    yalnız bu formatların UUID'lerini içersin. Gerekli scope'lar:
    `formats:read`, `numbers:generate`, `numbers:read`, `numbers:status`.
@@ -70,7 +70,14 @@ Django development CSRF/CORS ayarlarına iletir. Development cookie adları
 2. Cover Page No alanı boş bir belgeyi düzenle veya yeni belge oluştur.
 3. **Create with Numarator** seçeneğini ve **Cover page number format** alanından
    izinli formatı seç.
-4. **Get number from Numarator** düğmesine bas.
+4. Formatın dinamik alanlarını doldur. Zorunlu alanlar boşken veya format
+   bilgisi yüklenemezken numara alınmaz.
+5. **Get number from Numarator** düğmesine bas.
+
+**Assign missing numbers** yalnız tablonun o an gösterdiği sayfadaki eksik
+numaralı aktif belgelere uygulanır. Format alanlarına girilen değerler seçilen
+belgelerin tümünde kullanılır. Format alanlarını okumak için de local worker
+çalışmalıdır; API anahtarı web sürecine aktarılmaz.
 
 Kaydetme belge snapshot'ını ve seçilen formatı kalıcı tahsis kaydına yazar.
 Mevcut belgede form değişiklikleri, cover page numarası, sürüm ve history aynı

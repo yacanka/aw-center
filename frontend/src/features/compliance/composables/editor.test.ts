@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   },
   create: vi.fn(),
   options: vi.fn(),
+  format: vi.fn(),
   fetch: vi.fn(),
   existing: vi.fn(),
   resume: vi.fn()
@@ -25,6 +26,7 @@ vi.mock('@/features/compliance/composables/compdocController', () => ({
 vi.mock('@/features/compliance/api/compdocNumbering', () => ({
   createCoverPageAllocation: mocks.create,
   fetchNumberingOptions: mocks.options,
+  fetchNumberingFormat: mocks.format,
   fetchCoverPageAllocation: mocks.fetch,
   fetchExistingCoverPageAllocation: mocks.existing,
   resumeCoverPageAllocation: mocks.resume
@@ -36,6 +38,7 @@ describe('cover page numbering in the document editor', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.options.mockResolvedValue({ available: true, formats: ['COVER_PAGE', 'CP_ALT'] })
+    mocks.format.mockImplementation(async (_project, code) => ({ code, fields: [] }))
     mocks.existing.mockResolvedValue(null)
     mocks.create.mockResolvedValue({
       status: 'completed',
@@ -83,6 +86,7 @@ describe('cover page numbering in the document editor', () => {
   it('requires a format selection when several formats are allowed', async () => {
     const state = await editor()
     state.numberSource.value = 'numarator'
+    await flushPromises()
     await state.save()
     expect(mocks.create).not.toHaveBeenCalled()
     expect(window.$message.error).toHaveBeenCalledWith('Select a cover page number format.')
@@ -108,6 +112,7 @@ describe('cover page numbering in the document editor', () => {
     state.numberSource.value = 'numarator'
     state.numberingFormat.value = 'CP_ALT'
     state.compdoc.value.name = 'Edited name'
+    await flushPromises()
     await state.save()
     expect(mocks.create).toHaveBeenCalledWith(
       'ozgur',
@@ -118,7 +123,8 @@ describe('cover page numbering in the document editor', () => {
         cover_page: { number: '', issue: 'A', version: 2 }
       }),
       'document-id',
-      'CP_ALT'
+      'CP_ALT',
+      {}
     )
     expect(mocks.controller.updateCompdoc).not.toHaveBeenCalled()
     expect(mocks.controller.acceptUpdatedCompdoc).toHaveBeenCalledWith({ id: 'saved' })
@@ -132,6 +138,7 @@ describe('cover page numbering in the document editor', () => {
     const state = await editor('new')
     state.numberSource.value = 'numarator'
     state.numberingFormat.value = 'COVER_PAGE'
+    await flushPromises()
     await state.save()
     expect(mocks.create.mock.calls[0][2]).not.toHaveProperty('version')
     expect(mocks.create.mock.calls[0][3]).toBeUndefined()
@@ -143,7 +150,9 @@ describe('cover page numbering in the document editor', () => {
     state.numberSource.value = 'numarator'
     state.numberingFormat.value = 'COVER_PAGE'
     mocks.create.mockRejectedValueOnce(new Error('Connection lost'))
+    await flushPromises()
     await state.save()
+    await flushPromises()
     await state.save()
     expect(mocks.create.mock.calls[0]).toEqual(mocks.create.mock.calls[1])
   })
@@ -157,7 +166,9 @@ describe('cover page numbering in the document editor', () => {
       status: 'requested',
       job: { status: 'queued' }
     })
+    await flushPromises()
     await state.save()
+    await flushPromises()
     await state.save()
     expect(mocks.create).toHaveBeenCalledOnce()
   })
@@ -178,11 +189,27 @@ describe('cover page numbering in the document editor', () => {
       number: 'CP-0001',
       document: { id: 'saved' }
     })
+    await flushPromises()
     await state.save()
     expect(state.allocationFailed.value).toBe(true)
     await state.retryAllocation()
     expect(mocks.resume).toHaveBeenCalledWith('ozgur', failed)
     expect(mocks.create).toHaveBeenCalledOnce()
     expect(mocks.controller.acceptUpdatedCompdoc).toHaveBeenCalledWith({ id: 'saved' })
+  })
+  it('asks for custom format values and sends them with a single-document request', async () => {
+    mocks.format.mockResolvedValue({
+      code: 'CP_ALT',
+      fields: [{ key: 'department', required: true, default: null, max_length: 10 }]
+    })
+    const state = await editor()
+    state.numberSource.value = 'numarator'
+    state.numberingFormat.value = 'CP_ALT'
+    await flushPromises()
+    await state.save()
+    expect(mocks.create).not.toHaveBeenCalled()
+    state.numberingContext.values.value.department = 'ENG'
+    await state.save()
+    expect(mocks.create.mock.calls[0][5]).toEqual({ department: 'ENG' })
   })
 })
