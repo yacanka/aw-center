@@ -20,6 +20,7 @@ from .contracts import (
 from .artifacts import (
     discard_staged_job_output,
     publish_staged_job_output,
+    remove_temporary_artifact,
     stage_job_output,
 )
 from .execution import (
@@ -100,6 +101,7 @@ def execute_claimed_job(
     """Dispatch one claimed job and CAS-persist its terminal state."""
 
     result = None
+    failure_stage = "executor"
     with bind_execution(job) as lease:
         heartbeat = ExecutionHeartbeat(lease)
         child = None
@@ -120,6 +122,7 @@ def execute_claimed_job(
                 result = executor(job)
             if cancellation_requested(job.id) and not job.reconcile_on_lease_loss:
                 raise JobCancelled()
+            failure_stage = "artifact_publication"
             persist_result(
                 job.id,
                 result,
@@ -158,7 +161,11 @@ def execute_claimed_job(
             logger.error(
                 "Unhandled job failure: %s",
                 type(error).__name__,
-                extra={"job_id": str(job.id), "error_type": type(error).__name__},
+                extra={
+                    "job_id": str(job.id),
+                    "error_type": type(error).__name__,
+                    "failure_stage": failure_stage,
+                },
             )
             if job.reconcile_on_lease_loss:
                 publish_terminal(
@@ -179,7 +186,7 @@ def execute_claimed_job(
             heartbeat.stop()
             close_executor_process(child)
             if result and result.path.exists():
-                result.path.unlink(missing_ok=True)
+                remove_temporary_artifact(result.path)
 
 
 def start_executor_process(job, resolve_executor):
@@ -501,7 +508,7 @@ def persist_result(job_id, result, *, allow_cancel_requested=False):
             )
         raise
     finally:
-        result.path.unlink(missing_ok=True)
+        remove_temporary_artifact(result.path)
 
 
 def validate_result_artifact(path):

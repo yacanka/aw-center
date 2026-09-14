@@ -1,7 +1,10 @@
 import hashlib
+import logging
 import os
 import re
+import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +13,10 @@ from .models import job_output_path
 
 
 SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,16}$")
+TEMPORARY_DELETE_ATTEMPTS = 6
+TEMPORARY_DELETE_DELAY_SECONDS = 0.1
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -45,6 +52,24 @@ def temporary_output(suffix):
     temporary = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     temporary.close()
     return Path(temporary.name)
+
+
+def remove_temporary_artifact(path):
+    """Best-effort cleanup for temporary files subject to Windows sharing locks."""
+
+    artifact_path = Path(path)
+    for attempt in range(TEMPORARY_DELETE_ATTEMPTS):
+        try:
+            artifact_path.unlink(missing_ok=True)
+            return True
+        except PermissionError:
+            if attempt < TEMPORARY_DELETE_ATTEMPTS - 1:
+                time.sleep(TEMPORARY_DELETE_DELAY_SECONDS * (attempt + 1))
+    logger.warning(
+        "Temporary artifact could not be removed because it remains locked",
+        extra={"error_type": "PermissionError"},
+    )
+    return False
 
 
 def stage_job_output(job, filename, source) -> StagedJobArtifact:
@@ -138,6 +163,10 @@ def _safe_storage_path(storage, root, name):
 
 
 def _fsync_directory(path):
+    if sys.platform == "win32":
+        # Python's os.open cannot open directory handles on Windows. The staged
+        # file itself was flushed above and os.replace remains atomic there.
+        return
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     descriptor = os.open(path, flags)
     try:
