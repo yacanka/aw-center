@@ -99,10 +99,23 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
             patch.object(transport, "get_active_application", return_value=None),
             patch.object(transport, "is_client_running", return_value=False),
             patch("integrations.doors.transport.subprocess.Popen") as start,
-            self.assertRaises(DoorsConnectionError),
+            self.assertRaises(DoorsConnectionError) as raised,
         ):
             transport.connect()
         start.assert_not_called()
+        self.assertEqual(raised.exception.code, "DOORS_CLIENT_NOT_RUNNING")
+
+    def test_process_inspection_failure_has_an_actionable_code(self):
+        transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
+        inspector = Mock()
+        inspector.Win32_Process.side_effect = RuntimeError("private WMI detail")
+        with (
+            patch.object(transport, "load_process_inspector", return_value=lambda: inspector),
+            self.assertRaises(DoorsConnectionError) as raised,
+        ):
+            transport.is_client_running()
+        self.assertEqual(raised.exception.code, "DOORS_PROCESS_INSPECTION_FAILED")
+        self.assertTrue(raised.exception.__suppress_context__)
 
     def test_start_failure_does_not_expose_command_or_credentials(self):
         credential = uuid4().hex

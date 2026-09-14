@@ -42,11 +42,16 @@ def _client_config() -> DoorsClientConfig:
 def initialized_com():
     """Initialize COM for the current Django worker thread."""
     if sys.platform != "win32":
-        raise DoorsConnectionError("DOORS OLE automation requires Windows.")
+        raise DoorsConnectionError(
+            "DOORS OLE automation requires Windows.", "DOORS_PLATFORM_UNSUPPORTED"
+        )
     try:
         import pythoncom
     except ImportError as error:
-        raise DoorsConnectionError("pywin32 is required for DOORS OLE automation.") from error
+        raise DoorsConnectionError(
+            "pywin32 is required for DOORS OLE automation.",
+            "DOORS_COM_DEPENDENCY_UNAVAILABLE",
+        ) from error
     pythoncom.CoInitialize()
     try:
         yield
