@@ -84,7 +84,13 @@ Offline hedefte ZIP açıldıktan sonra:
 python launcher.py setup --mode offline --offline-dir offline
 ```
 
-Manifest target veya lock dosyalarıyla eşleşmiyorsa yeni bundle hazırlayın; doğrulamayı atlamayın.
+`prepare-offline`, wheelhouse'un hedef platformdaki tüm lock girdilerini yalnız yerel
+wheel'lerle çözebildiğini doğrular. Bu kontrol Windows'a koşullu `uvicorn`, `pywin32`
+ve `WMI` paketlerinin bundle dışında kalmasını önler. Offline `setup`, kuruluma
+başlamadan önce manifestteki OS, architecture, Python ve lock bilgilerini hedef
+makineyle tekrar karşılaştırır. Manifest eşleşmiyorsa internet erişimli, hedefle
+aynı Windows/architecture/Python ortamında yeni bundle hazırlayın; doğrulamayı
+atlamayın.
 
 ## Windows production
 

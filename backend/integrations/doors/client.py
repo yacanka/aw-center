@@ -60,7 +60,13 @@ class DoorsClient:
 
     def check_module(self, module_path: str, mode: str = "read") -> OperationResult:
         """Check access to a DOORS module."""
-        result = self.run_dxl(builder_read.check_module(module_path, mode))
+        # A module check returns only one short status line. Keep it on the OLE
+        # result channel so DOORS never retains a Windows file handle after an
+        # open/close attempt and masks the real outcome during temp-file cleanup.
+        result = self.run_dxl(
+            builder_read.check_module(module_path, mode),
+            RESULT_MODE_APPLICATION,
+        )
         self.raise_on_error(result)
         return result
 

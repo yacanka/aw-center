@@ -129,6 +129,24 @@ class DoorsExecutionPipelineTests(JobTestCase):
         self.assertNotIn("private upstream detail", job.message)
         self.assertFalse(job.output_file)
 
+    @override_settings(DOORS_RESULT_MODE="file")
+    def test_module_check_uses_file_free_transport_for_success_and_missing_module(self):
+        success = self.execute_operation(
+            "module-check-jobs",
+            {"module_path": "/Project/Existing"},
+            ["OK\tMODULE_OPENED\n"],
+        )
+        self.assertTrue(self.download_success(success)["accessible"])
+
+        missing = self.execute_operation(
+            "module-check-jobs",
+            {"module_path": "/Project/Missing"},
+            ["ERR\tOPEN_MODULE\tModule was not found\n"],
+        )
+        self.assertEqual(missing.status, JobStatus.FAILED)
+        self.assertEqual(missing.error_code, "DOORS_OPEN_MODULE")
+        self.assertFalse(missing.output_file)
+
     def test_open_desktop_module_is_a_known_write_rejection(self):
         job = self.execute_operation("object-update-jobs", {
             "module_path": "/Project/Module", "absolute_number": 1,
