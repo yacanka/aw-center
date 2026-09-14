@@ -175,6 +175,19 @@ _EXACT_GUIDANCE = {
     "DOORS_UNAVAILABLE": ErrorGuidance(False, "Start or configure the DOORS client, then retry."),
     "DOORS_CONFIG_INVALID": ErrorGuidance(False, "Correct the DOORS client settings and restart AW Center."),
     "DOORS_EXECUTABLE_UNAVAILABLE": ErrorGuidance(False, "Check DOORS_EXECUTABLE and the DOORS_OLE_PROG_ID registration."),
+    "DOORS_COM_DEPENDENCY_UNAVAILABLE": ErrorGuidance(
+        False, "Reinstall the locked Windows dependencies, including pywin32."
+    ),
+    "DOORS_PROCESS_INSPECTOR_UNAVAILABLE": ErrorGuidance(
+        False, "Reinstall the locked Windows dependencies, including WMI."
+    ),
+    "DOORS_PROCESS_INSPECTION_FAILED": ErrorGuidance(
+        True, "Check WMI access and that the worker runs in the interactive Windows session."
+    ),
+    "DOORS_CLIENT_NOT_RUNNING": ErrorGuidance(
+        False, "Open and sign in to DOORS, or enable DOORS_AUTO_START_CLIENT."
+    ),
+    "DOORS_PLATFORM_UNSUPPORTED": ErrorGuidance(False, "Run the DOORS-capable worker on Windows."),
     "DOORS_STARTUP_TIMEOUT": ErrorGuidance(True, "Check DOORS login, database, license and desktop dialogs, then submit again."),
     "DOORS_MODULE_ALREADY_OPEN": ErrorGuidance(False, "Save and close the target module in DOORS before submitting the write again."),
     "WORD_MODEL_UNAVAILABLE": ErrorGuidance(False, "Ask an administrator to deploy the local AI model."),

@@ -95,9 +95,20 @@ PRE_WRITE_ERRORS = frozenset({
 })
 
 CONNECTION_FAILURES = {
+    "DOORS_CLIENT_NOT_RUNNING": (
+        "No authenticated DOORS client is available. Open DOORS or enable automatic startup."
+    ),
+    "DOORS_COM_DEPENDENCY_UNAVAILABLE": (
+        "The Windows COM dependency is unavailable. Reinstall the locked Windows dependencies."
+    ),
     "DOORS_CONFIG_INVALID": "DOORS settings are invalid. Check the client configuration.",
     "DOORS_CONNECTION_FAILED": "Cannot connect to DOORS. Check the Windows desktop session, client installation and login.",
     "DOORS_EXECUTABLE_UNAVAILABLE": "DOORS executable was not found. Check DOORS_EXECUTABLE and DOORS_OLE_PROG_ID.",
+    "DOORS_PLATFORM_UNSUPPORTED": "DOORS automation must run in a Windows worker.",
+    "DOORS_PROCESS_INSPECTION_FAILED": "The Windows worker could not inspect its desktop session processes.",
+    "DOORS_PROCESS_INSPECTOR_UNAVAILABLE": (
+        "The Windows WMI dependency is unavailable. Reinstall the locked Windows dependencies."
+    ),
     "DOORS_STARTUP_TIMEOUT": "DOORS did not become ready. Check login, database, license and open dialogs.",
     "DOORS_MULTIPLE_CLIENTS": "Multiple DOORS clients are open. Keep one client in the worker's Windows session.",
 }

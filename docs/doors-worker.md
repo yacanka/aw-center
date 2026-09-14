@@ -121,6 +121,11 @@ web process'i COM çalıştırmaz. Gerçek bağlantı ilk kuyruk işi sırasınd
 | İş hata kodu | Kontrol |
 | --- | --- |
 | `DOORS_CONFIG_INVALID` | ProgID, timeout, result mode/size ve kullanıcı adı/parola ayarları |
+| `DOORS_PLATFORM_UNSUPPORTED` | DOORS-capable worker'ın Windows üzerinde çalıştığı |
+| `DOORS_COM_DEPENDENCY_UNAVAILABLE` | Lock dosyasındaki Windows `pywin32` bağımlılığının kurulu olduğu |
+| `DOORS_PROCESS_INSPECTOR_UNAVAILABLE` | Lock dosyasındaki Windows `WMI` bağımlılığının kurulu olduğu |
+| `DOORS_PROCESS_INSPECTION_FAILED` | WMI erişimi ve worker'ın interaktif Windows oturumunda çalıştığı |
+| `DOORS_CLIENT_NOT_RUNNING` | DOORS'un açık ve giriş yapılmış olduğu veya otomatik başlatmanın etkin olduğu |
 | `DOORS_EXECUTABLE_UNAVAILABLE` | DOORS kurulumu, ProgID COM kaydı veya EXE yolu |
 | `DOORS_CONNECTION_FAILED` | Aynı Windows kullanıcı oturumu, pywin32/WMI, COM kaydı ve giriş |
 | `DOORS_STARTUP_TIMEOUT` | Login ekranı, yanlış giriş bilgisi, lisans, veritabanı veya modal pencere |

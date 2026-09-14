@@ -55,7 +55,10 @@ class DoorsOleTransport:
             elif not self.application_ready(self.application):
                 self.application = self.wait_for_application(automation)
         if self.application is None:
-            raise DoorsConnectionError("An authenticated DOORS desktop client is required.")
+            raise DoorsConnectionError(
+                "An authenticated DOORS desktop client is required.",
+                "DOORS_CLIENT_NOT_RUNNING",
+            )
         return self
 
     def connect_or_start(self, automation) -> None:
@@ -72,7 +75,10 @@ class DoorsOleTransport:
         try:
             import win32com.client
         except ImportError as error:
-            raise DoorsConnectionError("pywin32 is required for DOORS OLE automation.") from error
+            raise DoorsConnectionError(
+                "pywin32 is required for DOORS OLE automation.",
+                "DOORS_COM_DEPENDENCY_UNAVAILABLE",
+            ) from error
         return win32com.client
 
     def get_active_application(self, automation):
@@ -108,7 +114,10 @@ class DoorsOleTransport:
         except DoorsConnectionError:
             raise
         except Exception:
-            raise DoorsConnectionError("Unable to inspect running DOORS processes.") from None
+            raise DoorsConnectionError(
+                "Unable to inspect running DOORS processes.",
+                "DOORS_PROCESS_INSPECTION_FAILED",
+            ) from None
 
     @staticmethod
     def load_process_inspector():
@@ -116,7 +125,10 @@ class DoorsOleTransport:
         try:
             from wmi import WMI
         except ImportError as error:
-            raise DoorsConnectionError("WMI is required for DOORS process inspection.") from error
+            raise DoorsConnectionError(
+                "WMI is required for DOORS process inspection.",
+                "DOORS_PROCESS_INSPECTOR_UNAVAILABLE",
+            ) from error
         return WMI
 
     def start_client(self, automation) -> None:
