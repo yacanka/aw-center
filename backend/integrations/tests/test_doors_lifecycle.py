@@ -15,7 +15,7 @@ from awcenter.job_executors import worker_job_timeout
 from integrations.doors import builder_read, builder_write, checklist
 from integrations.doors.builder_common import wrap_dxl
 from integrations.doors.client import DoorsClient
-from integrations.doors.config import DoorsClientConfig
+from integrations.doors.config import RESULT_MODE_APPLICATION, DoorsClientConfig
 from integrations.doors.exceptions import DoorsConnectionError, DoorsDxlError
 from integrations.doors.job_executor import execute_doors_job
 from integrations.doors.services import build_client_config, execute_with_client
@@ -99,10 +99,23 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
             patch.object(transport, "get_active_application", return_value=None),
             patch.object(transport, "is_client_running", return_value=False),
             patch("integrations.doors.transport.subprocess.Popen") as start,
-            self.assertRaises(DoorsConnectionError),
+            self.assertRaises(DoorsConnectionError) as raised,
         ):
             transport.connect()
         start.assert_not_called()
+        self.assertEqual(raised.exception.code, "DOORS_CLIENT_NOT_RUNNING")
+
+    def test_process_inspection_failure_has_an_actionable_code(self):
+        transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
+        inspector = Mock()
+        inspector.Win32_Process.side_effect = RuntimeError("private WMI detail")
+        with (
+            patch.object(transport, "load_process_inspector", return_value=lambda: inspector),
+            self.assertRaises(DoorsConnectionError) as raised,
+        ):
+            transport.is_client_running()
+        self.assertEqual(raised.exception.code, "DOORS_PROCESS_INSPECTION_FAILED")
+        self.assertTrue(raised.exception.__suppress_context__)
 
     def test_start_failure_does_not_expose_command_or_credentials(self):
         credential = uuid4().hex
@@ -266,6 +279,8 @@ class DoorsResultIntegrityTests(SimpleTestCase):
         client = DoorsClient(DoorsClientConfig("doors.exe"), transport)
         with self.assertRaises(DoorsDxlError):
             client.check_module("/Project/Module")
+        self.assertIsNone(transport.run_dxl.call_args.args[1])
+        self.assertEqual(transport.run_dxl.call_args.args[2], RESULT_MODE_APPLICATION)
 
     def test_malformed_rows_are_rejected_without_partial_attribute_mapping(self):
         for line in ("OBJECT\tx\tREQ\t1\ttext", "OBJECT\t1\tREQ\tbad\ttext", "OBJECT\t1\tREQ\t1"):
