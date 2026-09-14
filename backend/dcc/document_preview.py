@@ -1,6 +1,6 @@
 """Build a safe DCC impact preview from one immutable JIRA snapshot."""
 
-from jobs.artifacts import temporary_output
+from jobs.artifacts import remove_temporary_artifact, temporary_output
 from jobs.contracts import JobExecutionFailure
 
 from .document_job import render_snapshot, validate_docx
@@ -53,4 +53,4 @@ def validate_snapshot_rendering(snapshot):
     except JobExecutionFailure as error:
         raise DccSnapshotError(str(error), error.code) from error
     finally:
-        output_path.unlink(missing_ok=True)
+        remove_temporary_artifact(output_path)

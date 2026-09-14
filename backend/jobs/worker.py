@@ -20,6 +20,7 @@ from .contracts import (
 from .artifacts import (
     discard_staged_job_output,
     publish_staged_job_output,
+    remove_temporary_artifact,
     stage_job_output,
 )
 from .execution import (
@@ -179,7 +180,7 @@ def execute_claimed_job(
             heartbeat.stop()
             close_executor_process(child)
             if result and result.path.exists():
-                result.path.unlink(missing_ok=True)
+                remove_temporary_artifact(result.path)
 
 
 def start_executor_process(job, resolve_executor):
@@ -501,7 +502,7 @@ def persist_result(job_id, result, *, allow_cancel_requested=False):
             )
         raise
     finally:
-        result.path.unlink(missing_ok=True)
+        remove_temporary_artifact(result.path)
 
 
 def validate_result_artifact(path):

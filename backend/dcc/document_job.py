@@ -4,7 +4,11 @@ import json
 import re
 import zipfile
 
-from jobs.artifacts import materialize_job_input, temporary_output
+from jobs.artifacts import (
+    materialize_job_input,
+    remove_temporary_artifact,
+    temporary_output,
+)
 from jobs.contracts import JobExecutionFailure, JobExecutionResult
 from jobs.worker import update_progress
 from projects.registry import UnknownProjectDefinitionError, get_project_definition
@@ -35,9 +39,9 @@ def execute_dcc_document_creation(job):
         result_ready = True
         return build_result(snapshot, output_path)
     finally:
-        input_path.unlink(missing_ok=True)
+        remove_temporary_artifact(input_path)
         if not result_ready:
-            output_path.unlink(missing_ok=True)
+            remove_temporary_artifact(output_path)
 
 
 def load_snapshot(path):

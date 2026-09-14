@@ -2,6 +2,7 @@ import hashlib
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from .models import job_output_path
 
 
 SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,16}$")
+TEMPORARY_FILE_DELETE_ATTEMPTS = 5
+TEMPORARY_FILE_DELETE_DELAY_SECONDS = 0.05
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,20 @@ def temporary_output(suffix):
     temporary = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     temporary.close()
     return Path(temporary.name)
+
+
+def remove_temporary_artifact(path):
+    """Delete a temporary artifact despite short-lived Windows file locks."""
+
+    artifact_path = Path(path)
+    for attempt in range(TEMPORARY_FILE_DELETE_ATTEMPTS):
+        try:
+            artifact_path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if attempt == TEMPORARY_FILE_DELETE_ATTEMPTS - 1:
+                raise
+            time.sleep(TEMPORARY_FILE_DELETE_DELAY_SECONDS * (attempt + 1))
 
 
 def stage_job_output(job, filename, source) -> StagedJobArtifact:
