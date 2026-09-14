@@ -2,7 +2,7 @@
 
 from django.conf import settings
 
-from jobs.artifacts import materialize_job_input, temporary_output
+from jobs.artifacts import materialize_job_input, remove_temporary_artifact, temporary_output
 from jobs.contracts import JobExecutionFailure, JobExecutionResult, JobExecutionUncertain
 
 from integrations.doors import DoorsError
@@ -57,8 +57,14 @@ def execute_doors_job(job):
             code = error.code
             if isinstance(error, DoorsOperationError):
                 code = SAFE_OPERATION_CODES.get(code, "DOORS_OPERATION_FAILED")
+            message = (
+                "The module could not be opened. Check that the path identifies a formal module "
+                "in the current DOORS database and that you have read access."
+                if code == "DOORS_OPEN_MODULE"
+                else "The DOORS operation could not be completed. Check the DOORS client and module access."
+            )
             raise JobExecutionFailure(
-                "The DOORS operation could not be completed. Check the DOORS client and module access.",
+                message,
                 code,
                 True,
             ) from None
@@ -74,9 +80,9 @@ def execute_doors_job(job):
             "DOORS operation completed.",
         )
     finally:
-        input_path.unlink(missing_ok=True)
+        remove_temporary_artifact(input_path)
         if not result_ready:
-            output_path.unlink(missing_ok=True)
+            remove_temporary_artifact(output_path)
 
 
 SAFE_OPERATION_CODES = {
@@ -95,17 +101,18 @@ PRE_WRITE_ERRORS = frozenset({
 })
 
 CONNECTION_FAILURES = {
-    "DOORS_CLIENT_NOT_RUNNING": (
-        "No authenticated DOORS client is available. Open DOORS or enable automatic startup."
-    ),
     "DOORS_COM_DEPENDENCY_UNAVAILABLE": (
         "The Windows COM dependency is unavailable. Reinstall the locked Windows dependencies."
     ),
     "DOORS_CONFIG_INVALID": "DOORS settings are invalid. Check the client configuration.",
     "DOORS_CONNECTION_FAILED": "Cannot connect to DOORS. Check the Windows desktop session, client installation and login.",
+    "DOORS_PLATFORM_UNSUPPORTED": "DOORS requires a worker running in an interactive Windows user session.",
+    "DOORS_DEPENDENCY_UNAVAILABLE": "DOORS Windows dependencies could not be loaded. Repair pywin32 in the worker's Python environment and restart AW Center.",
+    "DOORS_COM_INITIALIZATION_FAILED": "Windows COM could not be initialized. Restart AW Center in the DOORS user's desktop session.",
+    "DOORS_PROCESS_INSPECTION_FAILED": "Windows process inspection failed. Check the worker's desktop session and process query permissions.",
+    "DOORS_CLIENT_NOT_RUNNING": "No DOORS client is running and automatic startup is disabled. Open DOORS or enable DOORS_AUTO_START_CLIENT.",
+    "DOORS_CLIENT_START_FAILED": "DOORS could not be started. Check the executable's permissions or open the client manually.",
     "DOORS_EXECUTABLE_UNAVAILABLE": "DOORS executable was not found. Check DOORS_EXECUTABLE and DOORS_OLE_PROG_ID.",
-    "DOORS_PLATFORM_UNSUPPORTED": "DOORS automation must run in a Windows worker.",
-    "DOORS_PROCESS_INSPECTION_FAILED": "The Windows worker could not inspect its desktop session processes.",
     "DOORS_PROCESS_INSPECTOR_UNAVAILABLE": (
         "The Windows WMI dependency is unavailable. Reinstall the locked Windows dependencies."
     ),

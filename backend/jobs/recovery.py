@@ -1,4 +1,6 @@
 RECOVERY_HINTS = {
+    "DOORS_OPEN_MODULE": "Check the formal module path, the current DOORS database, and your read permission.",
+    "DOORS_DXL_FAILED": "Check the DOORS DXL output and client readiness, then submit again.",
     "RECONCILIATION_REQUIRED": "Verify the external system before deciding whether to submit a new write.",
     "WORD_MODEL_UNAVAILABLE": "Ask an administrator to deploy the configured local translation model, then retry.",
     "WORD_ANALYZER_MODEL_UNAVAILABLE": "Ask an administrator to deploy both configured analyzer models, then retry.",

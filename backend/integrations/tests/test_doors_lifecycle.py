@@ -17,8 +17,8 @@ from integrations.doors.builder_common import wrap_dxl
 from integrations.doors.client import DoorsClient
 from integrations.doors.config import RESULT_MODE_APPLICATION, DoorsClientConfig
 from integrations.doors.exceptions import DoorsConnectionError, DoorsDxlError
-from integrations.doors.job_executor import execute_doors_job
-from integrations.doors.services import build_client_config, execute_with_client
+from integrations.doors.job_executor import CONNECTION_FAILURES, execute_doors_job
+from integrations.doors.services import build_client_config, execute_with_client, initialized_com
 from integrations.doors.startup import parse_server_executable, registered_executable
 from integrations.doors.transport import DoorsOleTransport, DxlExecution
 from jobs.contracts import JobExecutionFailure
@@ -102,8 +102,8 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
             self.assertRaises(DoorsConnectionError) as raised,
         ):
             transport.connect()
-        start.assert_not_called()
         self.assertEqual(raised.exception.code, "DOORS_CLIENT_NOT_RUNNING")
+        start.assert_not_called()
 
     def test_process_inspection_failure_has_an_actionable_code(self):
         transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
@@ -129,6 +129,7 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
             ):
                 transport.start_client(Mock())
             self.assertNotIn(credential, str(raised.exception))
+            self.assertEqual(raised.exception.code, "DOORS_CLIENT_START_FAILED")
             self.assertTrue(raised.exception.__suppress_context__)
 
     def test_invalid_configuration_is_rejected_before_client_start(self):
@@ -168,21 +169,100 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
     def test_process_inspection_is_limited_to_worker_windows_session(self):
         transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
         inspector = Mock()
-        inspector.Win32_Process.side_effect = [[SimpleNamespace(SessionId=4)], []]
-        with patch.object(transport, "load_process_inspector", return_value=lambda: inspector):
+        inspector.ProcessIdToSessionId.return_value = 4
+        inspector.WTSEnumerateProcesses.return_value = (
+            (2, 21, "doors.exe", None), (3, 31, "DOORS.EXE", None),
+            (4, 41, "python.exe", None),
+        )
+        with patch.object(transport, "load_process_inspector", return_value=inspector):
             self.assertFalse(transport.is_client_running())
-        self.assertEqual(inspector.Win32_Process.call_args_list[0].kwargs, {"ProcessId": os.getpid()})
-        self.assertEqual(inspector.Win32_Process.call_args.kwargs, {"SessionId": 4})
+        inspector.ProcessIdToSessionId.assert_called_once_with(os.getpid())
+        inspector.WTSEnumerateProcesses.assert_called_once_with()
+
+    def test_open_client_connects_without_wmi(self):
+        transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
+        application = ReadyApplication()
+        automation = Mock()
+        automation.GetActiveObject.return_value = application
+        inspector = Mock()
+        inspector.ProcessIdToSessionId.return_value = 4
+        inspector.WTSEnumerateProcesses.return_value = (
+            (4, 41, "DOORS.EXE", None), (5, 51, "doors.exe", None),
+        )
+        with (
+            patch.dict("sys.modules", {"wmi": None, "win32ts": inspector}),
+            patch.object(transport, "load_automation", return_value=automation),
+            patch("integrations.doors.transport.subprocess.Popen") as start,
+        ):
+            transport.connect()
+        self.assertIs(transport.application, application)
+        self.assertEqual(len(application.scripts), 1)
+        start.assert_not_called()
+
+    def test_process_inspection_failure_never_dispatches_or_starts_client(self):
+        for failing_call in ("ProcessIdToSessionId", "WTSEnumerateProcesses"):
+            transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
+            inspector = Mock()
+            inspector.ProcessIdToSessionId.return_value = 4
+            getattr(inspector, failing_call).side_effect = RuntimeError("private system detail")
+            automation = Mock()
+            with (
+                self.subTest(failing_call=failing_call),
+                patch.object(transport, "load_process_inspector", return_value=inspector),
+                patch.object(transport, "load_automation", return_value=automation),
+                patch("integrations.doors.transport.subprocess.Popen") as start,
+                self.assertRaises(DoorsConnectionError) as raised,
+            ):
+                transport.connect()
+            self.assertEqual(raised.exception.code, "DOORS_PROCESS_INSPECTION_FAILED")
+            self.assertNotIn("private system detail", str(raised.exception))
+            self.assertTrue(raised.exception.__suppress_context__)
+            automation.GetActiveObject.assert_not_called()
+            automation.Dispatch.assert_not_called()
+            start.assert_not_called()
+
+    def test_missing_process_dependency_has_specific_error(self):
+        with (
+            patch.dict("sys.modules", {"win32ts": None}),
+            self.assertRaises(DoorsConnectionError) as raised,
+        ):
+            DoorsOleTransport.load_process_inspector()
+        self.assertEqual(raised.exception.code, "DOORS_DEPENDENCY_UNAVAILABLE")
+
+    def test_com_initialization_failure_is_sanitized_before_operation(self):
+        com = Mock()
+        com.CoInitialize.side_effect = RuntimeError("private COM detail")
+        operation = Mock()
+        with (
+            patch("integrations.doors.services.sys.platform", "win32"),
+            patch.dict("sys.modules", {"pythoncom": com}),
+            self.assertRaises(DoorsConnectionError) as raised,
+        ):
+            execute_with_client(operation)
+        self.assertEqual(raised.exception.code, "DOORS_COM_INITIALIZATION_FAILED")
+        self.assertNotIn("private COM detail", str(raised.exception))
+        operation.assert_not_called()
+        com.CoUninitialize.assert_not_called()
+
+    def test_missing_com_dependency_has_specific_error(self):
+        with (
+            patch("integrations.doors.services.sys.platform", "win32"),
+            patch.dict("sys.modules", {"pythoncom": None}),
+            self.assertRaises(DoorsConnectionError) as raised,
+            initialized_com(),
+        ):
+            self.fail("COM initialization should have failed")
+        self.assertEqual(raised.exception.code, "DOORS_DEPENDENCY_UNAVAILABLE")
 
     def test_multiple_clients_fail_closed(self):
         transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
         inspector = Mock()
-        inspector.Win32_Process.side_effect = [
-            [SimpleNamespace(SessionId=4)],
-            [SimpleNamespace(Name="doors.exe"), SimpleNamespace(Name="DOORS.EXE")],
-        ]
+        inspector.ProcessIdToSessionId.return_value = 4
+        inspector.WTSEnumerateProcesses.return_value = (
+            (4, 41, "doors.exe", None), (4, 42, "DOORS.EXE", None),
+        )
         with (
-            patch.object(transport, "load_process_inspector", return_value=lambda: inspector),
+            patch.object(transport, "load_process_inspector", return_value=inspector),
             self.assertRaises(DoorsConnectionError) as raised,
         ):
             transport.is_client_running()
@@ -231,6 +311,27 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
             self.assertNotIn(detail, str(raised.exception))
             self.assertFalse(source.exists())
             self.assertFalse(output.exists())
+
+    @override_settings(DOORS_ENABLED=True)
+    def test_connection_stage_codes_survive_job_boundary_without_raw_details(self):
+        for code in (*CONNECTION_FAILURES, "UNTRUSTED_UPSTREAM_CODE"):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                source, output = Path(directory) / "input.json", Path(directory) / "result.json"
+                source.write_text("{}")
+                task = Mock(side_effect=DoorsConnectionError("private upstream detail", code))
+                with (
+                    patch("integrations.doors.job_executor.materialize_job_input", return_value=source),
+                    patch("integrations.doors.job_executor.temporary_output", return_value=output),
+                    patch.dict("integrations.doors.job_executor.DOORS_TASKS", {"doors.run_dxl": task}),
+                    self.assertRaises(JobExecutionFailure) as raised,
+                ):
+                    execute_doors_job(SimpleNamespace(kind="doors.run_dxl", reconcile_on_lease_loss=False))
+                expected = code if code in CONNECTION_FAILURES else "DOORS_CONNECTION_FAILED"
+                self.assertEqual(raised.exception.code, expected)
+                self.assertEqual(str(raised.exception), CONNECTION_FAILURES[expected])
+                self.assertNotIn("private upstream detail", str(raised.exception))
+                self.assertFalse(source.exists())
+                self.assertFalse(output.exists())
 
 
 class DoorsResultIntegrityTests(SimpleTestCase):
@@ -314,3 +415,13 @@ class DoorsResultIntegrityTests(SimpleTestCase):
         ):
             self.assertIn("MODULE_ALREADY_OPEN", script)
             self.assertIn('awc_error("SAVE_MODULE", awc_save_error)', script)
+
+    def test_module_ownership_checks_never_pass_a_null_handle_to_open(self):
+        script = builder_read.check_module('/Project/Missing"Module')
+        self.assertIn('ModName_ awc_ref_module = module("/Project/Missing\\"Module")', script)
+        self.assertIn(
+            "if (!null awc_ref_module) {\n    awc_owns_module = !open(awc_ref_module)\n}",
+            script,
+        )
+        self.assertNotIn("open(module(", script)
+        self.assertIn('awc_error("OPEN_MODULE", awc_open_error)', script)

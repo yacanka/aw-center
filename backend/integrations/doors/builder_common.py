@@ -120,7 +120,14 @@ def open_named_module(path: str, mode: str, variable: str) -> str:
     }
     if mode not in statements:
         raise ValueError("Unsupported module mode.")
-    owned = f"bool awc_owns_{variable} = !(open(module({path})))"
+    # Missing/inaccessible paths can yield a null ModName_; DOORS raises a
+    # runtime error if that handle is passed to open(). Keep read/edit errors
+    # attributable to the actual module-open operation instead.
+    owned = f'''ModName_ awc_ref_{variable} = module({path})
+bool awc_owns_{variable} = true
+if (!null awc_ref_{variable}) {{
+    awc_owns_{variable} = !open(awc_ref_{variable})
+}}'''
     if mode == "read":
         return f"{owned}\nModule {variable} = {statements[mode]}"
     return f'''{owned}

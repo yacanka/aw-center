@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import ParticleAnimation from '@/shared/utils/particleTextAnimation.js'
 
 const props = defineProps<{
@@ -16,10 +16,14 @@ onMounted(() => {
   }
 })
 
+watch(
+  () => props.colors,
+  (colors) => obj?.setColors(colors)
+)
+
 onUnmounted(() => {
-  if (obj) {
-    obj = null
-  }
+  obj?.destroy()
+  obj = null
 })
 
 function stopAnimation() {
@@ -43,6 +47,6 @@ defineExpose({ playAnimation, stopAnimation })
   overflow: hidden;
   width: 100%;
   height: 100%;
-  will-change: transform;
+  pointer-events: none;
 }
 </style>
