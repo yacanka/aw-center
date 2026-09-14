@@ -20,9 +20,10 @@ class DoorsClientConfig:
     startup_timeout_seconds: float = 90.0
     run_timeout_seconds: float = 120.0
     max_result_bytes: int = 10 * 1024 * 1024
-    result_mode: str = RESULT_MODE_FILE
+    result_mode: str = RESULT_MODE_APPLICATION
     username: str = field(default="", repr=False)
     password: str = field(default="", repr=False)
+    debug_dxl: bool = field(default=False, kw_only=True, repr=False)
 
     def __post_init__(self) -> None:
         """Validate bounded timeout and result-size configuration."""

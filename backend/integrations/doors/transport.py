@@ -56,8 +56,7 @@ class DoorsOleTransport:
                 self.application = self.wait_for_application(automation)
         if self.application is None:
             raise DoorsConnectionError(
-                "An authenticated DOORS desktop client is required.",
-                "DOORS_CLIENT_NOT_RUNNING",
+                "An authenticated DOORS desktop client is required.", "DOORS_CLIENT_NOT_RUNNING"
             )
         return self
 
@@ -74,11 +73,10 @@ class DoorsOleTransport:
         """Load the Windows-only COM automation dependency."""
         try:
             import win32com.client
-        except ImportError as error:
+        except (ImportError, OSError):
             raise DoorsConnectionError(
-                "pywin32 is required for DOORS OLE automation.",
-                "DOORS_COM_DEPENDENCY_UNAVAILABLE",
-            ) from error
+                "pywin32 is required for DOORS OLE automation.", "DOORS_DEPENDENCY_UNAVAILABLE"
+            ) from None
         return win32com.client
 
     def get_active_application(self, automation):
@@ -101,10 +99,15 @@ class DoorsOleTransport:
         """Return whether the configured DOORS executable is running."""
         process_name = self.executable.name.casefold()
         try:
-            inspector = self.load_process_inspector()()
-            session_id = inspector.Win32_Process(ProcessId=os.getpid())[0].SessionId
-            processes = inspector.Win32_Process(SessionId=session_id)
-            matches = [process for process in processes if str(process.Name).casefold() == process_name]
+            # Process discovery must not require a working WMI service/type library
+            # before we can even try the independent DOORS OLE server.
+            inspector = self.load_process_inspector()
+            session_id = inspector.ProcessIdToSessionId(os.getpid())
+            processes = inspector.WTSEnumerateProcesses()
+            matches = [
+                process_id for process_session, process_id, name, _sid in processes
+                if process_session == session_id and str(name).casefold() == process_name
+            ]
             if len(matches) > 1:
                 raise DoorsConnectionError(
                     "Multiple DOORS clients are open in this Windows session. Keep one client open.",
@@ -115,21 +118,19 @@ class DoorsOleTransport:
             raise
         except Exception:
             raise DoorsConnectionError(
-                "Unable to inspect running DOORS processes.",
-                "DOORS_PROCESS_INSPECTION_FAILED",
+                "Unable to inspect running DOORS processes.", "DOORS_PROCESS_INSPECTION_FAILED"
             ) from None
 
     @staticmethod
     def load_process_inspector():
         """Load the Windows process inspector used to prevent duplicate clients."""
         try:
-            from wmi import WMI
-        except ImportError as error:
+            import win32ts
+        except (ImportError, OSError):
             raise DoorsConnectionError(
-                "WMI is required for DOORS process inspection.",
-                "DOORS_PROCESS_INSPECTOR_UNAVAILABLE",
-            ) from error
-        return WMI
+                "pywin32 is required for DOORS process inspection.", "DOORS_DEPENDENCY_UNAVAILABLE"
+            ) from None
+        return win32ts
 
     def start_client(self, automation) -> None:
         """Start the configured executable without shell interpolation."""
@@ -146,7 +147,9 @@ class DoorsOleTransport:
                 creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
             )
         except OSError:
-            raise DoorsConnectionError("The DOORS desktop client could not be started.") from None
+            raise DoorsConnectionError(
+                "The DOORS desktop client could not be started.", "DOORS_CLIENT_START_FAILED"
+            ) from None
         self.application = self.wait_for_application(automation)
 
     def start_command(self) -> list[str]:

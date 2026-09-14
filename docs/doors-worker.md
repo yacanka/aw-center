@@ -40,6 +40,10 @@ dönmesini bekler. İş bittikten veya executor sonlandıktan sonra DOORS'a `Qui
 gönderilmez; başlatılan masaüstü process'i sonraki işler için açık kalır.
 Otomatik başlatma batch veya COM `/automation` yaşam döngüsünü kullanmaz.
 
+Süreç kontrolü `pywin32.win32ts` API'siyle worker'ın SessionId'sine göre yapılır;
+WMI servisi veya WMI COM type library'si gerekmez. Süreç bilgisi alınamazsa
+ikinci istemci başlatılmaz ve `DOORS_PROCESS_INSPECTION_FAILED` döner.
+
 `DOORS_WORKER_LOCK_FILE`, aynı Windows kullanıcı profilinde aynı anda yalnız bir
 DOORS-capable worker bulunmasını sağlar. Kilit dosyasını silmek çalışan process'i
 durdurmaz ve ikinci worker açmak için kullanılmamalıdır.
@@ -60,7 +64,7 @@ DOORS_AUTO_START_CLIENT=True
 DOORS_STARTUP_TIMEOUT_SECONDS=90
 DOORS_RUN_TIMEOUT_SECONDS=120
 DOORS_MAX_RESULT_BYTES=10485760
-DOORS_RESULT_MODE=file
+DOORS_RESULT_MODE=application_result
 DOORS_WORKER_LOCK_FILE=C:/Users/<user>/AppData/Local/AWCenter/state/doors-worker.lock
 ```
 
@@ -121,13 +125,16 @@ web process'i COM çalıştırmaz. Gerçek bağlantı ilk kuyruk işi sırasınd
 | İş hata kodu | Kontrol |
 | --- | --- |
 | `DOORS_CONFIG_INVALID` | ProgID, timeout, result mode/size ve kullanıcı adı/parola ayarları |
-| `DOORS_PLATFORM_UNSUPPORTED` | DOORS-capable worker'ın Windows üzerinde çalıştığı |
 | `DOORS_COM_DEPENDENCY_UNAVAILABLE` | Lock dosyasındaki Windows `pywin32` bağımlılığının kurulu olduğu |
 | `DOORS_PROCESS_INSPECTOR_UNAVAILABLE` | Lock dosyasındaki Windows `WMI` bağımlılığının kurulu olduğu |
-| `DOORS_PROCESS_INSPECTION_FAILED` | WMI erişimi ve worker'ın interaktif Windows oturumunda çalıştığı |
-| `DOORS_CLIENT_NOT_RUNNING` | DOORS'un açık ve giriş yapılmış olduğu veya otomatik başlatmanın etkin olduğu |
 | `DOORS_EXECUTABLE_UNAVAILABLE` | DOORS kurulumu, ProgID COM kaydı veya EXE yolu |
-| `DOORS_CONNECTION_FAILED` | Aynı Windows kullanıcı oturumu, pywin32/WMI, COM kaydı ve giriş |
+| `DOORS_CONNECTION_FAILED` | Sınıflandırılamayan bağlantı hatası; aynı Windows kullanıcı oturumu, COM kaydı ve giriş |
+| `DOORS_PLATFORM_UNSUPPORTED` | Worker interaktif Windows kullanıcı oturumunda çalışmalı |
+| `DOORS_DEPENDENCY_UNAVAILABLE` | Worker'ın kullandığı Python ortamındaki pywin32 kurulumu/DLL yüklemesi; düzeltmeden sonra AW Center'ı yeniden başlatın |
+| `DOORS_COM_INITIALIZATION_FAILED` | Worker COM başlatamadı; aynı masaüstü oturumunda AW Center'ı yeniden başlatın |
+| `DOORS_PROCESS_INSPECTION_FAILED` | Windows süreç/oturum sorgulama izinleri; süreç denetimi atlanmaz |
+| `DOORS_CLIENT_NOT_RUNNING` | İstemci kapalı, otomatik başlatma devre dışı; DOORS'u açın veya `DOORS_AUTO_START_CLIENT=True` ayarlayın |
+| `DOORS_CLIENT_START_FAILED` | EXE çalıştırma izni; istemcinin aynı kullanıcıyla elle açılabildiğini kontrol edin |
 | `DOORS_STARTUP_TIMEOUT` | Login ekranı, yanlış giriş bilgisi, lisans, veritabanı veya modal pencere |
 | `DOORS_MULTIPLE_CLIENTS` | Aynı oturumda yalnız bir DOORS istemcisi bırakın |
 | `DOORS_OPEN_MODULE` / `DOORS_ATTRIBUTE_NOT_FOUND` | Modül yolu, okuma izni ve attribute isimleri |
@@ -140,13 +147,39 @@ iş süresi başlangıç + DXL süreleri + 15 saniye yayınlama payını kapsar.
 kontrolü üç DXL çalıştırdığından read kuyruğu için üç çalışma payı ayrılır;
 başlangıç ve run timeout üst sınırları sırasıyla 300 ve 600 saniyedir.
 
-Dosya sonucu yalnız doğru dosyaya ait tamamlanma işareti geldikten sonra UTF-8
-olarak okunur. Dosyanın oluşması veya kısmi içerik başarı sayılmaz.
-`application_result` modunda her çağrı ayrı sonuç token'ı kullanır.
-Tek satırlık module-check sonucu, Windows'ta DOORS tarafından tutulabilecek geçici
-dosya handle'ının başarılı sonucu veya gerçek `OPEN_MODULE` hatasını maskelemesini
-önlemek için yapılandırılmış genel moddan bağımsız olarak `application_result`
-kanalını kullanır.
+Varsayılan sonuç kanalı `application_result`'tır: DXL `oleSetResult` ile sonucu
+yayımlar, worker `Application.Result` üzerinden okur. Her çağrı ayrı sonuç
+token'ı kullanır; önceki çağrının cevabı kabul edilmez. Byte sınırı bu kanalda da
+uygulanır. Mevcut environment dosyasında `DOORS_RESULT_MODE=file` varsa diğer
+operasyonları da OLE kanalına geçirmek için `application_result` seçip worker'ı
+yeniden başlatın. Açıkça seçilen `file` modu geriye dönük uyumluluk için korunur;
+dosya yalnız doğru tamamlanma işaretinden sonra UTF-8 olarak okunur.
+
+Module-check, genel ayardan bağımsız olarak her zaman `application_result`
+kullanır. Yalnız `OK` + `MODULE_OPENED` sonucu erişimi doğrular; beklenmeyen veya
+eksik cevap `DOORS_DXL_FAILED` olur. Bulunamayan ya da okunamayan formal modül
+`DOORS_OPEN_MODULE` üretir; bu kod bulunamama ile izin eksikliğini ayırmaz.
+Önceden açık modül kapatılmaz. Geçici worker artifact'larındaki Windows silme
+kilitleri sınırlı tekrar ile temizlenir; kalıcı kilit uyarı olarak kaydedilir ve
+başarıyı veya asıl DOORS hata kodunu değiştirmez. Kalıcı kilitte geçici dosya
+diskte kalabilir.
+
+Nesne listeleme/detail/export, attribute/disiplin kontrolü, nesne güncelleme ve
+oluşturma ile Linker da `DOORS_RESULT_MODE=application_result` ayarını kullanır.
+Nesne okuma sonucu istenen absolute number ile eşleşmelidir. Güncelleme yalnız
+`ATTRIBUTES_SAVED`, oluşturma ise tek bir `CREATED` satırı ve `OBJECT_CREATED`
+onayıyla başarılı sayılır. Liste/export ve diğer çok satırlı işlemler kendi
+tamamlanma işaretini gerektirir. Eksik/bozuk sonuç okumalarda `DOORS_DXL_FAILED`,
+gönderilmiş yazmalarda `RECONCILIATION_REQUIRED` olur; belirsiz yazma otomatik
+olarak dosya kanalında yeniden çalıştırılmaz.
+
+`DEBUG=True` olduğunda `DoorsClient.run_dxl`, çalıştırmayı denemeden önce tam
+üretilmiş DXL'i worker konsoluna `[DOORS run_dxl]` ve `[/DOORS run_dxl]` arasında
+yazar ve hemen flush eder. Bu çıktı modül yollarını ve DXL'e konan attribute
+değerlerini içerir. `DEBUG=False` olduğunda DXL yazdırılmaz. Ayrı bir debug
+environment ayarı gerekmez; mevcut worker'ın settings değişikliğini alması için
+yeniden başlatılması gerekir. Çıktı API yanıtına veya job artifact'ına eklenmez;
+DOORS bağlantı kullanıcı adı/parolası ve OLE yanıtı bu debug çıktısına dahil edilmez.
 
 ## Doğrulama
 
@@ -158,6 +191,7 @@ cd backend
   integrations.tests.test_doors_api \
   integrations.tests.test_doors_worker_tasks \
   integrations.tests.test_doors_lifecycle \
+  integrations.tests.test_doors_result_transport \
   integrations.tests.test_doors_execution \
   jobs.tests.test_isolated_worker
 ```
@@ -165,6 +199,12 @@ cd backend
 Gerçek OLE canary'si Windows kullanıcı oturumunda ve test DOORS modülü üzerinde
 ayrıca yapılmalıdır. Canary sırasında payload, private path veya credential
 loglanmamalıdır.
+
+Module-check kabul ölçütleri: DOORS kapalıyken ve açıkken mevcut formal modül
+`succeeded` ve hash'i doğrulanan `accessible: true` JSON artifact'ı üretir.
+Olmayan veya erişilemeyen modül `failed` / `DOORS_OPEN_MODULE` üretir ve indirme
+artifact'ı oluşturmaz. Gerçek DXL derleme/çalıştırma bu Windows denemesini gerektirir;
+yerel contract testleri COM yanıtını taklit eder, DXL yorumlayıcısı çalıştırmaz.
 
 Windows canary sırası: DOORS kapalıyken modül kontrolü; aynı istemcide ikinci kontrol;
 liste/detail/export ve disiplin kontrolü; Linker preview; disposable modülde
@@ -174,3 +214,6 @@ cancellation. Başarılı işlemlerden sonra DOORS process'inin açık kaldığ�
 
 IBM sözleşmeleri: [istemci başlangıç seçenekleri](https://www.ibm.com/docs/en/engineering-lifecycle-management-suite/doors/9.7.2?topic=client-command-line-switches-doors-interoperation-server)
 ve [DXL Reference Manual](https://www.ibm.com/docs/en/SSYQBZ_9.6.0/com.ibm.doors.requirements.doc/topics/dxl_reference_manual.pdf).
+
+Süreç/oturum API sözleşmesi: [pywin32 win32ts](https://mhammond.github.io/pywin32/win32ts.html)
+ve [Microsoft WTSEnumerateProcesses](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsenumerateprocessesw).

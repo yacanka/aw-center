@@ -1,5 +1,9 @@
+import errno
+import hashlib
 import json
+import os
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -141,6 +145,37 @@ class DccSnapshotTests(JobTestCase):
 
 class DccDocumentExecutorTests(JobTestCase):
     """Exercise real DOCX rendering, validation, and private artifact persistence."""
+
+    def test_verified_document_completes_when_windows_rejects_directory_open(self):
+        """Windows directory-open restrictions must not fail a rendered DCC job."""
+
+        template_path = self.media_directory / "dcc-template.docx"
+        create_template(template_path)
+
+        def windows_open(path, flags, mode=0o777):
+            if Path(path).is_dir():
+                raise PermissionError(errno.EACCES, "Permission denied")
+            return os.open(path, flags, mode)
+
+        artifact_os = SimpleNamespace(**vars(os))
+        with (
+            patch("jobs.artifacts.sys", SimpleNamespace(platform="win32")),
+            patch("jobs.artifacts.os", artifact_os),
+            patch.object(artifact_os, "open", side_effect=windows_open),
+            patch.object(artifact_os, "fsync", wraps=os.fsync) as sync_file,
+        ):
+            preview, _confirmation = self.complete_confirmed_preview(template_path)
+
+        job = Job.objects.get(pk=preview.data["id"])
+        self.assertTrue(job.events.filter(message="DCC document verified.").exists())
+        self.assertEqual(job.status, JobStatus.SUCCEEDED)
+        self.assertEqual(job.progress, 100)
+        sync_file.assert_called_once()
+        with job.output_file.open("rb") as output:
+            payload = output.read()
+            output.seek(0)
+            self.assertTrue(zipfile.is_zipfile(output))
+        self.assertEqual(job.output_sha256, hashlib.sha256(payload).hexdigest())
 
     def test_confirmed_preview_reaches_verified_completion(self):
         """The reviewed API flow must continue from confirmation through the worker."""

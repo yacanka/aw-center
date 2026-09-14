@@ -28,12 +28,14 @@ class DoorsClient:
         return self
 
     def run_dxl(self, body: str, result_mode: str | None = None) -> OperationResult:
-        """Execute generated DXL using the requested result transport."""
+        """Execute generated DXL, echoing the complete script only in debug mode."""
         mode = result_mode or self.config.result_mode
         result_file = self.create_result_file(mode)
         result_token = uuid4().hex if mode == RESULT_MODE_APPLICATION else ""
         try:
             script = wrap_dxl(body, result_file, mode, result_token)
+            if self.config.debug_dxl:
+                print(f"[DOORS run_dxl]\n{script}\n[/DOORS run_dxl]", flush=True)
             execution = self.transport.run_dxl(script, result_file, mode, result_token)
             if not execution.lines or not any(execution.lines):
                 raise DoorsDxlError("DOORS returned an empty operation result.")
@@ -68,6 +70,8 @@ class DoorsClient:
             RESULT_MODE_APPLICATION,
         )
         self.raise_on_error(result)
+        if result.raw_lines != ("OK\tMODULE_OPENED",):
+            raise DoorsDxlError("DOORS returned an invalid module-check result.")
         return result
 
     def list_objects(self, module_path: str, attributes, loop: str, limit: int):
@@ -75,6 +79,7 @@ class DoorsClient:
         names = list(attributes)
         result = self.run_dxl(builder_read.list_objects(module_path, names, loop, limit))
         self.raise_on_error(result)
+        self.require_completion(result, "LIST_OBJECTS_DONE")
         return [self.parse_object(line, names) for line in result.raw_lines if line.startswith("OBJECT\t")]
 
     def export_module(self, module_path: str, limit: int):
@@ -82,6 +87,7 @@ class DoorsClient:
 
         result = self.run_dxl(builder_read.export_module(module_path, limit))
         self.raise_on_error(result)
+        self.require_completion(result, "EXPORT_MODULE_DONE")
         columns = [
             decode_field(line.split("\t", 1)[1])
             for line in result.raw_lines
@@ -104,10 +110,12 @@ class DoorsClient:
         names = list(attributes)
         result = self.run_dxl(builder_read.get_object(module_path, absolute_number, names))
         self.raise_on_error(result)
-        for line in result.raw_lines:
-            if line.startswith("OBJECT\t"):
-                return self.parse_object(line, names)
-        raise DoorsOperationError("DOORS did not return the requested object.")
+        if len(result.raw_lines) != 1 or not result.raw_lines[0].startswith("OBJECT\t"):
+            raise DoorsDxlError("DOORS returned an invalid object-detail result.")
+        item = self.parse_object(result.raw_lines[0], names)
+        if item.absolute_number != absolute_number:
+            raise DoorsDxlError("DOORS returned a different object than requested.")
+        return item
 
     def set_object_attributes(self, module_path: str, absolute_number: int, attributes):
         """Update scalar attributes on one DOORS object."""
@@ -115,6 +123,8 @@ class DoorsClient:
             builder_write.set_object_attributes(module_path, absolute_number, attributes)
         )
         self.raise_on_error(result)
+        if result.raw_lines != ("OK\tATTRIBUTES_SAVED",):
+            raise DoorsDxlError("DOORS did not confirm saving the object attributes.")
         return result
 
     def create_object(self, module_path: str, position: str, relative_number, attributes):
@@ -122,16 +132,20 @@ class DoorsClient:
         body = builder_write.create_object(module_path, position, relative_number, attributes)
         result = self.run_dxl(body)
         self.raise_on_error(result)
-        for line in result.raw_lines:
-            if line.startswith("CREATED\t"):
-                return self.parse_created_object(line, attributes)
-        raise DoorsOperationError("DOORS did not return the created object.")
+        if (
+            len(result.raw_lines) != 2
+            or not result.raw_lines[0].startswith("CREATED\t")
+            or result.raw_lines[1] != "OK\tOBJECT_CREATED"
+        ):
+            raise DoorsDxlError("DOORS did not confirm creating and saving the object.")
+        return self.parse_created_object(result.raw_lines[0], attributes)
 
     def link_requirements(self, values):
         """Preview or create the fixed Requirement PoC links."""
 
         result = self.run_dxl(builder_link.link_requirements(**values))
         self.raise_on_error(result)
+        self.require_completion(result, "REQUIREMENT_LINKER_DONE")
         groups: dict[str, list[str]] = {}
         matched = set()
         missing = set()
@@ -203,6 +217,7 @@ class DoorsClient:
         body = builder_read.get_attr(module_path, search_text)
         result = self.run_dxl(body)
         self.raise_on_error(result)
+        self.require_completion(result, "ATTRIBUTE_FOUND")
         for line in result.raw_lines:
             if line.startswith("OBJECT\t"):
                 return self.parse_info(line)
@@ -217,10 +232,17 @@ class DoorsClient:
             module_path, applicable_attr, discipline_attr
         ))
         self.raise_on_error(result)
+        self.require_completion(result, "DISCIPLINE_CHECK_DONE")
         return [
             self.parse_object(line, [applicable_attr, discipline_attr])
             for line in result.raw_lines if line.startswith("OBJECT\t")
         ]
+
+    @staticmethod
+    def require_completion(result: OperationResult, marker: str) -> None:
+        """Reject partial rows or an unrelated OK response as an operation result."""
+        if not result.raw_lines or result.raw_lines[-1] != f"OK\t{marker}":
+            raise DoorsDxlError("DOORS did not confirm completion of the requested operation.")
 
     @staticmethod
     def parse_info(line: str) -> str:

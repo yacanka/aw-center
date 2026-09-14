@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { useSessionStore } from '@/features/session/stores/session'
+import { resolvePreferredTheme } from '@/app/services/theme'
 import { useRouter } from 'vue-router'
 import ParticleText from '@/shared/components/ParticleTextAnimator.vue'
 const router = useRouter()
 
 const particleText = ref<InstanceType<typeof ParticleText> | null>(null)
-const welcomeVideoUrl = `${import.meta.env.BASE_URL}world.mp4`
+const session = useSessionStore()
+const particleColors = computed(() => [
+  resolvePreferredTheme(session.getPreferences) === 'dark' ? '#ffffff88' : '#00000088'
+])
 let redirectTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(() => {
@@ -23,37 +28,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="bg-wrap">
-    <video
-      ref="videoRef"
-      :src="welcomeVideoUrl"
-      loop
-      muted
-      autoplay
-      playsinline
-      preload="metadata"
-      class="bg-video"
-    />
+  <div class="welcome-background">
+    <ParticleText ref="particleText" text="AW Center" :colors="particleColors" />
   </div>
-  <ParticleText ref="particleText" text="AW Center" :colors="['#ffffff88']" class="bg-video" />
 </template>
 
-<style>
-.bg-wrap {
+<style scoped>
+.welcome-background {
   position: relative;
   width: 100%;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
-}
-
-.bg-video {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 100%;
-  height: 100%;
-  transform: translate(-50%, -50%);
-  object-fit: cover;
-  pointer-events: none;
 }
 </style>

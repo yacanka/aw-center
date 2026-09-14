@@ -168,9 +168,8 @@ class DoorsClientFoundationTests(SimpleTestCase):
         """Process inspection identifies the configured DOORS executable."""
         transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
         inspector = Mock()
-        inspector.return_value.Win32_Process.side_effect = [
-            [Mock(SessionId=7)], [Mock(Name="DOORS.EXE", SessionId=7)]
-        ]
+        inspector.ProcessIdToSessionId.return_value = 7
+        inspector.WTSEnumerateProcesses.return_value = ((7, 42, "DOORS.EXE", None),)
 
         with patch.object(transport, "load_process_inspector", return_value=inspector):
             is_running = transport.is_client_running()

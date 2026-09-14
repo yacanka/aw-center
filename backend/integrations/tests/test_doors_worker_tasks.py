@@ -16,6 +16,7 @@ from integrations.doors.worker_tasks import (
     update_object,
 )
 from integrations.doors.job_executor import execute_doors_job
+from integrations.doors.exceptions import DoorsOperationError
 from jobs.contracts import JobExecutionFailure, JobExecutionUncertain
 
 
@@ -325,6 +326,36 @@ class DoorsWorkerTaskTests(SimpleTestCase):
 
 class DoorsWorkerAdapterTests(SimpleTestCase):
     """Adapt artifact-only DOORS tasks to the durable Windows worker contract."""
+
+    @override_settings(DOORS_ENABLED=True)
+    def test_locked_cleanup_preserves_success_and_structured_operation_failure(self):
+        for failed in (False, True):
+            for locked_file in ("input", "output") if failed else ("input",):
+                with self.subTest(failed=failed, locked_file=locked_file):
+                    input_path, output_path = Mock(), Mock()
+                    paths = {"input": input_path, "output": output_path}
+                    paths[locked_file].unlink.side_effect = PermissionError("private path")
+                    task = Mock(return_value={"sha256_required": True})
+                    if failed:
+                        task.side_effect = DoorsOperationError("private upstream detail", "OPEN_MODULE")
+                    job = SimpleNamespace(kind="doors.run_dxl", reconcile_on_lease_loss=False)
+                    with (
+                        patch("integrations.doors.job_executor.materialize_job_input", return_value=input_path),
+                        patch("integrations.doors.job_executor.temporary_output", return_value=output_path),
+                        patch.dict("integrations.doors.job_executor.DOORS_TASKS", {job.kind: task}),
+                        patch("jobs.artifacts.Path", side_effect=lambda path: path),
+                        patch("jobs.artifacts.time.sleep"),
+                    ):
+                        if failed:
+                            with self.assertRaises(JobExecutionFailure) as raised:
+                                execute_doors_job(job)
+                            self.assertEqual(raised.exception.code, "DOORS_OPEN_MODULE")
+                            self.assertNotIn("private", str(raised.exception))
+                            output_path.unlink.assert_called()
+                        else:
+                            self.assertIs(execute_doors_job(job).path, output_path)
+                            output_path.unlink.assert_not_called()
+                    self.assertEqual(paths[locked_file].unlink.call_count, 6)
 
     @override_settings(DOORS_ENABLED=True)
     def test_worker_adapter_returns_a_private_job_result(self):
