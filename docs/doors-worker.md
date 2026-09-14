@@ -143,6 +143,10 @@ başlangıç ve run timeout üst sınırları sırasıyla 300 ve 600 saniyedir.
 Dosya sonucu yalnız doğru dosyaya ait tamamlanma işareti geldikten sonra UTF-8
 olarak okunur. Dosyanın oluşması veya kısmi içerik başarı sayılmaz.
 `application_result` modunda her çağrı ayrı sonuç token'ı kullanır.
+Tek satırlık module-check sonucu, Windows'ta DOORS tarafından tutulabilecek geçici
+dosya handle'ının başarılı sonucu veya gerçek `OPEN_MODULE` hatasını maskelemesini
+önlemek için yapılandırılmış genel moddan bağımsız olarak `application_result`
+kanalını kullanır.
 
 ## Doğrulama
 
