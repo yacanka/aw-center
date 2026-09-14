@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 from scripts.launcher.cli import build_parser, external_path, project_path
-from scripts.launcher.dependencies import install_backend, prepare_offline
+from scripts.launcher.dependencies import install, install_backend, prepare_offline
 from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError, Project, Scope
 from scripts.launcher.offline_manifest import (
@@ -128,13 +128,43 @@ class DependencyTests(unittest.TestCase):
             offline_dir = project.root / "offline"
             prepare_offline(project, Scope(frontend=False), offline_dir)
 
-        command, working_directory = run_mock.call_args.args
+        command, working_directory = run_mock.call_args_list[0].args
         self.assertEqual(command[1:4], ["-m", "pip", "wheel"])
         self.assertIn("--wheel-dir", command)
         self.assertIn(offline_dir / "wheels", command)
         self.assertNotIn("--only-binary=:all:", command)
         self.assertEqual(working_directory, project.root)
+        verification, verification_directory = run_mock.call_args_list[1].args
+        self.assertEqual(verification[1:4], ["-m", "pip", "install"])
+        self.assertIn("--dry-run", verification)
+        self.assertIn("--ignore-installed", verification)
+        self.assertIn("--no-index", verification)
+        self.assertIn(offline_dir / "wheels", verification)
+        self.assertEqual(verification[-2:], ["-r", project.requirements])
+        self.assertEqual(verification_directory, project.root)
         manifest_mock.assert_called_once_with(project, Scope(frontend=False), offline_dir)
+
+    @mock.patch("scripts.launcher.dependencies.install_frontend")
+    @mock.patch("scripts.launcher.dependencies.install_backend")
+    @mock.patch("scripts.launcher.dependencies.verify_offline_manifest")
+    def test_offline_setup_verifies_target_before_installing(
+        self,
+        verify_mock: mock.Mock,
+        backend_mock: mock.Mock,
+        frontend_mock: mock.Mock,
+    ) -> None:
+        """A bundle from another platform must fail before installation starts."""
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            offline_dir = project.root / "offline"
+            verify_mock.side_effect = LauncherError("target mismatch")
+
+            with self.assertRaisesRegex(LauncherError, "target mismatch"):
+                install(project, Scope(), "offline", offline_dir)
+
+        verify_mock.assert_called_once_with(project, Scope(), offline_dir)
+        backend_mock.assert_not_called()
+        frontend_mock.assert_not_called()
 
     @mock.patch("scripts.launcher.dependencies.run")
     @mock.patch("scripts.launcher.dependencies.ensure_virtual_environment")

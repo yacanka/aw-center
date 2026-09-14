@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 from .model import LauncherError, Project, Scope
-from .offline_manifest import ensure_wheels_only, write_offline_manifest
+from .offline_manifest import ensure_wheels_only, verify_offline_manifest, write_offline_manifest
 from .process import required_tool, run
 
 MINIMUM_PYTHON = (3, 11)
@@ -47,6 +47,11 @@ def check_virtual_environment_version(project: Project) -> None:
 def install(project: Project, scope: Scope, mode: str, offline_dir: Path) -> None:
     """Install selected project dependencies from online or prepared sources."""
     scope.require_any()
+    if mode == "offline":
+        # Validate the bundle before creating a venv or changing node_modules.
+        # Environment markers are platform-dependent, so accepting a bundle
+        # prepared on another OS can silently omit Windows-only dependencies.
+        verify_offline_manifest(project, scope, offline_dir)
     if scope.backend:
         install_backend(project, mode, offline_dir)
     if scope.frontend:
@@ -99,12 +104,33 @@ def prepare_offline(project: Project, scope: Scope, offline_dir: Path) -> None:
             project.root,
         )
         ensure_wheels_only(wheels)
+        verify_backend_wheels(project, wheels)
     if scope.frontend:
         cache = offline_dir / "npm-cache"
         cache.mkdir(parents=True, exist_ok=True)
         populate_npm_cache(project, cache)
     write_offline_manifest(project, scope, offline_dir)
     print(f"[ok] offline dependencies prepared at {offline_dir}")
+
+
+def verify_backend_wheels(project: Project, wheels: Path) -> None:
+    """Ensure the wheelhouse resolves every lock entry for this target platform."""
+    run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--dry-run",
+            "--ignore-installed",
+            "--no-index",
+            "--find-links",
+            wheels,
+            "-r",
+            project.requirements,
+        ],
+        project.root,
+    )
 
 
 def populate_npm_cache(project: Project, cache: Path) -> None:
