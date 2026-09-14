@@ -118,6 +118,35 @@ class NumaratorClient:
 
         self.session.close()
 
+    def describe_format(self, format_code: str) -> dict:
+        """Read only the public input contract of an allowlisted format."""
+        if not FORMAT_CODE_PATTERN.fullmatch(format_code):
+            raise NumaratorRejectedError("Select a valid Numarator format.")
+        data = _response_data(self._request(
+            "GET", f"/api/private/v1/formats/{format_code}/", body=None,
+        ))
+        fields = data.get("required_context")
+        if data.get("code") != format_code or not isinstance(fields, list):
+            raise NumaratorConflictError("Numarator returned an invalid format contract.")
+        normalized = []
+        for field in fields:
+            if not isinstance(field, dict):
+                raise NumaratorConflictError("Numarator returned an invalid context field.")
+            key, maximum = field.get("key"), field.get("max_length")
+            default = field.get("default")
+            if (
+                not isinstance(key, str) or not key or len(key) > 200
+                or type(maximum) is not int or not 1 <= maximum <= 8192
+                or type(field.get("required")) is not bool
+                or (default is not None and not isinstance(default, (str, int, float, bool)))
+            ):
+                raise NumaratorConflictError("Numarator returned an invalid context field.")
+            normalized.append({
+                "key": key, "required": field["required"],
+                "default": default, "max_length": maximum,
+            })
+        return {"code": format_code, "fields": normalized}
+
     def generate_number(
         self,
         *,
@@ -174,7 +203,7 @@ class NumaratorClient:
         except (KeyError, TypeError, ValueError) as error:
             raise NumaratorConflictError("Numarator returned an incomplete result.") from error
 
-    def _request(self, method: str, path: str, *, body: dict, headers=None) -> dict:
+    def _request(self, method: str, path: str, *, body: dict | None, headers=None) -> dict:
         try:
             response = self.session.request(
                 method,

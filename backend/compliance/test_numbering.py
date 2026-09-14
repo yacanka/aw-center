@@ -388,3 +388,127 @@ class CoverPageNumberingTests(TestCase):
         self.assertEqual(document.cover_page.number, "")
         self.assertEqual(document.name, "Another editor's change")
         client_class.return_value.mark_used.assert_not_called()
+
+    def test_missing_cover_page_filter_is_scoped_paginated_and_excludes_archived(self):
+        first, _ = self.existing_payload()
+        second, _ = self.existing_payload()
+        archived, _ = self.existing_payload()
+        archived.is_archived = True
+        archived.save()
+        numbered, _ = self.existing_payload()
+        numbered.cover_page.number = "CP-EXISTING"
+        numbered.cover_page.save()
+        other_project = Project.objects.exclude(pk=self.project.pk).first()
+        other_cover = CoverPage.objects.create(project=other_project, number="", issue="A")
+        ComplianceDocument.objects.create(project=other_project, cover_page=other_cover, name="Other project")
+        url = self.url.replace("number-allocations/", "")
+        self.client.force_authenticate(self.viewer)
+        response = self.client.get(url, {"missing_cover_page": "true", "page_size": 1})
+        next_page = self.client.get(url, {"missing_cover_page": "true", "page_size": 1, "page": 2})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+        self.assertIsNotNone(response.data["next"])
+        self.assertEqual(
+            {response.data["results"][0]["id"], next_page.data["results"][0]["id"]},
+            {str(first.pk), str(second.pk)},
+        )
+        present = self.client.get(url, {"missing_cover_page": "false"})
+        self.assertEqual(present.data["count"], 1)
+        self.assertEqual(present.data["results"][0]["id"], str(numbered.pk))
+        self.assertEqual(self.client.get(url, {"missing_cover_page": "invalid"}).status_code, 400)
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.client.get(url, {"missing_cover_page": "true"}).status_code, 403)
+
+    @patch("compliance.numbering_formats.NumaratorClient")
+    def test_format_fields_are_read_by_worker_with_owner_scoped_artifact(self, client_class):
+        client_class.return_value.describe_format.return_value = {
+            "code": "COVER_PAGE", "fields": [
+                {"key": "department", "required": False, "default": "GEN", "max_length": 10},
+                {"key": "branch", "required": True, "default": None, "max_length": 3},
+            ],
+        }
+        url = self.url.replace("number-allocations", "numbering-options")
+        payload = {"client_operation_id": str(uuid4()), "format_code": "COVER_PAGE"}
+        with self.settings(NUMARATOR_API_KEY=""):
+            response = self.client.post(url, payload, format="json")
+            replay = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data["id"], replay.data["id"])
+        client_class.assert_not_called()
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        job = Job.objects.get(pk=response.data["id"])
+        self.assertEqual(job.status, JobStatus.SUCCEEDED)
+        result = self.client.get(f"/api/jobs/{job.id}/download/")
+        self.assertEqual(result.status_code, 200)
+        import json
+        data = json.loads(b"".join(result.streaming_content))
+        self.assertEqual(data["fields"][0]["default"], "GEN")
+        self.assertEqual(data["schema_version"], 1)
+        client_class.return_value.close.assert_called_once()
+        self.client.force_authenticate(self.viewer)
+        self.assertEqual(self.client.get(f"/api/jobs/{job.id}/download/").status_code, 404)
+        self.assertEqual(self.client.post(url, payload, format="json").status_code, 403)
+
+    def test_format_read_rejects_other_project_format_and_requires_csrf(self):
+        url = self.url.replace("number-allocations", "numbering-options")
+        payload = {"client_operation_id": str(uuid4()), "format_code": "OTHER"}
+        self.assertEqual(self.client.post(url, payload, format="json").status_code, 400)
+        csrf_client = APIClient(enforce_csrf_checks=True)
+        csrf_client.force_login(self.editor)
+        payload["format_code"] = "COVER_PAGE"
+        self.assertEqual(csrf_client.post(url, payload, format="json").status_code, 403)
+        self.assertEqual(Job.objects.count(), 0)
+
+    @patch("compliance.numbering_executor.NumaratorClient")
+    def test_custom_context_is_persisted_sent_and_part_of_idempotency(self, client_class):
+        client = client_class.return_value
+        client.describe_format.return_value = {"fields": [
+            {"key": "department", "required": False, "default": "GEN", "max_length": 10},
+        ]}
+        client.generate_number.return_value = GeneratedNumber(81, "CP-ENG-81", "COVER_PAGE", "active", "")
+        client.mark_used.return_value = GeneratedNumber(81, "CP-ENG-81", "COVER_PAGE", "used", "")
+        payload = self.payload()
+        payload["context_data"] = {"department": "ENG"}
+        first = self.client.post(self.url, payload, format="json")
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(first.data["context_data"], {"department": "ENG"})
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        self.assertEqual(client.generate_number.call_args.kwargs["context_data"], {"department": "ENG"})
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 200)
+        payload["context_data"]["department"] = "GEN"
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 409)
+        self.assertEqual(Job.objects.count(), 1)
+
+    @patch("compliance.numbering_executor.NumaratorClient")
+    def test_missing_required_context_never_consumes_a_number(self, client_class):
+        client = client_class.return_value
+        client.describe_format.return_value = {"fields": [
+            {"key": "branch", "required": True, "default": None, "max_length": 3},
+        ]}
+        response = self.client.post(self.url, self.payload(), format="json")
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        allocation = CoverPageNumberAllocation.objects.get(pk=response.data["id"])
+        self.assertEqual(allocation.current_job.status, JobStatus.FAILED)
+        self.assertEqual(allocation.current_job.error_code, "NUMARATOR_CONTEXT_INVALID")
+        client.generate_number.assert_not_called()
+
+    def test_context_rejects_nested_null_and_oversized_values(self):
+        for context in ({"key": {}}, {"key": None}, {"key": "x" * 8193}, []):
+            with self.subTest(context_type=type(context).__name__):
+                payload = self.payload()
+                payload["context_data"] = context
+                self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 400)
+        self.assertEqual(Job.objects.count(), 0)
+
+    @patch("compliance.numbering_executor.NumaratorClient")
+    def test_invalid_format_metadata_fails_without_external_write_reconciliation(self, client_class):
+        from integrations.numarator.client import NumaratorConflictError
+        client = client_class.return_value
+        client.describe_format.side_effect = NumaratorConflictError("Invalid format contract")
+        response = self.client.post(self.url, self.payload(), format="json")
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        allocation = CoverPageNumberAllocation.objects.get(pk=response.data["id"])
+        self.assertEqual(allocation.current_job.status, JobStatus.FAILED)
+        self.assertEqual(allocation.current_job.error_code, "NUMARATOR_FORMAT_UNAVAILABLE")
+        self.assertEqual(allocation.status, CoverPageNumberAllocation.Status.REQUESTED)
+        client.generate_number.assert_not_called()

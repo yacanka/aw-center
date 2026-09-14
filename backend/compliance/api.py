@@ -57,6 +57,8 @@ from .numbering import (
     create_allocation,
     resume_allocation,
 )
+from .numbering_formats import create_numbering_format_job
+from jobs.serializers import JobSerializer
 from .serializers import (
     ComplianceDocumentSerializer,
     ImportAuditSerializer,
@@ -165,6 +167,15 @@ class DocumentCollectionView(ProjectComplianceMixin, APIView):
             queryset = queryset.filter(is_archived=True)
         elif archived != "all":
             queryset = queryset.filter(is_archived=False)
+        missing_cover_page = request.query_params.get("missing_cover_page")
+        if missing_cover_page not in (None, "", "true", "false"):
+            raise serializers.ValidationError(
+                {"missing_cover_page": "Use true or false."}
+            )
+        if missing_cover_page == "true":
+            queryset = queryset.filter(cover_page__number="")
+        elif missing_cover_page == "false":
+            queryset = queryset.exclude(cover_page__number="")
         search = request.query_params.get("search", "").strip()[:200]
         if search:
             queryset = queryset.filter(
@@ -201,6 +212,19 @@ class DocumentCollectionView(ProjectComplianceMixin, APIView):
 
 
 class NumberingOptionsView(ProjectComplianceMixin, APIView):
+    def post(self, request, project_slug):
+        require_project_role(
+            request.user, self.project, ProjectRoleAssignment.Domain.COMPLIANCE,
+            ProjectRoleAssignment.Role.EDITOR,
+        )
+        operation_id = serializers.UUIDField().run_validation(request.data.get("client_operation_id"))
+        format_code = serializers.CharField(max_length=100).run_validation(request.data.get("format_code"))
+        job = create_numbering_format_job(
+            project=self.project, actor=request.user, format_code=format_code,
+            operation_id=operation_id, request_id=getattr(request, "request_id", ""),
+        )
+        return Response(JobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
     def get(self, request, project_slug):
         from integrations.numarator.client import is_configured, project_format_codes
 

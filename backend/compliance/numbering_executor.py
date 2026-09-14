@@ -26,6 +26,7 @@ from orgs.models import ProjectRoleAssignment
 from .models import ComplianceDocument, CoverPage, CoverPageNumberAllocation, ReviewTask
 from .serializers import ComplianceDocumentSerializer
 from .services import require_tracking_panel_compatibility
+from .numbering_formats import validate_format_context
 
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -37,6 +38,14 @@ def execute_cover_page_number_allocation(job):
     client = _client_for(allocation)
     try:
         if allocation.remote_id is None:
+            try:
+                contract = client.describe_format(allocation.format_code)
+            except NumaratorConflictError as error:
+                # Reading metadata cannot have allocated an external number.
+                raise JobExecutionFailure(
+                    "Number format fields could not be loaded.", "NUMARATOR_FORMAT_UNAVAILABLE",
+                ) from error
+            validate_format_context(contract, allocation.context_data)
             update_progress(job.id, 15, "Requesting a cover page number.")
             generated = client.generate_number(
                 format_code=allocation.format_code,

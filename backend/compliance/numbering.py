@@ -37,6 +37,22 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
     document = serializers.JSONField()
     document_id = serializers.UUIDField(required=False)
     format_code = serializers.CharField(max_length=100, required=False)
+    context_data = serializers.JSONField(required=False)
+
+    def validate_context_data(self, value):
+        if not isinstance(value, dict) or any(
+            not isinstance(key, str) or not key or len(key) > 200
+            or type(item) not in (str, int, float, bool)
+            for key, item in value.items()
+        ):
+            raise serializers.ValidationError("Use named text, number or boolean values.")
+        try:
+            encoded = json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        except (ValueError, TypeError) as error:
+            raise serializers.ValidationError("Use valid JSON values.") from error
+        if len(encoded) > 8192:
+            raise serializers.ValidationError("Format values cannot exceed 8 KiB.")
+        return value
 
     def validate_document(self, value):
         if not isinstance(value, dict):
@@ -117,6 +133,7 @@ def create_allocation(
     document_id=None,
     existing_document=None,
     format_code=None,
+    context_data=None,
     request_id="",
 ):
     """Persist one idempotent allocation intent and ensure it has a durable job."""
@@ -126,7 +143,8 @@ def create_allocation(
     format_code = format_code or project_format_code(project.slug)
     if format_code not in project_format_codes(project.slug):
         raise serializers.ValidationError({"format_code": "Select an allowed format."})
-    context_data = {"project": project.slug}
+    # Legacy callers omitted context entirely; explicit input follows the format contract.
+    context_data = {"project": project.slug} if context_data is None else dict(context_data)
     canonical_request = {
         "document": document,
         "document_id": str(existing_document.pk) if existing_document else None,
@@ -244,6 +262,7 @@ def allocation_payload(allocation, request=None):
         "status": allocation.status,
         "number": allocation.remote_number,
         "format_code": allocation.format_code,
+        "context_data": allocation.context_data,
         "error_code": allocation.error_code,
         "error_detail": allocation.error_detail,
         "job": JobSerializer(allocation.current_job).data if allocation.current_job_id else None,

@@ -7,6 +7,7 @@ import UploadPopup from '@/features/compliance/components/UploadPopup.vue'
 import DoorsImportPopup from '@/features/compliance/components/DoorsImportPopup.vue'
 import CompDocColumnSettings from '@/features/compliance/components/CompDocColumnSettings.vue'
 import CompDocTableToolbar from '@/features/compliance/components/CompDocTableToolbar.vue'
+import CompDocBulkNumbering from '@/features/compliance/components/CompDocBulkNumbering.vue'
 import GraphComponent from '@/features/compliance/components/Graph.vue'
 import DownloadComponent from '@/features/compliance/components/Downloader.vue'
 import { provideCompdocController } from '@/features/compliance/composables/compdocController'
@@ -43,6 +44,7 @@ const workspaceTab = computed(() => {
     : 'overview'
 })
 const popup = ref()
+const bulkNumbering = ref<InstanceType<typeof CompDocBulkNumbering>>()
 const upload = ref()
 const doorsImport = ref()
 const graph = ref()
@@ -173,6 +175,7 @@ void projectCatalog.load().catch(() => undefined)
       :project="project"
       :can-import="canImport"
       :can-create="canAdd"
+      :numbering-disabled="store.isLoading"
       :can-delete="canDelete"
       :can-view-audits="canViewAudits"
       :count="store.pagination.count"
@@ -182,6 +185,7 @@ void projectCatalog.load().catch(() => undefined)
       @import="upload.setActive(true)"
       @import-doors="doorsImport.setActive(true)"
       @create="createDocument"
+      @number-missing="bulkNumbering?.open()"
       @summary="graph.openModal(store.getCompdocs)"
       @check="issueChecks.checkAll"
       @export="download.openModal('Excel')"
@@ -214,6 +218,15 @@ void projectCatalog.load().catch(() => undefined)
     </n-text>
 
     <UpdateForm ref="popup" :can-edit="canChange" />
+    <CompDocBulkNumbering
+      v-if="canChange"
+      :key="project"
+      ref="bulkNumbering"
+      :documents="store.getCompdocs"
+      :project="project"
+      :can-edit="canChange"
+      @updated="store.acceptUpdatedCompdoc"
+    />
     <CompDocWorkspace
       v-model:show="workspaceVisible"
       :document="activeDocument"
