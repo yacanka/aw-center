@@ -14,7 +14,9 @@ from integrations.numarator.client import (
 from jobs.models import JobStatus
 from jobs.serializers import JobSerializer
 from jobs.services import create_job
+from orgs.models import Panel
 
+from .reset_guard import reset_sensitive_write
 from .models import CoverPageNumberAllocation
 from .serializers import ComplianceDocumentSerializer
 from .services import VersionConflict
@@ -123,6 +125,7 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
         return attrs
 
 
+@reset_sensitive_write
 @transaction.atomic
 def create_allocation(
     *,
@@ -173,7 +176,9 @@ def create_allocation(
                 request_hash=request_hash,
                 document_snapshot=snapshot,
                 format_code=format_code,
-                context_data=context_data,
+                context_data=_document_numbering_context(
+                    context_data, snapshot, project, existing_document,
+                ),
                 credential_fingerprint=credential_fingerprint(),
                 document=existing_document,
                 cover_page=existing_document.cover_page if existing_document else None,
@@ -191,6 +196,28 @@ def create_allocation(
     return allocation
 
 
+def _document_numbering_context(values, snapshot, project, existing_document):
+    """Resolve reserved format keys at enqueue time so retries keep their values."""
+    context = dict(values)
+    if "ata" in context:
+        panel_id = snapshot.get(
+            "panel", existing_document.panel_id if existing_document else None,
+        )
+        context["ata"] = Panel.objects.filter(
+            project=project, pk=panel_id,
+        ).values_list("ata", flat=True).first() or ""
+        context["ata"] = context["ata"].replace("-", "")
+    if "moc" in context:
+        context["moc"] = snapshot.get(
+            "moc", existing_document.moc if existing_document else None,
+        ) or ""
+    for key in ("ata", "moc"):
+        if key in context and not context[key]:
+            del context[key]
+    return context
+
+
+@reset_sensitive_write
 def resume_allocation(*, allocation, expected_version, request_id=""):
     """Queue another attempt for a failed allocation without changing remote identity."""
 
@@ -218,6 +245,7 @@ def resume_allocation(*, allocation, expected_version, request_id=""):
     return locked
 
 
+@reset_sensitive_write
 def ensure_allocation_job(allocation, *, request_id=""):
     """Create the allocation's current durable job if one is not already linked."""
 

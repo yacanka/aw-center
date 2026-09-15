@@ -145,11 +145,27 @@ Fresh migration canonical project satırlarını seed eder. Ayrı bir runtime pr
 **Developer → Test Data** yalnız superuser hesabına görünür. API hem `DEBUG=True`
 hem `AWCENTER_DEPLOYMENT_MODE=development` ister; production profillerinde kapalıdır.
 
-1. Diğer test işlemlerini durdurun. Aktif/bekleyen işleri tamamlayın veya iptal edin;
-   tamamlanmamış numaratör tahsislerini uzlaştırın.
-2. **Preview reset** ile tüm projelerde silinecek kayıt sayılarını inceleyin.
-3. Gösterilen `RESET COMPLIANCE AND ORGANIZATION` ifadesini yazıp sıfırlayın.
-   Önizleme beş dakika geçerlidir; sayılar değişirse yeni önizleme gerekir.
+1. **Preview reset** ile tüm projelerde silinecek kayıt sayılarını ve engelleri inceleyin.
+2. **Prepare and cancel related jobs** ile hazırlığı başlatın. Compliance/organization
+   HTTP yazmaları ve yeni numara tahsisleri durur; ilgili kuyruk işleri iptal edilir,
+   çalışanlara iptal talebi gönderilir. İlgisiz işler çalışmaya devam eder.
+3. **Preview reset** ile durumu yenileyin. **Check cancellations again** süresi dolmuş
+   job lease'lerini mevcut recovery akışıyla işler. Aktif işler ve başlamış compliance
+   bildirimleri bitmeden silme açılmaz. Yeni compliance bildirimleri hazırlıkta alınmaz;
+   password-reset ve DCC bildirimleri etkilenmez.
+4. Dış sistem sonucu belirsiz tahsis varsa **Release preparation** ile yazmaları açın
+   ve mevcut numaralandırma akışından durumu uzlaştırıp tamamlayın. Ardından yeniden
+   hazırlayın. Hiç başlamadan iptal edilmiş, yeniden denenmemiş ve dış sistem kanıtı
+   olmayan ilk tahsisler silmeyi engellemez. Durdurulmuş notification worker'ın claim'i
+   varsa hazırlığı kaldırıp worker'ı yeniden başlatın; claim recovery sonrası tekrar hazırlayın.
+5. Ekran hazır olduğunu gösterdiğinde güncel sayıları inceleyip
+   `RESET COMPLIANCE AND ORGANIZATION` ifadesini yazın. Önizleme beş dakika geçerlidir;
+   sayılar veya hazırlık oturumu değişirse yeni önizleme gerekir.
+
+Hazırlık durumu veritabanında saklanır; tarayıcıyı kapatmak yazmaları yeniden açmaz.
+Başarılı sıfırlama ya da herhangi bir yetkili superuser'ın **Release preparation** işlemi
+hazırlığı kaldırır. Bırakma işlemi iptal edilmiş işleri otomatik olarak yeniden başlatmaz.
+Bu akış için `0009_developerresetstate` migration'ı uygulanmış olmalıdır.
 
 İşlem tek transaction içinde belgeleri, coverpage kayıtlarını, yerel numara tahsislerini,
 review/workflow/tracking/notification verilerini, geçmişleri, import kayıt ve ayarlarını,
@@ -158,6 +174,6 @@ Proje kataloğu, giriş hesapları, DCC verileri ve DCC rolleri korunur. Kullan�
 compliance/organization erişim rollerini test öncesi yeniden atayın.
 
 Numaratör tarafında alınmış numaralar geri verilmez veya sıfırlanmaz. Job kayıtları ve
-private artifact dosyaları bu aracın kapsamı dışındadır. Araç diğer kullanıcıların yeni
-işlem başlatmasını engelleyen bir bakım modu sağlamaz; yalnız izole local test
-ortamında kullanın. Bu ekran bütün veritabanını veya migration geçmişini sıfırlamaz.
+private artifact dosyaları bu aracın kapsamı dışındadır. Yalnız izole local test
+ortamında kullanın; doğrudan SQL/ORM shell yazmaları bu HTTP hazırlık korumasının
+kapsamında değildir. Bu ekran bütün veritabanını veya migration geçmişini sıfırlamaz.

@@ -14,6 +14,7 @@ from django.utils import timezone
 from orgs.models import Person
 from integrations.mail import MailUnavailable, send_html_email
 
+from .reset_guard import lock_reset_state
 from .models import NotificationLog, NotificationPolicy, TrackingProfile
 
 
@@ -25,6 +26,28 @@ DUE_SOON_DAYS = 7
 def scan_notifications(*, project_slug=None):
     """Materialize active events, then claim and deliver a bounded batch."""
 
+    with lock_reset_state() as state:
+        if state and state.active:
+            return {"processed": 0, "materialized": 0, "sent": 0, "failed": 0, "cancelled": 0}
+        materialized, cancelled, claims = _prepare_scan(project_slug)
+
+    sent = failed = 0
+    for log_id, lease_token in claims:
+        if deliver_notification(log_id, lease_token):
+            sent += 1
+        elif NotificationLog.objects.filter(
+            pk=log_id, status=NotificationLog.Status.CANCELLED,
+        ).exists():
+            cancelled += 1
+        else:
+            failed += 1
+    return {
+        "processed": materialized + sent + failed + cancelled,
+        "materialized": materialized, "sent": sent, "failed": failed, "cancelled": cancelled,
+    }
+
+
+def _prepare_scan(project_slug):
     profiles = TrackingProfile.objects.filter(
         notification_enabled=True,
         document__is_archived=False,
@@ -41,24 +64,7 @@ def scan_notifications(*, project_slug=None):
         )
 
     cancelled = cancel_ineligible_notifications(project_slug=project_slug)
-    sent = failed = 0
-    for log_id, lease_token in claim_notifications(project_slug=project_slug):
-        if deliver_notification(log_id, lease_token):
-            sent += 1
-        elif NotificationLog.objects.filter(
-            pk=log_id,
-            status=NotificationLog.Status.CANCELLED,
-        ).exists():
-            cancelled += 1
-        else:
-            failed += 1
-    return {
-        "processed": materialized + sent + failed + cancelled,
-        "materialized": materialized,
-        "sent": sent,
-        "failed": failed,
-        "cancelled": cancelled,
-    }
+    return materialized, cancelled, claim_notifications(project_slug=project_slug)
 
 
 def materialize_profile_events(profile, *, today=None):

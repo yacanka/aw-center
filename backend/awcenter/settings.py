@@ -281,6 +281,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'simple_history.middleware.HistoryRequestMiddleware',
+    'awcenter.developer_reset_middleware.DeveloperResetWriteMiddleware',
 ]
 
 if not DEBUG:

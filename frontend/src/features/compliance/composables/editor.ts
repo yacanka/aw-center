@@ -40,7 +40,8 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     computed(() => compdocStore.getProjectName),
     numberingFormat,
     computed(() => showModal.value && numberSource.value === 'numarator'),
-    computed(() => allocation.value?.context_data)
+    computed(() => allocation.value?.context_data),
+    computed(() => [compdoc.value])
   )
   const allocationOperationId = ref('')
   const allocationSubmitting = ref(false)

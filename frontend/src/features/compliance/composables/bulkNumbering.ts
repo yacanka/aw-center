@@ -9,7 +9,7 @@ import {
 } from '../api/compdocNumbering'
 import { buildCompdocUpdatePayload } from '../api/compdocPayload'
 import type { ICompDoc } from '../models/compdocs'
-import { useNumberingContext } from './numberingContext'
+import { documentNumberingContext, useNumberingContext } from './numberingContext'
 import { formatApiError } from '@/shared/api/apiError'
 
 interface NumberingRow {
@@ -40,11 +40,13 @@ export function useBulkNumbering(
   const formats = ref<string[]>([])
   const format = ref('')
   const submittedContext = ref<Record<string, string>>()
+  const rows = ref<NumberingRow[]>([])
   const context = useNumberingContext(
     ref(project),
     format,
     computed(() => visible.value && available.value),
-    submittedContext
+    submittedContext,
+    computed(() => rows.value.filter((row) => row.selected).map((row) => row.document))
   )
   let pageIds = ''
   const currentPageIds = () =>
@@ -53,7 +55,6 @@ export function useBulkNumbering(
       .sort()
       .join(',')
   const error = ref('')
-  const rows = ref<NumberingRow[]>([])
   let disposed = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const selected = computed(() => rows.value.filter((row) => row.selected))
@@ -160,7 +161,7 @@ export function useBulkNumbering(
           buildCompdocUpdatePayload(row.document),
           row.document.id,
           format.value,
-          submittedContext.value
+          documentNumberingContext(submittedContext.value || {}, row.document)
         )
       )
     } catch (cause) {

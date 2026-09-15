@@ -11,7 +11,15 @@ Documents table. The preview uses only the active, unnumbered documents on the c
 table page, after search and filters. It never fetches other pages. Users can deselect documents and choose one of the project's allowed
 Numarator formats before submitting. Each selected format exposes its dynamic
 context fields with required flags, default hints and maximum lengths. Supplied
-values apply to all selected documents and are frozen with each allocation request.
+Manual values apply to all selected documents and are frozen with each allocation request.
+The exact, case-sensitive keywords `ata` and `moc` are filled automatically for each
+document: `ata` uses its panel's ATA chapter with all hyphens removed (for example
+`27-00` becomes `2700`, `05-10` becomes `0510`), preserving leading zeros and the
+stored chapter value. Format length limits apply to the hyphen-free value. `moc` uses its
+MOC value (including `0`). These fields are read-only in the numbering form and
+follow document edits before submission. Missing required values or values longer
+than the format allows prevent submission; correct the document first. Other
+keyword names, including `ATA` and `ata_chapter`, remain manual.
 
 Requests are submitted sequentially through the existing document allocation API.
 Each document retains its own operation ID and versioned snapshot for retries.
@@ -38,4 +46,10 @@ blank inputs use the defaults declared by Numarator; required fields prevent
 submission. Format lookup errors block new allocations instead of silently
 assuming a format has no custom fields. Legacy API callers that omit
 `context_data` retain the implicit project context; explicit context objects are
-forwarded as supplied. Project authorization remains tied to the route and model.
+forwarded as supplied except for `ata` and `moc` keys, which the backend resolves
+from the validated document input (or existing document for omitted fields).
+Only keys present in the context request trigger this mapping; no keywords are
+added to unrelated formats. Resolved values are persisted when the allocation is
+created and reused on retries. Empty document values are omitted, allowing optional
+Numarator defaults while required-field validation still blocks number generation.
+Project authorization remains tied to the route and model.

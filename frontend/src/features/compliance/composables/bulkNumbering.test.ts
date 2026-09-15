@@ -89,6 +89,21 @@ describe('bulk cover page numbering', () => {
     await state.submit()
     expect(mocks.create).toHaveBeenCalledTimes(1)
   })
+  it('sends each selected document’s own ATA and MOC values', async () => {
+    mocks.format.mockResolvedValue({
+      fields: ['ata', 'moc'].map((key) => ({ key, required: true, default: null, max_length: 5 }))
+    })
+    const state = await setup()
+    expect(state.canSubmit.value).toBe(false)
+    Object.assign(state.rows.value[0].document, { ata: '27-00', moc: '0' })
+    Object.assign(state.rows.value[1].document, { ata: '28-00', moc: '3' })
+    expect(state.canSubmit.value).toBe(true)
+    await state.submit()
+    expect(mocks.create.mock.calls.map((call) => call[5])).toEqual([
+      { ata: '2700', moc: '0' },
+      { ata: '2800', moc: '3' }
+    ])
+  })
   it('continues after a failure and reuses the same identity and snapshot on retry', async () => {
     mocks.create.mockRejectedValueOnce(new Error('Connection lost')).mockResolvedValue(queued)
     const state = await setup()
