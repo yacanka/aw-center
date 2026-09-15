@@ -66,3 +66,11 @@ test('accepts only bounded internal post-login redirects', () => {
   assert.equal(safePostLoginPath('/login?redirect=/users'), '/home')
   assert.equal(safePostLoginPath(`/${'a'.repeat(600)}`), '/home')
 })
+
+test('limits the test data reset page to superusers', () => {
+  const policy = navigationAccessPolicy('/developer/test-data')
+  assert.equal(resolveRouteAccess(policy, null), 'login')
+  assert.equal(resolveRouteAccess(policy, standardUser), 'forbidden')
+  assert.equal(resolveRouteAccess(policy, staffUser), 'forbidden')
+  assert.equal(resolveRouteAccess(policy, superuser), 'allow')
+})

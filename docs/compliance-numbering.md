@@ -1,5 +1,11 @@
 # Bulk cover page numbering
 
+Excel import accepts a missing **Cover Page Number** column or blank cells. Only
+the document name is required. Unnumbered documents receive independent cover
+pages and can use **Assign missing numbers** after import. Reimport matching still
+uses cover number plus document name or technical number; export and retain the
+document UUID when updating a document after its number has been assigned.
+
 Editors can open **Assign missing numbers** beside **New** in the Compliance
 Documents table. The preview uses only the active, unnumbered documents on the currently displayed
 table page, after search and filters. It never fetches other pages. Users can deselect documents and choose one of the project's allowed

@@ -132,7 +132,8 @@ function doorsGroup(): ProjectMenuOption {
 
 function developerGroup(): ProjectMenuOption {
   return groupItem('Developer', '/developer', 'developer', Code24Regular, [
-    menuItem('DOORS', '/developer/doors', 'developerDoors', Door20Regular)
+    menuItem('DOORS', '/developer/doors', 'developerDoors', Door20Regular),
+    menuItem('Test Data', '/developer/test-data', 'developerTestData', Code24Regular)
   ])
 }
 

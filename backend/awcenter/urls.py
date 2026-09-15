@@ -3,6 +3,8 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from compliance.developer import DeveloperResetView
+
 from attention.api import action_center, action_center_decision
 from users.session_api import SessionView
 
@@ -13,6 +15,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/live/", health_live, name="health-live"),
     path("health/ready/", health_ready, name="health-ready"),
+    path("api/developer/compliance-organization-reset/", DeveloperResetView.as_view(), name="developer-compliance-organization-reset"),
     path("api/session/", SessionView.as_view(), name="session"),
     path("api/projects/", include("projects.urls")),
     path(

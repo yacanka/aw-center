@@ -139,3 +139,25 @@ Fresh migration canonical project satırlarını seed eder. Ayrı bir runtime pr
 - Eski schema dump'ını fresh baseline üstüne kısmi import etmek.
 - Database backup ile private artifact snapshot'ını farklı zamanlardan eşleştirmek.
 - Reset'i data migration/upgrade mekanizması olarak sunmak.
+
+## Developer sekmesinden compliance ve organization test verisi sıfırlama
+
+**Developer → Test Data** yalnız superuser hesabına görünür. API hem `DEBUG=True`
+hem `AWCENTER_DEPLOYMENT_MODE=development` ister; production profillerinde kapalıdır.
+
+1. Diğer test işlemlerini durdurun. Aktif/bekleyen işleri tamamlayın veya iptal edin;
+   tamamlanmamış numaratör tahsislerini uzlaştırın.
+2. **Preview reset** ile tüm projelerde silinecek kayıt sayılarını inceleyin.
+3. Gösterilen `RESET COMPLIANCE AND ORGANIZATION` ifadesini yazıp sıfırlayın.
+   Önizleme beş dakika geçerlidir; sayılar değişirse yeni önizleme gerekir.
+
+İşlem tek transaction içinde belgeleri, coverpage kayıtlarını, yerel numara tahsislerini,
+review/workflow/tracking/notification verilerini, geçmişleri, import kayıt ve ayarlarını,
+panelleri, sorumlu atamalarını, kişi rehberini ve compliance/organization rollerini siler.
+Proje kataloğu, giriş hesapları, DCC verileri ve DCC rolleri korunur. Kullanıcıların
+compliance/organization erişim rollerini test öncesi yeniden atayın.
+
+Numaratör tarafında alınmış numaralar geri verilmez veya sıfırlanmaz. Job kayıtları ve
+private artifact dosyaları bu aracın kapsamı dışındadır. Araç diğer kullanıcıların yeni
+işlem başlatmasını engelleyen bir bakım modu sağlamaz; yalnız izole local test
+ortamında kullanın. Bu ekran bütün veritabanını veya migration geçmişini sıfırlamaz.

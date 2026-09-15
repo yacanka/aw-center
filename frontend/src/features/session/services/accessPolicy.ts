@@ -1,6 +1,7 @@
 import type { IUser } from '@/features/session/models/auth'
 
 export interface AccessRule {
+  superuserOnly?: boolean
   staffOnly?: boolean
   anyPermissions?: string[]
   allPermissions?: string[]
@@ -31,6 +32,9 @@ const NAVIGATION_POLICIES: Record<string, RouteAccessPolicy> = {
   },
   '/ddfAssistant': {
     allow: [{ anyPermissions: ['ddf.view_ddf', 'ddf.add_ddf'] }]
+  },
+  '/developer/test-data': {
+    allow: [{ superuserOnly: true }]
   },
   '/developer/doors': {
     allow: [{ staffOnly: true }]
@@ -99,6 +103,7 @@ function filterNavigationGroup<T extends NavigationAccessItem<T>>(
 }
 
 function ruleAllowsUser(rule: AccessRule, user: IUser): boolean {
+  if (rule.superuserOnly && !user.is_superuser) return false
   if (rule.staffOnly && !user.is_staff) return false
   if (rule.allPermissions?.some((permission) => !hasEffectivePermission(user, permission))) {
     return false

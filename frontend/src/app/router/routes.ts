@@ -52,6 +52,12 @@ export const routes: RouteRecordRaw[] = [
     component: lazyRoute(() => import('@/features/tools/pages/doors/DoorsAgent.vue'))
   },
   {
+    path: '/developer/test-data',
+    name: 'developerTestData',
+    meta: { access: navigationAccessPolicy('/developer/test-data') },
+    component: lazyRoute(() => import('@/features/tools/pages/DeveloperTestData.vue'))
+  },
+  {
     path: '/developer/doors',
     name: 'developerDoors',
     meta: { access: navigationAccessPolicy('/developer/doors') },

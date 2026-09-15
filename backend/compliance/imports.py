@@ -145,10 +145,10 @@ def prepare_plan(uploaded_file, project, request, *, lock_existing=False) -> Imp
 
     source_rows = tuple(
         (
-            int(index) + header.header_row_index + 2,
-            source.to_dict(),
+            index + header.header_row_index + 2,
+            source,
         )
-        for index, source in dataframe.iterrows()
+        for index, source in enumerate(dataframe.to_dict(orient="records"))
     )
     return prepare_tabular_plan(
         source_rows,
@@ -193,6 +193,7 @@ def prepare_tabular_plan(
     cover_pages_by_number = {
         _canonical_identity(cover_page.number): cover_page
         for cover_page in cover_pages
+        if cover_page.number
     }
     by_id = {str(document.pk): document for document in existing_documents}
     by_key = {}
@@ -237,6 +238,8 @@ def prepare_tabular_plan(
     for _, normalized_row in normalized:
         cover_data = normalized_row["payload"]["cover_page"]
         cover_key = _canonical_identity(cover_data["number"])
+        if not cover_key:
+            continue
         cover_issue_requests.setdefault(cover_key, set()).add(
             _normalized_cover_issue(cover_data.get("issue"))
         )
@@ -335,6 +338,10 @@ def prepare_tabular_plan(
         cover_page = cover_pages_by_number.get(
             _canonical_identity(payload["cover_page"]["number"])
         )
+        if target is not None and not payload["cover_page"]["number"]:
+            cover_page = target.cover_page
+            # Missing import numbers must not detach a previously allocated cover.
+            payload["cover_page"]["number"] = cover_page.number
         if cover_page is not None:
             payload["cover_page"]["version"] = cover_page.version
 
@@ -384,8 +391,6 @@ def _normalize_row(source, panel_lookup):
     cover_number = str(values.get("cover_page_no") or "").strip()
     if not name:
         raise ValidationError({"name": "Document name is required."})
-    if not cover_number:
-        raise ValidationError({"cover_page_no": "Cover-page number is required."})
 
     panel = _resolve_panel(values, panel_lookup)
 
