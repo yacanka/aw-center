@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NAlert, NButton, NFormItem, NInput, NSpace, NText } from 'naive-ui'
 import type { NumberingContextField } from '../api/compdocNumbering'
+import { isDocumentKeyword } from '../composables/numberingContext'
 defineProps<{
   fields: NumberingContextField[]
   values: Record<string, string>
@@ -35,8 +36,14 @@ function update(values: Record<string, string>, key: string, value: string) {
       <n-input
         :value="values[field.key] || ''"
         :maxlength="field.max_length"
-        :placeholder="field.default === null ? field.key : String(field.default)"
-        :disabled="disabled"
+        :placeholder="
+          isDocumentKeyword(field.key)
+            ? 'From compliance document'
+            : field.default === null
+              ? field.key
+              : String(field.default)
+        "
+        :disabled="disabled || isDocumentKeyword(field.key)"
         :input-props="{
           id: `${idPrefix}-${index}`,
           required: field.required,
@@ -47,6 +54,9 @@ function update(values: Record<string, string>, key: string, value: string) {
       />
       <template #feedback>
         <span :id="`${idPrefix}-${index}-hint`">
+          <template v-if="isDocumentKeyword(field.key)"
+            >Filled automatically from each compliance document.
+          </template>
           {{ field.max_length }} characters maximum.{{
             !field.required ? ` Default: ${field.default ?? '—'}.` : ''
           }}

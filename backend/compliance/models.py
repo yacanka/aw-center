@@ -544,3 +544,14 @@ class DocumentPurgeAudit(models.Model):
     class Meta:
         ordering = ["-purged_at"]
         indexes = [models.Index(fields=["project", "purged_at"])]
+
+
+class DeveloperResetState(models.Model):
+    """Durable development-only write pause, released explicitly or after reset."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    active = models.BooleanField(default=False)
+    generation = models.UUIDField(default=uuid.uuid4, editable=False)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(id=1), name="compliance_reset_singleton")]

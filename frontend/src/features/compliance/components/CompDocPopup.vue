@@ -43,7 +43,7 @@
           v-if="numberSource === 'numarator' && numberingFormat"
           id-prefix="document-context"
           :fields="numberingContext.fields.value"
-          :values="numberingContext.values.value"
+          :values="numberingContext.displayValues.value"
           :loading="numberingContext.loading.value"
           :error="numberingContext.error.value"
           :disabled="formReadonly"

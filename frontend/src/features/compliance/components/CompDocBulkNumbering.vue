@@ -133,7 +133,7 @@ defineExpose({ open: state.open })
           v-if="available && format"
           id-prefix="bulk-context"
           :fields="state.context.fields.value"
-          :values="state.context.values.value"
+          :values="state.context.displayValues.value"
           :loading="state.context.loading.value"
           :error="state.context.error.value"
           :disabled="started || !canEdit"

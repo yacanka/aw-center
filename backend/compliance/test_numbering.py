@@ -480,6 +480,61 @@ class CoverPageNumberingTests(TestCase):
         self.assertEqual(Job.objects.count(), 1)
 
     @patch("compliance.numbering_executor.NumaratorClient")
+    def test_document_keywords_are_resolved_persisted_and_sent(self, client_class):
+        client = client_class.return_value
+        client.describe_format.return_value = {"fields": [
+            {"key": key, "required": True, "default": None, "max_length": 4}
+            for key in ("ata", "moc")
+        ]}
+        client.generate_number.return_value = GeneratedNumber(81, "CP-2700-0", "COVER_PAGE", "active", "")
+        client.mark_used.return_value = GeneratedNumber(81, "CP-2700-0", "COVER_PAGE", "used", "")
+        payload = self.payload()
+        payload["document"]["moc"] = "0"
+        payload["context_data"] = {"ata": "wrong", "moc": "9", "ATA": "manual"}
+        first = self.client.post(self.url, payload, format="json")
+        expected = {"ata": "2700", "moc": "0", "ATA": "manual"}
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(first.data["context_data"], expected)
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.ata, "27-00")
+        self.panel.ata = "28-00"
+        self.panel.save()
+        replay = self.client.post(self.url, payload, format="json")
+        self.assertEqual(replay.data["context_data"], expected)
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        self.assertEqual(client.generate_number.call_args.kwargs["context_data"], expected)
+        allocation = CoverPageNumberAllocation.objects.get(pk=first.data["id"])
+        self.assertEqual(allocation.status, CoverPageNumberAllocation.Status.COMPLETED)
+
+    @patch("compliance.numbering_executor.NumaratorClient")
+    def test_missing_document_keyword_cannot_be_replaced_by_manual_input(self, client_class):
+        client = client_class.return_value
+        client.describe_format.return_value = {"fields": [
+            {"key": "moc", "required": True, "default": None, "max_length": 1},
+        ]}
+        payload = self.payload()
+        payload["context_data"] = {"moc": "3"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.data["context_data"], {})
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        allocation = CoverPageNumberAllocation.objects.get(pk=response.data["id"])
+        self.assertEqual(allocation.current_job.error_code, "NUMARATOR_CONTEXT_INVALID")
+        client.generate_number.assert_not_called()
+
+    def test_existing_document_keywords_use_existing_values_when_omitted(self):
+        cover = CoverPage.objects.create(project=self.project, number="")
+        document = ComplianceDocument.objects.create(
+            project=self.project, panel=self.panel, cover_page=cover, name="Existing", moc="2",
+        )
+        payload = self.payload(name="Existing")
+        del payload["document"]["panel"]
+        payload["document_id"] = str(document.pk)
+        payload["context_data"] = {"ata": "", "moc": ""}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data["context_data"], {"ata": "2700", "moc": "2"})
+
+    @patch("compliance.numbering_executor.NumaratorClient")
     def test_missing_required_context_never_consumes_a_number(self, client_class):
         client = client_class.return_value
         client.describe_format.return_value = {"fields": [
