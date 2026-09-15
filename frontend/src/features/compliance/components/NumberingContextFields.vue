@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NAlert, NButton, NFormItem, NInput, NSpace, NText } from 'naive-ui'
 import type { NumberingContextField } from '../api/compdocNumbering'
 defineProps<{
   fields: NumberingContextField[]
@@ -9,75 +10,48 @@ defineProps<{
   idPrefix: string
 }>()
 const emit = defineEmits<{ 'update:values': [value: Record<string, string>]; retry: [] }>()
-function update(values: Record<string, string>, key: string, event: Event) {
-  emit('update:values', { ...values, [key]: (event.target as HTMLInputElement).value })
+function update(values: Record<string, string>, key: string, value: string) {
+  emit('update:values', { ...values, [key]: value })
 }
 </script>
 <template>
-  <div class="numbering-context">
-    <p v-if="loading" role="status">Loading format fields…</p>
-    <div v-else-if="error" role="alert">
-      <p>{{ error }}</p>
-      <n-button size="small" :disabled="disabled" @click="emit('retry')"
-        >Retry loading fields</n-button
-      >
-    </div>
-    <div v-for="(field, index) in fields" :key="`${field.key}-${index}`" class="context-field">
-      <label :for="`${idPrefix}-${index}`"
-        >{{ field.key }}{{ field.required ? ' (required)' : '' }}</label
-      >
-      <input
-        :id="`${idPrefix}-${index}`"
-        :value="values[field.key]"
-        :required="field.required"
+  <n-space vertical :size="12">
+    <n-text v-if="loading" depth="3" role="status">Loading format fields…</n-text>
+    <n-alert v-else-if="error" type="error" :bordered="false" role="alert">
+      <n-space vertical>
+        <span>{{ error }}</span>
+        <n-button size="small" :disabled="disabled" @click="emit('retry')"
+          >Retry loading fields</n-button
+        >
+      </n-space>
+    </n-alert>
+    <n-form-item
+      v-for="(field, index) in fields"
+      :key="`${field.key}-${index}`"
+      :label="field.key"
+      :label-props="{ for: `${idPrefix}-${index}` }"
+      :required="field.required"
+    >
+      <n-input
+        :value="values[field.key] || ''"
         :maxlength="field.max_length"
         :placeholder="field.default === null ? field.key : String(field.default)"
         :disabled="disabled"
-        :aria-describedby="`${idPrefix}-${index}-hint`"
-        @input="update(values, field.key, $event)"
+        :input-props="{
+          id: `${idPrefix}-${index}`,
+          required: field.required,
+          'aria-describedby': `${idPrefix}-${index}-hint`
+        }"
+        @update:value="update(values, field.key, $event)"
         @keydown.enter.prevent
       />
-      <small :id="`${idPrefix}-${index}-hint`"
-        >{{ field.max_length }} characters maximum.{{
-          !field.required ? ` Default: ${field.default ?? '—'}.` : ''
-        }}</small
-      >
-    </div>
-  </div>
+      <template #feedback>
+        <span :id="`${idPrefix}-${index}-hint`">
+          {{ field.max_length }} characters maximum.{{
+            !field.required ? ` Default: ${field.default ?? '—'}.` : ''
+          }}
+        </span>
+      </template>
+    </n-form-item>
+  </n-space>
 </template>
-<style scoped>
-.numbering-context {
-  display: grid;
-  gap: 12px;
-}
-.context-field {
-  display: grid;
-  gap: 6px;
-}
-label {
-  font-weight: 600;
-}
-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #8c8c94;
-  border-radius: 0;
-  padding: 10px;
-  font: inherit;
-  background: #ffffff;
-  color: #171717;
-}
-input:focus-visible {
-  outline: 2px solid #002fa7;
-  outline-offset: 2px;
-}
-input:disabled {
-  opacity: 0.6;
-}
-small {
-  line-height: 1.5;
-}
-p {
-  margin: 0;
-}
-</style>
