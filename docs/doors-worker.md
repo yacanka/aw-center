@@ -157,8 +157,12 @@ dosya yalnız doğru tamamlanma işaretinden sonra UTF-8 olarak okunur.
 
 Module-check, genel ayardan bağımsız olarak her zaman `application_result`
 kullanır. Yalnız `OK` + `MODULE_OPENED` sonucu erişimi doğrular; beklenmeyen veya
-eksik cevap `DOORS_DXL_FAILED` olur. Bulunamayan ya da okunamayan formal modül
-`DOORS_OPEN_MODULE` üretir; bu kod bulunamama ile izin eksikliğini ayırmaz.
+eksik cevap `DOORS_DXL_FAILED` olur. Tek bir geçerli `ERR\tOPEN_MODULE\t...`
+cevabı kontrolün tamamlandığını fakat modülün okunamadığını belirtir: job
+`succeeded`, artifact `accessible: false`, `operation_result.outcome: negative`
+ve `operation_result.code: OPEN_MODULE` üretir. Bu kod bulunamama ile izin
+eksikliğini ayırmaz; arayüz "Module not found or no read access" gösterir.
+Diğer okuma işlemlerinde `OPEN_MODULE` hâlâ `failed` / `DOORS_OPEN_MODULE` olur.
 Önceden açık modül kapatılmaz. Geçici worker artifact'larındaki Windows silme
 kilitleri sınırlı tekrar ile temizlenir; kalıcı kilit uyarı olarak kaydedilir ve
 başarıyı veya asıl DOORS hata kodunu değiştirmez. Kalıcı kilitte geçici dosya
@@ -172,6 +176,34 @@ onayıyla başarılı sayılır. Liste/export ve diğer çok satırlı işlemler
 tamamlanma işaretini gerektirir. Eksik/bozuk sonuç okumalarda `DOORS_DXL_FAILED`,
 gönderilmiş yazmalarda `RECONCILIATION_REQUIRED` olur; belirsiz yazma otomatik
 olarak dosya kanalında yeniden çalıştırılmaz.
+
+Update/create işlemleri mevcut modül handle'ını `data(moduleVersion(...))` ve
+`isRead` ile kontrol eder. Read modunda açıksa `edit(..., false, true)` ile
+exclusive edit açmayı dener ve `isEdit` doğrulanmadan nesneye yazmaz. Önceden
+edit/shared modunda açık modülü değiştirmez veya kapatmaz; açıklamalı
+`DOORS_MODULE_ALREADY_OPEN` hatası döner. İşlem sonunda kaydedilmemiş kısmi
+değişiklikler `close(module, false)` ile atılır; önceden açık reader aynı
+görünürlükte yeniden read açılır. Görünüm/seçim yeniden açılınca sıfırlanabilir.
+Linker'ın önceden açık yazma kaynağını reddetme sözleşmesi korunur.
+
+### Yapılandırılmış işlem sonuçları
+
+Her başarılı DOORS artifact'ı mevcut çıktı alanlarına ek olarak `operation_result`
+alanı taşır: `schema_version: 1`, `operation`, `outcome` (`success`/`negative`),
+`code`, sabit ve güvenli `message`, doğrulanmış `input`. Çıktılar mevcut kök
+alanlarda kalır (`accessible`, `absolute_number`, `results`, `summary` vb.);
+büyük listeler kopyalanmaz. Örneğin create çıktısının `absolute_number` değeri
+ve `operation_result.input.module_path`, bir sonraki update'in girdisi olabilir.
+Bu sözleşme otomatik workflow yürütme veya yetki devri sağlamaz; her yeni istek
+mevcut validation, authorization ve idempotency kontrollerinden geçer.
+
+Developer / DOORS sayfası işi takip eder, tamamlanınca owner-only ve SHA-256
+doğrulamalı download üzerinden sonucu okur; kod, açıklama, input ve output'u
+gösterir. Nesne sonucu bir sonraki işlemin module/absolute/relative alanlarına
+kullanıcı düğmesiyle aktarılır. Sonuç indirilemezse yalnız indirme yeniden
+denenir; yazma işi tekrarlanmaz. Eski artifact'lar korunur ve indirilebilir;
+`operation_result` içermeyen eski çıktılar yeni sonuç panelinde desteklenmez.
+Ham DXL hata metinleri artifact'a veya kullanıcıya aktarılmaz.
 
 `DEBUG=True` olduğunda `DoorsClient.run_dxl`, çalıştırmayı denemeden önce tam
 üretilmiş DXL'i worker konsoluna `[DOORS run_dxl]` ve `[/DOORS run_dxl]` arasında
@@ -202,8 +234,10 @@ loglanmamalıdır.
 
 Module-check kabul ölçütleri: DOORS kapalıyken ve açıkken mevcut formal modül
 `succeeded` ve hash'i doğrulanan `accessible: true` JSON artifact'ı üretir.
-Olmayan veya erişilemeyen modül `failed` / `DOORS_OPEN_MODULE` üretir ve indirme
-artifact'ı oluşturmaz. Gerçek DXL derleme/çalıştırma bu Windows denemesini gerektirir;
+Olmayan veya erişilemeyen modül `succeeded` ve `accessible: false` artifact'ı
+üretir; arayüz olumsuz erişim sonucunu gösterir. Read modunda açık disposable
+modülde update/create başarılı olmalı ve reader yeniden açılmalıdır; edit/shared
+modunda açıkken işlem yazmadan reddedilmelidir. Gerçek DXL derleme/çalıştırma bu Windows denemesini gerektirir;
 yerel contract testleri COM yanıtını taklit eder, DXL yorumlayıcısı çalıştırmaz.
 
 Windows canary sırası: DOORS kapalıyken modül kontrolü; aynı istemcide ikinci kontrol;

@@ -106,12 +106,12 @@ oleSetResult("AW_DOORS_OK|" awc_result_file)
 '''.strip()
 
 
-def open_module(module_path: str, mode: str) -> str:
+def open_module(module_path: str, mode: str, *, promote_read: bool = False) -> str:
     """Build an escaped DXL module-open statement."""
-    return open_named_module(dxl_quote(module_path), mode, "module")
+    return open_named_module(dxl_quote(module_path), mode, "module", promote_read=promote_read)
 
 
-def open_named_module(path: str, mode: str, variable: str) -> str:
+def open_named_module(path: str, mode: str, variable: str, *, promote_read: bool = False) -> str:
     """Open a module from a trusted DXL expression while tracking ownership."""
     statements = {
         "read": f"read({path}, false)",
@@ -130,12 +130,32 @@ if (!null awc_ref_{variable}) {{
 }}'''
     if mode == "read":
         return f"{owned}\nModule {variable} = {statements[mode]}"
+    promotion = ""
+    if promote_read:
+        # Inspect the loaded handle without opening/downgrading an editor's
+        # module. Only an existing reader may be promoted by a CRUD write.
+        promotion = f'''
+bool awc_restore_{variable} = false
+bool awc_display_{variable} = false
+if (!awc_owns_{variable}) {{
+    Module awc_existing_{variable} = data(moduleVersion(awc_ref_{variable}))
+    if (!null awc_existing_{variable} && isRead(awc_existing_{variable})) {{
+        awc_restore_{variable} = true
+        awc_display_{variable} = isVisible(awc_existing_{variable})
+        awc_owns_{variable} = true
+    }}
+}}'''
+    rejection = (
+        "Close the module's existing edit or shared session before submitting a write"
+        if promote_read else "Close the module in the desktop client before submitting a write"
+    )
     return f'''{owned}
+{promotion}
 Module {variable} = null
 if (awc_owns_{variable}) {{
     {variable} = {statements[mode]}
 }} else {{
-    awc_error("MODULE_ALREADY_OPEN", "Close the module in the desktop client before submitting a write")
+    awc_error("MODULE_ALREADY_OPEN", "{rejection}")
 }}'''
 
 def attribute_fragments(attributes: Iterable[str]) -> tuple[str, list[str], list[str]]:

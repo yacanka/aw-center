@@ -53,24 +53,64 @@
       </n-space>
     </n-card>
 
-    <n-card title="Last queued job">
-      <n-code :code="responseText" language="json" word-wrap />
-      <template v-if="lastJob" #action>
-        <n-button type="primary" @click="openJob">Open in Job Center</n-button>
-      </template>
+    <n-alert v-if="lastError || errorMessage" type="error">
+      {{ lastError || errorMessage }}
+    </n-alert>
+    <PageJobStatus
+      :job="job"
+      :cancelling="cancelling"
+      :downloading="downloading"
+      @cancel="cancel"
+      @download="download"
+      @open="openJobCenter"
+    />
+    <n-alert v-if="job?.error_code" type="error" :title="job.error_code">
+      {{ job.message }}
+    </n-alert>
+    <n-card v-if="job?.status === 'succeeded'" title="DOORS operation result">
+      <n-space vertical>
+        <n-text v-if="resultLoading">Loading operation result…</n-text>
+        <n-alert v-if="resultError" type="error">
+          {{ resultError }}
+          <n-button :loading="resultLoading" @click="loadResult(job)"
+            >Retry loading result</n-button
+          >
+        </n-alert>
+        <template v-if="result">
+          <n-alert
+            :type="result.operation_result.outcome === 'negative' ? 'warning' : 'success'"
+            :title="resultTitle"
+          >
+            {{ result.operation_result.message }}
+          </n-alert>
+          <n-text>Result code: {{ result.operation_result.code }}</n-text>
+          <n-text>Module: {{ result.operation_result.input.module_path }}</n-text>
+          <n-text v-if="result.absolute_number">Object: {{ result.absolute_number }}</n-text>
+          <n-button v-if="result.absolute_number" @click="useResultObject">
+            Use this object for the next operation
+          </n-button>
+          <n-text>Input</n-text>
+          <n-code :code="inputText" language="json" word-wrap />
+          <n-text>Output</n-text>
+          <n-code :code="outputText" language="json" word-wrap />
+        </template>
+      </n-space>
     </n-card>
   </n-space>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { formatApiError } from '@/shared/api/apiError'
+import PageJobStatus from '@/features/jobs/components/PageJobStatus.vue'
+import { usePageJob } from '@/features/jobs/composables/usePageJob'
 import {
   enqueueDoorsModuleCheck,
   enqueueDoorsObjectCreate,
   enqueueDoorsObjectUpdate,
   fetchDoorsStatus,
+  fetchDoorsDeveloperResult,
+  type DoorsDeveloperResult,
   type DoorsStatus,
   type DoorsPosition,
   type DoorsScalarAttributes
@@ -79,7 +119,17 @@ import type { Job } from '@/features/jobs/api/jobs'
 
 type Operation = 'check' | 'update' | 'create'
 
-const router = useRouter()
+const {
+  job,
+  active,
+  cancelling,
+  downloading,
+  errorMessage,
+  cancel,
+  download,
+  openJobCenter,
+  setJob
+} = usePageJob('doors_developer_job')
 const modulePath = ref('')
 const absoluteNumber = ref(1)
 const position = ref<DoorsPosition>('after')
@@ -90,8 +140,11 @@ const attributesJson = ref(
 const worker = ref<DoorsStatus | null>(null)
 const statusLoading = ref(false)
 const busy = ref<Operation | null>(null)
-const lastJob = ref<Job | null>(null)
-const lastError = ref('No request has been sent yet.')
+const lastError = ref('')
+const result = ref<DoorsDeveloperResult | null>(null)
+const resultLoading = ref(false)
+const resultError = ref('')
+let disposed = false
 const attempts = new Map<Operation, { fingerprint: string; key: string }>()
 
 const positionOptions = ['first', 'after', 'before', 'below', 'below_last'].map((value) => ({
@@ -99,13 +152,63 @@ const positionOptions = ['first', 'after', 'before', 'below', 'below_last'].map(
   value
 }))
 const canQueue = computed(() =>
-  Boolean(worker.value?.available && modulePath.value.trim() && !busy.value)
+  Boolean(
+    worker.value?.available &&
+    modulePath.value.trim() &&
+    !busy.value &&
+    !active.value &&
+    !resultLoading.value
+  )
 )
-const responseText = computed(() =>
-  JSON.stringify(lastJob.value || { error: lastError.value }, null, 2)
-)
+const inputText = computed(() => JSON.stringify(result.value?.operation_result.input, null, 2))
+const outputText = computed(() => {
+  if (!result.value) return ''
+  const { operation_result: metadata, ...output } = result.value
+  return JSON.stringify({ ...output, code: metadata.code, outcome: metadata.outcome }, null, 2)
+})
+const resultTitle = computed(() => {
+  if (result.value?.operation_result.operation === 'check_module') {
+    return result.value.accessible
+      ? 'Module found and readable'
+      : 'Module not found or no read access'
+  }
+  return result.value?.operation_result.operation === 'create_object'
+    ? 'Object created'
+    : 'Attributes updated'
+})
 
 onMounted(loadStatus)
+onBeforeUnmount(() => {
+  disposed = true
+})
+watch(
+  () => [job.value?.id, job.value?.status],
+  () => {
+    result.value = null
+    resultError.value = ''
+    if (job.value?.status === 'succeeded') void loadResult(job.value)
+  }
+)
+
+async function loadResult(completedJob: Job): Promise<void> {
+  resultLoading.value = true
+  resultError.value = ''
+  try {
+    const loaded = await fetchDoorsDeveloperResult(completedJob)
+    if (!disposed && job.value?.id === completedJob.id) result.value = loaded
+  } catch (error) {
+    if (!disposed && job.value?.id === completedJob.id) resultError.value = formatApiError(error)
+  } finally {
+    if (!disposed && job.value?.id === completedJob.id) resultLoading.value = false
+  }
+}
+
+function useResultObject(): void {
+  if (!result.value?.absolute_number) return
+  modulePath.value = result.value.operation_result.input.module_path
+  absoluteNumber.value = result.value.absolute_number
+  relativeAbsoluteNumber.value = result.value.absolute_number
+}
 
 async function loadStatus(): Promise<void> {
   statusLoading.value = true
@@ -154,7 +257,7 @@ async function queue(
   input: object,
   action: (idempotencyKey: string) => Promise<Job>
 ): Promise<void> {
-  if (!worker.value?.available || !modulePath.value.trim() || busy.value) return
+  if (!canQueue.value) return
   const fingerprint = JSON.stringify(input)
   const currentAttempt = attempts.get(operation)
   if (!currentAttempt || currentAttempt.fingerprint !== fingerprint) {
@@ -162,9 +265,10 @@ async function queue(
   }
 
   busy.value = operation
-  lastJob.value = null
+  lastError.value = ''
   try {
-    lastJob.value = await action(attempts.get(operation)!.key)
+    const queuedJob = await action(attempts.get(operation)!.key)
+    setJob(queuedJob)
     attempts.delete(operation)
     lastError.value = ''
     window.$message.success('DOORS automation job queued.')
@@ -200,9 +304,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isScalar(value: unknown): boolean {
   return value === null || ['string', 'number', 'boolean'].includes(typeof value)
-}
-
-function openJob(): void {
-  if (lastJob.value) void router.push({ path: '/jobs', query: { job: lastJob.value.id } })
 }
 </script>
