@@ -125,9 +125,21 @@ class DoorsExecutionPipelineTests(JobTestCase):
     def test_update_and_create_publish_confirmed_writes(self):
         values = {"module_path": "/Project/Module", "attributes": {"Object Text": "value"}}
         update = self.execute_operation("object-update-jobs", {**values, "absolute_number": 1}, ["OK\tATTRIBUTES_SAVED\n"])
-        self.assertTrue(self.download_success(update)["updated"])
+        updated = self.download_success(update)
+        self.assertTrue(updated["updated"])
+        self.assertEqual(updated["operation_result"]["code"], "ATTRIBUTES_SAVED")
+        self.assertEqual(updated["operation_result"]["input"]["absolute_number"], 1)
         created = self.execute_operation("object-create-jobs", {**values, "position": "first"}, ["CREATED\t2\tREQ-2\t1\nOK\tOBJECT_CREATED\n"])
-        self.assertEqual(self.download_success(created)["absolute_number"], 2)
+        result = self.download_success(created)
+        self.assertEqual(result["absolute_number"], 2)
+        self.assertEqual(result["operation_result"]["operation"], "create_object")
+        self.assertEqual(result["operation_result"]["code"], "OBJECT_CREATED")
+        next_update = self.execute_operation("object-update-jobs", {
+            "module_path": result["operation_result"]["input"]["module_path"],
+            "absolute_number": result["absolute_number"],
+            "attributes": {"Object Text": "next step"},
+        }, ["OK\tATTRIBUTES_SAVED\n"])
+        self.assertEqual(self.download_success(next_update)["absolute_number"], 2)
 
     def test_linker_preview_and_write_keep_reconciliation_contract(self):
         values = {
@@ -148,7 +160,7 @@ class DoorsExecutionPipelineTests(JobTestCase):
         self.assertNotIn("upstream detail", job.message)
 
     def test_read_error_returns_stable_code_without_upstream_data(self):
-        job = self.execute_operation("module-check-jobs", {"module_path": "/Project/Module"}, ["ERR\tOPEN_MODULE\tprivate upstream detail\n"])
+        job = self.execute_operation("object-list-jobs", {"module_path": "/Project/Module"}, ["ERR\tOPEN_MODULE\tprivate upstream detail\n"])
         self.assertEqual(job.status, JobStatus.FAILED)
         self.assertEqual(job.error_code, "DOORS_OPEN_MODULE")
         self.assertNotIn("private upstream detail", job.message)
@@ -168,9 +180,17 @@ class DoorsExecutionPipelineTests(JobTestCase):
             {"module_path": "/Project/Missing"},
             ["ERR\tOPEN_MODULE\tModule was not found\n"],
         )
-        self.assertEqual(missing.status, JobStatus.FAILED)
-        self.assertEqual(missing.error_code, "DOORS_OPEN_MODULE")
-        self.assertFalse(missing.output_file)
+        result = self.download_success(missing)
+        self.assertFalse(result["accessible"])
+        self.assertEqual(result["operation_result"], {
+            "schema_version": 1,
+            "operation": "check_module",
+            "outcome": "negative",
+            "code": "OPEN_MODULE",
+            "message": missing.message,
+            "input": {"module_path": "/Project/Missing"},
+        })
+        self.assertEqual(missing.error_code, "")
 
     def test_open_desktop_module_is_a_known_write_rejection(self):
         job = self.execute_operation("object-update-jobs", {
@@ -208,15 +228,16 @@ class DoorsExecutionPipelineTests(JobTestCase):
                     if exists:
                         self.assertTrue(self.download_success(job)["accessible"])
                     else:
-                        self.assertEqual(job.status, JobStatus.FAILED)
-                        self.assertEqual(job.error_code, "DOORS_OPEN_MODULE")
-                        self.assertFalse(job.output_file)
+                        result = self.download_success(job)
+                        self.assertFalse(result["accessible"])
+                        self.assertEqual(result["operation_result"]["code"], "OPEN_MODULE")
+                        self.assertNotIn("private detail", json.dumps(result))
                         self.assertNotIn("private detail", job.message)
                         response = self.client.get(f"/api/jobs/{job.id}/")
                         self.assertEqual(response.status_code, 200)
-                        self.assertEqual(response.data["error_code"], "DOORS_OPEN_MODULE")
-                        self.assertIn("read permission", response.data["recovery_hint"])
-                        self.assertIsNone(response.data["download_url"])
+                        self.assertEqual(response.data["error_code"], "")
+                        self.assertIn("read permission", response.data["message"])
+                        self.assertIsNotNone(response.data["download_url"])
 
     def test_invalid_module_result_fails_without_publishing_an_artifact(self):
         job = self.execute_operation("module-check-jobs", {"module_path": "/Project/Module"}, ["OK\tOTHER_OPERATION\n"])

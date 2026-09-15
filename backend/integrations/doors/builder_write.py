@@ -11,11 +11,13 @@ noError
 string awc_open_error = lastError
 if (!null awc_open_error || null module) {{
     awc_error("OPEN_MODULE_EDIT", awc_open_error)
+}} else if (!isEdit(module)) {{
+    awc_error("OPEN_MODULE_EDIT", "Exclusive edit access was not obtained")
 }} else {{
     Object object = object({absolute_number}, module)
     if (null object) {{
         awc_error("OBJECT_NOT_FOUND", "Object was not found")
-        close(module, false)
+        {close_statement}
     }} else {{
         bool awc_has_error = false
         {assignments}
@@ -26,7 +28,7 @@ if (!null awc_open_error || null module) {{
             if (!null awc_save_error) awc_error("SAVE_MODULE", awc_save_error)
             else awc_ok("ATTRIBUTES_SAVED")
         }}
-        close(module, false)
+        {close_statement}
     }}
 }}
 '''.strip()
@@ -37,6 +39,8 @@ noError
 string awc_open_error = lastError
 if (!null awc_open_error || null module) {{
     awc_error("OPEN_MODULE_EDIT", awc_open_error)
+}} else if (!isEdit(module)) {{
+    awc_error("OPEN_MODULE_EDIT", "Exclusive edit access was not obtained")
 }} else {{
     {lookup}
     if (awc_can_create) {{
@@ -60,7 +64,7 @@ if (!null awc_open_error || null module) {{
             }}
         }}
     }}
-    close(module, false)
+    {close_statement}
 }}
 '''.strip()
 
@@ -90,7 +94,8 @@ def set_object_attributes(module_path: str, absolute_number: int, attributes) ->
     if not attributes:
         raise ValueError("attributes cannot be empty.")
     return UPDATE_TEMPLATE.format(
-        open_statement=open_module(module_path, "edit"),
+        open_statement=open_module(module_path, "edit", promote_read=True),
+        close_statement=close_write_module(module_path),
         absolute_number=int(absolute_number),
         assignments=build_assignments(attributes, "object", "update"),
     )
@@ -100,11 +105,28 @@ def create_object(module_path: str, position: str, relative_number, attributes) 
     """Build transactional DXL that creates a module object."""
     lookup, creation = create_fragments(position, relative_number)
     return CREATE_TEMPLATE.format(
-        open_statement=open_module(module_path, "edit"),
+        open_statement=open_module(module_path, "edit", promote_read=True),
+        close_statement=close_write_module(module_path),
         lookup=lookup,
         creation=creation,
         assignments=build_assignments(attributes, "created", "create"),
     )
+
+
+def close_write_module(module_path: str) -> str:
+    """Discard any unsaved partial write, then restore a borrowed read session."""
+    return f'''if (close(module, false)) {{
+    if (awc_restore_module) {{
+        noError
+        Module awc_restored_module = read({dxl_quote(module_path)}, awc_display_module)
+        string awc_restore_error = lastError
+        if (!null awc_restore_error || null awc_restored_module) {{
+            awc_error("RESTORE_MODULE_READ", "The module's read session could not be restored")
+        }}
+    }}
+}} else {{
+    awc_error("CLOSE_MODULE", "The write session could not be closed")
+}}'''
 
 
 def create_fragments(position: str, relative_number: int | None) -> tuple[str, str]:

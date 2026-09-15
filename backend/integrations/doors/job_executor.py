@@ -57,12 +57,12 @@ def execute_doors_job(job):
             code = error.code
             if isinstance(error, DoorsOperationError):
                 code = SAFE_OPERATION_CODES.get(code, "DOORS_OPERATION_FAILED")
-            message = (
-                "The module could not be opened. Check that the path identifies a formal module "
-                "in the current DOORS database and that you have read access."
-                if code == "DOORS_OPEN_MODULE"
-                else "The DOORS operation could not be completed. Check the DOORS client and module access."
+            message = OPERATION_FAILURE_MESSAGES.get(
+                code,
+                "The DOORS operation could not be completed. Check the DOORS client and module access.",
             )
+            if code == "DOORS_MODULE_ALREADY_OPEN" and job.kind == "doors.link_requirements":
+                message = "Close the source module in the desktop client before submitting a link operation."
             raise JobExecutionFailure(
                 message,
                 code,
@@ -77,7 +77,7 @@ def execute_doors_job(job):
         return JobExecutionResult(
             output_path,
             str(metadata.get("filename") or "doors-result.json"),
-            "DOORS operation completed.",
+            metadata.get("message") or "DOORS operation completed.",
         )
     finally:
         remove_temporary_artifact(input_path)
@@ -92,6 +92,15 @@ SAFE_OPERATION_CODES = {
         "READ_ATTRIBUTE", "SET_ATTRIBUTE", "SAVE_MODULE", "CREATE_OBJECT", "AMBIGUOUS_TARGET",
         "BASE_OBJECT_NOT_FOUND", "REFERENCE_OBJECT_LIMIT", "LINK_CANDIDATE_LIMIT", "TARGET_OBJECT_LIMIT",
     )
+}
+
+OPERATION_FAILURE_MESSAGES = {
+    "DOORS_OPEN_MODULE": "Module not found or no read access. Check the module path and read permission.",
+    "DOORS_OPEN_MODULE_EDIT": "The module could not be opened for editing. Check modify permission and module locks.",
+    "DOORS_MODULE_ALREADY_OPEN": "The module is already open in edit or shared mode. Save and close it before submitting a write.",
+    "DOORS_OBJECT_NOT_FOUND": "The requested object was not found in the module.",
+    "DOORS_BASE_OBJECT_NOT_FOUND": "The relative object was not found in the module.",
+    "DOORS_ATTRIBUTE_NOT_FOUND": "The requested attribute was not found in the module.",
 }
 
 PRE_WRITE_ERRORS = frozenset({

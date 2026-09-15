@@ -69,10 +69,15 @@ class DoorsClient:
             builder_read.check_module(module_path, mode),
             RESULT_MODE_APPLICATION,
         )
-        self.raise_on_error(result)
-        if result.raw_lines != ("OK\tMODULE_OPENED",):
-            raise DoorsDxlError("DOORS returned an invalid module-check result.")
-        return result
+        if result.raw_lines == ("OK\tMODULE_OPENED",):
+            return result
+        # A completed negative accessibility check is a result, not a failed
+        # execution. OPEN_MODULE cannot distinguish absence from denied access.
+        if len(result.raw_lines) == 1:
+            fields = result.raw_lines[0].split("\t")
+            if len(fields) == 3 and fields[:2] == ["ERR", "OPEN_MODULE"]:
+                return result
+        raise DoorsDxlError("DOORS returned an invalid module-check result.")
 
     def list_objects(self, module_path: str, attributes, loop: str, limit: int):
         """Return a bounded list of DOORS objects."""

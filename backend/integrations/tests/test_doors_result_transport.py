@@ -71,7 +71,12 @@ class ApplicationResultTransportTests(SimpleTestCase):
 
     def test_module_check_rejects_unexpected_results_instead_of_reporting_access(self):
         client = DoorsClient(self.transport.config, self.transport)
-        for payload in ("OK", "OK\tOTHER_OPERATION", "OBJECT\t1", "ERR", "OK\tMODULE_OPENED\nextra"):
+        for payload in (
+            "OK", "OK\tOTHER_OPERATION", "OBJECT\t1", "ERR", "OK\tMODULE_OPENED\nextra",
+            "ERR\tOPEN_MODULE", "ERR\tOPEN_MODULE\tdetail\textra", "ERR\tOTHER_ERROR\tdetail",
+            "ERR\tOPEN_MODULE\tdetail\nOK\tMODULE_OPENED",
+            "ERR\tOPEN_MODULE\tdetail\nERR\tOPEN_MODULE\tdetail",
+        ):
             def publish(script):
                 prefix = re.search(r'oleSetResult\("(AW_DOORS_RESULT\|[^"]*)"', script).group(1)
                 self.application.Result = prefix + payload

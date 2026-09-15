@@ -16,6 +16,7 @@ from .serializers import (
 )
 from .services import execute_with_client
 from .exceptions import DoorsDxlError
+from .results import operation_result
 
 MAX_RESULT_BYTES = 10 * 1024 * 1024
 READ_OPERATIONS = frozenset(
@@ -97,7 +98,7 @@ def execute_dxl(input_path, output_path):
             }
         )
         result["count"] = len(result["results"])
-    return write_result(output_path, result)
+    return write_result(output_path, operation_result(operation, values, result))
 
 
 def update_object(input_path, output_path):
@@ -111,7 +112,9 @@ def update_object(input_path, output_path):
     )
     return write_result(
         output_path,
-        {"updated": True, "absolute_number": values["absolute_number"]},
+        operation_result("update_object", values, {
+            "updated": True, "absolute_number": values["absolute_number"],
+        }),
     )
 
 
@@ -127,7 +130,7 @@ def create_object(input_path, output_path):
             values["attributes"],
         )
     )
-    return write_result(output_path, created.to_dict())
+    return write_result(output_path, operation_result("create_object", values, created.to_dict()))
 
 
 def link_requirements(input_path, output_path):
@@ -135,7 +138,7 @@ def link_requirements(input_path, output_path):
 
     values = validated(RequirementLinkSerializer, load_payload(input_path))
     result = execute_with_client(lambda client: client.link_requirements(dict(values)))
-    return write_result(output_path, result)
+    return write_result(output_path, operation_result("link_requirements", values, result))
 
 
 def load_payload(input_path):
@@ -176,4 +179,5 @@ def write_result(output_path, payload):
         "filename": "doors-result.json",
         "sha256_required": True,
         "bytes": len(encoded),
+        "message": payload["operation_result"]["message"],
     }

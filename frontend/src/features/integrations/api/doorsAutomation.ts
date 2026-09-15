@@ -5,6 +5,24 @@ import type { Job } from '@/features/jobs/api/jobs'
 export type DoorsPosition = 'first' | 'after' | 'before' | 'below' | 'below_last'
 export type DoorsScalarAttributes = Record<string, string | number | boolean | null>
 
+export interface DoorsOperationMetadata {
+  schema_version: 1
+  operation: 'check_module' | 'update_object' | 'create_object'
+  outcome: 'success' | 'negative'
+  code: string
+  message: string
+  input: Record<string, unknown> & { module_path: string }
+}
+
+export interface DoorsDeveloperResult {
+  operation_result: DoorsOperationMetadata
+  accessible?: boolean
+  updated?: boolean
+  absolute_number?: number
+  identifier?: string
+  [key: string]: unknown
+}
+
 export interface DoorsStatus {
   configured: boolean
   available: boolean
@@ -67,6 +85,66 @@ export interface DoorsRequirementLinkResult {
 /** Return DOORS feature-flag and Windows-worker readiness as one fail-closed decision. */
 export async function fetchDoorsStatus(): Promise<DoorsStatus> {
   return (await apiClient.get<DoorsStatus>(`${API_PATHS.doors}/status/`)).data
+}
+
+/** Read a completed operation's versioned result from its verified private artifact. */
+export async function fetchDoorsDeveloperResult(job: Job): Promise<DoorsDeveloperResult> {
+  const operations: Record<string, DoorsOperationMetadata['operation']> = {
+    'doors.run_dxl': 'check_module',
+    'doors.update_object': 'update_object',
+    'doors.create_object': 'create_object'
+  }
+  const operation = operations[job.kind]
+  if (!operation || job.status !== 'succeeded' || !job.download_url) {
+    throw new Error('The DOORS operation result is unavailable.')
+  }
+  const { data } = await apiClient.get<unknown>(job.download_url, { responseType: 'json' })
+  if (!isDeveloperResult(data, operation)) {
+    throw new Error('The DOORS operation returned an unsupported or invalid result.')
+  }
+  return data
+}
+
+function isDeveloperResult(
+  value: unknown,
+  operation: DoorsOperationMetadata['operation']
+): value is DoorsDeveloperResult {
+  if (!isRecord(value) || !isRecord(value.operation_result)) return false
+  const metadata = value.operation_result
+  if (
+    metadata.schema_version !== 1 ||
+    metadata.operation !== operation ||
+    typeof metadata.message !== 'string' ||
+    !metadata.message ||
+    !isRecord(metadata.input) ||
+    typeof metadata.input.module_path !== 'string' ||
+    !metadata.input.module_path
+  )
+    return false
+  if (operation === 'check_module') {
+    return (
+      (value.accessible === true &&
+        metadata.outcome === 'success' &&
+        metadata.code === 'MODULE_OPENED') ||
+      (value.accessible === false &&
+        metadata.outcome === 'negative' &&
+        metadata.code === 'OPEN_MODULE')
+    )
+  }
+  return (
+    metadata.outcome === 'success' &&
+    Number.isSafeInteger(value.absolute_number) &&
+    Number(value.absolute_number) > 0 &&
+    (operation === 'create_object'
+      ? metadata.code === 'OBJECT_CREATED'
+      : metadata.code === 'ATTRIBUTES_SAVED' &&
+        value.updated === true &&
+        metadata.input.absolute_number === value.absolute_number)
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /** Queue a module accessibility check for the Windows DOORS worker. */

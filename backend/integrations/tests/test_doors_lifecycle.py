@@ -425,3 +425,22 @@ class DoorsResultIntegrityTests(SimpleTestCase):
         )
         self.assertNotIn("open(module(", script)
         self.assertIn('awc_error("OPEN_MODULE", awc_open_error)', script)
+
+    def test_crud_promotes_only_read_sessions_and_restores_them_after_cleanup(self):
+        for script in (
+            builder_write.set_object_attributes('/Project/M"odule', 1, {"Object Text": "value"}),
+            builder_write.create_object('/Project/M"odule', "after", 1, {"Object Text": "value"}),
+        ):
+            with self.subTest(script=script[:30]):
+                self.assertIn("data(moduleVersion(awc_ref_module))", script)
+                self.assertIn("!null awc_existing_module && isRead(awc_existing_module)", script)
+                self.assertIn("awc_display_module = isVisible(awc_existing_module)", script)
+                self.assertLess(script.index("isRead("), script.index('module = edit('))
+                self.assertIn("else if (!isEdit(module))", script)
+                self.assertLess(script.index("!isEdit(module)"), script.index('awc_error("SET_ATTRIBUTE"'))
+                self.assertIn('module = edit("/Project/M\\"odule", false, true)', script)
+                self.assertIn('awc_error("MODULE_ALREADY_OPEN"', script)
+                self.assertIn("if (close(module, false))", script)
+                self.assertIn('read("/Project/M\\"odule", awc_display_module)', script)
+                self.assertIn('awc_error("RESTORE_MODULE_READ"', script)
+                self.assertNotIn("downgrade(", script)
