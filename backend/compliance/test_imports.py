@@ -85,6 +85,52 @@ class ComplianceImportTests(TestCase):
             format="multipart",
         )
 
+    def test_import_without_cover_column_can_be_reimported(self):
+        output = BytesIO()
+        pd.DataFrame([{"Document Name": "Unnumbered", "Technical Document No": "TD-NEW"}]).to_excel(output, index=False)
+        content = output.getvalue()
+        preview = self.preview(content)
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["rejected_count"], 0)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        document = ComplianceDocument.objects.get()
+        self.assertEqual(document.cover_page.number, "")
+        again = self.preview(content)
+        self.assertEqual(again.data["unchanged_count"], 1)
+        self.assertEqual(self.confirm(content, again.data["confirmation_token"]).status_code, 201)
+        self.assertEqual(ComplianceDocument.objects.count(), 1)
+
+    def test_blank_covers_have_independent_issues_and_versions(self):
+        output = BytesIO()
+        pd.DataFrame([
+            {"Document Name": "First", "Cover Page Number": "", "Cover Page Issue": "A"},
+            {"Document Name": "Second", "Cover Page Number": "", "Cover Page Issue": "B"},
+        ]).to_excel(output, index=False)
+        content = output.getvalue()
+        preview = self.preview(content)
+        self.assertEqual(preview.data["created_count"], 2, preview.data)
+        self.assertEqual(preview.data["rejected_count"], 0)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        self.assertEqual(CoverPage.objects.filter(number="").count(), 2)
+        cover = ComplianceDocument.objects.get(name="First").cover_page
+        cover.version = 5
+        cover.save()
+        again = self.preview(content)
+        self.assertEqual(again.data["unchanged_count"], 2)
+
+    def test_import_by_uuid_without_number_preserves_assigned_number(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-ALLOCATED")
+        document = ComplianceDocument.objects.create(project=self.project, cover_page=cover, name="Before")
+        output = BytesIO()
+        pd.DataFrame([{"id": str(document.pk), "Document Name": "After"}]).to_excel(output, index=False)
+        content = output.getvalue()
+        preview = self.preview(content)
+        self.assertEqual(preview.data["updated_count"], 1, preview.data)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        document.refresh_from_db()
+        self.assertEqual(document.cover_page_id, cover.pk)
+        self.assertEqual(document.cover_page.number, "CP-ALLOCATED")
+
     def test_preview_then_confirm_creates_document_and_audit(self):
         content = self.workbook()
         preview = self.preview(content)

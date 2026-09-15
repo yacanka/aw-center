@@ -4,10 +4,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 import re
 
-REQUIRED_IMPORT_FIELDS = (
-    "name",
-    "cover_page_no",
-)
+REQUIRED_IMPORT_FIELDS = ("name",)
 
 LIST_IMPORT_FIELDS = ("signature_panel", "requirements")
 HEADER_SCAN_ROWS = 2

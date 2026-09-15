@@ -117,7 +117,7 @@ class ComplianceDoorsImportTests(TestCase):
         job = self.export_job(
             [
                 {"Document Title": "Valid", "Cover Code": "CP-1"},
-                {"Document Title": "Invalid", "Cover Code": ""},
+                {"Document Title": "", "Cover Code": "CP-INVALID"},
             ]
         )
         mapping = {"Document Title": "name", "Cover Code": "cover_page_no"}
