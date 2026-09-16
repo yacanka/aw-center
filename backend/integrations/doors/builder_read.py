@@ -104,21 +104,22 @@ if (!null awc_open_error || null module) {{
         awc_attribute_count++
     }}
 
-    Object object
+    // Keep the built-in object property available for AttrDef.object below.
+    Object awc_object
     int awc_count = 0
-    for object in entire(module) do {{
+    for awc_object in entire(module) do {{
         if (awc_count >= {row_limit}) {{
             awc_emit("TRUNCATED")
             break
         }}
         Buffer awc_row = create
-        awc_row += "OBJECT\t" (object."Absolute Number" "") "\t" awc_escape(identifier(object)) "\t" (level(object) "")
+        awc_row += "OBJECT\t" (awc_object."Absolute Number" "") "\t" awc_escape(identifier(awc_object)) "\t" (level(awc_object) "")
         awc_attribute_count = 0
         for awc_attribute in module do {{
             if (!awc_attribute.object) continue
             if (awc_attribute_count >= {attribute_limit}) break
             string awc_attribute_name = awc_attribute.name
-            awc_row += "\t" awc_escape(object.awc_attribute_name "")
+            awc_row += "\t" awc_escape(awc_object.awc_attribute_name "")
             awc_attribute_count++
         }}
         awc_emit(stringOf(awc_row))
