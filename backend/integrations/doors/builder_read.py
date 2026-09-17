@@ -113,7 +113,7 @@ if (!null awc_open_error || null module) {{
             break
         }}
         Buffer awc_row = create
-        awc_row += "OBJECT\t" (awc_object."Absolute Number" "") "\t" awc_escape(identifier(awc_object)) "\t" (level(awc_object) "")
+        awc_row += "OBJECT\t" (awc_object."Absolute Number" "") "\t" (awc_escape(identifier(awc_object))) "\t" (level(awc_object) "")
         awc_attribute_count = 0
         for awc_attribute in module do {{
             if (!awc_attribute.object) continue

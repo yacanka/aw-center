@@ -25,7 +25,8 @@ string awc_escape(string value) {
 }
 
 void awc_error(string code, string message) {
-    awc_emit("ERR\t" awc_escape(code) "\t" awc_escape(message))
+    // Group the call itself: DXL can include following concatenation in its argument.
+    awc_emit("ERR\t" (awc_escape(code)) "\t" awc_escape(message))
 }
 
 void awc_ok(string message) {

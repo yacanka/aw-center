@@ -17,7 +17,7 @@ if (!null awc_open_error || null module) {{
         string awc_applicable = object.awc_attribute_0 ""
         string awc_discipline = object.awc_attribute_1 ""
         if (awc_applicable != "Applicable" || !null awc_discipline) continue
-        awc_emit("OBJECT\t" (object."Absolute Number" "") "\t" awc_escape(identifier(object)) "\t" (level(object) "") {fields})
+        awc_emit("OBJECT\t" (object."Absolute Number" "") "\t" (awc_escape(identifier(object))) "\t" (level(object) "") {fields})
         awc_count++
     }}
     if (awc_owns_module) close(module, false)
