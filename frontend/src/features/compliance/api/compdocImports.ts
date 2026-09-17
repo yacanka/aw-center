@@ -10,9 +10,12 @@ export interface ImportInvalidDocument extends InvalidDocument {
   row?: number
   code: string
   fields: Record<string, unknown>
+  doors_object?: { absolute_number: number | null; identifier: string | null }
 }
 
 export interface ImportPreview {
+  source_columns?: string[]
+  target_fields?: DoorsImportTargetField[]
   header_row: number | null
   mapped_columns: ImportMappingRow[]
   unmapped_columns: string[]
@@ -49,6 +52,7 @@ export interface DoorsImportSource {
   module_path: string
   row_count: number
   columns: string[]
+  column_summaries?: Record<string, { populated_count: number; examples: string[] }>
   default_mapping: Record<string, string>
   target_fields: DoorsImportTargetField[]
 }
@@ -59,10 +63,14 @@ export interface DoorsImportPreview extends ImportPreview {
 }
 
 /** Inspect one workbook without changing compliance-document persistence. */
-export async function previewCompdocImport(collectionPath: string, file: File) {
+export async function previewCompdocImport(
+  collectionPath: string,
+  file: File,
+  mapping?: Record<string, string>
+) {
   const response = await axios.post<ImportPreview>(
     `${collectionPath}imports/preview/`,
-    formData(file)
+    formData(file, undefined, mapping)
   )
   return response.data
 }
@@ -71,11 +79,12 @@ export async function previewCompdocImport(collectionPath: string, file: File) {
 export async function confirmCompdocImport(
   collectionPath: string,
   file: File,
-  confirmationToken: string
+  confirmationToken: string,
+  mapping?: Record<string, string>
 ) {
   const response = await axios.post<ImportResult>(
     `${collectionPath}imports/confirm/`,
-    formData(file, confirmationToken)
+    formData(file, confirmationToken, mapping)
   )
   return response.data
 }
@@ -116,9 +125,10 @@ export async function confirmDoorsImport(
   return response.data
 }
 
-function formData(file: File, confirmationToken?: string) {
+function formData(file: File, confirmationToken?: string, mapping?: Record<string, string>) {
   const data = new FormData()
   data.append('file', file)
+  if (mapping !== undefined) data.append('mapping', JSON.stringify(mapping))
   if (confirmationToken) data.append('confirmation_token', confirmationToken)
   return data
 }

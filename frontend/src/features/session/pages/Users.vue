@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, ref, onMounted, onUnmounted } from 'vue'
-import { DataTableColumns, PaginationInfo } from 'naive-ui'
+import { NTag, NSpace, type DataTableColumns, type PaginationInfo } from 'naive-ui'
+import { effectivePermissions } from '@/features/session/services/userAccess'
 import { provideUserAdministrationController } from '@/features/session/composables/userAdministrationController'
 import { IUser } from '@/features/session/models/auth'
 import UpdateForm from '@/features/session/components/user/UserPopup.vue'
@@ -47,7 +48,7 @@ const onFilter = (attrib: string, filterData: any) => {
   fetchUsers()
 }
 
-const columns: DataTableColumns<IUser> = [
+const columns = computed<DataTableColumns<IUser>>(() => [
   {
     type: 'expand',
     expandable: () => true,
@@ -94,6 +95,42 @@ const columns: DataTableColumns<IUser> = [
     }
   },
   {
+    title: 'Roles',
+    key: 'group_details',
+    width: 220,
+    render: (user) =>
+      h(
+        NSpace,
+        { size: 'small' },
+        {
+          default: () => [
+            ...(user.is_superuser
+              ? [h(NTag, { type: 'warning', size: 'small' }, { default: () => 'Superuser' })]
+              : []),
+            ...(user.group_details || []).map((group) =>
+              h(NTag, { size: 'small' }, { default: () => group.name })
+            ),
+            ...(!user.is_superuser && !user.group_details?.length ? ['No roles'] : [])
+          ]
+        }
+      )
+  },
+  {
+    title: 'Permissions',
+    key: 'access',
+    width: 190,
+    render: (user) =>
+      user.is_superuser
+        ? 'All permissions'
+        : `${effectivePermissions(user).length} assigned · ${user.permissions?.length || 0} direct`
+  },
+  {
+    title: 'Account',
+    key: 'is_active',
+    width: 140,
+    render: (user) => `${user.is_active ? 'Active' : 'Inactive'}${user.is_staff ? ' · Staff' : ''}`
+  },
+  {
     title: 'Last Login',
     key: 'last_login',
     width: 190,
@@ -103,8 +140,11 @@ const columns: DataTableColumns<IUser> = [
       return row.last_login ? isoToTurkishDateTime(row.last_login) : 'Never'
     }
   },
-  userActionColumn((user) => popupComponent.value.openModal(user), confirmDelete)
-]
+  userActionColumn((user) => popupComponent.value.openModal(user), confirmDelete, {
+    update: hasEffectivePermission('change_user'),
+    delete: hasEffectivePermission('delete_user')
+  })
+])
 
 function confirmDelete(user: IUser): void {
   window.$dialog.warning({
@@ -142,11 +182,11 @@ function handlePageSizeUpdate(newPageSize: number) {
 
 onMounted(() => {
   if (hasPermission.value) {
-    fetchUsers()
-    store.fetchPermissions({ page_size: 200 })
+    void fetchUsers().catch(() => {})
+    void store.fetchPermissions().catch(() => {})
   }
   if (hasEffectivePermission('view_group') || userStore.getUser.is_superuser) {
-    store.fetchGroups({ page_size: 200 })
+    void store.fetchGroups().catch(() => {})
   }
 })
 
@@ -157,6 +197,11 @@ onUnmounted(() => {
 
 <template>
   <div v-if="canAccessPage">
+    <h2>Users &amp; access</h2>
+    <p>
+      Review roles and permissions for each user. Expand a row to see permission details and their
+      sources.
+    </p>
     <n-flex justify="space-between" align="center">
       <n-flex>
         <InvitationLinkCreator :allowed="canInvite" :groups="store.getGroups" />
@@ -175,7 +220,7 @@ onUnmounted(() => {
       remote
       :pagination="pagination"
       :row-key="(row: IUser) => row.id ?? row.username ?? row.email ?? 'unknown-user'"
-      :scroll-x="1140"
+      :scroll-x="1650"
       @update:page="handlePageUpdate"
       @update:page-size="handlePageSizeUpdate"
     />

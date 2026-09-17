@@ -105,6 +105,63 @@ class ComplianceDoorsImportTests(TestCase):
         self.assertIn(response.data["code"], {"IMPORT_PREVIEW_MISMATCH", "VALIDATION_ERROR"})
         self.assertFalse(ComplianceDocument.objects.exists())
 
+    def test_source_reports_real_values_and_canonical_required_fields(self):
+        job = self.export_job([
+            {" Başlık ": "Document", "Count": 0, "Empty": " \t"},
+            {" Başlık ": "", "Count": False, "Empty": None},
+        ])
+
+        response = self.client.get(self.source_url(job))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["columns"], [" Başlık ", "Count", "Empty"])
+        self.assertEqual(response.data["column_summaries"], {
+            " Başlık ": {"populated_count": 1, "examples": ["Document"]},
+            "Count": {"populated_count": 2, "examples": ["0", "False"]},
+            "Empty": {"populated_count": 0, "examples": []},
+        })
+        self.assertEqual(
+            [field["key"] for field in response.data["target_fields"] if field["required"]],
+            ["name"],
+        )
+
+    def test_exact_attribute_mapping_reports_the_empty_object_only(self):
+        job = self.export_job([
+            {" Başlık ": "Document", "Başlık": ""},
+            {" Başlık ": " \t", "Başlık": "Other attribute is populated"},
+        ])
+
+        response = self.client.post(self.preview_url(), {
+            "job_id": job.pk, "mapping": {" Başlık ": "name"},
+        }, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["created_count"], 1)
+        self.assertEqual(response.data["rejected_count"], 1)
+        error = response.data["invalid_documents"][0]
+        self.assertEqual(error["row"], 2)
+        self.assertEqual(error["doors_object"], {"absolute_number": 2, "identifier": "REQ-2"})
+        self.assertIn("name", error["fields"])
+
+    def test_zero_attribute_is_preserved_through_preview_and_confirmation(self):
+        job = self.export_job([{"Title": 0, "Cover": 0}])
+        mapping = {"Title": "name", "Cover": "cover_page_no"}
+        preview = self.client.post(self.preview_url(), {
+            "job_id": job.pk, "mapping": mapping,
+        }, format="json")
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["created_count"], 1)
+        self.assertEqual(preview.data["rejected_count"], 0)
+        response = self.client.post(self.confirm_url(), {
+            "job_id": job.pk, "mapping": mapping,
+            "confirmation_token": preview.data["confirmation_token"],
+        }, format="json")
+        self.assertEqual(response.status_code, 201)
+        document = ComplianceDocument.objects.get()
+        self.assertEqual(document.name, "0")
+        self.assertEqual(document.cover_page.number, "0")
+
     def test_partial_import_does_not_replace_last_successful_mapping(self):
         previous = DoorsImportMapping.objects.create(
             project=self.project,

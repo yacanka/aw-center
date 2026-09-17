@@ -37,7 +37,7 @@ class UserView(APIView):
     def _user_queryset(self):
         return User.objects.select_related("preferences").prefetch_related(
             "user_permissions__content_type",
-            "groups",
+            "groups__permissions__content_type",
         )
 
     def get(self, request, pk=None):
