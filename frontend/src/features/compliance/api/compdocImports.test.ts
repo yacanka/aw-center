@@ -4,6 +4,8 @@ const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 vi.mock('@/shared/api/http', () => ({ apiClient: http }))
 
 import {
+  confirmCompdocImport,
+  previewCompdocImport,
   confirmDoorsImport,
   fetchDoorsImportSource,
   previewDoorsImport
@@ -32,5 +34,22 @@ describe('compliance DOORS import API', () => {
         { job_id: 'job-1', mapping, confirmation_token: 'signed' }
       ]
     ])
+  })
+})
+
+describe('Excel manual mapping API', () => {
+  it('sends exact column links with preview and confirmation multipart data', async () => {
+    http.post.mockClear()
+    http.post.mockResolvedValue({ data: {} })
+    const file = new File(['workbook'], 'documents.xlsx')
+    const mapping = { ' Custom title ': 'name' }
+    await previewCompdocImport('collection/', file, mapping)
+    await confirmCompdocImport('collection/', file, 'reviewed', mapping)
+    const preview = http.post.mock.calls[0][1] as FormData
+    const confirm = http.post.mock.calls[1][1] as FormData
+    expect(preview.get('mapping')).toBe(JSON.stringify(mapping))
+    expect(confirm.get('mapping')).toBe(JSON.stringify(mapping))
+    expect(confirm.get('confirmation_token')).toBe('reviewed')
+    expect(preview.has('confirmation_token')).toBe(false)
   })
 })

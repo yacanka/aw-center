@@ -19,7 +19,13 @@ from rest_framework.exceptions import ValidationError
 from orgs.ata import normalize_ata_chapter
 from orgs.models import Panel
 
-from .compdoc_import import build_mapping_preview, choose_header_row, read_mapped_excel
+from .compdoc_import import (
+    HeaderMappingResult,
+    build_mapping_preview,
+    choose_header_row,
+    get_missing_required_fields,
+    read_mapped_excel,
+)
 from .compdoc_workflow import WORKFLOW_STATUSES, parse_workflow_date
 from .models import ComplianceDocument, CoverPage, ImportAudit, WorkflowEvent
 from .serializers import ComplianceDocumentSerializer
@@ -120,13 +126,50 @@ def hash_upload(uploaded_file) -> str:
     return digest.hexdigest()
 
 
-def prepare_plan(uploaded_file, project, request, *, lock_existing=False) -> ImportPlan:
+def parse_excel_mapping(request):
+    """Read optional explicit column links from multipart requests."""
+    raw = request.data.get("mapping")
+    if raw is None:
+        return None
+    try:
+        mapping = json.loads(raw)
+    except (TypeError, ValueError) as error:
+        raise ValidationError({"mapping": "Use a JSON object of column-to-field links."}) from error
+    if not isinstance(mapping, dict) or any(
+        not isinstance(source, str)
+        or not isinstance(target, str)
+        or target not in IMPORT_FIELDS
+        for source, target in mapping.items()
+    ):
+        raise ValidationError({"mapping": "Use supported import fields."})
+    if len(set(mapping.values())) != len(mapping):
+        raise ValidationError({"mapping": "Each field can be linked only once."})
+    return mapping
+
+
+def prepare_plan(
+    uploaded_file, project, request, *, lock_existing=False, column_mapping=None
+) -> ImportPlan:
     import pandas as pd
 
     header = choose_header_row(uploaded_file, pd, IMPORT_FIELDS)
     uploaded_file.seek(0)
     preview_frame = pd.read_excel(uploaded_file, header=header.header_row_index)
+    if column_mapping is not None:
+        columns = {str(column): column for column in preview_frame.columns}
+        if any(source not in columns for source in column_mapping):
+            raise ValidationError({"mapping": "An Excel column is no longer available."})
+        header = HeaderMappingResult(
+            header.header_row_index,
+            {columns[source]: target for source, target in column_mapping.items()},
+            get_missing_required_fields(column_mapping.values(), IMPORT_FIELDS),
+        )
     mapping = build_mapping_preview(preview_frame.columns, header)
+    mapping["source_columns"] = [str(column) for column in preview_frame.columns]
+    mapping["target_fields"] = [
+        {"key": field, "label": field.replace("_", " ").title(), "required": field == "name"}
+        for field in sorted(IMPORT_FIELDS)
+    ]
     if mapping["missing_columns"]:
         return ImportPlan((), ({
             "row": None,
@@ -387,8 +430,8 @@ def prepare_tabular_plan(
 
 def _normalize_row(source, panel_lookup):
     values = {key: _scalar(value) for key, value in source.items()}
-    name = str(values.get("name") or "").strip()
-    cover_number = str(values.get("cover_page_no") or "").strip()
+    name = str(values["name"]) if values.get("name") is not None else ""
+    cover_number = str(values["cover_page_no"]) if values.get("cover_page_no") is not None else ""
     if not name:
         raise ValidationError({"name": "Document name is required."})
 
@@ -652,7 +695,7 @@ def plan_fingerprint(plan: ImportPlan) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def create_confirmation(uploaded_file, user, project, plan):
+def create_confirmation(uploaded_file, user, project, plan, column_mapping=None):
     return signing.dumps(
         {
             "version": 1,
@@ -660,13 +703,14 @@ def create_confirmation(uploaded_file, user, project, plan):
             "user_id": str(user.pk),
             "project": project.slug,
             "database_fingerprint": plan_fingerprint(plan),
+            "column_mapping": column_mapping,
         },
         salt=CONFIRMATION_SALT,
         compress=True,
     )
 
 
-def verify_confirmation(token, uploaded_file, user, project):
+def verify_confirmation(token, uploaded_file, user, project, column_mapping=None):
     if not token:
         raise ValidationError(
             {"confirmation_token": "Import preview confirmation is required."},
@@ -686,6 +730,7 @@ def verify_confirmation(token, uploaded_file, user, project):
     identity_matches = all(
         (
             payload.get("version") == 1,
+            payload.get("column_mapping") == column_mapping,
             payload.get("sha256") == hash_upload(uploaded_file),
             payload.get("user_id") == str(user.pk),
             payload.get("project") == project.slug,
@@ -700,7 +745,7 @@ def verify_confirmation(token, uploaded_file, user, project):
     return payload["database_fingerprint"]
 
 
-def execute_plan(uploaded_file, project, request, expected_fingerprint):
+def execute_plan(uploaded_file, project, request, expected_fingerprint, column_mapping=None):
     return execute_source_plan(
         project,
         request,
@@ -710,6 +755,7 @@ def execute_plan(uploaded_file, project, request, expected_fingerprint):
             project,
             request,
             lock_existing=True,
+            column_mapping=column_mapping,
         ),
         audit_values={
             "source_filename": Path(str(uploaded_file.name)).name[:255],

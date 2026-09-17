@@ -36,6 +36,8 @@
         <n-alert type="success" :bordered="false">
           {{ source.row_count }} objects and {{ source.columns.length }} fields loaded from
           {{ source.module_path }}. The last successful mapping is selected when available.
+          Populated counts and examples reflect this export; a linked field may still be empty on
+          individual objects.
         </n-alert>
 
         <n-data-table
@@ -161,18 +163,38 @@ const linkColumns: DataTableColumns<LinkRow> = [
         placeholder: 'Ignore this field',
         options: (source.value?.target_fields || []).map((field) => ({
           label: `${field.label}${field.required ? ' (required)' : ''}`,
-          value: field.key
+          value: field.key,
+          disabled: field.key !== row.target && selectedTargets.value.includes(field.key)
         })),
+        disabled: busy.value,
         'onUpdate:value': (value: string | null) => {
           mapping.value[row.source] = value
           preview.value = null
         }
       })
     }
+  },
+  {
+    title: 'Populated objects',
+    key: 'populated',
+    render: (row) => {
+      const summary = source.value?.column_summaries?.[row.source]
+      return summary ? `${summary.populated_count} / ${source.value?.row_count}` : '—'
+    }
+  },
+  {
+    title: 'Exported examples',
+    key: 'examples',
+    render: (row) => source.value?.column_summaries?.[row.source]?.examples.join(' · ') || '—'
   }
 ]
 const validationColumns: DataTableColumns<ImportInvalidDocument> = [
   { title: 'DOORS object row', key: 'row' },
+  {
+    title: 'DOORS object',
+    key: 'doors_object',
+    render: (row) => row.doors_object?.identifier || row.doors_object?.absolute_number || '—'
+  },
   { title: 'Code', key: 'code' },
   {
     title: 'Validation error',

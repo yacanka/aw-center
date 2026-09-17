@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { UploadCustomRequestOptions } from 'naive-ui'
 import { formatApiError, getApiErrorCode } from '@/shared/api/apiError'
 import {
@@ -18,9 +18,32 @@ export function useCompdocImport(uploadUrl: () => string) {
   const showModal = ref(false)
   const showPreviewModal = ref(false)
   const confirmingImport = ref(false)
+  const validating = ref(false)
+  const mode = ref<'automatic' | 'manual'>('automatic')
+  const mapping = ref<Record<string, string>>({})
+  const source = ref<ImportPreview | null>(null)
   const previewNotice = ref('')
   const pendingFile = ref<File | null>(null)
   const preview = ref<ImportPreview | null>(null)
+  let requestSequence = 0
+  const busy = computed(() => validating.value || confirmingImport.value)
+  const canConfirm = computed(
+    () =>
+      !busy.value &&
+      Boolean(preview.value?.confirmation_token) &&
+      !preview.value?.missing_columns.length
+  )
+  watch(
+    [mode, mapping],
+    () => {
+      if (!source.value) return
+      requestSequence++
+      validating.value = false
+      preview.value = null
+      previewNotice.value = 'Linking changed. Validate the import to review the updated preview.'
+    },
+    { deep: true, flush: 'sync' }
+  )
   const callbacks = ref<Pick<UploadCustomRequestOptions, 'onFinish' | 'onError'> | null>(null)
   const store = useCompdocController()
 
@@ -30,28 +53,53 @@ export function useCompdocImport(uploadUrl: () => string) {
 
   async function handleUploadReq(options: UploadCustomRequestOptions) {
     if (!options.file.file) return
+    if (busy.value) return
+    resetUploadState()
+    setActive(true)
     pendingFile.value = options.file.file
     callbacks.value = { onFinish: options.onFinish, onError: options.onError }
     await loadPreview(options.file.file)
   }
 
   async function loadPreview(file: File, refreshed = false) {
+    const sequence = ++requestSequence
+    const path = uploadUrl()
+    const selectedMapping = mode.value === 'manual' ? { ...mapping.value } : undefined
+    validating.value = true
+    preview.value = null
     window.$loadingBar.start()
     try {
-      preview.value = await previewCompdocImport(uploadUrl(), file)
+      const result = await previewCompdocImport(path, file, selectedMapping)
+      if (sequence !== requestSequence || path !== uploadUrl()) return
+      if (!source.value) {
+        mapping.value = Object.fromEntries(
+          result.mapped_columns.map((row) => [row.source, row.target])
+        )
+        source.value = result
+      }
+      preview.value = result
       previewNotice.value = refreshed
         ? 'Database records changed after your review. The preview was refreshed; review it again.'
         : ''
+      setActive(false)
       showPreviewModal.value = true
       window.$loadingBar.finish()
     } catch (error: unknown) {
-      callbacks.value?.onError()
+      if (sequence !== requestSequence || path !== uploadUrl()) return
+      if (!source.value) callbacks.value?.onError()
       showUploadError(error)
+    } finally {
+      if (sequence === requestSequence) validating.value = false
     }
   }
 
+  async function validateImport() {
+    if (!pendingFile.value || busy.value) return
+    await loadPreview(pendingFile.value)
+  }
+
   async function confirmImport() {
-    if (!pendingFile.value || !preview.value?.confirmation_token) return
+    if (!canConfirm.value || !pendingFile.value || !preview.value?.confirmation_token) return
     confirmingImport.value = true
     window.$loadingBar.start()
     try {
@@ -64,7 +112,12 @@ export function useCompdocImport(uploadUrl: () => string) {
   }
 
   async function submitImport(file: File, token: string) {
-    const result = await confirmCompdocImport(uploadUrl(), file, token)
+    const result = await confirmCompdocImport(
+      uploadUrl(),
+      file,
+      token,
+      mode.value === 'manual' ? { ...mapping.value } : undefined
+    )
     window.$loadingBar.finish()
     callbacks.value?.onFinish()
     showUploadSuccess(result.detail, result.invalid_documents)
@@ -82,11 +135,17 @@ export function useCompdocImport(uploadUrl: () => string) {
   }
 
   function cancelPreview() {
+    if (confirmingImport.value) return
     callbacks.value?.onError()
     resetUploadState()
   }
 
   function resetUploadState() {
+    requestSequence++
+    source.value = null
+    mode.value = 'automatic'
+    mapping.value = {}
+    validating.value = false
     pendingFile.value = null
     preview.value = null
     previewNotice.value = ''
@@ -96,6 +155,13 @@ export function useCompdocImport(uploadUrl: () => string) {
   }
 
   return {
+    mode,
+    mapping,
+    source,
+    validating,
+    busy,
+    canConfirm,
+    validateImport,
     showModal,
     showPreviewModal,
     confirmingImport,

@@ -42,6 +42,7 @@ export interface IUser {
   is_staff?: boolean
   is_superuser?: boolean
   permissions?: IPermission[]
+  user_permissions?: number[]
   groups?: number[]
   group_details?: IGroup[]
   preferences?: IPreferences

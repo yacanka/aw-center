@@ -179,5 +179,6 @@ def read_mapped_excel(excel_file, pandas_module, header_result: HeaderMappingRes
     """Read Excel data using the selected header row and normalized field names."""
 
     dataframe = pandas_module.read_excel(excel_file, header=header_result.header_row_index)
-    dataframe = dataframe.rename(columns=header_result.column_mapping)
-    return dataframe.loc[:, [column for column in dataframe.columns if column in header_result.column_mapping.values()]]
+    return dataframe.loc[:, list(header_result.column_mapping)].rename(
+        columns=header_result.column_mapping
+    )

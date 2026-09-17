@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from dataclasses import replace
 
 from django.conf import settings
 from django.core import signing
@@ -85,6 +86,7 @@ def load_doors_source(job):
         )
 
     rows = []
+    objects = []
     for result in results:
         if not isinstance(result, dict) or not isinstance(result.get("attributes"), dict):
             raise _invalid_source()
@@ -94,11 +96,34 @@ def load_doors_source(job):
         if any(isinstance(value, (dict, list)) for value in attributes.values()):
             raise _invalid_source()
         rows.append({column: attributes.get(column) for column in columns})
+        objects.append({
+            "absolute_number": result.get("absolute_number"),
+            "identifier": result.get("identifier"),
+        })
     return {
         "module_path": module_path.strip(),
         "columns": columns,
         "rows": rows,
+        "objects": objects,
     }
+
+
+def describe_columns(source):
+    """Summarize actual exported values, preserving exact attribute names."""
+    summaries = {}
+    for column in source["columns"]:
+        populated = 0
+        examples = []
+        for row in source["rows"]:
+            value = row[column]
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue
+            populated += 1
+            example = str(value).strip()[:160]
+            if len(examples) < 3 and example not in examples:
+                examples.append(example)
+        summaries[column] = {"populated_count": populated, "examples": examples}
+    return summaries
 
 
 def default_mapping(project, source):
@@ -164,13 +189,21 @@ def prepare_doors_plan(job, project, request, mapping, *, lock_existing=False):
         ],
         "missing_columns": get_missing_required_fields(mapping.values(), IMPORT_FIELDS),
     }
-    return prepare_tabular_plan(
+    plan = prepare_tabular_plan(
         source_rows,
         project,
         request,
         mapping=preview_mapping,
         lock_existing=lock_existing,
     )
+    errors = []
+    for error in plan.errors:
+        row_index = error["row"] - 1
+        errors.append({
+            **error,
+            "doors_object": source["objects"][row_index],
+        })
+    return replace(plan, errors=tuple(errors))
 
 
 def create_doors_confirmation(job, mapping, user, project, plan):

@@ -25,10 +25,12 @@ from orgs.models import Project, ProjectRoleAssignment
 from projects.registry import PROJECT_DEFINITIONS
 
 from .compdoc_workflow import WORKFLOW_STATUSES
+from .compdoc_import import REQUIRED_IMPORT_FIELDS
 from .dashboard import build_dashboard
 from .doors_imports import (
     create_doors_confirmation,
     default_mapping,
+    describe_columns,
     execute_doors_plan,
     load_doors_source,
     prepare_doors_plan,
@@ -40,6 +42,7 @@ from .imports import (
     create_confirmation,
     execute_plan,
     prepare_plan,
+    parse_excel_mapping,
     verify_confirmation,
 )
 from .models import (
@@ -834,11 +837,8 @@ class ImportPreviewView(ProjectComplianceMixin, APIView):
 
     def post(self, request, project_slug):
         uploaded_file = validate_request_upload(request, "file", OOXML_WORKBOOK_POLICY)
-        plan = prepare_plan(uploaded_file, self.project, request)
-        if plan.mapping["missing_columns"]:
-            raise serializers.ValidationError(
-                {"columns": plan.mapping["missing_columns"]}
-            )
+        column_mapping = parse_excel_mapping(request)
+        plan = prepare_plan(uploaded_file, self.project, request, column_mapping=column_mapping)
         return Response(
             {
                 **plan.mapping,
@@ -849,7 +849,8 @@ class ImportPreviewView(ProjectComplianceMixin, APIView):
                     request.user,
                     self.project,
                     plan,
-                ),
+                    column_mapping,
+                ) if not plan.mapping["missing_columns"] else "",
                 "database_state_protected": True,
             }
         )
@@ -860,13 +861,17 @@ class ImportConfirmView(ProjectComplianceMixin, APIView):
 
     def post(self, request, project_slug):
         uploaded_file = validate_request_upload(request, "file", OOXML_WORKBOOK_POLICY)
+        column_mapping = parse_excel_mapping(request)
         fingerprint = verify_confirmation(
             request.data.get("confirmation_token"),
             uploaded_file,
             request.user,
             self.project,
+            column_mapping,
         )
-        audit, plan = execute_plan(uploaded_file, self.project, request, fingerprint)
+        audit, plan = execute_plan(
+            uploaded_file, self.project, request, fingerprint, column_mapping
+        )
         return Response(
             {
                 "detail": "Import completed.",
@@ -902,12 +907,13 @@ class DoorsImportSourceView(ProjectComplianceMixin, APIView):
                 "module_path": source["module_path"],
                 "row_count": len(source["rows"]),
                 "columns": source["columns"],
+                "column_summaries": describe_columns(source),
                 "default_mapping": mapping,
                 "target_fields": [
                     {
                         "key": field,
                         "label": field.replace("_", " ").title(),
-                        "required": field in {"name", "cover_page_no"},
+                        "required": field in REQUIRED_IMPORT_FIELDS,
                     }
                     for field in sorted(IMPORT_FIELDS)
                 ],

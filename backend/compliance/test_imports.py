@@ -1,5 +1,7 @@
 """Preview/confirm import matching and concurrency acceptance tests."""
 
+import json
+
 from datetime import date
 from io import BytesIO
 
@@ -84,6 +86,67 @@ class ComplianceImportTests(TestCase):
             {"file": self.upload(content), "confirmation_token": token},
             format="multipart",
         )
+
+    def manual_request(self, content, mapping, token=None):
+        action = "confirm" if token is not None else "preview"
+        data = {"file": self.upload(content), "mapping": json.dumps(mapping)}
+        if token is not None:
+            data["confirmation_token"] = token
+        return self.client.post(
+            f"/api/projects/ozgur/compliance-documents/imports/{action}/",
+            data,
+            format="multipart",
+        )
+
+    def test_manual_mapping_recovers_unrecognized_headers_and_audits_links(self):
+        output = BytesIO()
+        pd.DataFrame([{"Custom heading": "Manual document", "Custom notes": "Note"}]).to_excel(output, index=False)
+        content = output.getvalue()
+        automatic = self.preview(content)
+        self.assertEqual(automatic.status_code, 200)
+        self.assertEqual(automatic.data["missing_columns"], ["name"])
+        self.assertEqual(automatic.data["confirmation_token"], "")
+        self.assertEqual(automatic.data["source_columns"], ["Custom heading", "Custom notes"])
+        mapping = {"Custom heading": "name", "Custom notes": "notes"}
+        preview = self.manual_request(content, mapping)
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["created_count"], 1)
+        self.assertFalse(ComplianceDocument.objects.exists())
+        confirmed = self.manual_request(content, mapping, preview.data["confirmation_token"])
+        self.assertEqual(confirmed.status_code, 201)
+        self.assertEqual(ComplianceDocument.objects.get().name, "Manual document")
+        self.assertEqual(ImportAudit.objects.get().mapped_columns, preview.data["mapped_columns"])
+
+    def test_manual_confirmation_rejects_changed_or_omitted_links(self):
+        content = self.workbook()
+        mapping = {"Document Name": "name"}
+        preview = self.manual_request(content, mapping)
+        token = preview.data["confirmation_token"]
+        changed = self.manual_request(content, {"Technical Document No": "name"}, token)
+        self.assertEqual(changed.status_code, 400)
+        self.assertEqual(self.confirm(content, token).status_code, 400)
+        self.assertFalse(ComplianceDocument.objects.exists())
+
+    def test_manual_mapping_rejects_invalid_links_and_requires_name(self):
+        content = self.workbook()
+        for mapping in [[], {"Document Name": "project"}, {"Missing": "name"},
+                        {"Document Name": "name", "Technical Document No": "name"}]:
+            with self.subTest(mapping=mapping):
+                self.assertEqual(self.manual_request(content, mapping).status_code, 400)
+        missing = self.manual_request(content, {})
+        self.assertEqual(missing.status_code, 200)
+        self.assertEqual(missing.data["confirmation_token"], "")
+        self.assertFalse(ComplianceDocument.objects.exists())
+
+    def test_manual_mapping_ignores_unselected_column_with_target_field_name(self):
+        output = BytesIO()
+        pd.DataFrame([{"Title": "Selected", "name": "Ignored"}]).to_excel(output, index=False)
+        content = output.getvalue()
+        mapping = {"Title": "name"}
+        preview = self.manual_request(content, mapping)
+        self.assertEqual(preview.data["created_count"], 1)
+        self.assertEqual(self.manual_request(content, mapping, preview.data["confirmation_token"]).status_code, 201)
+        self.assertEqual(ComplianceDocument.objects.get().name, "Selected")
 
     def test_import_without_cover_column_can_be_reimported(self):
         output = BytesIO()

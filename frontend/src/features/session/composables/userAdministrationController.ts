@@ -17,6 +17,8 @@ interface UserAdministrationState {
   usersPagination: PaginationMeta
   permissionsPagination: PaginationMeta
   groupsPagination: PaginationMeta
+  permissionsLoaded: boolean
+  groupsLoaded: boolean
   loading: boolean
 }
 
@@ -47,6 +49,8 @@ export function createUserAdministrationController(): UserAdministrationControll
     usersPagination: emptyPagination(),
     permissionsPagination: emptyPagination(),
     groupsPagination: emptyPagination(),
+    permissionsLoaded: false,
+    groupsLoaded: false,
     loading: false
   })
   const controller = state as UserAdministrationController
@@ -117,30 +121,40 @@ async function deleteUser(state: UserAdministrationState, id: number): Promise<v
   )
 }
 
+/** Publish catalog data only after every page has loaded, so edits cannot drop unseen access. */
+async function fetchCatalog<T>(path: string, query: PaginationQuery): Promise<T[]> {
+  const items: T[] = []
+  let page = 1
+  let hasNext = true
+  while (hasNext) {
+    const response = await handleRequest<T[]>(
+      apiClient.get(`${usersPath}/${path}/`, {
+        params: { ...compactPaginationQuery(query), page, page_size: 200 }
+      }),
+      (data) => items.push(...data),
+      notifyError
+    )
+    hasNext = Boolean(getPaginationMeta<T>(response)?.next)
+    page += 1
+  }
+  return items
+}
+
 async function fetchPermissions(
   state: UserAdministrationState,
   query: PaginationQuery
 ): Promise<void> {
-  state.loading = true
-  const response = await handleRequest<IPermission[]>(
-    apiClient.get(`${usersPath}/permissions/`, { params: compactPaginationQuery(query) }),
-    (data) => (state.permissions = data),
-    notifyError,
-    () => (state.loading = false)
-  )
-  state.permissionsPagination =
-    getPaginationMeta<IPermission>(response) || state.permissionsPagination
+  state.permissionsLoaded = false
+  state.permissions = await fetchCatalog<IPermission>('permissions', query)
+  state.permissionsPagination = { count: state.permissions.length, next: null, previous: null }
+  state.permissionsLoaded = true
 }
 
 async function fetchGroups(state: UserAdministrationState, query: PaginationQuery): Promise<void> {
-  state.loading = true
-  const response = await handleRequest<IGroup[]>(
-    apiClient.get(`${usersPath}/groups/`, { params: compactPaginationQuery(query) }),
-    (data) => (state.groups = data),
-    notifyError,
-    () => (state.loading = false)
-  )
-  state.groupsPagination = getPaginationMeta<IGroup>(response) || state.groupsPagination
+  state.groupsLoaded = false
+  state.groups = await fetchCatalog<IGroup>('groups', query)
+  state.groupsPagination = { count: state.groups.length, next: null, previous: null }
+  state.groupsLoaded = true
 }
 
 function emptyPagination(): PaginationMeta {
