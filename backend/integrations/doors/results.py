@@ -6,6 +6,7 @@ copied to the job record; raw DXL diagnostics never become public messages.
 
 
 SUCCESS_RESULTS = {
+    "check_module_quality": ("MODULE_QUALITY_DONE", "Quality check completed. Review the quality report for findings and coverage."),
     "check_module": ("MODULE_OPENED", "Module found and readable."),
     "get_object": ("OBJECT_READ", "Object read successfully."),
     "list_objects": ("LIST_OBJECTS_DONE", "Module objects read successfully."),

@@ -93,6 +93,7 @@ class PageJobMonitor {
       errorMessage: this.errorMessage,
       job: this.job,
       openJobCenter: this.openJobCenter,
+      refresh: () => (this.job.value ? this.refresh() : this.restore()),
       setJob: this.setJob
     }
   }

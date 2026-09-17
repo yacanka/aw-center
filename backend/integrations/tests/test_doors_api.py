@@ -746,6 +746,80 @@ class DoorsApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["code"], "DOORS_SCRIPT_SIZE_LIMIT")
 
+    @override_settings(DOORS_ENABLED=True)
+    @patch("integrations.doors.api_views.integration_status")
+    def test_quality_job_is_read_only_idempotent_and_owner_scoped(self, status):
+        status.return_value = self.bridge_state(available=True)
+        url = reverse("doors_module_quality_job")
+        values = {"module_path": "/Project/Module"}
+        response = self.client.post(url, values, format="json", HTTP_IDEMPOTENCY_KEY="quality-1")
+        self.assertEqual(response.status_code, 201)
+        job = Job.objects.get(pk=response.data["id"])
+        self.assertEqual(job.kind, "doors.check_module_quality")
+        self.assertFalse(job.reconcile_on_lease_loss)
+        from automations.catalog import executor_metadata
+        self.assertEqual(executor_metadata(job.kind).queue, "doors")
+        with job.input_file.open("rb") as artifact:
+            self.assertEqual(json.load(artifact), values)
+        replay = self.client.post(url, values, format="json", HTTP_IDEMPOTENCY_KEY="quality-1")
+        self.assertEqual(str(replay.data["id"]), str(job.pk))
+        self.client.force_authenticate(self.other_user)
+        self.assertEqual(self.client.get(f"/api/jobs/{job.pk}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/jobs/{job.pk}/download/").status_code, 404)
+
+    @override_settings(DOORS_ENABLED=True)
+    @patch("integrations.doors.api_views.integration_status")
+    def test_quality_endpoint_rejects_unknown_fields_and_requires_session_csrf(self, status):
+        status.return_value = self.bridge_state(available=True)
+        url = reverse("doors_module_quality_job")
+        response = self.client.post(url, {"module_path": "/P/M", "script": "unexpected"},
+                                    format="json", HTTP_IDEMPOTENCY_KEY="quality-invalid")
+        self.assertEqual(response.status_code, 400)
+        session = APIClient(enforce_csrf_checks=True)
+        self.assertIn(session.post(url, {"module_path": "/P/M"}).status_code, (401, 403))
+        session.force_login(self.user)
+        self.assertEqual(session.post(url, {"module_path": "/P/M"},
+                                      HTTP_IDEMPOTENCY_KEY="quality-csrf").status_code, 403)
+        self.assertFalse(Job.objects.exists())
+
+    @override_settings(DOORS_ENABLED=True)
+    @patch("integrations.doors.worker_tasks.execute_with_client")
+    @patch("integrations.doors.api_views.integration_status")
+    def test_quality_worker_persists_fenced_steps_and_a_private_report(self, status, execute):
+        from integrations.doors.job_executor import execute_doors_job
+        from integrations.tests.test_doors_quality import snapshot
+        from jobs.execution import bind_execution
+        from jobs.worker import claim_next_job
+        from jobs.artifacts import remove_temporary_artifact
+        from jobs.contracts import JobLeaseLost
+
+        status.return_value = self.bridge_state(available=True)
+        response = self.client.post(reverse("doors_module_quality_job"),
+                                    {"module_path": "/Project/Module"}, format="json",
+                                    HTTP_IDEMPOTENCY_KEY="quality-progress")
+        self.assertEqual(response.status_code, 201)
+        client = Mock()
+        client.export_module.return_value = snapshot([("27", "A"), ("27", "B")])
+        execute.side_effect = lambda operation: operation(client)
+        claimed = claim_next_job("quality-worker", ("doors.check_module_quality",))
+        with bind_execution(claimed):
+            result = execute_doors_job(claimed)
+        try:
+            report = json.loads(result.path.read_text())
+            self.assertEqual(report["summary"]["conflicting_chapters"], 1)
+            self.assertEqual(list(claimed.events.filter(progress__gt=0).values_list("progress", flat=True)),
+                             [10, 45, 55, 80, 95])
+            response = self.client.get(f"/api/jobs/{claimed.pk}/")
+            self.assertEqual(response.data["progress"], 95)
+            self.assertTrue(any("Step 4/5" in event["message"] for event in response.data["events"]))
+            self.assertNotIn("/Project/Module", str(response.data["events"]))
+        finally:
+            remove_temporary_artifact(result.path)
+        execute.reset_mock()
+        with self.assertRaises(JobLeaseLost):
+            execute_doors_job(claimed)
+        execute.assert_not_called()
+
     def enqueue_module(self, key):
         """Queue the canonical module-check request."""
 

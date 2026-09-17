@@ -125,6 +125,13 @@ EXECUTOR_CATALOG = (
         timeout_seconds=180,
     ),
     ExecutorMetadata(
+        kind="doors.check_module_quality",
+        dotted_path="integrations.doors.worker_tasks.check_module_quality",
+        queue=DOORS_QUEUE,
+        upload_policy=JSON_OPERATION_POLICY,
+        timeout_seconds=120,
+    ),
+    ExecutorMetadata(
         kind="doors.run_dxl",
         dotted_path="integrations.doors.worker_tasks.execute_dxl",
         queue=DOORS_QUEUE,

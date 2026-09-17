@@ -3,6 +3,7 @@
 from django.conf import settings
 
 from jobs.artifacts import materialize_job_input, remove_temporary_artifact, temporary_output
+from jobs.execution import update_progress
 from jobs.contracts import JobExecutionFailure, JobExecutionResult, JobExecutionUncertain
 
 from integrations.doors import DoorsError
@@ -12,6 +13,7 @@ from . import worker_tasks
 
 
 DOORS_TASKS = {
+    "doors.check_module_quality": worker_tasks.check_module_quality,
     "doors.run_dxl": worker_tasks.execute_dxl,
     "doors.update_object": worker_tasks.update_object,
     "doors.create_object": worker_tasks.create_object,
@@ -36,7 +38,13 @@ def execute_doors_job(job):
     result_ready = False
     try:
         try:
-            metadata = task(input_path, output_path)
+            if job.kind == "doors.check_module_quality":
+                metadata = task(
+                    input_path, output_path,
+                    progress=lambda value, message: update_progress(job.id, value, message),
+                )
+            else:
+                metadata = task(input_path, output_path)
         except worker_tasks.WorkerTaskPayloadError as error:
             raise JobExecutionFailure(
                 "DOORS automation input is invalid.",
