@@ -30,6 +30,7 @@ class AutomationArchitectureTests(SimpleTestCase):
             set(executor_kinds(DOORS_QUEUE)),
             {
                 "doors.run_dxl",
+                "doors.check_module_quality",
                 "doors.update_object",
                 "doors.create_object",
                 "doors.link_requirements",
@@ -43,6 +44,9 @@ class AutomationArchitectureTests(SimpleTestCase):
             set(executor_kinds(LOCAL_QUEUE)) | set(executor_kinds(DOORS_QUEUE)),
         )
         self.assertTrue(callable(resolve_worker_executor("doors.run_dxl")))
+        self.assertTrue(callable(resolve_worker_executor("doors.check_module_quality")))
+        with self.assertRaises(JobExecutionFailure):
+            resolve_job_executor("doors.check_module_quality")
 
     def test_kernel_and_doors_tasks_keep_dependency_direction(self):
         root = Path(__file__).resolve().parents[1]

@@ -291,6 +291,7 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
     def test_parent_budget_includes_startup_and_multi_run_operations(self):
         self.assertEqual(worker_job_timeout("doors.run_dxl", True), 465)
         self.assertEqual(worker_job_timeout("doors.create_object", True), 225)
+        self.assertEqual(worker_job_timeout("doors.check_module_quality", True), 225)
 
     @override_settings(DOORS_ENABLED=True)
     def test_connection_failure_is_sanitized_and_not_an_ambiguous_write(self):

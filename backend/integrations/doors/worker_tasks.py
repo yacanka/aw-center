@@ -141,6 +141,21 @@ def link_requirements(input_path, output_path):
     return write_result(output_path, operation_result("link_requirements", values, result))
 
 
+def check_module_quality(input_path, output_path, *, progress=None):
+    """Run the fixed read-only ATA/panel check with optional fenced progress."""
+    from .quality import analyze_module
+
+    values = validated(ModuleSerializer, load_payload(input_path))
+    report_progress = progress if progress is not None else lambda *_: None
+    report_progress(10, "Step 1/5: Opening the module and reading object attributes.")
+    exported = execute_with_client(
+        lambda client: client.export_module(values["module_path"], 10000)
+    )
+    result = analyze_module(exported, report_progress)
+    result["module_path"] = values["module_path"]
+    return write_result(output_path, operation_result("check_module_quality", values, result))
+
+
 def load_payload(input_path):
     """Load one bounded JSON object from the execution-scoped input artifact."""
 

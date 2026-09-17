@@ -265,3 +265,43 @@ ve [DXL Reference Manual](https://www.ibm.com/docs/en/SSYQBZ_9.6.0/com.ibm.doors
 
 Süreç/oturum API sözleşmesi: [pywin32 win32ts](https://mhammond.github.io/pywin32/win32ts.html)
 ve [Microsoft WTSEnumerateProcesses](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsenumerateprocessesw).
+
+## DOORS Agent: ATA chapter / panel deneme kontrolü
+
+Agent sayfasındaki modül yolu `POST /api/integrations/doors/module-quality-jobs/`
+üzerinden `doors.check_module_quality` işi oluşturur. Session/CSRF, canlı worker,
+owner-scoped idempotency, `doors` allowlist ve private artifact sözleşmeleri geçerlidir.
+İş salt okunurdur; öneriler DOORS attribute'larını otomatik değiştirmez.
+
+Worker beş adımı lease-fenced job event'leriyle bildirir: modülü okuma, attribute
+keşfi, değer yorumlama, chapter/panel tutarlılığı ve rapor hazırlama. Sayfa mevcut
+job polling mekanizmasıyla yaklaşık iki saniyede bir güncellenir; hızlı geçen
+adımlar raporun işlem geçmişinde de görülebilir. COM okuması sırasında adım 1
+aktif kalır; obje başına canlı DXL ilerlemesi üretilmez. URL'deki job kimliğiyle
+sayfa yenilendiğinde iş ve rapor geri yüklenir.
+
+Attribute seçiminde `ATA`, `ATA Chapter`, `ATA Code`, `Panel`, `Panel Name` gibi
+adların büyük/küçük harf ve ayraç farkları tolere edilir. Doğrudan eşleşme yoksa
+kısa nitelikli adlar ve en az 0.88 benzerlikteki adlar aday olur. Birden fazla
+aday varsa seçim yapılmaz; sezgisel seçimler Detaylar'da doğrulama ister.
+Serbest metin içindeki rakamlardan ATA chapter tahmin edilmez.
+
+`27`, `ATA 27`, `27-10-00` ve `27.10` chapter `27` altında gruplanır. ATA listelerinde
+virgül, noktalı virgül, dik çizgi, satır sonu veya `/`; panel listelerinde virgül,
+noktalı virgül, dik çizgi veya satır sonu kullanılabilir. Panel kimliğindeki `-`
+ve `/` korunur. Panel değerlerinde yalnız harf büyüklüğü ve boşluk normalizasyonu
+uygulanır; benzer görünen iki panel birleştirilmez. Birden çok chapter ve birden
+çok panel içeren bir obje belirsiz eşleştirme olarak raporlanır.
+
+Rapor; seçilen attribute ve adaylarını, çelişkili chapter/panelleri, obje numaralarını,
+kaynak değer örneklerini ve düzeltme önerilerini içerir. Mevcut bounded export
+sınırı 10.000 obje / 50 attribute'tur. İki alanı da boş objeler kapsam dışında
+sayılır; boş modül, eksik attribute, yorumlanamayan değer veya kesilmiş export
+başarılı tam kontrol sayılmaz. Rapor en fazla 200 bulgu (chapter çelişkileri
+öncelikli), bulgu başına 20 kanıt örneği ve değer başına 500 karakter içerir;
+toplam ve gösterilmeyen bulgu/kanıt sayıları ayrıca verilir.
+
+Job `succeeded` durumu raporun üretildiğini belirtir. Raporun `passed`,
+`review_required`, `incomplete` sonucu ve `complete` kapsam bilgisi ayrı
+değerlendirilir. Bu deneme yalnız ATA–panel tutarlılığını kontrol eder; chapter'ın
+mühendislik açısından doğru seçildiğini veya panelin fiziksel doğruluğunu kanıtlamaz.

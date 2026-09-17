@@ -37,6 +37,16 @@ def status_view(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def create_module_quality_job(request):
+    """Queue a read-only, explainable ATA chapter/panel consistency check."""
+    return enqueue_job(
+        request, ModuleSerializer, "doors.check_module_quality",
+        "DOORS Agent: ATA chapter / panel quality check",
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def create_module_check_job(request):
     """Queue one module accessibility check for the Windows DOORS worker."""
 
