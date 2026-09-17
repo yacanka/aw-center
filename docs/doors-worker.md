@@ -162,6 +162,13 @@ belirsiz yazmalar için reconciliation sınırı korunur. Sonuç hatalarının A
 uyumluluk için `DOORS_DXL_FAILED` kalır; açıklama sabit, güvenli mesajlardan seçilir,
 ham DXL/COM hata metni veya modül verileri yayımlanmaz.
 
+DXL sonuç satırlarında, ardından TAB veya başka alan gelen tek parametreli
+fonksiyon çağrısının tamamı paranteze alınmalıdır: `(awc_escape(value)) "\t"`.
+Yalnız argümanın parantezi (`awc_escape(value) "\t"`) yeterli değildir; DXL'in
+birleştirme önceliği ayırıcıyı escape fonksiyonuna dahil ederek syntax hatası
+vermeden sütunları birleştirebilir. Export, disiplin, linker ve hata satırları
+bu sınırı korur. Kaynak: [IBM — Single parameter DXL functions and string concatenation](https://www.ibm.com/support/pages/single-parameter-dxl-functions-and-string-concatenation).
+
 Module-check, genel ayardan bağımsız olarak her zaman `application_result`
 kullanır. Yalnız `OK` + `MODULE_OPENED` sonucu erişimi doğrular; beklenmeyen veya
 eksik cevap `DOORS_DXL_FAILED` olur. Tek bir geçerli `ERR\tOPEN_MODULE\t...`

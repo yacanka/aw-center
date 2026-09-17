@@ -166,7 +166,7 @@ if (!null awc_ref_open_error || null awc_ref_module) {
                 Object awc_group_object
                 for awc_group_object in awc_group_requirements do {
                     string awc_group_requirement = awc_group_object.awc_ref_req_attr ""
-                    awc_emit("GROUP\t" awc_escape(awc_group_key) "\t" awc_escape(awc_group_requirement))
+                    awc_emit("GROUP\t" (awc_escape(awc_group_key)) "\t" awc_escape(awc_group_requirement))
                 }
                 Object awc_matched_target
                 if (!find(awc_targets, awc_group_key, awc_matched_target)) {

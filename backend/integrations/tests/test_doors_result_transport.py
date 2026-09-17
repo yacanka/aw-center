@@ -7,7 +7,8 @@ from uuid import uuid4
 
 from django.test import SimpleTestCase, override_settings
 
-from integrations.doors.builder_common import wrap_dxl
+from integrations.doors import builder_link, builder_read, checklist
+from integrations.doors.builder_common import COMMON_DXL, wrap_dxl
 from integrations.doors.client import DoorsClient
 from integrations.doors.config import RESULT_MODE_APPLICATION, RESULT_MODE_FILE, DoorsClientConfig
 from integrations.doors.exceptions import DoorsDxlError, DoorsOperationError
@@ -24,6 +25,53 @@ class ApplicationResultTransportTests(SimpleTestCase):
         self.transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
         self.application = Mock()
         self.transport.application = self.application
+
+    def test_dxl_field_escaping_cannot_consume_following_protocol_separator(self):
+        """DXL single-argument calls need outer grouping before concatenation.
+
+        Argument parentheses alone allow the next TAB to enter awc_escape,
+        converting a column boundary into literal backslash-t without a DXL error.
+        OLE fakes cannot detect this, so guard the generated expressions too.
+        """
+        linker = builder_link.link_requirements(
+            "/Project/Reference", "/Project/Target", "/Project/Links",
+            "PoC List", "Requirement", "PoC Info", 0, -1, "ref2tar", False,
+        )
+        cases = (
+            (builder_read.export_module("/Project/Module", 20), '(awc_escape(identifier(awc_object))) "\\t"'),
+            (checklist.check_applicable_disciplines("/Project/Module"), '(awc_escape(identifier(object))) "\\t"'),
+            (COMMON_DXL, '(awc_escape(code)) "\\t"'),
+            (linker, '(awc_escape(awc_group_key)) "\\t"'),
+        )
+        for script, grouped_call in cases:
+            with self.subTest(expression=grouped_call):
+                self.assertIn(grouped_call, script)
+
+    def test_export_preserves_escaped_data_and_rejects_an_escaped_column_boundary(self):
+        client = DoorsClient(self.transport.config, self.transport)
+        for merged_boundary in (False, True):
+            identifier_and_level = r"REQ-1\t2" if merged_boundary else "REQ-1\t2"
+            payload = (
+                "ATTRIBUTE\tObject Text\n"
+                f"OBJECT\t1\t{identifier_and_level}\t" + r"Türkçe\ttext\nnext\\tail" + "\n"
+                "OK\tEXPORT_MODULE_DONE\n"
+            )
+
+            def publish(script):
+                prefix = re.search(r'oleSetResult\("(AW_DOORS_RESULT\|[^"]*)"', script).group(1)
+                self.application.Result = prefix + payload
+
+            with self.subTest(merged_boundary=merged_boundary):
+                self.application.runStr.side_effect = publish
+                if merged_boundary:
+                    with self.assertRaisesMessage(DoorsDxlError, "malformed object row"):
+                        client.export_module("/Project/Module", 20)
+                else:
+                    exported = client.export_module("/Project/Module", 20)
+                    self.assertEqual(exported["results"][0], {
+                        "absolute_number": 1, "identifier": "REQ-1", "level": 2,
+                        "attributes": {"Object Text": "Türkçe\ttext\nnext\\tail"},
+                    })
 
     def test_application_result_script_has_no_result_stream(self):
         """Application.Result mode publishes the buffer without a temp file."""
