@@ -205,9 +205,9 @@ class DoorsOleTransport:
         expected = f"AW_DOORS_OK|{result_file}"
         status = self.wait_for_result(result_file, FILE_RESULT_PREFIXES, deadline)
         if status != expected:
-            raise DoorsDxlError("DXL did not confirm completion of its result file.")
+            raise DoorsDxlError("DXL did not confirm completion of its result file.", reason="result_timeout")
         if not result_file.is_file():
-            raise DoorsDxlError("DXL did not produce a result before timeout.")
+            raise DoorsDxlError("DXL did not produce a result file.", reason="result_file_unavailable")
         return DxlExecution(status, self.read_result_lines(result_file))
 
     def read_application_execution(self, deadline=None, result_token="") -> DxlExecution:
@@ -215,20 +215,23 @@ class DoorsOleTransport:
         prefix = APPLICATION_RESULT_PREFIX + (result_token + "|" if result_token else "")
         status = self.wait_for_result(None, (prefix,), deadline)
         if not status.startswith(prefix):
-            raise DoorsDxlError("DXL did not set Application.Result before timeout.")
+            raise DoorsDxlError("DXL did not set Application.Result before timeout.", reason="result_timeout")
         payload = status.removeprefix(prefix)
         return DxlExecution(status, self.decode_result_lines(payload.encode("utf-8")))
 
     def read_result_lines(self, result_file: Path) -> tuple[str, ...]:
         """Read a DXL result without exceeding its byte limit."""
-        with result_file.open("rb") as result_stream:
-            content = result_stream.read(self.config.max_result_bytes + 1)
+        try:
+            with result_file.open("rb") as result_stream:
+                content = result_stream.read(self.config.max_result_bytes + 1)
+        except OSError:
+            raise DoorsDxlError("DXL result file could not be read.", reason="result_file_unavailable") from None
         return self.decode_result_lines(content)
 
     def decode_result_lines(self, content: bytes) -> tuple[str, ...]:
         """Decode a line result after enforcing the shared byte limit."""
         if len(content) > self.config.max_result_bytes:
-            raise DoorsDxlError("DXL result exceeded the configured size limit.")
+            raise DoorsDxlError("DXL result exceeded the configured size limit.", reason="result_too_large")
         try:
             # Only LF delimits rows; splitlines also splits legitimate Unicode
             # separators inside attribute values, silently corrupting exports.
@@ -237,7 +240,7 @@ class DoorsOleTransport:
                 for line in content.decode("utf-8-sig").rstrip("\r\n").split("\n")
             ) if content else ()
         except UnicodeError:
-            raise DoorsDxlError("DXL returned an invalid UTF-8 result.") from None
+            raise DoorsDxlError("DXL returned an invalid UTF-8 result.", reason="invalid_encoding") from None
 
     def invoke(self, dxl: str, correlation: str) -> None:
         """Invoke OLE runStr with a non-secret correlation token."""
@@ -245,22 +248,25 @@ class DoorsOleTransport:
             self.application.Result = f"AW_DOORS_RUNNING|{correlation}"
             self.application.runStr(dxl)
         except Exception as error:
-            raise DoorsDxlError("DOORS OLE runStr failed.") from error
+            raise DoorsDxlError("DOORS OLE runStr failed.", reason="ole_call_failed") from error
 
     def wait_for_result(self, result_file: Path | None, prefixes: tuple[str, ...], deadline=None) -> str:
         """Wait for the footer, never for a file opened before execution began."""
         if deadline is None:
             deadline = time.monotonic() + self.config.run_timeout_seconds
-        while time.monotonic() < deadline:
+        # runStr can block until DXL finishes. Inspect its result even when it
+        # consumed the polling budget; the worker still enforces the hard limit.
+        while True:
             status = self.read_status()
             if result_file is not None and status == f"AW_DOORS_ERR|{result_file}":
-                raise DoorsDxlError("DXL could not open its result file.")
+                raise DoorsDxlError("DXL could not open its result file.", reason="result_file_unavailable")
             if status.startswith(prefixes) and (
                 result_file is None or status == f"AW_DOORS_OK|{result_file}"
             ):
                 return status
+            if time.monotonic() >= deadline:
+                return ""
             time.sleep(0.1)
-        return ""
 
     def read_status(self) -> str:
         """Read the current OLE result status safely."""

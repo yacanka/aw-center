@@ -6,7 +6,7 @@ from jobs.artifacts import materialize_job_input, remove_temporary_artifact, tem
 from jobs.contracts import JobExecutionFailure, JobExecutionResult, JobExecutionUncertain
 
 from integrations.doors import DoorsError
-from .exceptions import DoorsConnectionError, DoorsConfigurationError, DoorsOperationError
+from .exceptions import DoorsConnectionError, DoorsConfigurationError, DoorsDxlError, DoorsOperationError
 
 from . import worker_tasks
 
@@ -61,6 +61,8 @@ def execute_doors_job(job):
                 code,
                 "The DOORS operation could not be completed. Check the DOORS client and module access.",
             )
+            if isinstance(error, DoorsDxlError):
+                message = error.public_message
             if code == "DOORS_MODULE_ALREADY_OPEN" and job.kind == "doors.link_requirements":
                 message = "Close the source module in the desktop client before submitting a link operation."
             raise JobExecutionFailure(
