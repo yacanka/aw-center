@@ -122,6 +122,28 @@ class DoorsExecutionPipelineTests(JobTestCase):
                 payload = self.download_success(self.execute_operation(route, data, payloads))
                 self.assertEqual(payload[expected_key], 1)
 
+    @override_settings(DOORS_MAX_RESULT_BYTES=1024)
+    def test_export_failure_explains_result_problem_without_exposing_content(self):
+        cases = (
+            ("ATTRIBUTE\tObject Text\n" + "private data" * 100, "size limit"),
+            ("ATTRIBUTE\tObject Text\nOBJECT\t1\tREQ-1\t1\tprivate data\n", "completion marker"),
+            ("ATTRIBUTE\tObject Text\nOBJECT\tinvalid\tREQ-1\t1\tprivate data\nOK\tEXPORT_MODULE_DONE\n", "invalid operation result"),
+            ("", "empty operation result"),
+        )
+        for mode in ("application_result", "file"):
+            for payload, expected in cases:
+                with self.subTest(mode=mode, expected=expected), override_settings(DOORS_RESULT_MODE=mode):
+                    job = self.execute_operation(
+                        "module-export-jobs", {"module_path": "/Project/Module"}, [payload],
+                    )
+                    self.assertEqual(job.status, JobStatus.FAILED)
+                    self.assertEqual(job.error_code, "DOORS_DXL_FAILED")
+                    self.assertFalse(job.output_file)
+                    response = self.client.get(f"/api/jobs/{job.id}/")
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(expected, response.data["message"])
+                    self.assertNotIn("private data", json.dumps(response.data))
+
     def test_update_and_create_publish_confirmed_writes(self):
         values = {"module_path": "/Project/Module", "attributes": {"Object Text": "value"}}
         update = self.execute_operation("object-update-jobs", {**values, "absolute_number": 1}, ["OK\tATTRIBUTES_SAVED\n"])

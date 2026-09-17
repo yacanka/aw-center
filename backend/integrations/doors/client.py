@@ -38,7 +38,7 @@ class DoorsClient:
                 print(f"[DOORS run_dxl]\n{script}\n[/DOORS run_dxl]", flush=True)
             execution = self.transport.run_dxl(script, result_file, mode, result_token)
             if not execution.lines or not any(execution.lines):
-                raise DoorsDxlError("DOORS returned an empty operation result.")
+                raise DoorsDxlError("DOORS returned an empty operation result.", reason="empty_result")
             errors = tuple(line for line in execution.lines if line.startswith("ERR\t"))
             return OperationResult(not errors, errors[0] if errors else "OK", execution.lines)
         finally:
@@ -247,7 +247,7 @@ class DoorsClient:
     def require_completion(result: OperationResult, marker: str) -> None:
         """Reject partial rows or an unrelated OK response as an operation result."""
         if not result.raw_lines or result.raw_lines[-1] != f"OK\t{marker}":
-            raise DoorsDxlError("DOORS did not confirm completion of the requested operation.")
+            raise DoorsDxlError("DOORS did not confirm completion of the requested operation.", reason="incomplete_result")
 
     @staticmethod
     def parse_info(line: str) -> str:

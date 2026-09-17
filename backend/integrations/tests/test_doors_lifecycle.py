@@ -15,13 +15,13 @@ from awcenter.job_executors import worker_job_timeout
 from integrations.doors import builder_read, builder_write, checklist
 from integrations.doors.builder_common import wrap_dxl
 from integrations.doors.client import DoorsClient
-from integrations.doors.config import RESULT_MODE_APPLICATION, DoorsClientConfig
+from integrations.doors.config import RESULT_MODE_APPLICATION, RESULT_MODE_FILE, DoorsClientConfig
 from integrations.doors.exceptions import DoorsConnectionError, DoorsDxlError
 from integrations.doors.job_executor import CONNECTION_FAILURES, execute_doors_job
 from integrations.doors.services import build_client_config, execute_with_client, initialized_com
 from integrations.doors.startup import parse_server_executable, registered_executable
 from integrations.doors.transport import DoorsOleTransport, DxlExecution
-from jobs.contracts import JobExecutionFailure
+from jobs.contracts import JobExecutionFailure, JobExecutionUncertain
 
 
 class ReadyApplication:
@@ -335,6 +335,67 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
 
 
 class DoorsResultIntegrityTests(SimpleTestCase):
+    def test_completed_synchronous_call_is_read_after_polling_deadline(self):
+        for mode in (RESULT_MODE_APPLICATION, RESULT_MODE_FILE):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "result.txt" if mode == RESULT_MODE_FILE else None
+                transport = DoorsOleTransport(DoorsClientConfig("doors.exe", run_timeout_seconds=1))
+                transport.application = Mock()
+                clock = [0]
+
+                def complete(_script):
+                    clock[0] = 2
+                    if output is not None:
+                        output.write_text("OK\tEXPORT_MODULE_DONE\n", encoding="utf-8")
+                        transport.application.Result = f"AW_DOORS_OK|{output}"
+                    else:
+                        transport.application.Result = "AW_DOORS_RESULT|current|OK\tEXPORT_MODULE_DONE\n"
+
+                transport.application.runStr.side_effect = complete
+                with patch("integrations.doors.transport.time.monotonic", side_effect=lambda: clock[0]):
+                    result = transport.run_dxl("generated script", output, mode, "current")
+                self.assertEqual(result.lines, ("OK\tEXPORT_MODULE_DONE",))
+                transport.application.runStr.assert_called_once()
+
+    def test_expired_deadline_does_not_accept_stale_or_pending_results(self):
+        transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
+        for status in ("AW_DOORS_RUNNING|current", "AW_DOORS_RESULT|old|OK\tEXPORT_MODULE_DONE"):
+            with (
+                self.subTest(status=status),
+                patch.object(transport, "read_status", return_value=status) as read,
+                patch("integrations.doors.transport.time.monotonic", return_value=2),
+                patch("integrations.doors.transport.time.sleep") as sleep,
+                self.assertRaises(DoorsDxlError) as raised,
+            ):
+                transport.read_application_execution(deadline=1, result_token="current")
+            read.assert_called_once()
+            sleep.assert_not_called()
+            self.assertIn("timeout", raised.exception.public_message)
+
+    @override_settings(DOORS_ENABLED=True)
+    def test_dxl_failure_messages_are_sanitized_and_writes_still_require_reconciliation(self):
+        for reason in (*DoorsDxlError.PUBLIC_MESSAGES, "private unknown reason"):
+            for writing in (False, True):
+                with self.subTest(reason=reason, writing=writing), tempfile.TemporaryDirectory() as directory:
+                    source, output = Path(directory) / "input.json", Path(directory) / "result.json"
+                    source.write_text("{}")
+                    output.write_text("partial output")
+                    error = DoorsDxlError("private module path and object content", reason=reason)
+                    kind = "doors.update_object" if writing else "doors.run_dxl"
+                    with (
+                        patch("integrations.doors.job_executor.materialize_job_input", return_value=source),
+                        patch("integrations.doors.job_executor.temporary_output", return_value=output),
+                        patch.dict("integrations.doors.job_executor.DOORS_TASKS", {kind: Mock(side_effect=error)}),
+                        self.assertRaises(JobExecutionUncertain if writing else JobExecutionFailure) as raised,
+                    ):
+                        execute_doors_job(SimpleNamespace(kind=kind, reconcile_on_lease_loss=writing))
+                    if not writing:
+                        self.assertEqual(raised.exception.code, "DOORS_DXL_FAILED")
+                        self.assertEqual(str(raised.exception), error.public_message)
+                    self.assertNotIn("private", str(raised.exception))
+                    self.assertFalse(source.exists())
+                    self.assertFalse(output.exists())
+
     def test_application_result_rejects_stale_execution_token(self):
         transport = DoorsOleTransport(DoorsClientConfig("doors.exe"))
         with (

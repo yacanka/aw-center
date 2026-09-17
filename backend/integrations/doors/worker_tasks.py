@@ -173,7 +173,7 @@ def write_result(output_path, payload):
     path = Path(output_path)
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if not encoded or len(encoded) > MAX_RESULT_BYTES:
-        raise DoorsDxlError("DOORS automation result exceeds the safety limit.")
+        raise DoorsDxlError("DOORS automation result exceeds the safety limit.", reason="result_too_large")
     path.write_bytes(encoded)
     return {
         "filename": "doors-result.json",

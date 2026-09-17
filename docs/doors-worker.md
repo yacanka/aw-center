@@ -138,7 +138,7 @@ web process'i COM çalıştırmaz. Gerçek bağlantı ilk kuyruk işi sırasınd
 | `DOORS_STARTUP_TIMEOUT` | Login ekranı, yanlış giriş bilgisi, lisans, veritabanı veya modal pencere |
 | `DOORS_MULTIPLE_CLIENTS` | Aynı oturumda yalnız bir DOORS istemcisi bırakın |
 | `DOORS_OPEN_MODULE` / `DOORS_ATTRIBUTE_NOT_FOUND` | Modül yolu, okuma izni ve attribute isimleri |
-| `DOORS_DXL_FAILED` | DXL çalışması veya tamamlanma/sonuç protokolü başarısız |
+| `DOORS_DXL_FAILED` | `message` alanı sonuç boyutu, boş/bozuk çıktı, eksik tamamlanma işareti, sonuç timeout'u, UTF-8, geçici dosya veya OLE çağrısı hatasını ayırır; yalnız DXL syntax hatası anlamına gelmez |
 | `RECONCILIATION_REQUIRED` | Yazma gönderildikten sonra sonuç belirsiz; DOORS durumunu incelemeden tekrar göndermeyin |
 
 DXL öncesi bağlantı hataları yazma işi için de normal failure olur. DXL gönderildikten
@@ -154,6 +154,13 @@ uygulanır. Mevcut environment dosyasında `DOORS_RESULT_MODE=file` varsa diğer
 operasyonları da OLE kanalına geçirmek için `application_result` seçip worker'ı
 yeniden başlatın. Açıkça seçilen `file` modu geriye dönük uyumluluk için korunur;
 dosya yalnız doğru tamamlanma işaretinden sonra UTF-8 olarak okunur.
+
+Senkron `runStr` çağrısı polling süresini tüketse bile dönüşte mevcut sonuç bir
+kez okunur. Yalnız o çağrıya ait token veya dosya tamamlanma işareti kabul edilir;
+sonuç hâlâ bekleniyorsa ek bekleme yapılmaz. Worker'ın toplam hard timeout ve
+belirsiz yazmalar için reconciliation sınırı korunur. Sonuç hatalarının API kodu
+uyumluluk için `DOORS_DXL_FAILED` kalır; açıklama sabit, güvenli mesajlardan seçilir,
+ham DXL/COM hata metni veya modül verileri yayımlanmaz.
 
 Module-check, genel ayardan bağımsız olarak her zaman `application_result`
 kullanır. Yalnız `OK` + `MODULE_OPENED` sonucu erişimi doğrular; beklenmeyen veya
