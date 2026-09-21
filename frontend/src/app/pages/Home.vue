@@ -1,6 +1,6 @@
 <template>
   <n-flex justify="center">
-    <n-h1 class="gradient-text" style="margin: -12px 0 -18px">
+    <n-h1 class="gradient-text" style="margin: -12px 0 18px">
       <strong>{{ appTitle }}</strong>
     </n-h1>
   </n-flex>
