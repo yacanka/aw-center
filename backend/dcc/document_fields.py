@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 
 from bs4 import BeautifulSoup
+from django.utils import timezone
 
 from integrations.jira.client import ISO_time_to_string, split_text_by_chracter
 from .service.text_parsing import extract_text_from_text, make_surname_upper
@@ -19,7 +20,8 @@ def main_issue_fields(fields):
     add_text(placeholders, "Design_Change_Classification", option(fields, "customfield_13716"))
     add_multiselect(placeholders, "Applicability", field(fields, "customfield_34115"))
     if field(fields, "updated"):
-        placeholders["Update_Time"] = ISO_time_to_string(field(fields, "updated"))
+        placeholders["Source_Updated_Time"] = ISO_time_to_string(field(fields, "updated"))
+    placeholders["Update_Time"] = timezone.localdate().strftime("%d.%m.%Y")
     add_design_change_name(placeholders)
     return placeholders
 
@@ -35,6 +37,8 @@ def panel_fields(fields, parse_legacy_comment=False):
     assignee = field(fields, "assignee")
     placeholders["Panel_AS_Name"] = display_name(assignee)
     add_optional_panel_fields(placeholders, fields)
+    placeholders["as_name"] = display_name(assignee)
+    placeholders["candidate_as_name"] = display_name(field(fields, "customfield_45421"))
     append_candidate_assignee(placeholders, fields)
     classification = option(fields, "customfield_45004") or "Minor-No Effect"
     if parse_legacy_comment:

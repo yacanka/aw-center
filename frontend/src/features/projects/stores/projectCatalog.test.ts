@@ -42,6 +42,25 @@ describe('project catalog authorization state', () => {
     expect(catalog.hasAnyRole('dcc')).toBe(true)
   })
 
+  it('accepts new DCC projects without granting unrelated capabilities', async () => {
+    vi.mocked(fetchProjectRegistry).mockResolvedValue([
+      { ...dccProject, slug: 'hurkus', name: 'Hürkuş' },
+      { ...dccProject, slug: 'gokbey_sivil', name: 'Gökbey Sivil' },
+      { ...dccProject, slug: 'gokbey_jandarma', name: 'Gökbey Jandarma' }
+    ])
+    const catalog = useProjectCatalogStore()
+    await catalog.load()
+
+    expect(catalog.projects.map((project) => project.slug)).toEqual([
+      'hurkus',
+      'gokbey_sivil',
+      'gokbey_jandarma'
+    ])
+    expect(catalog.hasAnyRole('dcc')).toBe(true)
+    expect(catalog.hasAnyRole('compliance')).toBe(false)
+    expect(catalog.hasAnyRole('organization')).toBe(false)
+  })
+
   it('does not repopulate account data when an in-flight request resolves after clear', async () => {
     let resolveRequest: (projects: ProjectRegistryItem[]) => void = () => undefined
     vi.mocked(fetchProjectRegistry).mockReturnValue(

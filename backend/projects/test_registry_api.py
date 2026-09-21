@@ -84,3 +84,16 @@ class ProjectRegistryApiTests(TestCase):
             set(response.data[0]["capabilities"]),
             {"dcc", "compliance", "organization"},
         )
+
+    def test_hurkus_exposes_only_dcc_and_requires_its_own_role(self):
+        ProjectRoleAssignment.objects.create(
+            project=Project.objects.get(slug="hurkus"),
+            domain=ProjectRoleAssignment.Domain.DCC,
+            role=ProjectRoleAssignment.Role.OPERATOR,
+            user=self.user,
+        )
+        self.client.force_authenticate(self.user)
+        response = self.client.get("/api/projects/")
+        self.assertEqual([item["slug"] for item in response.data], ["hurkus"])
+        self.assertEqual(response.data[0]["capabilities"], ["dcc"])
+        self.assertEqual(set(response.data[0]), SAFE_KEYS)

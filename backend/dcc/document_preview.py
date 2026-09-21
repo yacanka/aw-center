@@ -38,7 +38,7 @@ def base_preview_summary(snapshot, missing):
         "output_name": snapshot["output_name"],
         "panel_count": snapshot.get("panel_count", 0),
         "template_ready": True,
-        "source_updated_at": placeholders.get("Update_Time", ""),
+        "source_updated_at": placeholders.get("Source_Updated_Time", placeholders.get("Update_Time", "")),
         "missing_recommended_fields": missing,
     }
 

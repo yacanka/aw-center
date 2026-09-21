@@ -29,3 +29,8 @@ class ProjectRegistryDatabaseAlignmentTests(TestCase):
         stderr = StringIO()
         call_command("check_project_registry", stderr=stderr)
         self.assertIn("unknown", stderr.getvalue())
+
+    def test_new_dcc_projects_are_seeded_without_replacing_gokbey(self):
+        for slug in ("gokbey", "gokbey_jandarma", "gokbey_sivil", "hurkus"):
+            self.assertTrue(Project.objects.get(slug=slug).enabled)
+        self.assertEqual(Project.objects.get(slug="ozgur").name, "Özgür")
