@@ -5,6 +5,8 @@ from copy import deepcopy
 from typing import Any
 
 from projects.policies.gokbey import control_gokbey_dcc
+from projects.policies.dcc_panels import control_flight_manuals, control_gokbey_variant
+from projects.policies.hurkus import control_hurkus_dcc
 from projects.registry import GOKBEY_DCC_CONTROLLER, get_project_definition
 
 
@@ -14,6 +16,9 @@ DccRenderController = Callable[[dict[str, Any]], Mapping[str, Any]]
 # technical, read-only metadata in the central project registry.
 CONTROLLERS: dict[str, DccRenderController] = {
     GOKBEY_DCC_CONTROLLER: control_gokbey_dcc,
+    "flight_manuals_dcc": control_flight_manuals,
+    "gokbey_variant_dcc": control_gokbey_variant,
+    "hurkus_dcc": control_hurkus_dcc,
 }
 
 

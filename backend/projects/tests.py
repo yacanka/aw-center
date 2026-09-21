@@ -27,6 +27,9 @@ class ProjectRegistryTests(TestCase):
                 "blok4050",
                 "gokbey",
                 "hurjet",
+                "gokbey_jandarma",
+                "gokbey_sivil",
+                "hurkus",
             },
         )
         self.assertIsInstance(PROJECT_DEFINITIONS, MappingProxyType)

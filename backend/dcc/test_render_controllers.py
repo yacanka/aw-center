@@ -12,7 +12,7 @@ class ProjectDccRenderControllerTests(SimpleTestCase):
     def test_project_without_controller_receives_an_isolated_context(self):
         source = {"Panels": [{"Panel_AS_Name": "Ada LOVELACE"}]}
 
-        result = apply_project_dcc_controller("hys", source)
+        result = apply_project_dcc_controller("aesa", source)
         result["Panels"][0]["Panel_AS_Name"] = "Changed"
 
         self.assertEqual(source["Panels"][0]["Panel_AS_Name"], "Ada LOVELACE")

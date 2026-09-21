@@ -92,7 +92,7 @@ def render_document(document, snapshot, output_path):
     """Render template fields and save the DCC document."""
 
     render_context = build_render_context(snapshot)
-    document.render(render_context)
+    document.render(render_context, autoescape=True)
     document.save(output_path)
 
 
@@ -102,7 +102,26 @@ def build_render_context(snapshot):
     placeholders = snapshot["placeholders"]
     if snapshot.get("schema_version") == 1:
         placeholders = upgrade_legacy_panel_fields(placeholders, snapshot.get("panel_count"))
-    return apply_project_dcc_controller(snapshot["project_slug"], placeholders)
+    context = apply_project_dcc_controller(snapshot["project_slug"], placeholders)
+    context["panels"] = [template_panel_fields(panel) for panel in context.get("Panels", [])]
+    context.setdefault("extras", context.get("Project_Subtasks", {}))
+    return context
+
+
+def template_panel_fields(panel):
+    """Expose incoming template names while preserving the canonical panel contract."""
+
+    aliases = {
+        "status": "Panel_Status",
+        "update_time": "Panel_Updated_Time",
+        "as_name": "Panel_AS_Name",
+        "affected_requirements": "Affected_Requirements",
+        "further_compliance": "Further_Compliance",
+        "design_change_assessment": "Design_Change_Assessment",
+    }
+    values = {alias: panel.get(alias, panel.get(source, "")) for alias, source in aliases.items()}
+    values["panel_name"] = str(panel.get("Panel_Name") or "").partition("Panel")[0].strip()
+    return values
 
 
 def upgrade_legacy_panel_fields(placeholders, panel_count):

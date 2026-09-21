@@ -90,7 +90,8 @@ async function previewDcc(): Promise<void> {
     setCurrentJob(await previewDccDocumentJob(generator.url))
     window.$notification.success({
       title: 'DCC preview ready',
-      description: 'Review the exact immutable snapshot before queueing it.'
+      description: 'Review the exact immutable snapshot before queueing it.',
+      duration: 3000
     })
   } catch (error) {
     errorMessage.value = formatApiError(error)
@@ -106,7 +107,8 @@ async function confirmPreview(warningCodes: string[]): Promise<void> {
     setCurrentJob(await confirmDccDocumentJob(currentJob.value.id, warningCodes))
     window.$notification.success({
       title: 'DCC queued',
-      description: 'The reviewed snapshot is available to the worker.'
+      description: 'The reviewed snapshot is available to the worker.',
+      duration: 3000
     })
   } catch (error) {
     errorMessage.value = formatApiError(error)
