@@ -368,6 +368,9 @@ def configure_sqlite_concurrency(database, busy_timeout_seconds):
 DATABASES = {
     "default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
 }
+if env.str("DB_OLD_URL", default=""):
+    DATABASES["db_old"] = env.db("DB_OLD_URL")
+
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("DATABASE_CONN_MAX_AGE", default=60)
 configure_sqlite_concurrency(
     DATABASES["default"],
