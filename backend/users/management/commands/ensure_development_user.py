@@ -2,7 +2,10 @@
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
+
+from users.username_policy import validate_username_format
 
 
 DEFAULT_USERNAME = "u10001"
@@ -25,6 +28,10 @@ class Command(BaseCommand):
             raise CommandError("ensure_development_user can only run with DEBUG=True.")
         if not options["password"]:
             raise CommandError("Pass the local development password with --password.")
+        try:
+            validate_username_format(options["username"])
+        except ValidationError as exc:
+            raise CommandError(exc.messages[0]) from exc
 
         user = self._ensure_user(options)
         self.stdout.write(self.style.SUCCESS(f"Development login ready: {user.username}"))

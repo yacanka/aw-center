@@ -1,11 +1,11 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.validators import UnicodeUsernameValidator
 from rest_framework import serializers
 
 from .invitation_management import invitation_status
 from .invitation_service import inspect_invitation
 from .models import UserInvitation
+from .username_policy import validate_username_format
 
 User = get_user_model()
 
@@ -75,9 +75,9 @@ class InvitationAcceptSerializer(InvitationTokenSerializer):
     """Validate self-registration fields authorized by an invitation token."""
 
     username = serializers.CharField(
-        min_length=3,
-        max_length=150,
-        validators=[UnicodeUsernameValidator()],
+        min_length=6,
+        max_length=6,
+        validators=[validate_username_format],
     )
     first_name = serializers.CharField(max_length=150)
     last_name = serializers.CharField(max_length=150)

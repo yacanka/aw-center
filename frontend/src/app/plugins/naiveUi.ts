@@ -1,11 +1,13 @@
 import {
   create,
+  NAlert,
   NButton,
   NCard,
   NConfigProvider,
   NDialogProvider,
   NForm,
   NFormItemGi,
+  NFlex,
   NGrid,
   NInput,
   NLoadingBarProvider,
@@ -16,17 +18,20 @@ import {
   NSpin,
   NTabPane,
   NTabs,
-  NTag
+  NTag,
+  NText
 } from 'naive-ui'
 
 /** Components required before authentication; keep the login graph intentionally small. */
 export const NAIVE_UI_COMPONENTS = [
+  NAlert,
   NButton,
   NCard,
   NConfigProvider,
   NDialogProvider,
   NForm,
   NFormItemGi,
+  NFlex,
   NGrid,
   NInput,
   NLoadingBarProvider,
@@ -37,7 +42,8 @@ export const NAIVE_UI_COMPONENTS = [
   NSpin,
   NTabPane,
   NTabs,
-  NTag
+  NTag,
+  NText
 ] as const
 
 export const naiveUi = create({ components: [...NAIVE_UI_COMPONENTS] })

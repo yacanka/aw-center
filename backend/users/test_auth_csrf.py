@@ -15,7 +15,7 @@ class SessionCsrfTests(TestCase):
     def setUp(self):
         self.client = APIClient(enforce_csrf_checks=True)
         self.user = get_user_model().objects.create_user(
-            username="session-user",
+            username="u12345",
             password="StrongPass!123",
             email="session@example.com",
         )
@@ -29,7 +29,7 @@ class SessionCsrfTests(TestCase):
         token = self.csrf_token()
         return self.client.post(
             "/api/session/",
-            {"username": "session-user", "password": "StrongPass!123"},
+            {"username": "u12345", "password": "StrongPass!123"},
             format="json",
             HTTP_X_CSRFTOKEN=token,
         )
@@ -44,7 +44,7 @@ class SessionCsrfTests(TestCase):
     def test_login_requires_csrf(self):
         response = self.client.post(
             "/api/session/",
-            {"username": "session-user", "password": "StrongPass!123"},
+            {"username": "u12345", "password": "StrongPass!123"},
             format="json",
         )
 
@@ -55,7 +55,7 @@ class SessionCsrfTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["state"], "authenticated")
-        self.assertEqual(response.data["user"]["username"], "session-user")
+        self.assertEqual(response.data["user"]["username"], "u12345")
         self.assertNotIn("token", response.data)
         self.assertTrue(response.cookies["sessionid"]["httponly"])
 

@@ -18,7 +18,13 @@
                 <n-input :value="context.email" disabled />
               </n-form-item-gi>
               <n-form-item-gi label="Username" path="username">
-                <n-input v-model:value="account.username" autocomplete="username" />
+                <n-input
+                  v-model:value="account.username"
+                  autocomplete="username"
+                  maxlength="6"
+                  placeholder="U12345"
+                />
+                <n-text depth="3">One letter followed by five digits.</n-text>
               </n-form-item-gi>
               <n-form-item-gi label="First name" path="first_name">
                 <n-input v-model:value="account.first_name" autocomplete="given-name" />
@@ -75,6 +81,7 @@ import {
   type InvitationContext
 } from '@/features/session/api/userInvitations'
 import { useSessionStore } from '@/features/session/stores/session'
+import { USERNAME_MESSAGE, USERNAME_PATTERN } from '@/features/session/services/usernamePolicy'
 
 const route = useRoute()
 const router = useRouter()
@@ -94,7 +101,14 @@ const account = ref<Omit<InvitationAccount, 'token'>>({
   password_confirm: ''
 })
 const rules: FormRules = {
-  username: [{ required: true, min: 3, message: 'Enter at least 3 characters.' }],
+  username: [
+    {
+      required: true,
+      pattern: USERNAME_PATTERN,
+      message: USERNAME_MESSAGE,
+      trigger: ['input', 'blur']
+    }
+  ],
   first_name: [{ required: true, message: 'First name is required.' }],
   last_name: [{ required: true, message: 'Last name is required.' }],
   password: [{ required: true, min: 8, message: 'Enter at least 8 characters.' }],
@@ -115,7 +129,8 @@ const formattedExpiry = computed(() => {
 })
 
 onMounted(async () => {
-  await Promise.all([session.bootstrap(), loadInvitation()])
+  await session.bootstrap()
+  await loadInvitation()
 })
 
 async function loadInvitation(): Promise<void> {

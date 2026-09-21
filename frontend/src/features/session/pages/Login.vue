@@ -8,6 +8,7 @@ import { applyPreferredTheme } from '@/app/services/theme'
 import PasswordRecovery from '@/features/session/components/user/PasswordRecovery.vue'
 import { safePostLoginPath } from '@/features/session/services/accessPolicy'
 import { takePasswordResetCapability } from '@/features/session/services/passwordResetCapability'
+import { USERNAME_MESSAGE, USERNAME_PATTERN } from '@/features/session/services/usernamePolicy'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,7 +31,7 @@ const userStore = useSessionStore()
 const rules: FormRules = {
   username: [
     { required: true, message: 'Username required', trigger: 'blur' },
-    { min: 3, max: 150, message: 'Username must be between 3 and 150 characters', trigger: 'blur' }
+    { pattern: USERNAME_PATTERN, message: USERNAME_MESSAGE, trigger: ['input', 'blur'] }
   ],
   password: [{ required: true, message: 'Password required', trigger: 'blur' }]
 }
@@ -86,6 +87,7 @@ function openPasswordRecovery(): void {
                   <n-input
                     v-model:value="loginCredentials.username"
                     type="text"
+                    maxlength="6"
                     placeholder="Enter your registration number"
                   />
                 </n-form-item-gi>

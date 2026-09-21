@@ -82,12 +82,60 @@ test('login sends Django CSRF and enters the protected shell', async ({ page }) 
   })
 
   await page.goto('/app/login?redirect=/jobs')
-  await page.getByPlaceholder('Enter your registration number').fill('operator')
+  await page.getByPlaceholder('Enter your registration number').fill('u12345')
   await page.getByPlaceholder('Enter your password').fill('runtime-only-password')
   await page.getByRole('button', { name: 'Login' }).click()
 
   await expect(page).toHaveURL(/\/app\/jobs$/)
   expect(submittedCsrf).toBe('playwright-csrf')
+})
+
+test('login rejects usernames outside the six-character format', async ({ page }) => {
+  let loginRequests = 0
+  await routeSessionBootstrap(page)
+  await page.route('**/api/session/', async (route) => {
+    if (route.request().method() === 'POST') loginRequests += 1
+    await route.fallback()
+  })
+
+  await page.goto('/app/login')
+  await page.getByPlaceholder('Enter your registration number').fill('operator')
+  await page.getByPlaceholder('Enter your password').fill('fixture-password')
+  await page.getByRole('button', { name: 'Login' }).click()
+
+  await expect(
+    page.getByText('Use one letter followed by exactly five digits', { exact: false })
+  ).toBeVisible()
+  expect(loginRequests).toBe(0)
+})
+
+test('invitation registration validates the username before submitting', async ({ page }) => {
+  let acceptanceRequests = 0
+  await routeSessionBootstrap(page)
+  await page.route('**/api/users/invitations/inspect/', (route) =>
+    json(route, { email: 'invitee@example.test', expires_at: '2099-01-01T00:00:00Z' })
+  )
+  await page.route('**/api/users/invitations/accept/', (route) => {
+    acceptanceRequests += 1
+    return json(route, { detail: 'Account created.' })
+  })
+
+  await page.goto('/app/invite#fixture-token')
+  await page.getByPlaceholder('U12345').fill('123456')
+  await page.getByRole('button', { name: 'Create account' }).click()
+
+  await expect(
+    page.getByText('Use one letter followed by exactly five digits', { exact: false })
+  ).toBeVisible()
+  expect(acceptanceRequests).toBe(0)
+
+  await page.getByPlaceholder('U12345').fill('Ç12345')
+  await page.locator('.n-form-item').nth(2).locator('input').fill('Invited')
+  await page.locator('.n-form-item').nth(3).locator('input').fill('User')
+  await page.locator('.n-form-item').nth(4).locator('input').fill('StrongInvite!123')
+  await page.locator('.n-form-item').nth(5).locator('input').fill('StrongInvite!123')
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await expect.poll(() => acceptanceRequests).toBe(1)
 })
 
 test('presentation upload queues one idempotent job and downloads its private result', async ({

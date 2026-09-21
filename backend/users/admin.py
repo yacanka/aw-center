@@ -1,8 +1,30 @@
+from django import forms
 from django.contrib import admin
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.forms import AuthenticationForm, UserChangeForm, UserCreationForm
 
 from .models import PasswordResetDelivery, UserInvitation, UserPreferences
+from .username_policy import validate_username_format
+
+
+class ConstrainedUserCreationForm(UserCreationForm):
+    def clean_username(self):
+        username = super().clean_username()
+        validate_username_format(username)
+        return username
+
+
+class ConstrainedAdminAuthenticationForm(AuthenticationForm):
+    username = forms.CharField(max_length=6, validators=[validate_username_format])
+
+
+class ConstrainedUserChangeForm(UserChangeForm):
+    def clean_username(self):
+        username = self.cleaned_data["username"]
+        validate_username_format(username)
+        return username
+
 
 class UserPreferencesInline(admin.StackedInline):
     model = UserPreferences
@@ -41,6 +63,8 @@ class UserPreferencesInline(admin.StackedInline):
 
 
 class CustomUserAdmin(UserAdmin):
+    add_form = ConstrainedUserCreationForm
+    form = ConstrainedUserChangeForm
     inlines = (UserPreferencesInline,)
     list_display = (
         'username',
@@ -71,6 +95,7 @@ class CustomUserAdmin(UserAdmin):
 # Unregister default User admin and register custom one
 admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
+admin.site.login_form = ConstrainedAdminAuthenticationForm
 
 
 # Standalone UserPreferences admin (optional)

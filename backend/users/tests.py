@@ -9,6 +9,11 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
+from users.admin import (
+    ConstrainedAdminAuthenticationForm,
+    ConstrainedUserChangeForm,
+    ConstrainedUserCreationForm,
+)
 from users.models import UserPreferences
 
 
@@ -84,6 +89,62 @@ class UserAdministrationTests(TestCase):
         self.assertIn(response.status_code, {400, 403})
         self.assertFalse(self.regular_user.user_permissions.filter(pk=permission.pk).exists())
 
+    def test_user_api_enforces_username_format_on_creation_and_change(self):
+        self.client.force_authenticate(self.admin_user)
+        for username in ("123456", "u1234", "u123456", "uu2345", "u1234x", "u123_5"):
+            with self.subTest(username=username):
+                response = self.client.post(
+                    "/api/users/",
+                    {"username": username, "password": "StrongPass!123"},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("username", response.data["errors"])
+        valid = self.client.post(
+            "/api/users/",
+            {"username": "Ş12345", "password": "StrongPass!123"},
+            format="json",
+        )
+        self.assertEqual(valid.status_code, 201)
+
+        legacy = User.objects.create_user("legacy-user", password="StrongPass!123")
+        unchanged = self.client.patch(
+            f"/api/users/{legacy.pk}/",
+            {"username": "legacy-user", "first_name": "Updated"},
+            format="json",
+        )
+        invalid_change = self.client.patch(
+            f"/api/users/{legacy.pk}/", {"username": "invalid-name"}, format="json"
+        )
+        self.assertEqual(unchanged.status_code, 400)
+        self.assertEqual(invalid_change.status_code, 400)
+        legacy.refresh_from_db()
+        self.assertEqual((legacy.username, legacy.first_name), ("legacy-user", ""))
+
+    def test_django_admin_forms_apply_rule_to_existing_users(self):
+        valid = ConstrainedUserCreationForm(
+            data={"username": "Ğ12345", "password1": "StrongPass!123", "password2": "StrongPass!123"}
+        )
+        invalid = ConstrainedUserCreationForm(
+            data={"username": "admin-user", "password1": "StrongPass!123", "password2": "StrongPass!123"}
+        )
+        self.assertNotIn("username", valid.errors)
+        self.assertIn("username", invalid.errors)
+
+        legacy = User.objects.create_user("legacy-user")
+        unchanged = ConstrainedUserChangeForm(data={"username": "legacy-user"}, instance=legacy)
+        changed = ConstrainedUserChangeForm(data={"username": "invalid-name"}, instance=legacy)
+        self.assertIn("username", unchanged.errors)
+        self.assertIn("username", changed.errors)
+
+    def test_admin_login_form_rejects_legacy_username(self):
+        legacy = User.objects.create_superuser("legacy-user", password="StrongPass!123")
+        form = ConstrainedAdminAuthenticationForm(
+            data={"username": legacy.username, "password": "StrongPass!123"}
+        )
+
+        self.assertIn("username", form.errors)
+
 
 class DevelopmentUserCommandTests(TestCase):
     @override_settings(DEBUG=True)
@@ -105,6 +166,16 @@ class DevelopmentUserCommandTests(TestCase):
     def test_command_requires_an_explicit_password(self):
         with self.assertRaisesMessage(CommandError, "--password"):
             call_command("ensure_development_user", verbosity=0)
+
+    @override_settings(DEBUG=True)
+    def test_command_rejects_invalid_username(self):
+        with self.assertRaisesMessage(CommandError, "one letter followed"):
+            call_command(
+                "ensure_development_user",
+                username="legacy-user",
+                password="StrongPass!123",
+                verbosity=0,
+            )
 
     @override_settings(DEBUG=False)
     def test_command_rejects_non_debug_settings(self):
