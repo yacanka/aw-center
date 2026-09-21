@@ -10,7 +10,9 @@ from django.conf import settings
 import requests
 
 from integrations.doors.services import integration_status as doors_status
-from integrations.teamcenter.services import parse_tls_verification
+from integrations.teamcenter.services import tls_verification as teamcenter_tls_verification
+from integrations.jira.client import tls_verification as jira_tls_verification
+from integrations.docproof import tls_verification as docproof_tls_verification
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,7 @@ def probe_jira() -> ProbeOutcome:
 
     if not settings.JIRA_ENABLED:
         return ProbeOutcome("not_configured", "JIRA is disabled.")
-    return _http_probe(settings.JIRA_URL, True)
+    return _http_probe(settings.JIRA_URL, jira_tls_verification())
 
 
 def probe_teamcenter() -> ProbeOutcome:
@@ -43,7 +45,7 @@ def probe_teamcenter() -> ProbeOutcome:
 
     if not settings.TEAMCENTER_ENABLED:
         return ProbeOutcome("not_configured", "Teamcenter is disabled.")
-    verify_ssl = parse_tls_verification(settings.TEAMCENTER_VERIFY_SSL)
+    verify_ssl = teamcenter_tls_verification()
     return _http_probe(settings.TEAMCENTER_BASE_URL, verify_ssl)
 
 
@@ -54,7 +56,7 @@ def probe_docproof() -> ProbeOutcome:
         return ProbeOutcome("not_configured", "DocProof is disabled.")
     if not settings.DOCPROOF_USERNAME or not settings.DOCPROOF_PASSWORD:
         return ProbeOutcome("not_configured", "Server credentials are not configured.")
-    return _http_probe(settings.DOCPROOF_URL, True)
+    return _http_probe(settings.DOCPROOF_URL, docproof_tls_verification())
 
 
 def probe_numarator() -> ProbeOutcome:

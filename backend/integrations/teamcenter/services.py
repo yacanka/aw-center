@@ -24,6 +24,12 @@ def parse_tls_verification(raw_value: bool | str) -> bool | str:
     return str(Path(normalized))
 
 
+def tls_verification() -> bool | str:
+    """Use the configured CA bundle consistently for clients and health probes."""
+    certificate = settings.TEAMCENTER_CERTIFICATE_FILE
+    return str(certificate) if certificate.is_file() else parse_tls_verification(settings.TEAMCENTER_VERIFY_SSL)
+
+
 def validate_transport_security(base_url: str, verify_ssl: bool | str) -> None:
     """Reject insecure Teamcenter transport outside development."""
     if settings.DEBUG:
@@ -36,7 +42,7 @@ def validate_transport_security(base_url: str, verify_ssl: bool | str) -> None:
 
 def build_client_config() -> TeamcenterClientConfig:
     """Build Teamcenter client configuration from Django settings."""
-    verify_ssl = parse_tls_verification(settings.TEAMCENTER_VERIFY_SSL)
+    verify_ssl = tls_verification()
     validate_transport_security(settings.TEAMCENTER_BASE_URL, verify_ssl)
     try:
         auth_mode = AuthMode(settings.TEAMCENTER_AUTH_MODE.lower())
@@ -83,5 +89,5 @@ def integration_status() -> dict[str, Any]:
         "configured": configured,
         "auth_mode": auth_mode,
         "service_root": settings.TEAMCENTER_SERVICE_ROOT,
-        "tls_verification_enabled": parse_tls_verification(settings.TEAMCENTER_VERIFY_SSL) is not False,
+        "tls_verification_enabled": tls_verification() is not False,
     }

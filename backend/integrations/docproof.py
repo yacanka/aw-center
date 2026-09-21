@@ -120,7 +120,7 @@ def base_url() -> str:
 
 def tls_verification() -> bool | str:
     certificate = settings.DOCPROOF_CERTIFICATE_FILE
-    return str(certificate) if certificate.exists() else settings.DOCPROOF_VERIFY_SSL
+    return str(certificate) if certificate.is_file() else settings.DOCPROOF_VERIFY_SSL
 
 
 def normalize_document_number(raw_document_number: str) -> str:
