@@ -216,6 +216,32 @@ class EcrWorkflowApiTests(JobTestCase):
         self.assertEqual(ready.status_code, 200)
         self.assertTrue(ready.data["ready"])
 
+    @patch("automations.ecr_views.jira_connector_for")
+    def test_effectivity_suggestion_is_review_only_and_preserves_snapshot(self, connector_for):
+        created = self.create_workflow(key="effectivity-review-fixture").data
+        workflow = EcrWorkflow.objects.get(pk=created["id"])
+        workflow.snapshot["effectivity"] = "1-12, 80 (4AV)"
+        workflow.save(update_fields=["snapshot"])
+        connector_for.return_value.get_create_fields.return_value = [
+            {"id": name, "schema": {"type": "string"}}
+            for name in ("summary", "description", "labels")
+        ] + [{
+            "id": "customfield_34115", "schema": {"type": "array", "items": "option"},
+            "allowedValues": [{"id": "41", "value": "4AV 1-12"}, {"id": "42", "value": "4AV-80"}],
+        }]
+        response = self.client.post(
+            f"/api/workflows/ecr/{workflow.id}/preflight/",
+            {"version": workflow.version, "project_key": "CHN", "subtasks": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["effectivity_suggestion"]["values"], ["41", "42"])
+        workflow.refresh_from_db()
+        self.assertEqual(workflow.snapshot["effectivity"], "1-12, 80 (4AV)")
+        self.assertEqual(workflow.extra_fields, {})
+        self.assertEqual(workflow.status, EcrWorkflowStatus.REVIEW)
+        connector_for.return_value.create_issue.assert_not_called()
+
     def test_multi_project_publish_requires_publisher_on_every_project(self):
         second_project = Project.objects.get(slug="piku")
         second_assignment = ProjectRoleAssignment.objects.create(

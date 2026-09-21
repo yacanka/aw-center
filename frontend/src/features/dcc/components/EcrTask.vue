@@ -233,6 +233,29 @@
               @check="checkEcrPreflight"
               @update-field="updateEcrField"
             />
+            <n-alert
+              v-if="
+                selectedWorkflow.allowed_actions.approve && preflightResult?.effectivity_suggestion
+              "
+              type="info"
+              :bordered="false"
+            >
+              Suggested effectivity: {{ preflightResult.effectivity_suggestion.labels.join('; ') }}
+              <template #action>
+                <n-button
+                  size="small"
+                  :disabled="acting || preflightDirty"
+                  @click="
+                    updateEcrField(
+                      'customfield_34115',
+                      preflightResult!.effectivity_suggestion!.values
+                    )
+                  "
+                >
+                  Use suggestion
+                </n-button>
+              </template>
+            </n-alert>
             <template #action>
               <n-space justify="end">
                 <n-popconfirm
