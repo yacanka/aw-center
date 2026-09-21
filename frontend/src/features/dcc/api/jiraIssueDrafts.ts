@@ -59,6 +59,7 @@ export interface JiraPreflightIdentity {
 }
 
 export interface JiraIssueDraftPreflight {
+  effectivity_suggestion?: { values: string[]; labels: string[] }
   ready: boolean
   project_key: string
   issue_type: string

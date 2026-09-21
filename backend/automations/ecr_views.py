@@ -19,6 +19,7 @@ from integrations.jira.sessions import (
     jira_connector_for,
 )
 
+from .ecr_effectivity import add_effectivity_suggestion
 from .ecr_access import OPERATOR, readable_ecr_workflows, require_ecr_role
 from .ecr_contracts import EcrStateConflict, ecr_parent_description, validate_ecr_version
 from .ecr_publication_jobs import enqueue_ecr_publication
@@ -154,10 +155,11 @@ def ecr_workflow_preflight(request, workflow_id):
     )
     try:
         connector = jira_connector_for(request.user)
-        result, _metadata = inspect_create_contract(
+        result, metadata = inspect_create_contract(
             draft,
             connector,
         )
+        add_effectivity_suggestion(result, metadata, workflow.snapshot.get("effectivity", ""))
         if values.get("subtasks"):
             result = _include_subtask_contract(result, connector, values["project_key"])
     except JiraSessionError as error:
