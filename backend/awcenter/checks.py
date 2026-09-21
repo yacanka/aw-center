@@ -289,7 +289,17 @@ def _integration_checks():
                     id="awcenter.E020",
                 )
             )
-    if settings.TEAMCENTER_ENABLED and settings.TEAMCENTER_VERIFY_SSL is False:
+    if (
+        settings.JIRA_ENABLED and not settings.JIRA_VERIFY_SSL
+        and not settings.JIRA_CERTIFICATE_FILE.is_file()
+    ):
+        checks.append(
+            Error("JIRA TLS verification cannot be disabled in production.", id="awcenter.E037")
+        )
+    if (
+        settings.TEAMCENTER_ENABLED and settings.TEAMCENTER_VERIFY_SSL is False
+        and not settings.TEAMCENTER_CERTIFICATE_FILE.is_file()
+    ):
         checks.append(
             Error(
                 "Teamcenter TLS verification cannot be disabled in production.",

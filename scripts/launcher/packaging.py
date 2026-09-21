@@ -23,6 +23,12 @@ EXCLUDED_PARTS = {
     "dist",
     "media",
     "staticfiles",
+    "__pycache__",
+    "_certificates",
+    "_custom_templates",
+    "_models",
+    "_private_media",
+    "_media",
 }
 EXCLUDED_SUFFIXES = {
     ".7z",

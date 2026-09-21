@@ -8,13 +8,19 @@ from urllib.parse import urlparse
 from django.conf import settings
 from jira import JIRA, JIRAError
 
-CERTIFICATE_FILE = settings.CERTIFICATES_DIR / "JIRA_Chain.crt"
 ISSUE_KEY_PATTERN = re.compile(r"[A-Z]+-\d+")
 logger = logging.getLogger(__name__)
 
 
 class JiraConfigurationError(ValueError):
     """Represent an unsafe or incomplete server-side JIRA configuration."""
+
+
+def tls_verification():
+    """Resolve the configured CA bundle at call time, retaining secure defaults."""
+
+    certificate = settings.JIRA_CERTIFICATE_FILE
+    return str(certificate) if certificate.is_file() else settings.JIRA_VERIFY_SSL
 
 
 def ISO_time_to_string(date_str):
@@ -40,7 +46,9 @@ class JiraConnector:
     def __init__(self, server_url, jira_session_id):
         parsed_url = validated_server_url(server_url)
         credential = validated_session_id(jira_session_id)
-        certificate = str(CERTIFICATE_FILE) if CERTIFICATE_FILE.exists() else True
+        certificate = tls_verification()
+        if not settings.DEBUG and certificate is False:
+            raise JiraConfigurationError("TLS verification cannot be disabled in production.")
         options = {"server": server_url, "verify": certificate}
         try:
             self.jira = JIRA(

@@ -489,6 +489,21 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn(".runtime/state.txt", names)
         self.assertNotIn("backups/production.dump", names)
 
+    def test_legacy_private_directories_are_excluded_but_python_packages_remain(self):
+        from scripts.launcher.packaging import packageable
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for folder in ("_certificates", "_custom_templates", "_models", "_private_media", "_media"):
+                asset = root / folder / "asset.txt"
+                asset.parent.mkdir()
+                asset.write_text("fixture")
+                self.assertFalse(packageable(asset))
+            for filename in ("__init__.py", "_helpers.py"):
+                source = root / filename
+                source.write_text("# source")
+                self.assertTrue(packageable(source))
+
     def test_zip_rejects_symlink_sources(self) -> None:
         """An untracked symlink cannot exfiltrate a file outside the repository."""
 
