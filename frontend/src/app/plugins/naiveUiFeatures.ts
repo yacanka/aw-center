@@ -1,10 +1,10 @@
 import {
   NTable,
-  NAlert,
   NAvatar,
   NBadge,
   NCarousel,
   NCarouselItem,
+  NCheckbox,
   NCode,
   NCollapse,
   NCollapseItem,
@@ -20,7 +20,6 @@ import {
   NDynamicTags,
   NEllipsis,
   NEmpty,
-  NFlex,
   NFormItem,
   NGi,
   NGridItem,
@@ -50,12 +49,11 @@ import {
   NSkeleton,
   NStatistic,
   NSwitch,
-  NText,
+  NTab,
   NThing,
   NTimeline,
   NTimelineItem,
   NTooltip,
-  NTransfer,
   NUpload,
   NUploadDragger
 } from 'naive-ui'
@@ -63,11 +61,11 @@ import {
 /** Components used only after the corresponding lazy route has been selected. */
 export const NAIVE_UI_FEATURE_COMPONENTS = [
   NTable,
-  NAlert,
   NAvatar,
   NBadge,
   NCarousel,
   NCarouselItem,
+  NCheckbox,
   NCode,
   NCollapse,
   NCollapseItem,
@@ -83,7 +81,6 @@ export const NAIVE_UI_FEATURE_COMPONENTS = [
   NDynamicTags,
   NEllipsis,
   NEmpty,
-  NFlex,
   NFormItem,
   NGi,
   NGridItem,
@@ -113,12 +110,11 @@ export const NAIVE_UI_FEATURE_COMPONENTS = [
   NSkeleton,
   NStatistic,
   NSwitch,
-  NText,
+  NTab,
   NThing,
   NTimeline,
   NTimelineItem,
   NTooltip,
-  NTransfer,
   NUpload,
   NUploadDragger
 ] as const

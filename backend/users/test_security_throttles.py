@@ -119,7 +119,7 @@ class LoginThrottleTests(TestCase):
             responses = [
                 self.client.post(
                     "/api/session/",
-                    {"username": "unknown", "password": "invalid"},
+                    {"username": "u54321", "password": "invalid"},
                     format="json",
                     HTTP_X_CSRFTOKEN=csrf_token,
                 )

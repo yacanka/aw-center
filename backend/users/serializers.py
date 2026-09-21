@@ -10,6 +10,7 @@ from rest_framework.serializers import CharField, ListField, ModelSerializer, Se
 from .models import UserPreferences
 from .password_reset_notifications import enqueue_password_reset
 from .password_reset_tokens import token_generator
+from .username_policy import validate_username_format
 
 User = get_user_model()
 
@@ -131,6 +132,10 @@ class UserSerializer(ModelSerializer):
         if not request or not request.user.is_authenticated:
             return False
         return request.user.has_perm("auth.change_user")
+
+    def validate_username(self, value):
+        validate_username_format(value)
+        return value
 
     def validate(self, attrs):
         restricted_fields = {"groups", "user_permissions"}
