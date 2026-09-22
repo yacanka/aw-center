@@ -50,6 +50,8 @@ def execute_jira_subtask_batch(job):
                     "labels": [*(extra_fields.get("labels") or []), marker, "aw-center-subtask"],
                 },
             )
+            if "assignee" in extra_fields:
+                fields["assignee"] = extra_fields["assignee"]
             ensure_session(job)
             try:
                 issue = client.create_subtask_from_fields(fields, item.get("assignee") or None)
@@ -156,14 +158,17 @@ def prepare_extra_fields(client, payload):
             for field in metadata
             if field.get("id") in public_field_ids
         }
-        return [
-            {
+        encoded_items = []
+        for item in payload["items"]:
+            values = dict(item.get("fields", {}))
+            if item.get("assignee") and "assignee" in fields_by_id:
+                values["assignee"] = item["assignee"]
+            encoded_items.append({
                 key: encode_value(value, fields_by_id[key])
-                for key, value in item.get("fields", {}).items()
+                for key, value in values.items()
                 if value not in (None, "", [])
-            }
-            for item in payload["items"]
-        ]
+            })
+        return encoded_items
     except Exception as error:
         raise JobExecutionFailure(
             "Reload JIRA fields before creating subtasks.",

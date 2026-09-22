@@ -1,5 +1,6 @@
 """Validation and sanitized error contracts shared by JIRA features."""
 
+import math
 import re
 
 from rest_framework.exceptions import APIException, ValidationError
@@ -65,7 +66,7 @@ def validate_issue_key(value):
 
 
 def validate_extra_fields(value):
-    """Validate bounded scalar/list values without trusting JIRA field identifiers."""
+    """Validate bounded scalars, references and lists without trusting field identifiers."""
 
     if not isinstance(value, dict) or len(value) > MAX_EXTRA_FIELDS:
         raise ValidationError("Use an object containing at most 30 JIRA fields.")
@@ -80,16 +81,40 @@ def validate_field_key(value):
 
 
 def validate_field_value(value):
-    if value is None or isinstance(value, (str, int, float)) and not isinstance(value, bool):
+    if isinstance(value, dict):
+        return validate_reference(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
         return validate_scalar(value)
     if not isinstance(value, list) or len(value) > 50:
         raise ValidationError("JIRA field values must be scalars or lists of at most 50 values.")
-    return [validate_scalar(item) for item in value]
+    return [validate_reference(item) if isinstance(item, dict) else validate_scalar(item) for item in value]
 
 
 def validate_scalar(value):
-    if isinstance(value, bool) or not isinstance(value, (str, int, float, type(None))):
+    if not isinstance(value, (str, int, float, bool, type(None))):
         raise ValidationError("JIRA field values cannot contain nested objects.")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValidationError("JIRA numbers must be finite.")
     if isinstance(value, str) and len(value) > MAX_FIELD_TEXT_LENGTH:
         raise ValidationError("JIRA field text values cannot exceed 2000 characters.")
     return value
+
+
+def validate_reference(value, *, child=False):
+    """Accept bounded references, never arbitrary issue-response objects."""
+    keys = {"id", "name", "key", "accountId", "value"}
+    if not value or set(value) - (keys if child else keys | {"child"}):
+        raise ValidationError("Use a JIRA reference identifier, not a full object.")
+    result = {}
+    for key, item in value.items():
+        if key == "child":
+            if not isinstance(item, dict):
+                raise ValidationError("Use a child option reference.")
+            result[key] = validate_reference(item, child=True)
+        else:
+            if isinstance(item, bool) or not isinstance(item, (str, int)) or not str(item).strip():
+                raise ValidationError("Use a non-empty JIRA reference identifier.")
+            result[key] = validate_scalar(item)
+    if not set(result) & keys:
+        raise ValidationError("A parent reference is required.")
+    return result

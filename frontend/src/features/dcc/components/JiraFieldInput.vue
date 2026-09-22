@@ -1,6 +1,28 @@
 <template>
+  <n-text v-if="inputType === 'unsupported'" type="error">
+    Unsupported JIRA field type. Update the JIRA create screen before submitting.
+  </n-text>
+  <n-flex v-else-if="isCascade" vertical>
+    <n-select
+      :value="cascadeParent"
+      :options="allowedOptions"
+      filterable
+      clearable
+      :placeholder="field.name"
+      @update:value="updateParent"
+    />
+    <n-select
+      v-if="childOptions.length"
+      :value="cascadeChild"
+      :options="childOptions"
+      filterable
+      clearable
+      placeholder="Child option"
+      @update:value="updateChild"
+    />
+  </n-flex>
   <n-select
-    v-if="allowedOptions.length"
+    v-else-if="allowedOptions.length"
     :value="modelValueAsSelect"
     :options="allowedOptions"
     :multiple="isMultiple"
@@ -13,6 +35,25 @@
     v-else-if="isMultiple"
     :value="modelValueAsArray"
     @update:value="updateArrayValue"
+  />
+  <n-select
+    v-else-if="inputType === 'boolean'"
+    :value="
+      modelValue === true ? 'true' : modelValue === false ? 'false' : modelValueAsString || null
+    "
+    :options="[
+      { label: 'True', value: 'true' },
+      { label: 'False', value: 'false' }
+    ]"
+    clearable
+    :placeholder="field.name"
+    @update:value="updateBoolean"
+  />
+  <n-input
+    v-else-if="inputType === 'datetime'"
+    :value="modelValueAsString"
+    placeholder="YYYY-MM-DDTHH:mm:ss+03:00"
+    @update:value="updateValue"
   />
   <n-search
     v-else-if="inputType == 'person'"
@@ -52,7 +93,7 @@
 import { computed } from 'vue'
 import NSearch from '@/shared/components/NSearch.vue'
 import { IJiraField, JiraFieldValue } from '@/features/dcc/models/jira'
-import { resolveJiraFieldInputType } from '@/shared/utils/jiraFieldInput'
+import { jiraInputToken, resolveJiraFieldInputType } from '@/shared/utils/jiraFieldInput'
 
 const props = defineProps<{
   field: IJiraField
@@ -66,34 +107,79 @@ const emits = defineEmits<{
 
 const inputType = computed(() => resolveJiraFieldInputType(props.field))
 const isMultiple = computed(() => String(props.field.schema?.type || '') == 'array')
-const allowedOptions = computed(() =>
-  (props.field.allowedValues || []).flatMap((option) => {
-    const value = option.value
-    const label = option.label
-    return typeof value == 'string' || typeof value == 'number'
-      ? [{ value, label: String(label ?? value) }]
-      : []
+function selectOptions(options: Array<Record<string, unknown>>) {
+  return options.flatMap((option) => {
+    const value = jiraInputToken(option.id ?? option.value ?? option)
+    return value === null
+      ? []
+      : [{ value, label: String(option.label ?? option.value ?? option.name ?? value) }]
   })
+}
+const allowedOptions = computed(() => selectOptions(props.field.allowedValues || []))
+const isCascade = computed(
+  () =>
+    props.field.schema?.type === 'option-with-child' ||
+    String(props.field.schema?.custom || '').endsWith(':cascadingselect')
 )
-const modelValueAsString = computed(() =>
-  props.modelValue == null || Array.isArray(props.modelValue) ? '' : String(props.modelValue)
+const cascadeParent = computed(() => selectionToken(props.modelValue))
+const parentOption = computed(() =>
+  (props.field.allowedValues || []).find((option) =>
+    [option.id, option.value].some(
+      (value) => value != null && String(value) === String(cascadeParent.value)
+    )
+  )
 )
+const childOptions = computed(() =>
+  selectOptions((parentOption.value?.children || []) as Array<Record<string, unknown>>)
+)
+const cascadeChild = computed(() => {
+  const value = props.modelValue
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? jiraInputToken(value.child)
+    : null
+})
+function selectionToken(value: unknown) {
+  const token = jiraInputToken(value)
+  const option = (props.field.allowedValues || []).find((option) =>
+    [option.id, option.value].some((value) => value != null && String(value) === String(token))
+  )
+  return option ? jiraInputToken(option.id ?? option.value) : token
+}
+const modelValueAsString = computed(() => String(jiraInputToken(props.modelValue) ?? ''))
 const modelValueAsNumber = computed(() =>
   typeof props.modelValue == 'number' ? props.modelValue : null
 )
 const modelValueAsDate = computed(() => normalizeDateValue(props.modelValue))
 const modelValueAsArray = computed(() =>
-  Array.isArray(props.modelValue) ? props.modelValue.map(String) : []
+  Array.isArray(props.modelValue)
+    ? props.modelValue.map((value) => String(jiraInputToken(value) ?? ''))
+    : []
 )
 const modelValueAsSelect = computed(() =>
   isMultiple.value
     ? Array.isArray(props.modelValue)
       ? props.modelValue
+          .map(selectionToken)
+          .filter((value): value is string | number => value !== null)
       : []
     : Array.isArray(props.modelValue)
       ? null
-      : props.modelValue
+      : selectionToken(props.modelValue)
 )
+
+function updateBoolean(value: string | null) {
+  updateValue(value === null ? null : value === 'true')
+}
+function updateParent(value: string | number | null) {
+  updateValue(value === null ? null : { id: String(value) })
+}
+function updateChild(value: string | number | null) {
+  if (cascadeParent.value === null) return
+  updateValue({
+    id: String(cascadeParent.value),
+    ...(value === null ? {} : { child: { id: String(value) } })
+  })
+}
 
 function updateValue(value: JiraFieldValue | undefined) {
   emits('update:modelValue', value ?? null)

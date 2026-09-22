@@ -14,6 +14,10 @@ class SubtaskTargetSerializer(serializers.Serializer):
     issue = serializers.CharField(min_length=1, max_length=2048, trim_whitespace=True)
 
 
+class SubtaskFieldInspectionSerializer(SubtaskTargetSerializer):
+    include_summary = serializers.BooleanField(required=False, default=False)
+
+
 class SubtaskItemSerializer(serializers.Serializer):
     summary = serializers.CharField(min_length=1, max_length=255, trim_whitespace=True)
     description = serializers.CharField(

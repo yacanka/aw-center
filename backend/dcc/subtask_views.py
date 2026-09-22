@@ -22,6 +22,7 @@ from .subtask_serializers import (
     MAX_SUBTASKS_PER_BATCH,
     SubtaskBatchSerializer,
     SubtaskTargetSerializer,
+    SubtaskFieldInspectionSerializer,
     SubtaskWorkbookSerializer,
 )
 
@@ -36,11 +37,12 @@ def inspect_subtask_fields(request):
     legacy_error = reject_legacy_session(request)
     if legacy_error:
         return legacy_error
-    serializer = SubtaskTargetSerializer(data=request.data)
+    serializer = SubtaskFieldInspectionSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     try:
         _connector, issue_key, _projects, metadata = inspect_subtask_target(
-            request.user, serializer.validated_data["issue"]
+            request.user, serializer.validated_data["issue"],
+            include_summary=serializer.validated_data["include_summary"],
         )
     except JiraSessionError as error:
         return jira_session_error_response(error)
@@ -77,10 +79,13 @@ def create_subtask_job(request):
     if legacy_error:
         return legacy_error
     try:
-        serializer, items = parse_subtask_request(request)
+        target = SubtaskTargetSerializer(data=request.data)
+        target.is_valid(raise_exception=True)
+        is_workbook = request.FILES.get("file") is not None
         _connector, issue_key, projects, metadata = inspect_subtask_target(
-            request.user, serializer.validated_data["issue"]
+            request.user, target.validated_data["issue"], include_summary=is_workbook,
         )
+        _serializer, items = parse_subtask_request(request, metadata=metadata)
         validate_item_field_contract(items, metadata)
         job, created = enqueue_subtask_batch(
             request.user,
@@ -123,7 +128,7 @@ def resume_subtask_job(request, job_id):
     return job_creation_response(job, created)
 
 
-def parse_subtask_request(request):
+def parse_subtask_request(request, *, metadata=None):
     workbook = request.FILES.get("file")
     if workbook is None:
         serializer = SubtaskBatchSerializer(data=request.data)
@@ -140,7 +145,7 @@ def parse_subtask_request(request):
         data={"issue": request.data.get("issue"), "mapping": mapping}
     )
     serializer.is_valid(raise_exception=True)
-    raw_items = workbook_items(workbook, serializer.validated_data["mapping"])
+    raw_items = workbook_items(workbook, serializer.validated_data["mapping"], metadata=metadata)
     batch = SubtaskBatchSerializer(
         data={"issue": serializer.validated_data["issue"], "items": raw_items}
     )
@@ -166,7 +171,10 @@ def workbook_columns(workbook):
     return columns
 
 
-def workbook_items(workbook, mapping):
+def workbook_items(workbook, mapping, *, metadata=None):
+    fields = {field["id"]: field for field in metadata or []}
+    if metadata is not None:
+        validate_workbook_mapping(mapping, fields)
     columns = workbook_columns(workbook)
     requested_columns = [item["column"] for item in mapping]
     missing = sorted(set(requested_columns) - set(columns))
@@ -192,7 +200,9 @@ def workbook_items(workbook, mapping):
     items = []
     for _index, row in frame.iterrows():
         values = {
-            field_by_column[column]: workbook_value(row[column])
+            field_by_column[column]: workbook_field_value(
+                row[column], fields.get(field_by_column[column]), row_number=_index + 2, column=column,
+            )
             for column in requested_columns
         }
         if all(value in (None, "") for value in values.values()):
@@ -207,6 +217,58 @@ def workbook_items(workbook, mapping):
         items.append(item)
     return items
 
+
+
+def validate_workbook_mapping(mapping, fields):
+    """Never accept stale or protected mappings, including all-empty columns."""
+
+    unknown = sorted({item["field"] for item in mapping} - fields.keys())
+    if unknown:
+        raise ValidationError({"mapping": "Reload JIRA fields; unavailable fields: " + ", ".join(unknown)})
+
+
+def workbook_field_value(value, field, *, row_number, column):
+    """Decode Excel's text cells by the live schema before bounded serialization.
+
+    Lists use semicolon-separated values or JSON arrays; references may use bounded
+    JSON objects. Ordinary text is never interpreted as JSON or split on delimiters.
+    """
+
+    if field is None:
+        return workbook_value(value)
+    schema = field.get("schema") or {}
+    field_type = schema.get("type")
+    try:
+        if isinstance(value, (datetime, date)) and field_type == "datetime":
+            # Excel dates have no timezone. Require an explicit offset in text cells.
+            raise ValueError("Use ISO date-time text including a timezone, e.g. 2026-09-22T10:00:00+03:00.")
+        value = workbook_value(value)
+        if value in (None, ""):
+            return value
+        if field_type == "array":
+            value = workbook_list_value(value)
+            if schema.get("items") == "date":
+                value = [workbook_due_date(item) for item in value]
+            return value
+        if field_type == "date":
+            return workbook_due_date(value)
+        if field_type not in {"string", "number", "integer", "float", "double", "boolean", "datetime"}:
+            if isinstance(value, str) and value.startswith("{"):
+                return json.loads(value)
+        return value
+    except (ValueError, ValidationError) as error:
+        raise ValidationError({"file": f"Excel row {row_number}, column '{column}' ({field['name']}): invalid {field_type} value."}) from error
+
+
+def workbook_list_value(value):
+    if isinstance(value, str):
+        if value.startswith("["):
+            parsed = json.loads(value)
+            if not isinstance(parsed, list):
+                raise ValueError("Use a JSON array.")
+            return parsed
+        return [item.strip() for item in value.split(";") if item.strip()]
+    return [value]
 
 def workbook_due_date(value):
     """Preserve the original Excel generator's day-first date formats."""

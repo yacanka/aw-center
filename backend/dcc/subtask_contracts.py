@@ -14,12 +14,12 @@ from .document_snapshot import DccSnapshotError
 from .services.project_resolver import DccProjectResolutionError, resolve_projects_from_jira_components
 
 RESERVED_METADATA_FIELDS = frozenset({"project", "parent", "issuetype", "summary"})
-BUILTIN_ITEM_FIELDS = {"description": "description", "assignee": "assignee", "duedate": "due_date"}
+BUILTIN_ITEM_FIELDS = {"summary": "summary", "description": "description", "assignee": "assignee", "duedate": "due_date"}
 MAX_METADATA_FIELDS = 100
 MAX_ALLOWED_VALUES = 100
 
 
-def inspect_subtask_target(actor, issue_reference):
+def inspect_subtask_target(actor, issue_reference, *, include_summary=False):
     """Resolve one authorized parent issue and its bounded create metadata."""
 
     connector = jira_connector_for(actor)
@@ -44,11 +44,11 @@ def inspect_subtask_target(actor, issue_reference):
             "DCC_PROJECT_INVALID",
         )
     require_projects_role(actor, projects, OPERATOR)
-    metadata = sanitize_subtask_fields(connector.get_subtask_fields())
+    metadata = sanitize_subtask_fields(connector.get_subtask_fields(), include_summary=include_summary)
     return connector, issue_key, projects, metadata
 
 
-def sanitize_subtask_fields(fields):
+def sanitize_subtask_fields(fields, *, include_summary=False):
     """Return only bounded metadata needed to render safe dynamic inputs."""
 
     sanitized = []
@@ -56,13 +56,13 @@ def sanitize_subtask_fields(fields):
         identifier = str(field.get("id") or "")[:64]
         if (
             not identifier
-            or identifier in RESERVED_METADATA_FIELDS
-            or not field_supported(field)
+            or (identifier in RESERVED_METADATA_FIELDS and not (include_summary and identifier == "summary"))
+            or (not field_supported(field) and not field.get("required"))
         ):
             continue
         allowed_values = []
         for option in list(field.get("allowedValues") or ())[:MAX_ALLOWED_VALUES]:
-            if not isinstance(option, dict):
+            if not isinstance(option, dict) or option.get("disabled"):
                 continue
             token = option_token(option)
             # Saved main-branch lists use option values; retain ID matching as well.
@@ -71,15 +71,26 @@ def sanitize_subtask_fields(fields):
                 continue
             label = option_label(option)
             if isinstance(value, (str, int, float)) and not isinstance(value, bool):
-                allowed_values.append(
-                    {"value": value, "id": token, "label": str(label or value)[:255]}
-                )
+                exposed = {"value": value, "id": token, "label": str(label or value)[:255]}
+                for reference_key in ("name", "key", "accountId"):
+                    reference = option.get(reference_key)
+                    if isinstance(reference, str) and len(reference) <= MAX_FIELD_TEXT_LENGTH:
+                        exposed[reference_key] = reference
+                if option.get("children"):
+                    exposed["children"] = [
+                        {"id": option_token(child), "value": child.get("value", option_token(child)),
+                         "label": option_label(child)[:255]}
+                        for child in option["children"][:MAX_ALLOWED_VALUES]
+                        if isinstance(child, dict) and not child.get("disabled") and option_token(child)
+                    ]
+                allowed_values.append(exposed)
         schema = field.get("schema") if isinstance(field.get("schema"), dict) else {}
         sanitized.append(
             {
                 "id": identifier,
                 "name": str(field.get("name") or identifier)[:255],
                 "required": bool(field.get("required")),
+                "supported": field_supported(field),
                 "hasDefaultValue": bool(field.get("hasDefaultValue")),
                 "schema": {
                     key: str(schema[key])[:255]
@@ -110,6 +121,12 @@ def validate_item_field_contract(items, metadata):
         raise ValidationError(
             {"items": f"Reload JIRA fields; unsupported fields: {', '.join(unknown)}"}
         )
+    unsupported = [field["name"] for field in metadata if not field_supported(field)
+                   and field.get("required") and not field.get("hasDefaultValue")]
+    if unsupported:
+        from rest_framework.exceptions import ValidationError
+
+        raise ValidationError({"items": "Unsupported required JIRA fields: " + ", ".join(unsupported)})
     required = {
         field["id"]
         for field in metadata
@@ -126,20 +143,15 @@ def validate_item_field_contract(items, metadata):
         raise ValidationError(
             {"items": f"Required JIRA fields are missing in rows: {', '.join(map(str, incomplete[:20]))}"}
         )
-    invalid = [
-        index
-        for index, item in enumerate(items, start=1)
-        if any(
-            value not in (None, "", []) and not value_supported(value, allowed[key])
-            for key, value in item_field_values(item, allowed).items()
-        )
-    ]
+    invalid = []
+    for index, item in enumerate(items, start=1):
+        for key, value in item_field_values(item, allowed).items():
+            if value not in (None, "", []) and not value_supported(value, allowed[key]):
+                invalid.append(f"row {index}: {allowed[key]['name']} ({key})")
     if invalid:
         from rest_framework.exceptions import ValidationError
 
-        raise ValidationError(
-            {"items": f"JIRA field values are invalid in rows: {', '.join(map(str, invalid[:20]))}"}
-        )
+        raise ValidationError({"items": "Invalid JIRA field values: " + "; ".join(invalid[:20])})
 
 
 def item_field_values(item, metadata_by_id):
