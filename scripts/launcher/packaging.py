@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .dependencies import require_files
 from .model import LauncherError, Project, Scope
-from .offline_manifest import verify_offline_manifest
+from .offline_manifest import MANIFEST_NAME, verify_offline_manifest
 
 EXCLUDED_NAMES = {".env", ".env.local", ".DS_Store", "db.sqlite3"}
 EXCLUDED_PARTS = {
@@ -79,6 +79,7 @@ def offline_dependency_entries(
     dependencies: list[tuple[Path, Path]] = []
     if not include_packages:
         return dependencies
+    dependencies.append((offline_dir / MANIFEST_NAME, Path("offline") / MANIFEST_NAME))
     if include_packages and scope.backend:
         wheels = offline_dir / "wheels"
         require_files(wheels, "offline Python wheels")
