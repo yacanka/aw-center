@@ -466,6 +466,30 @@ class PackagingTests(unittest.TestCase):
     """Validate deterministic source packaging and secret exclusions."""
 
     @mock.patch("scripts.launcher.packaging.git_paths")
+    @mock.patch("scripts.launcher.offline_manifest.git_commit", return_value="abc123")
+    def test_offline_package_includes_verifiable_manifest(
+        self, _commit: mock.Mock, git_mock: mock.Mock
+    ) -> None:
+        """A transferred bundle must pass the same check used by offline setup."""
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            scope = Scope(frontend=False)
+            wheels = project.root / "offline/wheels"
+            wheels.mkdir(parents=True)
+            (wheels / "demo-1-py3-none-any.whl").write_bytes(b"wheel")
+            write_offline_manifest(project, scope, project.root / "offline")
+            git_mock.return_value = [Path("requirements.txt"), Path("backend/manage.py")]
+
+            output = project.root / "bundle.zip"
+            package_offline(project, scope, project.root / "offline", output, include_packages=True)
+            extracted = project.root / "extracted"
+            with zipfile.ZipFile(output) as archive:
+                self.assertIn("offline/manifest.json", archive.namelist())
+                archive.extractall(extracted)
+
+            verify_offline_manifest(project, scope, extracted / "offline")
+
+    @mock.patch("scripts.launcher.packaging.git_paths")
     def test_offline_package_excludes_env_and_generated_state(self, git_mock: mock.Mock) -> None:
         """Tracked secrets and runtime state must still be excluded from a ZIP."""
         with tempfile.TemporaryDirectory() as temporary:
