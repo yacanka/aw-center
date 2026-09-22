@@ -26,7 +26,7 @@ export const AUTHENTICATED_ACCESS: RouteAccessPolicy = {}
 const NAVIGATION_POLICIES: Record<string, RouteAccessPolicy> = {
   '/users': {
     allow: [
-      { anyPermissions: ['auth.view_user'] },
+      { staffOnly: true, anyPermissions: ['auth.view_user'] },
       { staffOnly: true, allPermissions: ['auth.add_user'] }
     ]
   },

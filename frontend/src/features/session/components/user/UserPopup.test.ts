@@ -18,6 +18,7 @@ describe('user access editor', () => {
   beforeEach(() => vi.clearAllMocks())
   it('isolates drafts and only sends editable fields', async () => {
     const wrapper = mount(UserPopup, {
+      props: { canManageAccess: true },
       global: {
         stubs: {
           'n-input': true,

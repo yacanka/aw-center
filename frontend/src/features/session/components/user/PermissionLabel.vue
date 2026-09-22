@@ -21,7 +21,7 @@ const focused = ref(false)
           @focus="focused = true"
           @blur="focused = false"
           @keydown.esc="focused = false"
-          @click.stop
+          @click.stop="focused = !focused"
         >
           <n-icon :component="QuestionCircle20Regular" :size="16" />
         </button>

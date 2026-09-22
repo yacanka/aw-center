@@ -20,6 +20,7 @@ interface UserAdministrationState {
   permissionsLoaded: boolean
   groupsLoaded: boolean
   loading: boolean
+  requestVersion: number
 }
 
 export interface UserAdministrationController extends UserAdministrationState {
@@ -33,6 +34,8 @@ export interface UserAdministrationController extends UserAdministrationState {
   deleteUser(id: number): Promise<void>
   fetchPermissions(query?: PaginationQuery): Promise<void>
   fetchGroups(query?: PaginationQuery): Promise<void>
+  saveGroup(id: number | undefined, name: string, permissionIds: number[]): Promise<void>
+  deleteGroup(id: number): Promise<void>
 }
 
 const controllerKey: InjectionKey<UserAdministrationController> = Symbol(
@@ -51,7 +54,8 @@ export function createUserAdministrationController(): UserAdministrationControll
     groupsPagination: emptyPagination(),
     permissionsLoaded: false,
     groupsLoaded: false,
-    loading: false
+    loading: false,
+    requestVersion: 0
   })
   const controller = state as UserAdministrationController
   Object.defineProperties(controller, {
@@ -61,12 +65,41 @@ export function createUserAdministrationController(): UserAdministrationControll
     isLoading: { get: () => state.loading }
   })
 
-  controller.clearList = () => (state.users = [])
+  controller.clearList = () => {
+    state.requestVersion++
+    state.users = []
+  }
   controller.fetchUsers = (query = {}) => fetchUsers(state, query)
   controller.updateUser = (id, data) => updateUser(state, id, data)
   controller.deleteUser = (id) => deleteUser(state, id)
   controller.fetchPermissions = (query = {}) => fetchPermissions(state, query)
   controller.fetchGroups = (query = {}) => fetchGroups(state, query)
+  controller.saveGroup = async (id, name, permissionIds) => {
+    await handleRequest<IGroup>(
+      id === undefined
+        ? apiClient.post(`${usersPath}/groups/`, { name, permission_ids: permissionIds })
+        : apiClient.patch(`${usersPath}/groups/${id}/`, { name, permission_ids: permissionIds }),
+      (group) => {
+        state.groups = [...state.groups.filter((item) => item.id !== group.id), group].sort(
+          (a, b) => String(a.name).localeCompare(String(b.name))
+        )
+        state.groupsPagination.count = state.groups.length
+        notifySuccess('Role saved.')
+      },
+      notifyError
+    )
+  }
+  controller.deleteGroup = async (id) => {
+    await handleRequest(
+      apiClient.delete(`${usersPath}/groups/${id}/`),
+      () => {
+        state.groups = state.groups.filter((group) => group.id !== id)
+        state.groupsPagination.count = state.groups.length
+        notifySuccess('Role deleted.')
+      },
+      notifyError
+    )
+  }
   return controller
 }
 
@@ -84,14 +117,25 @@ export function useUserAdministrationController(): UserAdministrationController 
 }
 
 async function fetchUsers(state: UserAdministrationState, query: PaginationQuery): Promise<void> {
+  const version = ++state.requestVersion
   state.loading = true
-  const response = await handleRequest<IUser[]>(
-    apiClient.get(`${usersPath}/`, { params: compactPaginationQuery(query) }),
-    (data) => (state.users = data),
-    notifyError,
-    () => (state.loading = false)
-  )
-  state.usersPagination = getPaginationMeta<IUser>(response) || state.usersPagination
+  try {
+    const response = await handleRequest<IUser[]>(
+      apiClient.get(`${usersPath}/`, { params: compactPaginationQuery(query) }),
+      (data) => {
+        if (version === state.requestVersion) state.users = data
+      },
+      (error) => {
+        if (version === state.requestVersion) notifyError(error)
+      }
+    )
+    if (version === state.requestVersion)
+      state.usersPagination = getPaginationMeta<IUser>(response) || state.usersPagination
+  } catch (error) {
+    if (version === state.requestVersion) throw error
+  } finally {
+    if (version === state.requestVersion) state.loading = false
+  }
 }
 
 async function updateUser(state: UserAdministrationState, id: number, data: IUser): Promise<void> {
@@ -114,6 +158,7 @@ async function deleteUser(state: UserAdministrationState, id: number): Promise<v
     apiClient.delete(`${usersPath}/${id}/`),
     () => {
       state.users = state.users.filter((user) => user.id !== id)
+      state.usersPagination.count = Math.max(0, state.usersPagination.count - 1)
       notifySuccess('Deleted successfully.')
     },
     notifyError,

@@ -11,13 +11,16 @@
       class="transparent protected-sider"
       @update:collapsed="handleCollapsedUpdate"
     >
-      <n-menu
-        :options="menuOptions"
-        :value="currentPage"
-        :collapsed-width="64"
-        :collapsed-icon-size="22"
-        @update:value="handleMenuSelect"
-      />
+      <div class="sider-navigation">
+        <n-menu
+          :options="menuOptions"
+          :value="currentPage"
+          :collapsed-width="64"
+          :collapsed-icon-size="22"
+          @update:value="handleMenuSelect"
+        />
+      </div>
+      <Profile :collapsed="collapsed" />
     </n-layout-sider>
 
     <n-layout class="transparent protected-main">
@@ -38,6 +41,7 @@
 import { ref, computed, provide, watch } from 'vue'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import ParticleBackground from '@/shared/components/ParticleBackground.vue'
+import Profile from '@/features/session/pages/Profile.vue'
 import Popup from '@/app/components/GlobalPopup.vue'
 import { useSessionStore } from '@/features/session/stores/session'
 import ReleaseNotesModal from '@/app/components/ReleaseNotesModal.vue'
@@ -124,6 +128,17 @@ async function loadProjectRegistry() {
   height: 100dvh;
   position: sticky;
   top: 0;
+}
+
+.protected-sider :deep(.n-layout-sider-scroll-container) {
+  display: flex;
+  flex-direction: column;
+}
+
+.sider-navigation {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .protected-content {

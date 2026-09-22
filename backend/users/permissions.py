@@ -8,9 +8,13 @@ class DjangoModelPermission(BasePermission):
 
     def has_permission(self, request, view):
         """Return whether the authenticated user owns the method permission."""
-        required_permission = self.permission_map.get(request.method)
+        if not request.user.is_authenticated or not request.user.is_active:
+            return False
+        if not (request.user.is_staff or request.user.is_superuser):
+            return False
+        required_permission = self.permission_map.get("GET" if request.method == "HEAD" else request.method)
         if required_permission is None:
-            return True
+            return request.method == "OPTIONS"
 
         return request.user.has_perm(required_permission)
 
@@ -30,6 +34,11 @@ class UserPermission(DjangoModelPermission):
 class GroupPermission(DjangoModelPermission):
     """Authorize role/group endpoints through auth group permissions."""
 
+    def has_permission(self, request, view):
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and not request.user.is_superuser:
+            return False
+        return super().has_permission(request, view)
+
     permission_map = {
         "GET": "auth.view_group",
         "POST": "auth.add_group",
@@ -47,6 +56,7 @@ class CanInviteUsers(BasePermission):
 
         return bool(
             request.user.is_authenticated
-            and request.user.is_staff
+            and request.user.is_active
+            and (request.user.is_staff or request.user.is_superuser)
             and request.user.has_perm("auth.add_user")
         )

@@ -44,12 +44,14 @@ class GroupSerializer(ModelSerializer):
             raise serializers.ValidationError("Unknown permission id supplied.")
         return value
 
+    @transaction.atomic
     def create(self, validated_data):
         permission_ids = validated_data.pop("permission_ids", [])
         group = super().create(validated_data)
         self._set_permissions(group, permission_ids)
         return group
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         permission_ids = validated_data.pop("permission_ids", None)
         group = super().update(instance, validated_data)
@@ -115,8 +117,6 @@ class UserSerializer(ModelSerializer):
             "id",
             "last_login",
             "is_superuser",
-            "is_staff",
-            "is_active",
             "date_joined",
         ]
         extra_kwargs = {
@@ -131,20 +131,35 @@ class UserSerializer(ModelSerializer):
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return False
-        return request.user.has_perm("auth.change_user")
+        return request.user.is_superuser
 
     def validate_username(self, value):
         validate_username_format(value)
         return value
 
     def validate(self, attrs):
-        restricted_fields = {"groups", "user_permissions"}
-        if not self._can_manage_auth_fields() and restricted_fields.intersection(attrs.keys()):
+        request = self.context.get("request")
+        actor = request.user if request else None
+        restricted_fields = {"groups", "user_permissions", "is_staff", "is_active"}
+        if not self._can_manage_auth_fields() and restricted_fields.intersection(attrs):
             raise serializers.ValidationError(
-                {"detail": "You are not allowed to modify groups or permissions."}
+                {"detail": "Only superusers can change roles, permissions or account access."}
             )
+        if self.instance and actor:
+            if not actor.is_superuser and (self.instance.is_staff or self.instance.is_superuser):
+                raise serializers.ValidationError({"detail": "Only superusers can edit administrators."})
+            if self.instance.pk == actor.pk or self.instance.is_superuser:
+                if attrs.get("is_active") is False or attrs.get("is_staff") is False:
+                    raise serializers.ValidationError(
+                        {"detail": "You cannot disable your own administrator access or a superuser."}
+                    )
+        if attrs.get("password"):
+            validate_password(attrs["password"], user=self.instance or User(
+                **{key: attrs[key] for key in ("username", "email", "first_name", "last_name") if key in attrs}
+            ))
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
         password = validated_data.pop("password", None)
         groups = validated_data.pop("groups", None)
@@ -173,6 +188,7 @@ class UserSerializer(ModelSerializer):
 
         return user
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
         groups = validated_data.pop("groups", None)

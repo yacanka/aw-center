@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { effectivePermissions, permissionDescription } from './userAccess'
+import {
+  effectivePermissions,
+  permissionDescription,
+  roleDescription,
+  isCriticalRole
+} from './userAccess'
 
 const view = {
   id: 1,
@@ -22,7 +27,7 @@ describe('user access summary', () => {
     expect(effectivePermissions({})).toEqual([])
   })
   it('explains user administration and scopes fallback descriptions', () => {
-    expect(permissionDescription(change)).toContain('assign or remove')
+    expect(permissionDescription(change)).toContain('Only superusers')
     expect(
       permissionDescription({
         name: 'Can export',
@@ -31,4 +36,10 @@ describe('user access summary', () => {
       })
     ).toContain('project and record access rules still apply')
   })
+})
+
+it('explains critical roles from their permissions rather than their names', () => {
+  expect(isCriticalRole({ name: 'Readers', permissions: [view] })).toBe(true)
+  expect(roleDescription({ permissions: [change] })).toContain('Sensitive access')
+  expect(roleDescription({ permissions: [] })).toContain('does not grant additional access')
 })

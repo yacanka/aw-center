@@ -3,6 +3,9 @@ import time
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Group, Permission
 from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.db.models import Q
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -47,6 +50,17 @@ class UserView(APIView):
             return Response(serializer.data)
 
         users = self._user_queryset().order_by("id")
+        search = request.query_params.get("search", "").strip()[:200]
+        if search:
+            users = users.filter(Q(username__icontains=search) | Q(email__icontains=search)
+                                 | Q(first_name__icontains=search) | Q(last_name__icontains=search))
+        account = request.query_params.get("account")
+        if account == "active":
+            users = users.filter(is_active=True)
+        elif account == "inactive":
+            users = users.filter(is_active=False)
+        elif account == "admin":
+            users = users.filter(Q(is_staff=True) | Q(is_superuser=True))
         first_name = request.query_params.get("first_name")
         last_name = request.query_params.get("last_name")
         username = request.query_params.get("username")
@@ -67,22 +81,29 @@ class UserView(APIView):
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @transaction.atomic
     def put(self, request, pk):
-        user = get_object_or_404(self._user_queryset(), pk=pk)
+        user = get_object_or_404(self._user_queryset().select_for_update(of=("self",)), pk=pk)
         serializer = UserSerializer(user, data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @transaction.atomic
     def patch(self, request, pk):
-        user = get_object_or_404(self._user_queryset(), pk=pk)
+        user = get_object_or_404(self._user_queryset().select_for_update(of=("self",)), pk=pk)
         serializer = UserSerializer(user, data=request.data, partial=True, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @transaction.atomic
     def delete(self, request, pk):
-        user = get_object_or_404(self._user_queryset(), pk=pk)
+        user = get_object_or_404(self._user_queryset().select_for_update(of=("self",)), pk=pk)
+        if user.pk == request.user.pk or user.is_superuser:
+            raise ValidationError({"detail": "You cannot delete yourself or a superuser."})
+        if user.is_staff and not request.user.is_superuser:
+            raise PermissionDenied("Only superusers can delete administrators.")
         user.delete()
         return Response("User deleted.", status=status.HTTP_204_NO_CONTENT)
 

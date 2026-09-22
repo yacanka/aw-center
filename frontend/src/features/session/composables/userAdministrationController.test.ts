@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/shared/api/http', () => ({
-  apiClient: { get: vi.fn(), patch: vi.fn() },
+  apiClient: { get: vi.fn(), patch: vi.fn(), post: vi.fn(), delete: vi.fn() },
   isAuthenticationFailure: () => false
 }))
 vi.mock('@/shared/services/notify', () => ({
@@ -46,4 +46,32 @@ describe('user administration catalogs', () => {
     expect(controller.getUsers[0].groups).toEqual([2])
     expect(controller.isLoading).toBe(false)
   })
+})
+
+it('ignores late responses from a previous search', async () => {
+  let resolveOld!: (value: ReturnType<typeof page>) => void
+  vi.mocked(apiClient.get)
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveOld = resolve
+      })
+    )
+    .mockResolvedValueOnce(page([{ id: 2 }], null))
+  const controller = createUserAdministrationController()
+  const oldRequest = controller.fetchUsers({ search: 'old' })
+  await controller.fetchUsers({ search: 'new' })
+  resolveOld(page([{ id: 1 }], null))
+  await oldRequest
+  expect(controller.getUsers).toEqual([{ id: 2 }])
+  expect(controller.isLoading).toBe(false)
+})
+
+it('publishes the saved role without a second network request that could fail', async () => {
+  const role = { id: 3, name: 'Reviewers', permissions: [] }
+  vi.mocked(apiClient.post).mockResolvedValueOnce({ status: 201, data: role })
+  const controller = createUserAdministrationController()
+  const callsBefore = vi.mocked(apiClient.get).mock.calls.length
+  await controller.saveGroup(undefined, 'Reviewers', [])
+  expect(controller.getGroups).toEqual([role])
+  expect(vi.mocked(apiClient.get).mock.calls.length).toBe(callsBefore)
 })
