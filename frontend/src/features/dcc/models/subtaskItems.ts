@@ -1,3 +1,4 @@
+import { jiraInputToken } from '@/shared/utils/jiraFieldInput'
 import type { ISubtaskItem } from './jira'
 import type { JiraSubtaskItem } from '@/features/dcc/api/jiraSubtasks'
 
@@ -13,7 +14,7 @@ export function toSubtaskRequest(item: ISubtaskItem): JiraSubtaskItem {
   return {
     summary: item.summary || '',
     description: String(description),
-    assignee: String(assignee),
+    assignee: String(jiraInputToken(assignee) ?? ''),
     due_date: dueDate ? String(dueDate) : null,
     fields
   }

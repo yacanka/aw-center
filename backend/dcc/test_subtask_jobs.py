@@ -116,7 +116,10 @@ class JiraSubtaskJobTests(JobTestCase):
 
     @patch("dcc.subtask_views.inspect_subtask_target")
     def test_workbook_is_normalized_to_private_json_job_input(self, inspect_target):
-        inspect_target.return_value = (Mock(), "CHN-42", [self.project], [])
+        inspect_target.return_value = (Mock(), "CHN-42", [self.project], [
+            {"id": "summary", "name": "Summary", "schema": {"type": "string"}},
+            {"id": "description", "name": "Description", "schema": {"type": "string"}},
+        ])
         response = self.client.post(
             "/api/dcc/subtasks/jobs/",
             {

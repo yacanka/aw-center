@@ -1,14 +1,12 @@
 """Sanitized JIRA create-contract preflight shared by publication features."""
 
-from datetime import date, datetime
-
 from .contracts import FIELD_KEY_PATTERN, JiraDraftPreflightBlocked
-from .field_values import has_value, match_allowed, option_label, option_token, safe_text
+from .field_values import (
+    RAW_TYPES, OBJECT_TYPES, encode_value, has_value, option_label, option_token, safe_text,
+)
 
 BASE_FIELDS = {"project", "summary", "description", "issuetype", "labels"}
 REQUIRED_SCREEN_FIELDS = {"summary", "description", "labels"}
-RAW_TYPES = {"string", "date", "datetime", "number", "integer", "float", "double"}
-OBJECT_TYPES = {"user", "option", "priority", "component", "version"}
 SUPPORTED_ARRAY_ITEMS = RAW_TYPES | OBJECT_TYPES
 
 
@@ -23,7 +21,10 @@ def inspect_create_contract(draft, client):
         "issue_type": "Task",
         "fields": [public_field(field) for field in supported],
         "missing_fields": missing_fields(draft.extra_fields, supported),
-        "invalid_fields": invalid_fields(draft.extra_fields, supported),
+        "invalid_fields": invalid_fields(draft.extra_fields, [
+            field for identifier, field in field_map.items()
+            if identifier not in BASE_FIELDS and identifier in draft.extra_fields
+        ]),
         "unsupported_fields": unsupported_fields(field_map, required),
         "warnings": stale_value_warnings(draft.extra_fields, field_map),
     }
@@ -89,42 +90,18 @@ def field_supported(field):
         return False
     schema = field.get("schema") or {}
     field_type = str(schema.get("type") or "").lower()
+    if field_type == "option-with-child":
+        return True
     if field_type in RAW_TYPES | OBJECT_TYPES:
         return True
     return field_type == "array" and str(schema.get("items") or "").lower() in SUPPORTED_ARRAY_ITEMS
 
 
 def value_supported(value, field):
-    schema_type = str((field.get("schema") or {}).get("type") or "").lower()
-    value_type = str((field.get("schema") or {}).get("items") or schema_type).lower()
-    values = value if isinstance(value, list) else [value]
-    if (schema_type == "array") != isinstance(value, list):
-        return False
-    if value_type in {"number", "integer", "float", "double"}:
-        return all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in values)
-    if value_type == "date":
-        return all(valid_date(item) for item in values)
-    if value_type == "datetime":
-        return all(valid_datetime(item) for item in values)
-    allowed = field.get("allowedValues") or []
-    if allowed:
-        return all(match_allowed(item, allowed) is not None for item in values)
-    return all(isinstance(item, str) and bool(item.strip()) for item in values)
-
-
-def valid_date(value):
     try:
-        date.fromisoformat(value)
-        return isinstance(value, str) and len(value) == 10
-    except (TypeError, ValueError):
-        return False
-
-
-def valid_datetime(value):
-    try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return isinstance(value, str) and "T" in value
-    except (AttributeError, TypeError, ValueError):
+        encode_value(value, field)
+        return True
+    except (TypeError, ValueError, OverflowError):
         return False
 
 
@@ -136,19 +113,23 @@ def public_field(field):
         "schema": {
             "type": safe_text(schema.get("type"), 24),
             "items": safe_text(schema.get("items"), 24),
+            "custom": safe_text(schema.get("custom"), 255),
         },
         "allowedValues": public_options(field.get("allowedValues") or []),
     }
 
 
-def public_options(values):
+def public_options(values, *, children=True):
     options = []
     for item in values[:100]:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or item.get("disabled"):
             continue
         token = option_token(item)
         if token is not None:
-            options.append({"label": safe_text(option_label(item), 100), "value": token})
+            option = {"label": safe_text(option_label(item), 100), "value": token}
+            if children and item.get("children"):
+                option["children"] = public_options(item["children"], children=False)
+            options.append(option)
     return options
 
 

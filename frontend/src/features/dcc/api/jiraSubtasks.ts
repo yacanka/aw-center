@@ -16,9 +16,15 @@ export interface WorkbookMapping {
 }
 
 export async function fetchSubtaskFields(
-  issue: string
+  issue: string,
+  includeSummary = false
 ): Promise<{ issue: string; fields: IJiraField[] }> {
-  return (await apiClient.post('dcc/subtasks/fields/', { issue })).data
+  return (
+    await apiClient.post('dcc/subtasks/fields/', {
+      issue,
+      ...(includeSummary ? { include_summary: true } : {})
+    })
+  ).data
 }
 
 export async function inspectSubtaskWorkbook(file: File): Promise<string[]> {

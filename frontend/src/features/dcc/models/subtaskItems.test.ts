@@ -25,6 +25,12 @@ describe('main-branch saved subtask list compatibility', () => {
     expect(JSON.stringify(item)).toBe(original)
   })
 
+  it('extracts loaded user references instead of stringifying objects', () => {
+    expect(toSubtaskRequest({ fields: { assignee: { name: 'reviewer' } } }).assignee).toBe(
+      'reviewer'
+    )
+  })
+
   it('accepts older rows without a fields object and retains their description', () => {
     expect(toSubtaskRequest({ summary: 'Review', description: 'Details' })).toEqual({
       summary: 'Review',
