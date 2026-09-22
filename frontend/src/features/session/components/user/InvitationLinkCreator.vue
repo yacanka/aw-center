@@ -8,7 +8,7 @@
       <n-form-item label="Recipient email" path="email">
         <n-input v-model:value="model.email" :disabled="Boolean(result)" />
       </n-form-item>
-      <n-form-item label="Initial groups">
+      <n-form-item v-if="groups.length" label="Initial roles">
         <n-select
           v-model:value="model.groupIds"
           multiple

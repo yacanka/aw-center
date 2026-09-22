@@ -1,7 +1,5 @@
 import {
   NTable,
-  NAvatar,
-  NBadge,
   NCarousel,
   NCarouselItem,
   NCheckbox,
@@ -61,8 +59,6 @@ import {
 /** Components used only after the corresponding lazy route has been selected. */
 export const NAIVE_UI_FEATURE_COMPONENTS = [
   NTable,
-  NAvatar,
-  NBadge,
   NCarousel,
   NCarouselItem,
   NCheckbox,

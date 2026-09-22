@@ -38,6 +38,8 @@ def create_invitation(actor, email, group_ids):
     normalized_email = str(email).strip().casefold()
     ensure_email_available(normalized_email)
     groups = resolve_groups(group_ids)
+    if groups and not actor.is_superuser:
+        raise ValidationError({"group_ids": "Only superusers can assign invitation roles."})
     token = secrets.token_urlsafe(32)
     try:
         invitation = persist_invitation(actor, normalized_email, token, groups)

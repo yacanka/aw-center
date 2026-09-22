@@ -19,7 +19,7 @@ class InvitationManagementTests(TestCase):
         """Create an invitation manager and representative invitations."""
 
         self.manager = User.objects.create_user(
-            "invitation-manager", "manager@example.com", "StrongPass!123", is_staff=True
+            "invitation-manager", "manager@example.com", "StrongPass!123", is_staff=True, is_superuser=True
         )
         self.manager.user_permissions.add(Permission.objects.get(codename="add_user"))
         self.group = Group.objects.create(name="Reviewers")

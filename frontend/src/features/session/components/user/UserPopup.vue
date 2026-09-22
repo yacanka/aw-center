@@ -3,35 +3,73 @@
     v-model:show="showModal"
     preset="dialog"
     title="User roles and permissions"
-    centered
-    class="app-modal app-modal--large"
+    :mask-closable="!saving"
+    :closable="!saving"
+    :close-on-esc="!saving"
+    class="app-modal app-modal--large user-editor"
+    :show-icon="false"
   >
+    <n-alert v-if="!canManageAccess" type="info" :bordered="false"
+      >You can edit profile details. A superuser must change roles and account access.</n-alert
+    >
     <n-form ref="formRef" :model="user" :rules="rules">
       <n-grid responsive="self" item-responsive :x-gap="12" :cols="12">
-        <n-form-item-gi span="0:12 720:3" path="username" label="Username">
+        <n-form-item-gi span="0:12 600:6" path="username" label="Username">
           <n-input v-model:value="user.username" disabled @keydown.enter.prevent />
         </n-form-item-gi>
-        <n-form-item-gi span="0:12 720:5" path="email" label="Email">
+        <n-form-item-gi span="0:12 600:6" path="email" label="Email">
           <n-input v-model:value="user.email" disabled @keydown.enter.prevent />
         </n-form-item-gi>
-        <n-form-item-gi span="0:12 720:2" path="first_name" label="First Name">
-          <n-input v-model:value="user.first_name" @keydown.enter.prevent />
+        <n-form-item-gi span="0:12 600:6" path="first_name" label="First Name">
+          <n-input
+            v-model:value="user.first_name"
+            aria-label="First name"
+            :disabled="saving"
+            @keydown.enter.prevent
+          />
         </n-form-item-gi>
-        <n-form-item-gi span="0:12 720:2" path="last_name" label="Last Name">
-          <n-input v-model:value="user.last_name" @keydown.enter.prevent />
+        <n-form-item-gi span="0:12 600:6" path="last_name" label="Last Name">
+          <n-input
+            v-model:value="user.last_name"
+            aria-label="Last name"
+            :disabled="saving"
+            @keydown.enter.prevent
+          />
+        </n-form-item-gi>
+        <n-form-item-gi v-if="canManageAccess" span="12" label="Account access">
+          <div class="account-controls">
+            <n-checkbox
+              v-model:checked="user.is_active"
+              :disabled="saving || user.id === currentUserId || user.is_superuser"
+              >Active account</n-checkbox
+            >
+            <n-checkbox
+              v-model:checked="user.is_staff"
+              :disabled="saving || user.id === currentUserId || user.is_superuser"
+              >Administrator</n-checkbox
+            >
+            <p>
+              Inactive accounts cannot sign in. Administrators still need the relevant permissions.
+            </p>
+          </div>
         </n-form-item-gi>
         <n-form-item-gi span="12" path="groups" label="Roles (groups)">
           <n-select
             v-model:value="user.groups"
             multiple
             filterable
-            :disabled="!groupsReady"
+            :disabled="!groupsReady || !canManageAccess || saving"
             clearable
             :options="groupOptions"
             placeholder="Select user groups"
           />
         </n-form-item-gi>
-        <n-form-item-gi span="12" path="permissions" label="Direct Permissions">
+        <n-form-item-gi
+          v-if="canManageAccess"
+          span="12"
+          path="permissions"
+          label="Direct Permissions"
+        >
           <div class="permission-editor">
             <n-input
               v-model:value="permissionSearch"
@@ -52,7 +90,7 @@
                 >
                   <n-checkbox
                     :checked="user.user_permissions?.includes(Number(permission.id))"
-                    :disabled="!permissionsReady"
+                    :disabled="!permissionsReady || saving"
                     :aria-label="permission.name"
                     @update:checked="
                       (checked: boolean) => togglePermission(Number(permission.id), checked)
@@ -78,15 +116,34 @@
       <n-button
         type="primary"
         :loading="saving"
-        :disabled="!permissionsReady"
+        :disabled="canManageAccess && !permissionsReady"
         @click="updateDatabase"
         >Save changes</n-button
       >
+      <n-button :disabled="saving" @click="closeModal">Cancel</n-button>
     </template>
   </n-modal>
 </template>
 
 <style scoped>
+.user-editor :deep(.n-dialog__action) {
+  position: sticky;
+  bottom: -20px;
+  background: var(--n-color);
+  padding: 12px 0;
+  z-index: 1;
+}
+.account-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.account-controls p {
+  width: 100%;
+  margin: 0;
+  color: var(--app-text-muted, #666);
+  font-size: 12px;
+}
 .permission-editor {
   width: 100%;
   display: grid;
@@ -99,6 +156,7 @@
 .permission-option {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 6px 0;
 }
@@ -109,7 +167,7 @@ h4 {
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NCheckbox } from 'naive-ui'
+import { NCheckbox, NAlert } from 'naive-ui'
 import PermissionLabel from './PermissionLabel.vue'
 import type { IPermission } from '@/features/session/models/auth'
 import { IUser } from '@/features/session/models/auth'
@@ -117,32 +175,10 @@ import { useUserAdministrationController } from '@/features/session/composables/
 import { FormRules, NModal } from 'naive-ui'
 import { validateForm } from '@/shared/composables/forms'
 
-const rules = ref<FormRules>({
-  username: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ],
-  email: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ],
-  first_name: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ],
-  last_name: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
-  ]
+const props = withDefaults(defineProps<{ canManageAccess?: boolean; currentUserId?: number }>(), {
+  canManageAccess: false
 })
+const rules: FormRules = {}
 
 const formRef = ref()
 const showModal = ref(false)
@@ -211,8 +247,15 @@ async function updateDatabase() {
     await store.updateUser(user.value.id, {
       first_name: user.value.first_name,
       last_name: user.value.last_name,
-      ...(groupsReady.value ? { groups: user.value.groups } : {}),
-      user_permissions: user.value.user_permissions
+      ...(props.canManageAccess
+        ? {
+            ...(groupsReady.value ? { groups: user.value.groups } : {}),
+            user_permissions: user.value.user_permissions,
+            ...(user.value.id !== props.currentUserId && !user.value.is_superuser
+              ? { is_active: user.value.is_active, is_staff: user.value.is_staff }
+              : {})
+          }
+        : {})
     })
     closeModal()
   } catch {

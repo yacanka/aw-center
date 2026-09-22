@@ -34,7 +34,7 @@ test('recognizes direct and group-derived Django permissions', () => {
 test('enforces granular user, DDF, and developer policies without legacy DCC permissions', () => {
   const viewer = { ...standardUser, permissions: [permission('auth', 'view_user')] }
   const ddfViewer = { ...standardUser, permissions: [permission('ddf', 'view_ddf')] }
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/users'), viewer), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/users'), viewer), 'forbidden')
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/ddfAssistant'), ddfViewer), 'allow')
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), standardUser), 'allow')
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/accelerator'), standardUser), 'allow')
@@ -73,4 +73,17 @@ test('limits the test data reset page to superusers', () => {
   assert.equal(resolveRouteAccess(policy, standardUser), 'forbidden')
   assert.equal(resolveRouteAccess(policy, staffUser), 'forbidden')
   assert.equal(resolveRouteAccess(policy, superuser), 'allow')
+})
+
+test('requires staff and explicit user authority', () => {
+  const policy = navigationAccessPolicy('/users')
+  assert.equal(resolveRouteAccess(policy, staffUser), 'forbidden')
+  assert.equal(
+    resolveRouteAccess(policy, { ...staffUser, permissions: [permission('auth', 'view_user')] }),
+    'allow'
+  )
+  assert.equal(
+    resolveRouteAccess(policy, { ...staffUser, permissions: [permission('auth', 'add_user')] }),
+    'allow'
+  )
 })
