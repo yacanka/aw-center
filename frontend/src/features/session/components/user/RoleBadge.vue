@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NTooltip } from 'naive-ui'
+import { NTooltip, useThemeVars } from 'naive-ui'
 import type { IGroup } from '@/features/session/models/auth'
 import { roleDescription, isCriticalRole } from '@/features/session/services/userAccess'
+const themeVars = useThemeVars()
 const props = defineProps<{
   group?: IGroup
   name?: string
@@ -39,9 +40,9 @@ const explanation = computed(() => props.description || roleDescription(props.gr
   font: inherit;
   font-size: 12px;
   line-height: 1.4;
-  border: 1px solid #dfe2e8;
-  background: #f7f7f8;
-  color: #454b58;
+  border: 1px solid v-bind('themeVars.borderColor');
+  background: v-bind('themeVars.tagColor');
+  color: v-bind('themeVars.textColor2');
   padding: 4px 8px;
   border-radius: 4px;
   cursor: help;
@@ -50,12 +51,12 @@ const explanation = computed(() => props.description || roleDescription(props.gr
   max-width: 100%;
 }
 .critical {
-  color: #002fa7;
-  border-color: #c7d4ef;
-  background: #f0f4ff;
+  color: v-bind('themeVars.primaryColor');
+  border-color: v-bind('themeVars.primaryColor');
+  background: v-bind('themeVars.buttonColor2');
 }
 .role-badge:focus-visible {
-  outline: 2px solid #002fa7;
+  outline: 2px solid v-bind('themeVars.primaryColor');
   outline-offset: 2px;
 }
 </style>

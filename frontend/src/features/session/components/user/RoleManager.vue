@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NButton, NModal, NInput, NCheckbox, NAlert, NEmpty } from 'naive-ui'
+import { NButton, NModal, NInput, NCheckbox, NAlert, NEmpty, useThemeVars } from 'naive-ui'
 import { useUserAdministrationController } from '@/features/session/composables/userAdministrationController'
 import type { IGroup } from '@/features/session/models/auth'
 import RoleBadge from './RoleBadge.vue'
 import PermissionLabel from './PermissionLabel.vue'
+const themeVars = useThemeVars()
 const emit = defineEmits<{ changed: [] }>()
 const store = useUserAdministrationController()
 const show = ref(false)
@@ -162,7 +163,7 @@ h2 {
   font-size: 19px;
 }
 p {
-  color: #646975;
+  color: v-bind('themeVars.textColor3');
   margin: 8px 0 16px;
   font-size: 13px;
 }
@@ -175,7 +176,7 @@ header p {
   gap: 12px;
 }
 article {
-  border: 1px solid #e4e5e9;
+  border: 1px solid v-bind('themeVars.borderColor');
   padding: 20px;
   min-width: 0;
 }
@@ -201,6 +202,6 @@ article {
   gap: 10px;
   padding: 10px 0;
   align-items: center;
-  border-bottom: 1px solid #8882;
+  border-bottom: 1px solid v-bind('themeVars.dividerColor');
 }
 </style>

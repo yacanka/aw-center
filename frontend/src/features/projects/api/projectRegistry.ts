@@ -34,7 +34,7 @@ function isProjectRegistryItem(item: unknown): item is ProjectRegistryItem {
   const roles = item.roles
   if (
     typeof item.slug !== 'string' ||
-    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.slug) ||
+    !/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(item.slug) ||
     typeof item.name !== 'string' ||
     !item.name.trim() ||
     item.name.length > 200 ||

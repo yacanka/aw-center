@@ -41,5 +41,5 @@ describe('user access summary', () => {
 it('explains critical roles from their permissions rather than their names', () => {
   expect(isCriticalRole({ name: 'Readers', permissions: [view] })).toBe(true)
   expect(roleDescription({ permissions: [change] })).toContain('Sensitive access')
-  expect(roleDescription({ permissions: [] })).toContain('does not grant additional access')
+  expect(roleDescription({ permissions: [] })).toContain('Project roles are listed separately')
 })

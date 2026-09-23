@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useThemeVars } from 'naive-ui'
 import type { IUser } from '@/features/session/models/auth'
+import ProjectAccess from './ProjectAccess.vue'
 import PermissionLabel from './PermissionLabel.vue'
 import { effectivePermissions, permissionKey } from '@/features/session/services/userAccess'
+const themeVars = useThemeVars()
 const props = defineProps<{ user: IUser }>()
 const permissions = computed(() => effectivePermissions(props.user))
 function sources(key: string): string {
@@ -24,7 +27,8 @@ function sources(key: string): string {
     <n-text v-if="user.is_staff"
       >Staff: eligible to access Django administration with the required permissions.</n-text
     >
-    <h3>Assigned permissions · {{ permissions.length }}</h3>
+    <ProjectAccess :user="user" />
+    <h3>System permissions · {{ permissions.length }}</h3>
     <p>
       Direct assignments and permissions inherited from roles. Project access rules still apply.
     </p>
@@ -54,7 +58,7 @@ p {
   justify-content: space-between;
   gap: 24px;
   padding: 8px 0;
-  border-bottom: 1px solid var(--app-border-color, #8883);
+  border-bottom: 1px solid v-bind('themeVars.borderColor');
 }
 @media (max-width: 640px) {
   .permission-row {

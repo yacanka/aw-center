@@ -13,6 +13,27 @@ const project = {
 }
 
 describe('project registry fail-closed parsing', () => {
+  it.each(['gokbey_jandarma', 'gokbey_sivil', 'project-variant'])(
+    'accepts catalog slug %s without losing other projects',
+    (slug) => {
+      const projects = [project, { ...project, slug }]
+      expect(parseProjectRegistryItems(projects)).toEqual(projects)
+    }
+  )
+
+  it.each(['../ozgur', 'ozgur/other', 'ozgur?admin=true', 'ozgur#other', 'ozgur other'])(
+    'rejects unsafe slug %s',
+    (slug) => {
+      expect(() => parseProjectRegistryItems([{ ...project, slug }])).toThrow(/invalid item/)
+    }
+  )
+
+  it('rejects roles for unsupported capabilities', () => {
+    expect(() => parseProjectRegistryItems([{ ...project, capabilities: ['dcc'] }])).toThrow(
+      /invalid item/
+    )
+  })
+
   it('accepts a valid empty catalog without synthesizing projects', () => {
     expect(parseProjectRegistryItems([], 'compliance')).toEqual([])
   })

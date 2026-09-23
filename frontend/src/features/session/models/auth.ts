@@ -31,7 +31,24 @@ export interface IGroup {
   [key: string]: unknown
 }
 
+export interface ProjectAccess {
+  project_id: number
+  project_name: string
+  project_slug: string
+  project_enabled: boolean
+  domain: string
+  application: string
+  role: string
+  sources: {
+    kind: 'direct' | 'group'
+    group_id: number | null
+    group_name: string | null
+    role: string
+  }[]
+}
+
 export interface IUser {
+  project_access?: ProjectAccess[]
   id?: number
   username?: string
   email?: string

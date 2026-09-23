@@ -4,7 +4,8 @@ from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Group, Permission
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
+from orgs.models import ProjectRoleAssignment
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -27,7 +28,7 @@ from .serializers import (
     GroupSerializer,
     PermissionSerializer,
     UserPreferencesSerializer,
-    UserSerializer,
+    UserAdministrationSerializer,
 )
 
 User = get_user_model()
@@ -41,12 +42,14 @@ class UserView(APIView):
         return User.objects.select_related("preferences").prefetch_related(
             "user_permissions__content_type",
             "groups__permissions__content_type",
+            Prefetch("project_role_assignments", queryset=ProjectRoleAssignment.objects.select_related("project")),
+            Prefetch("groups__project_role_assignments", queryset=ProjectRoleAssignment.objects.select_related("project")),
         )
 
     def get(self, request, pk=None):
         if pk:
             user = get_object_or_404(self._user_queryset(), pk=pk)
-            serializer = UserSerializer(user, context={"request": request})
+            serializer = UserAdministrationSerializer(user, context={"request": request})
             return Response(serializer.data)
 
         users = self._user_queryset().order_by("id")
@@ -73,10 +76,10 @@ class UserView(APIView):
             users = users.filter(username__icontains=username)
         if email:
             users = users.filter(email__icontains=email)
-        return paginated_response(request, users, UserSerializer)
+        return paginated_response(request, users, UserAdministrationSerializer)
 
     def post(self, request):
-        serializer = UserSerializer(data=request.data, context={"request": request})
+        serializer = UserAdministrationSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -84,7 +87,7 @@ class UserView(APIView):
     @transaction.atomic
     def put(self, request, pk):
         user = get_object_or_404(self._user_queryset().select_for_update(of=("self",)), pk=pk)
-        serializer = UserSerializer(user, data=request.data, context={"request": request})
+        serializer = UserAdministrationSerializer(user, data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -92,7 +95,7 @@ class UserView(APIView):
     @transaction.atomic
     def patch(self, request, pk):
         user = get_object_or_404(self._user_queryset().select_for_update(of=("self",)), pk=pk)
-        serializer = UserSerializer(user, data=request.data, partial=True, context={"request": request})
+        serializer = UserAdministrationSerializer(user, data=request.data, partial=True, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)

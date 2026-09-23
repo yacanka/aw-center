@@ -10,6 +10,13 @@
 - Frontend composition ve route'ları `frontend/src/app/`; ortak HTTP/CSRF, hata, download ve küçük primitive'ler `frontend/src/shared/`; business UI/API/composable'ları `frontend/src/features/<feature>/` içindedir. Session bootstrap/guard `features/session/`, proje kataloğu `features/projects/` altındadır. Component/page doğrudan Axios/shared HTTP client import etmez; feature API veya composable kullanır.
 - Kök `launcher.py` local setup/check/test/dev/offline-package akışlarına ek olarak Windows-native `prod` lifecycle'ını yönetir. `prod`; repository dışındaki explicit environment/TLS dosyası, statik IPv4, SQLite, tek ASGI server ve launcher-owned worker process'leri kullanır. Davranışı `scripts/launcher/`, testleri `scripts/test_launcher*.py` içindedir.
 
+## Arayüz ve tema sözleşmesi
+
+- Mevcut arayüz Naive UI temelli, ortak uygulama kabuğu içinde sade, okunabilir ve responsive iş ekranlarından oluşur. Yeni veya güncellenen sayfalar bu görsel bağlamı korur; bağımsız renk paleti, font veya ayrı tasarım konsepti oluşturma.
+- Tema kaynağı `frontend/src/app/App.vue` içindeki ortak `NConfigProvider` ve `app/services/theme.ts` tercih çözümlemesidir. Login dahil public sayfalar ve users altındaki kart, rol rozeti, tablo ve modal içerikleri aynı temayı miras alır. Sayfa içinde `lightTheme`, `:theme="null"` veya yerel marka rengi override'larıyla temayı ezme.
+- Kontrollerde Naive UI bileşenlerini kullan. Özel yerleşim CSS'inde yüzey, metin, kenarlık, vurgu ve font değerlerini `useThemeVars()` üzerinden al; sabit beyaz/koyu yüzey veya temadan bağımsız renk ekleme. Mevcut responsive yerleşimi ve erişilebilir etkileşimleri koru.
+- Tema değişikliklerini light ve dark modda, masaüstü ve mobilde doğrula; açılan dialog ve detay içeriklerini de kontrol et.
+
 ## Korunacak güvenlik ve API sözleşmeleri
 
 - Browser authentication yalnız Django server-side session cookie'sidir. DRF varsayılanı `SessionAuthentication` + `IsAuthenticated`; unsafe istekler CSRF gerektirir. Browser credential'ını response body, local/session storage veya URL içine koyma.

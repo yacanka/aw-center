@@ -97,3 +97,27 @@ class ProjectRegistryApiTests(TestCase):
         self.assertEqual([item["slug"] for item in response.data], ["hurkus"])
         self.assertEqual(response.data[0]["capabilities"], ["dcc"])
         self.assertEqual(set(response.data[0]), SAFE_KEYS)
+
+    def test_superuser_catalog_roles_match_supported_capabilities(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get("/api/projects/")
+
+        self.assertEqual(response.status_code, 200)
+        projects = {item["slug"]: item for item in response.data}
+        self.assertIn("gokbey_jandarma", projects)
+        self.assertIn("gokbey_sivil", projects)
+        self.assertEqual(
+            projects["hurkus"]["roles"],
+            {"compliance": None, "organization": None, "dcc": "publisher"},
+        )
+        self.assertEqual(
+            projects["ozgur"]["roles"],
+            {"compliance": "manager", "organization": "manager", "dcc": "publisher"},
+        )
+        for project in projects.values():
+            for domain, role in project["roles"].items():
+                with self.subTest(slug=project["slug"], domain=domain):
+                    self.assertEqual(role is not None, domain in project["capabilities"])
