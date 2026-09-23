@@ -26,7 +26,11 @@ def serialize_project(project, user) -> dict:
         "name": project.name,
         "capabilities": list(definition.capabilities),
         "roles": {
-            domain: effective_role(user, project, domain)
+            domain: (
+                effective_role(user, project, domain)
+                if domain in definition.capabilities
+                else None
+            )
             for domain in (
                 ProjectRoleAssignment.Domain.COMPLIANCE,
                 ProjectRoleAssignment.Domain.ORGANIZATION,

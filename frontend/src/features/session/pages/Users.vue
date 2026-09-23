@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h, ref, onMounted, onUnmounted, watch } from 'vue'
 import {
-  NConfigProvider,
+  useThemeVars,
   NButton,
   NTag,
   NInput,
@@ -17,6 +17,7 @@ import { provideUserAdministrationController } from '@/features/session/composab
 import type { IUser } from '@/features/session/models/auth'
 import UpdateForm from '@/features/session/components/user/UserPopup.vue'
 import Details from '@/features/session/components/user/DetailedInfo.vue'
+import ProjectAccess from '@/features/session/components/user/ProjectAccess.vue'
 import RoleBadge from '@/features/session/components/user/RoleBadge.vue'
 import RoleManager from '@/features/session/components/user/RoleManager.vue'
 import Unauthorized from '@/features/session/pages/Unauthorized.vue'
@@ -25,6 +26,7 @@ import { isoToTurkishDateTime } from '@/shared/utils/time'
 import InvitationLinkCreator from '@/features/session/components/user/InvitationLinkCreator.vue'
 import InvitationManager from '@/features/session/components/user/InvitationManager.vue'
 
+const themeVars = useThemeVars()
 const store = provideUserAdministrationController()
 const session = useSessionStore()
 const page = ref(1)
@@ -84,7 +86,7 @@ function roles(user: IUser) {
         : []),
     ...(user.group_details || []).map((group) => h(RoleBadge, { group })),
     ...(!user.is_superuser && !user.is_staff && !user.group_details?.length
-      ? [h('span', { class: 'muted' }, 'No roles assigned')]
+      ? [h('span', { class: 'muted' }, 'No system roles assigned')]
       : [])
   ]
 }
@@ -101,10 +103,16 @@ const columns = computed<DataTableColumns<IUser>>(() => [
       ])
   },
   {
-    title: 'Roles & access',
+    title: 'System roles',
     key: 'roles',
     minWidth: 230,
     render: (user) => h('div', { class: 'role-list' }, roles(user))
+  },
+  {
+    title: 'Project & application access',
+    key: 'project_access',
+    minWidth: 300,
+    render: (user) => h(ProjectAccess, { user, compact: true })
   },
   {
     title: 'Status',
@@ -219,169 +227,159 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <n-config-provider
-    v-if="canAccess"
-    :theme="null"
-    :theme-overrides="{
-      common: {
-        primaryColor: '#002FA7',
-        primaryColorHover: '#1749B8',
-        primaryColorPressed: '#00288D'
-      }
-    }"
-  >
-    <section class="users-admin">
-      <header class="page-heading">
-        <div>
-          <div class="section-label">Administration</div>
-          <h1>Users &amp; access<span class="heading-dot">.</span></h1>
-          <p>Manage your people, account access and shared roles.</p>
-        </div>
-        <div class="invite-actions">
-          <InvitationManager :allowed="canInvite" /><InvitationLinkCreator
-            :allowed="canInvite"
-            :groups="canManageRoles ? store.getGroups : []"
-          />
-        </div>
-      </header>
-      <div class="access-overview">
-        <div class="overview-count">
-          <strong>{{ canView ? store.usersPagination.count : '—' }}</strong
-          ><span>{{ search || account !== 'all' ? 'Matching accounts' : 'User accounts' }}</span>
-        </div>
-        <div>
-          <strong>Role-based access</strong>
-          <p>Roles combine permissions. Direct permissions add access for one person.</p>
-        </div>
-        <div>
-          <strong>Protected administration</strong>
-          <p>Only superusers can change roles, permissions and administrator status.</p>
-        </div>
+  <section v-if="canAccess" class="users-admin">
+    <header class="page-heading">
+      <div>
+        <div class="section-label">Administration</div>
+        <h1>Users &amp; access<span class="heading-dot">.</span></h1>
+        <p>Review system permissions, project roles and application access.</p>
       </div>
-      <template v-if="canView">
-        <div class="directory-heading">
-          <h2>User directory</h2>
-          <n-button :loading="store.isLoading" @click="fetchUsers">Refresh</n-button>
-        </div>
-        <form class="directory-filters" @submit.prevent="applyFilters">
-          <label
-            >Search users<n-input
-              v-model:value="search"
-              clearable
-              placeholder="Search name, username or email"
-          /></label>
-          <label
-            >Account status<n-select v-model:value="account" :options="accountOptions"
-          /></label>
-        </form>
-        <n-alert v-if="error" type="error" class="directory-error" title="Users could not be loaded"
-          >Try refreshing the directory. Previously loaded results may be out of date.</n-alert
-        >
-        <div class="desktop-directory">
-          <n-data-table
-            :loading="store.isLoading"
-            :columns="columns"
-            :data="store.getUsers"
-            :row-key="(user: IUser) => user.id!"
-            :scroll-x="920"
-            :bordered="false"
-          />
-        </div>
-        <n-spin :show="store.isLoading" class="mobile-directory">
-          <div class="user-cards">
-            <article v-for="user in store.getUsers" :key="user.id" class="user-card">
-              <header>
-                <div class="user-identity">
-                  <strong>{{ name(user) }}</strong
-                  ><span>{{ user.username }}</span>
-                </div>
-                <n-tag
-                  size="small"
-                  :bordered="false"
-                  :type="user.is_active ? 'success' : 'default'"
-                  >{{ user.is_active ? 'Active' : 'Inactive' }}</n-tag
-                >
-              </header>
-              <p class="user-email">{{ user.email || 'No email address' }}</p>
-              <div class="role-list">
-                <RoleBadge
-                  v-if="user.is_superuser"
-                  name="Superuser"
-                  description="Full system access. Can manage administrators, roles and all permissions."
-                  critical
-                /><RoleBadge
-                  v-else-if="user.is_staff"
-                  name="Administrator"
-                  description="Administration access requires the relevant permissions."
-                  critical
-                /><RoleBadge
-                  v-for="group in user.group_details"
-                  :key="group.id"
-                  :group="group"
-                /><span
-                  v-if="!user.is_staff && !user.is_superuser && !user.group_details?.length"
-                  class="muted"
-                  >No roles assigned</span
-                >
+      <div class="invite-actions">
+        <InvitationManager :allowed="canInvite" /><InvitationLinkCreator
+          :allowed="canInvite"
+          :groups="canManageRoles ? store.getGroups : []"
+        />
+      </div>
+    </header>
+    <div class="access-overview">
+      <div class="overview-count">
+        <strong>{{ canView ? store.usersPagination.count : '—' }}</strong
+        ><span>{{ search || account !== 'all' ? 'Matching accounts' : 'User accounts' }}</span>
+      </div>
+      <div>
+        <strong>Project &amp; application access</strong>
+        <p>
+          Project roles grant access to Compliance documents, Organization and DCC within a specific
+          project.
+        </p>
+      </div>
+      <div>
+        <strong>Protected administration</strong>
+        <p>Only superusers can change system roles, permissions and administrator status.</p>
+      </div>
+    </div>
+    <template v-if="canView">
+      <div class="directory-heading">
+        <h2>User directory</h2>
+        <n-button :loading="store.isLoading" @click="fetchUsers">Refresh</n-button>
+      </div>
+      <form class="directory-filters" @submit.prevent="applyFilters">
+        <label
+          >Search users<n-input
+            v-model:value="search"
+            clearable
+            placeholder="Search name, username or email"
+        /></label>
+        <label>Account status<n-select v-model:value="account" :options="accountOptions" /></label>
+      </form>
+      <n-alert v-if="error" type="error" class="directory-error" title="Users could not be loaded"
+        >Try refreshing the directory. Previously loaded results may be out of date.</n-alert
+      >
+      <div class="desktop-directory">
+        <n-data-table
+          :loading="store.isLoading"
+          :columns="columns"
+          :data="store.getUsers"
+          :row-key="(user: IUser) => user.id!"
+          :scroll-x="1220"
+          :bordered="false"
+        />
+      </div>
+      <n-spin :show="store.isLoading" class="mobile-directory">
+        <div class="user-cards">
+          <article v-for="user in store.getUsers" :key="user.id" class="user-card">
+            <header>
+              <div class="user-identity">
+                <strong>{{ name(user) }}</strong
+                ><span>{{ user.username }}</span>
               </div>
-              <footer>
-                <n-button
+              <n-tag
+                size="small"
+                :bordered="false"
+                :type="user.is_active ? 'success' : 'default'"
+                >{{ user.is_active ? 'Active' : 'Inactive' }}</n-tag
+              >
+            </header>
+            <p class="user-email">{{ user.email || 'No email address' }}</p>
+            <div class="role-list">
+              <RoleBadge
+                v-if="user.is_superuser"
+                name="Superuser"
+                description="Full system access. Can manage administrators, roles and all permissions."
+                critical
+              /><RoleBadge
+                v-else-if="user.is_staff"
+                name="Administrator"
+                description="Administration access requires the relevant permissions."
+                critical
+              /><RoleBadge
+                v-for="group in user.group_details"
+                :key="group.id"
+                :group="group"
+              /><span
+                v-if="!user.is_staff && !user.is_superuser && !user.group_details?.length"
+                class="muted"
+                >No system roles assigned</span
+              >
+            </div>
+            <ProjectAccess :user="user" compact />
+            <footer>
+              <n-button
+                size="small"
+                quaternary
+                @click="expanded = expanded === user.id ? null : user.id!"
+                >{{ expanded === user.id ? 'Hide access' : 'View access' }}</n-button
+              >
+              <div class="row-actions">
+                <n-button v-if="canEdit(user)" size="small" @click="popup?.openModal(user)"
+                  >Manage</n-button
+                ><n-button
+                  v-if="canDelete(user)"
                   size="small"
                   quaternary
-                  @click="expanded = expanded === user.id ? null : user.id!"
-                  >{{ expanded === user.id ? 'Hide access' : 'View access' }}</n-button
+                  type="error"
+                  @click="confirmDelete(user)"
+                  >Delete</n-button
                 >
-                <div class="row-actions">
-                  <n-button v-if="canEdit(user)" size="small" @click="popup?.openModal(user)"
-                    >Manage</n-button
-                  ><n-button
-                    v-if="canDelete(user)"
-                    size="small"
-                    quaternary
-                    type="error"
-                    @click="confirmDelete(user)"
-                    >Delete</n-button
-                  >
-                </div>
-              </footer>
-              <Details v-if="expanded === user.id" :user="user" />
-            </article>
-            <n-empty
-              v-if="!store.getUsers.length && !store.isLoading"
-              description="No users match these filters"
-            />
-          </div>
-        </n-spin>
-        <div class="directory-pagination">
-          <span>{{ store.usersPagination.count }} results</span
-          ><n-pagination
-            :page="page"
-            :page-size="pageSize"
-            :item-count="store.usersPagination.count"
-            :page-slot="3"
-            @update:page="paginate"
+              </div>
+            </footer>
+            <Details v-if="expanded === user.id" :user="user" />
+          </article>
+          <n-empty
+            v-if="!store.getUsers.length && !store.isLoading"
+            description="No users match these filters"
           />
         </div>
-        <UpdateForm
-          ref="popup"
-          :can-manage-access="canManageRoles"
-          :current-user-id="session.getUser.id"
+      </n-spin>
+      <div class="directory-pagination">
+        <span>{{ store.usersPagination.count }} results</span
+        ><n-pagination
+          :page="page"
+          :page-size="pageSize"
+          :item-count="store.usersPagination.count"
+          :page-slot="3"
+          @update:page="paginate"
         />
-      </template>
-      <RoleManager v-if="canManageRoles" @changed="fetchUsers" />
-    </section>
-  </n-config-provider>
+      </div>
+      <UpdateForm
+        ref="popup"
+        :can-manage-access="canManageRoles"
+        :current-user-id="session.getUser.id"
+      />
+    </template>
+    <RoleManager v-if="canManageRoles" @changed="fetchUsers" />
+  </section>
   <Unauthorized v-else />
 </template>
 
 <style scoped>
 .users-admin {
-  --admin-accent: #002fa7;
-  color: #20232b;
-  background: #fff;
-  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --admin-accent: v-bind('themeVars.primaryColor');
+  color: v-bind('themeVars.textColor2');
+  background: v-bind('themeVars.cardColor');
+  font-family: v-bind('themeVars.fontFamily');
   padding: clamp(18px, 3vw, 40px);
-  border: 1px solid #e4e5e9;
+  border: 1px solid v-bind('themeVars.borderColor');
   min-width: 0;
 }
 .page-heading {
@@ -409,7 +407,7 @@ h1 {
   color: var(--admin-accent);
 }
 p {
-  color: #646975;
+  color: v-bind('themeVars.textColor3');
   margin: 12px 0 0;
   line-height: 1.6;
 }
@@ -421,12 +419,12 @@ p {
 .access-overview {
   display: grid;
   grid-template-columns: 180px 1fr 1fr;
-  border-block: 1px solid #e4e5e9;
-  background: #f7f7f8;
+  border-block: 1px solid v-bind('themeVars.borderColor');
+  background: v-bind('themeVars.actionColor');
 }
 .access-overview > div {
   padding: 22px;
-  border-right: 1px solid #e4e5e9;
+  border-right: 1px solid v-bind('themeVars.borderColor');
 }
 .access-overview > div:last-child {
   border: 0;
@@ -449,7 +447,7 @@ p {
 }
 .overview-count span {
   font-size: 12px;
-  color: #646975;
+  color: v-bind('themeVars.textColor3');
 }
 .directory-heading {
   display: flex;
@@ -485,7 +483,7 @@ h2 {
 }
 :deep(.user-identity span),
 .muted {
-  color: #646975;
+  color: v-bind('themeVars.textColor3');
   font-size: 12px;
 }
 :deep(.role-list) {
@@ -504,10 +502,10 @@ h2 {
   align-items: center;
   gap: 12px;
   padding: 20px 0;
-  border-bottom: 1px solid #e4e5e9;
+  border-bottom: 1px solid v-bind('themeVars.borderColor');
 }
 .directory-pagination > span {
-  color: #646975;
+  color: v-bind('themeVars.textColor3');
   font-size: 12px;
 }
 .mobile-directory {
@@ -519,7 +517,7 @@ h2 {
   }
   .access-overview > div:last-child {
     grid-column: 1/-1;
-    border-top: 1px solid #e4e5e9;
+    border-top: 1px solid v-bind('themeVars.borderColor');
   }
 }
 @media (max-width: 700px) {
@@ -538,7 +536,7 @@ h2 {
   .access-overview > div {
     padding: 16px;
     border-right: 0;
-    border-bottom: 1px solid #e4e5e9;
+    border-bottom: 1px solid v-bind('themeVars.borderColor');
   }
   .access-overview > div:last-child {
     border-top: 0;
@@ -559,7 +557,7 @@ h2 {
   }
   .user-card {
     padding: 16px;
-    border: 1px solid #e4e5e9;
+    border: 1px solid v-bind('themeVars.borderColor');
     min-width: 0;
   }
   .user-card header,
@@ -573,7 +571,7 @@ h2 {
   .user-card footer {
     margin-top: 18px;
     padding-top: 12px;
-    border-top: 1px solid #e4e5e9;
+    border-top: 1px solid v-bind('themeVars.borderColor');
   }
   .user-email {
     overflow-wrap: anywhere;

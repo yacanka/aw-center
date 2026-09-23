@@ -217,6 +217,20 @@ class UserSerializer(ModelSerializer):
         return instance
 
 
+class UserAdministrationSerializer(UserSerializer):
+    """Expose project assignments only on the protected administration surface."""
+
+    project_access = serializers.SerializerMethodField()
+
+    class Meta(UserSerializer.Meta):
+        fields = [*UserSerializer.Meta.fields, "project_access"]
+
+    def get_project_access(self, user):
+        from .access_summary import project_access_summary
+
+        return project_access_summary(user)
+
+
 class PasswordChangeSerializer(Serializer):
     current_password = CharField(write_only=True)
     new_password = CharField(write_only=True)

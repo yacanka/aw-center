@@ -53,7 +53,7 @@ export function roleDescription(group: IGroup): string {
         ', '
       )}${critical.length > 3 ? ' and more' : ''}. Administrative actions also require staff status; access changes require a superuser.`
   if (!permissions.length)
-    return 'No permissions assigned. This role does not grant additional access.'
+    return 'No system permissions assigned. Project roles are listed separately for each user.'
   return `${permissions.length} permissions: ${permissions
     .slice(0, 3)
     .map((permission) => permission.name || permission.codename)

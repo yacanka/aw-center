@@ -12,6 +12,7 @@
     <n-alert v-if="!canManageAccess" type="info" :bordered="false"
       >You can edit profile details. A superuser must change roles and account access.</n-alert
     >
+    <ProjectAccess :user="user" />
     <n-form ref="formRef" :model="user" :rules="rules">
       <n-grid responsive="self" item-responsive :x-gap="12" :cols="12">
         <n-form-item-gi span="0:12 600:6" path="username" label="Username">
@@ -141,7 +142,7 @@
 .account-controls p {
   width: 100%;
   margin: 0;
-  color: var(--app-text-muted, #666);
+  color: v-bind('themeVars.textColor3');
   font-size: 12px;
 }
 .permission-editor {
@@ -167,7 +168,8 @@ h4 {
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NCheckbox, NAlert } from 'naive-ui'
+import { NCheckbox, NAlert, useThemeVars } from 'naive-ui'
+import ProjectAccess from './ProjectAccess.vue'
 import PermissionLabel from './PermissionLabel.vue'
 import type { IPermission } from '@/features/session/models/auth'
 import { IUser } from '@/features/session/models/auth'
@@ -175,6 +177,7 @@ import { useUserAdministrationController } from '@/features/session/composables/
 import { FormRules, NModal } from 'naive-ui'
 import { validateForm } from '@/shared/composables/forms'
 
+const themeVars = useThemeVars()
 const props = withDefaults(defineProps<{ canManageAccess?: boolean; currentUserId?: number }>(), {
   canManageAccess: false
 })
