@@ -16,7 +16,7 @@ from .dependencies import ensure_virtual_environment
 from .job_worker import start_job_workers
 from .model import LauncherError, Project, Scope
 from .process import required_tool, run, start, supervise
-from .quality import django, run_first_script, select_script
+from .quality import django, run_first_script, run_script, select_script
 
 
 def check(project: Project, scope: Scope) -> None:
@@ -109,6 +109,7 @@ def prod(
     private_key_file: Path,
     exclude_doors: bool,
     migrate: bool,
+    build_frontend: bool = False,
 ) -> None:
     """Run the single-host Windows HTTPS production lifecycle."""
 
@@ -128,6 +129,8 @@ def prod(
     if migrate:
         django(project, ["migrate", "--noinput"], extra_env)
     django(project, ["migrate", "--check"], extra_env)
+    if build_frontend:
+        run_script(project, "build")
     django(project, ["collectstatic", "--clear", "--noinput"], extra_env)
     django(project, ["verify_frontend_artifact"], extra_env)
 
