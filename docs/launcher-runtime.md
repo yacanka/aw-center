@@ -94,6 +94,13 @@ atlamayın.
 
 ## Windows production
 
+Frontend değişikliklerini başlangıçta derlemek için `prod` komutuna
+`--build-frontend` eklenir. Bu seçenek `frontend/` içinde `npm run build`
+çalıştırır; build başarısızsa static dosyalar toplanmaz ve server/worker başlatılmaz.
+Seçenek verilmezse mevcut build kullanılır. İlk kurulumda veya bağımlılıklar
+değiştiğinde önce repository kökünde `npm --prefix frontend ci` çalıştırılmalıdır;
+`--build-frontend` bağımlılık kurulumu yapmaz. Node.js/npm build için gereklidir.
+
 Güncel production komutu örneği:
 
 ```powershell

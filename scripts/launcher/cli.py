@@ -73,6 +73,7 @@ def prod_command(project: Project, args: argparse.Namespace) -> None:
         env_file=external_path(args.env_file),
         certificate_file=external_path(args.tls_cert_file),
         private_key_file=external_path(args.tls_key_file),
+        build_frontend=args.build_frontend,
         exclude_doors=args.exclude_doors,
         migrate=args.migrate,
     )

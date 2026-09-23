@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-from scripts.launcher.cli import build_parser, external_path, project_path
+from scripts.launcher.cli import build_parser, external_path, prod_command, project_path
 from scripts.launcher.dependencies import install, install_backend, prepare_offline
 from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError, Project, Scope
@@ -325,35 +325,66 @@ class RuntimeTests(unittest.TestCase):
     ) -> None:
         """Production verifies its environment and artifact before serving HTTPS."""
 
-        with tempfile.TemporaryDirectory() as temporary:
-            project = create_project(Path(temporary))
-            env_file = Path(temporary).parent / "production.env"
-            certificate = Path(temporary).parent / "tls.crt"
-            private_key = Path(temporary).parent / "tls.key"
-            prod(
-                project,
-                host="192.0.2.10",
-                port=443,
-                env_file=env_file,
-                certificate_file=certificate,
-                private_key_file=private_key,
-                exclude_doors=False,
-                migrate=False,
-            )
+        for build_frontend, fails in ((False, False), (True, False), (True, True)):
+            with self.subTest(build_frontend=build_frontend, fails=fails), tempfile.TemporaryDirectory() as temporary:
+                django_mock.reset_mock()
+                backend_start.reset_mock()
+                worker_start.reset_mock()
+                supervise.reset_mock()
+                project = create_project(Path(temporary))
+                project.package_json.write_text(json.dumps({"scripts": {"build": "vite build"}}))
+                events = mock.Mock()
+                events.attach_mock(django_mock, "django")
+                with (
+                    mock.patch("scripts.launcher.quality.required_tool", return_value="npm") as npm,
+                    mock.patch("scripts.launcher.quality.run") as build,
+                ):
+                    events.attach_mock(build, "build")
+                    if fails:
+                        build.side_effect = LauncherError("build failed")
+                    arguments = dict(
+                        host="192.0.2.10",
+                        port=443,
+                        env_file=Path(temporary).parent / "production.env",
+                        certificate_file=Path(temporary).parent / "tls.crt",
+                        private_key_file=Path(temporary).parent / "tls.key",
+                        exclude_doors=False,
+                        migrate=False,
+                        build_frontend=build_frontend,
+                    )
+                    if fails:
+                        with self.assertRaisesRegex(LauncherError, "build failed"):
+                            prod(project, **arguments)
+                    else:
+                        prod(project, **arguments)
+                    if build_frontend:
+                        npm.assert_called_once_with("npm")
+                        build.assert_called_once_with(["npm", "run", "build"], project.frontend)
+                    else:
+                        npm.assert_not_called()
+                        build.assert_not_called()
 
-        commands = [call.args[1] for call in django_mock.call_args_list]
-        self.assertEqual(
-            commands,
-            [
-                ["check", "--deploy"],
-                ["migrate", "--check"],
-                ["collectstatic", "--clear", "--noinput"],
-                ["verify_frontend_artifact"],
-            ],
-        )
-        worker_start.assert_called_once()
-        self.assertTrue(worker_start.call_args.kwargs["include_doors_if_enabled"])
-        supervise.assert_called_once_with([mock.sentinel.backend, mock.sentinel.worker])
+                env = production_env(arguments["env_file"], "192.0.2.10", 443)
+                expected = [
+                    mock.call.django(project, ["check", "--deploy"], env),
+                    mock.call.django(project, ["migrate", "--check"], env),
+                ]
+                if build_frontend:
+                    expected.append(mock.call.build(["npm", "run", "build"], project.frontend))
+                if not fails:
+                    expected.extend([
+                        mock.call.django(project, ["collectstatic", "--clear", "--noinput"], env),
+                        mock.call.django(project, ["verify_frontend_artifact"], env),
+                    ])
+                    backend_start.assert_called_once()
+                    worker_start.assert_called_once()
+                    self.assertTrue(worker_start.call_args.kwargs["include_doors_if_enabled"])
+                    supervise.assert_called_once_with([mock.sentinel.backend, mock.sentinel.worker])
+                else:
+                    backend_start.assert_not_called()
+                    worker_start.assert_not_called()
+                    supervise.assert_not_called()
+                self.assertEqual(events.mock_calls, expected)
 
     def test_production_can_exclude_doors_queue(self) -> None:
         """Production opt-out must leave the general worker on local queues."""
@@ -621,6 +652,21 @@ class CliTests(unittest.TestCase):
                 "--exclude-doors",
             ]
         )
+
+        self.assertFalse(production.build_frontend)
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            for enabled in (False, True):
+                arguments = [
+                    "prod", "--env-file", "production.env", "--host", "192.0.2.10",
+                    "--tls-cert-file", "tls.crt", "--tls-key-file", "tls.key",
+                ]
+                if enabled:
+                    arguments.append("--build-frontend")
+                parsed = build_parser().parse_args(arguments)
+                with mock.patch("scripts.launcher.cli.prod") as runtime:
+                    prod_command(project, parsed)
+                self.assertEqual(runtime.call_args.kwargs["build_frontend"], enabled)
 
         self.assertEqual(production.port, 443)
         self.assertFalse(production.exclude_doors)

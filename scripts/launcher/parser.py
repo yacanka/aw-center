@@ -78,6 +78,11 @@ def add_production(commands: Subparsers) -> None:
     production.add_argument("--tls-cert-file", type=Path, required=True)
     production.add_argument("--tls-key-file", type=Path, required=True)
     production.add_argument(
+        "--build-frontend",
+        action="store_true",
+        help="Run npm run build before collecting static files; requires installed frontend dependencies.",
+    )
+    production.add_argument(
         "--exclude-doors",
         action="store_true",
         help="Keep the production worker from consuming the DOORS queue.",
