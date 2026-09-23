@@ -1,7 +1,8 @@
 import { gzipSync } from 'node:zlib'
 import { readFileSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveBundlePath } from './bundle-path.mjs'
 
 const DIST_DIRECTORY = fileURLToPath(new URL('../dist/', import.meta.url))
 const MAX_LOGIN_INITIAL_GZIP_BYTES = 300 * 1024
@@ -49,11 +50,7 @@ function findInitialJavaScriptBundles() {
     const assetsOffset = pathname.indexOf('/assets/')
     if (assetsOffset < 0) throw new Error(`Unexpected initial JavaScript path: ${reference}`)
     const relativePath = pathname.slice(assetsOffset + 1)
-    const path = resolve(DIST_DIRECTORY, relativePath)
-    if (!path.startsWith(`${resolve(DIST_DIRECTORY)}/`)) {
-      throw new Error(`Unsafe initial JavaScript path: ${reference}`)
-    }
-    return path
+    return resolveBundlePath(DIST_DIRECTORY, relativePath)
   })
   return [...new Set(paths)]
 }

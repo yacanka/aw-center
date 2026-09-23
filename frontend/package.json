@@ -11,6 +11,7 @@
     "test:commands": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-command-search.mjs",
     "test:access": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-route-access.mjs",
     "test:errors": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-api-errors.mjs",
+    "test:bundle-path": "node --test scripts/test-bundle-path.mjs",
     "test:stores": "node --test scripts/test-store-boundaries.mjs",
     "test:tables": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-table-filters.mjs",
     "test:ui-registration": "node --test scripts/test-naive-registration.mjs",
@@ -22,7 +23,7 @@
     "test:home": "node --experimental-strip-types --experimental-default-type=module --test scripts/test-home-dashboard.mjs",
     "test:jobs": "node --test scripts/test-page-jobs.mjs",
     "test:unit": "vitest run src",
-    "test:ci": "npm run test:unit && npm run test:commands && npm run test:access && npm run test:errors && npm run test:stores && npm run test:tables && npm run test:ui-registration && npm run test:uploads && npm run test:outlook && npm run test:dcc && npm run test:compdoc && npm run test:people-search && npm run test:home && npm run test:jobs",
+    "test:ci": "npm run test:bundle-path && npm run test:unit && npm run test:commands && npm run test:access && npm run test:errors && npm run test:stores && npm run test:tables && npm run test:ui-registration && npm run test:uploads && npm run test:outlook && npm run test:dcc && npm run test:compdoc && npm run test:people-search && npm run test:home && npm run test:jobs",
     "test:e2e": "playwright test",
     "serve": "vite preview"
   },
