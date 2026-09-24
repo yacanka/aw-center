@@ -41,10 +41,8 @@ describe('organization project API', () => {
     expect(http.get).toHaveBeenNthCalledWith(1, 'projects/demo/organization/panels/', {
       params: { page_size: 200 }
     })
-    expect(http.get).toHaveBeenNthCalledWith(
-      2,
-      '/api/projects/demo/organization/panels/?page=2',
-      { params: undefined }
-    )
+    expect(http.get).toHaveBeenNthCalledWith(2, '/api/projects/demo/organization/panels/?page=2', {
+      params: undefined
+    })
   })
 })

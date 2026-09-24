@@ -14,9 +14,6 @@ import {
   getStringFilterFunc
 } from '@/shared/services/tableFilters'
 import {
-  clearCompdocColumnSettings,
-  createAllColumnSettings,
-  createDefaultColumnSettings,
   readCompdocColumnSettings,
   reconcileColumnSettings,
   saveCompdocColumnSettings
@@ -26,7 +23,6 @@ type ConfigurableColumn = DataTableColumn<ICompDoc> & Record<string, any>
 type FilterHandler = (attribute: string, filterData: unknown) => void
 
 export interface ColumnSettingsState {
-  visible: boolean
   list: IColumnSetting[]
 }
 
@@ -45,18 +41,14 @@ interface ColumnSettingsDependencies {
 
 /** Manage schema-safe compliance-document column preferences. */
 export function useCompdocColumnSettings(dependencies: ColumnSettingsDependencies) {
-  const state = reactive<ColumnSettingsState>({ visible: false, list: [] })
+  const state = reactive<ColumnSettingsState>({ list: [] })
   const load = () => loadSettings(state, dependencies)
   const apply = () => applySettings(state, dependencies)
   return {
     state,
     load,
     apply,
-    refresh: () => renderColumns(state, dependencies),
-    open: () => (state.visible = true),
-    reset: () => resetSettings(state, dependencies),
-    useDefault: () => (state.list = createDefaultColumnSettings(dependencies.fields.value)),
-    useAll: () => (state.list = createAllColumnSettings(dependencies.fields.value))
+    refresh: () => renderColumns(state, dependencies)
   }
 }
 
@@ -72,7 +64,6 @@ function applySettings(state: ColumnSettingsState, dependencies: ColumnSettingsD
     dependencies.schemaVersion.value,
     state.list
   )
-  state.visible = false
 }
 
 function renderColumns(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
@@ -82,12 +73,6 @@ function renderColumns(state: ColumnSettingsState, dependencies: ColumnSettingsD
     ...configured,
     ...fixedColumns(dependencies.columnOverrides.value, 'end')
   ]
-}
-
-function resetSettings(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
-  clearCompdocColumnSettings(dependencies.project.value)
-  state.list = createDefaultColumnSettings(dependencies.fields.value)
-  applySettings(state, dependencies)
 }
 
 function buildColumn(setting: IColumnSetting, dependencies: ColumnSettingsDependencies) {

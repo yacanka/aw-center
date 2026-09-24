@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ArrowDownload20Regular, Dismiss20Regular } from '@vicons/fluent'
+import { NIcon, useThemeVars } from 'naive-ui'
 import { onMounted, onUnmounted, ref } from 'vue'
 
 import { usePwaInstall } from '../pwa/usePwaInstall'
 
+const themeVars = useThemeVars()
 const showManualInstructions = ref(false)
 const { shouldShow, isManualInstall, isInstalling, error, start, stop, dismiss, requestInstall } =
   usePwaInstall()
@@ -32,6 +34,7 @@ onUnmounted(stop)
       <small v-if="error">{{ error }}</small>
     </div>
     <n-button
+      class="pwa-install-action"
       v-if="!error"
       size="small"
       type="primary"
@@ -41,6 +44,7 @@ onUnmounted(stop)
       {{ isManualInstall ? 'How to install' : 'Install app' }}
     </n-button>
     <n-button
+      class="pwa-install-dismiss"
       quaternary
       circle
       size="small"
@@ -48,7 +52,7 @@ onUnmounted(stop)
       aria-label="Dismiss install suggestion"
       @click="dismiss"
     >
-      <template #icon><Dismiss20Regular /></template>
+      <template #icon><n-icon :component="Dismiss20Regular" /></template>
     </n-button>
   </aside>
 </template>
@@ -56,15 +60,19 @@ onUnmounted(stop)
 <style scoped>
 .pwa-install-prompt {
   align-items: center;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  background: v-bind('themeVars.popoverColor');
+  border: 1px solid v-bind('themeVars.borderColor');
   border-radius: 10px;
-  bottom: 24px;
-  box-shadow: 0 18px 45px rgb(15 23 42 / 18%);
+  bottom: max(40px, env(safe-area-inset-bottom));
+  box-shadow: v-bind('themeVars.boxShadow2');
   display: grid;
   gap: 12px;
-  grid-template-columns: auto minmax(180px, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'icon copy action dismiss';
   padding: 14px;
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+  font-family: v-bind('themeVars.fontFamily');
   position: fixed;
   right: 24px;
   width: min(620px, calc(100vw - 48px));
@@ -72,10 +80,11 @@ onUnmounted(stop)
 }
 
 .pwa-install-icon {
+  grid-area: icon;
   align-items: center;
-  background: #0f766e;
+  background: v-bind('themeVars.primaryColor');
   border-radius: 9px;
-  color: #ffffff;
+  color: v-bind('themeVars.baseColor');
   display: flex;
   height: 40px;
   justify-content: center;
@@ -88,51 +97,47 @@ onUnmounted(stop)
 }
 
 .pwa-install-copy {
+  grid-area: copy;
+  overflow-wrap: anywhere;
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
 .pwa-install-copy strong {
-  color: #111827;
+  color: v-bind('themeVars.textColor1');
   font-size: 14px;
 }
 
 .pwa-install-copy span,
 .pwa-install-copy small {
-  color: #64748b;
+  color: v-bind('themeVars.textColor2');
   font-size: 12px;
   line-height: 1.4;
 }
 
 .pwa-install-copy small {
-  color: #b91c1c;
+  color: v-bind('themeVars.errorColor');
 }
 
-:global(:root[data-theme='dark']) .pwa-install-prompt {
-  background: #18181c;
-  border-color: #ffffff3d;
-  box-shadow: 0 18px 45px rgb(0 0 0 / 42%);
+.pwa-install-action {
+  grid-area: action;
 }
 
-:global(:root[data-theme='dark']) .pwa-install-copy strong {
-  color: #f3f4f6;
-}
-
-:global(:root[data-theme='dark']) .pwa-install-copy span {
-  color: #a1a1aa;
+.pwa-install-dismiss {
+  grid-area: dismiss;
+  align-self: start;
 }
 
 @media (max-width: 760px) {
   .pwa-install-prompt {
-    bottom: 12px;
-    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'icon copy dismiss'
+      'action action action';
     right: 12px;
     width: calc(100vw - 24px);
-  }
-
-  .pwa-install-prompt > :deep(.n-button:not([aria-label])) {
-    grid-column: 1 / -1;
   }
 }
 </style>

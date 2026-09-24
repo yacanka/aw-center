@@ -96,7 +96,11 @@ for (const viewport of viewports) {
   })
 }
 
-async function routeResponsiveApi(page: Page, isAuthenticated: () => boolean): Promise<void> {
+async function routeResponsiveApi(
+  page: Page,
+  isAuthenticated: () => boolean,
+  theme: 'light' | 'dark' = 'light'
+): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (!path.startsWith('/api/')) return route.fallback()
@@ -104,7 +108,7 @@ async function routeResponsiveApi(page: Page, isAuthenticated: () => boolean): P
     if (path === '/api/session/') {
       return json(route, isAuthenticated() ? authenticatedSession : anonymousSession)
     }
-    if (path === '/api/users/preferences/') return json(route, { has_particles: false })
+    if (path === '/api/users/preferences/') return json(route, { theme, has_particles: false })
     if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
     if (path === '/api/projects/') {
       return json(route, [
@@ -209,4 +213,72 @@ async function json(route: Route, body: unknown): Promise<void> {
     contentType: 'application/json',
     body: JSON.stringify(body)
   })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [320, 1440]) {
+    test(`shell scrolling and install prompt in ${theme} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 568 })
+      await routeResponsiveApi(page, () => true, theme)
+      await page.goto('/app/home')
+      const account = page.getByRole('button', { name: /^Account and settings:/ })
+      await expect(account).toBeVisible()
+      await expect(
+        page.locator('.sider-navigation').getByText('Settings', { exact: true })
+      ).toHaveCount(0)
+      await account.click()
+      await expect(page).toHaveURL(/\/app\/settings$/)
+      await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
+      await expect(page.locator('.n-dropdown-menu')).toHaveCount(0)
+
+      const sider = page.locator('.protected-sider')
+      const footer = page.locator('.protected-footer')
+      const beforeSider = await sider.boundingBox()
+      const beforeFooter = await footer.boundingBox()
+      const beforeAccount = await account.boundingBox()
+      const scroll = page.locator('.protected-scroll')
+      await scroll.evaluate((element) => {
+        element.scrollTop = element.scrollHeight
+      })
+      await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+      expect(await sider.boundingBox()).toEqual(beforeSider)
+      expect(await footer.boundingBox()).toEqual(beforeFooter)
+      expect(await account.boundingBox()).toEqual(beforeAccount)
+      expect(await page.evaluate(() => window.scrollY)).toBe(0)
+      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(568)
+      await expectElementInsideViewport(footer, width, 568)
+      await expectNoDocumentOverflow(page)
+      await scroll.evaluate((element) => {
+        element.scrollTop = 0
+      })
+
+      await page.evaluate(() => {
+        const event = new Event('beforeinstallprompt', { cancelable: true })
+        Object.assign(event, { prompt: async () => ({ outcome: 'accepted' }) })
+        window.dispatchEvent(event)
+      })
+      const prompt = page.locator('.pwa-install-prompt')
+      const dismiss = page.getByRole('button', { name: 'Dismiss install suggestion' })
+      await expect(prompt).toBeVisible()
+      await expect(prompt).toHaveCSS(
+        'background-color',
+        theme === 'dark' ? 'rgb(72, 72, 78)' : 'rgb(255, 255, 255)'
+      )
+      await expectElementInsideViewport(prompt, width, 568)
+      await expectElementInsideViewport(dismiss, width, 568)
+      await expect(dismiss.locator('svg')).toBeVisible()
+      await expectNoElementOverflow(prompt)
+      await page.screenshot({ path: `test-results/shell-${theme}-${width}.png` })
+      await dismiss.click()
+      await expect(prompt).toHaveCount(0)
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event('beforeinstallprompt', { cancelable: true }))
+      )
+      await page.getByRole('button', { name: 'Install app', exact: true }).click()
+      await expect(prompt.getByText(/installation window could not be opened/)).toBeVisible()
+      await expectElementInsideViewport(dismiss, width, 568)
+      await dismiss.click()
+      await expect(prompt).toHaveCount(0)
+    })
+  }
 }

@@ -17,8 +17,7 @@ import {
   LinkSquare24Regular,
   Mail24Regular,
   People24Regular,
-  PeopleAudience24Regular,
-  Settings24Regular
+  PeopleAudience24Regular
 } from '@vicons/fluent'
 import { Excel, Pdf, Word } from '@/app/stores/iconStore'
 import type { ProjectRegistryItem } from '@/features/projects/models/projectRegistry'
@@ -101,10 +100,7 @@ function workflowOptions(
 }
 
 function administrationOptions(): ProjectMenuOption[] {
-  return [
-    menuItem('Users', '/users', 'users', People24Regular),
-    menuItem('Settings', '/settings', 'settings', Settings24Regular)
-  ]
+  return [menuItem('Users', '/users', 'users', People24Regular)]
 }
 
 function projectItems(projects: ProjectRegistryItem[]): ProjectMenuOption[] {

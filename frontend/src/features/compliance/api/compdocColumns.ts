@@ -64,11 +64,7 @@ export function reconcileColumnSettings(settings: unknown, fields: ICompDocField
     seen.add(setting.key)
     return [sanitizeSetting(setting, field)]
   })
-  fields
-    .filter((field) => field.default_visible && !seen.has(field.key))
-    .forEach((field) => {
-      reconciled.push(createSetting(field))
-    })
+  // A missing field may have been deliberately hidden by the user.
   return reconciled.length ? reconciled : createDefaultColumnSettings(fields)
 }
 

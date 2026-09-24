@@ -39,6 +39,18 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto('/app/login')
       await expect(page.locator('.login-panel')).toHaveCSS('background-color', surface)
       await expect(page.locator('.heading-dot')).toHaveCSS('color', accent)
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event('beforeinstallprompt', { cancelable: true }))
+      )
+      const installPrompt = page.locator('.pwa-install-prompt')
+      await expect(installPrompt).toHaveCSS(
+        'background-color',
+        theme === 'dark' ? 'rgb(72, 72, 78)' : surface
+      )
+      const dismiss = page.getByRole('button', { name: 'Dismiss install suggestion' })
+      await expect(dismiss.locator('svg')).toBeVisible()
+      await dismiss.click()
+      await expect(installPrompt).toHaveCount(0)
       await page.getByRole('button', { name: 'Forgot Password?' }).click()
       await expect(page.locator('.n-modal.app-modal')).toHaveCSS(
         'background-color',

@@ -132,6 +132,11 @@ export const routes: RouteRecordRaw[] = [
         component: lazyRoute(() => import('@/features/compliance/pages/Home.vue'))
       },
       {
+        name: 'compdocsSettings',
+        path: 'settings',
+        component: lazyRoute(() => import('@/features/compliance/pages/CompDocSettings.vue'))
+      },
+      {
         name: 'compdocs',
         path: ':project',
         component: lazyRoute(() => import('@/features/compliance/pages/CompDocTable.vue'))

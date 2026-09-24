@@ -23,14 +23,14 @@
       <Profile :collapsed="collapsed" />
     </n-layout-sider>
 
-    <n-layout class="transparent protected-main">
-      <n-layout-content class="transparent protected-content">
+    <div class="protected-main">
+      <n-layout-content class="transparent protected-content" content-class="protected-scroll">
         <main class="protected-page">
           <RouterView />
         </main>
-        <footer class="protected-footer">AW Center (v{{ appVersion }}) © 2026</footer>
       </n-layout-content>
-    </n-layout>
+      <footer class="protected-footer">AW Center · v{{ appVersion }} · © 2026</footer>
+    </div>
     <CommandPalette :options="menuOptions" />
     <ReleaseNotesModal />
   </n-layout>
@@ -39,6 +39,7 @@
 
 <script setup lang="ts">
 import { ref, computed, provide, watch } from 'vue'
+import { useThemeVars } from 'naive-ui'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import ParticleBackground from '@/shared/components/ParticleBackground.vue'
 import Profile from '@/features/session/pages/Profile.vue'
@@ -52,6 +53,7 @@ import CommandPalette from '@/app/components/navigation/CommandPalette.vue'
 import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import { useMediaQuery } from '@/shared/composables/mediaQuery'
 
+const themeVars = useThemeVars()
 const userStore = useSessionStore()
 const projectCatalog = useProjectCatalogStore()
 
@@ -117,38 +119,56 @@ async function loadProjectRegistry() {
   background-color: transparent !important;
 }
 
-.protected-shell,
-.protected-main,
-.protected-content {
-  min-height: 100dvh;
+/* Bound the shell so only the navigation and page scroll containers can scroll. */
+.protected-shell {
+  height: 100dvh;
   min-width: 0;
+  overflow: hidden;
+}
+
+.protected-shell :deep(> .n-layout-scroll-container) {
+  overflow: hidden;
+}
+
+.protected-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .protected-sider {
-  height: 100dvh;
-  position: sticky;
-  top: 0;
+  height: 100%;
 }
 
 .protected-sider :deep(.n-layout-sider-scroll-container) {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .sider-navigation {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .protected-content {
-  display: flex;
-  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.protected-content :deep(.protected-scroll) {
   padding: var(--app-gutter);
+  overscroll-behavior: contain;
 }
 
 .protected-page {
-  flex: 1;
   margin-inline: auto;
   max-width: var(--app-content-max-width);
   min-width: 0;
@@ -156,8 +176,12 @@ async function loadProjectRegistry() {
 }
 
 .protected-footer {
-  font-size: 12px;
-  margin-top: 20px;
-  opacity: 0.72;
+  flex-shrink: 0;
+  background: v-bind('themeVars.bodyColor');
+  border-top: 1px solid v-bind('themeVars.borderColor');
+  color: v-bind('themeVars.textColor3');
+  font-size: 11px;
+  padding: 6px var(--app-gutter) max(6px, env(safe-area-inset-bottom));
+  text-align: right;
 }
 </style>

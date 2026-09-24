@@ -14,6 +14,7 @@ describe('project-aware main navigation', () => {
   it('keeps project domains hidden until the authorized catalog is ready', () => {
     const keys = menuKeys(createMainMenuOptions([], user, false, false))
 
+    expect(keys).not.toContain('/settings')
     expect(keys).not.toContain('/compdocs')
     expect(keys).not.toContain('/organization')
     expect(keys).not.toContain('/jira')
