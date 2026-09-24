@@ -22,11 +22,10 @@ for (const theme of ['light', 'dark'] as const) {
         fullPage: true
       })
       await page.emulateMedia({ reducedMotion: 'no-preference' })
-      await page.getByRole('button', { name: 'Pause animation' }).click()
-      await expect(page.getByRole('button', { name: 'Resume animation' })).toHaveAttribute(
-        'aria-pressed',
-        'true'
-      )
+      await expect(
+        page.getByRole('button', { name: /Pause animation|Resume animation/ })
+      ).toHaveCount(0)
+      await expect(page.locator('.tagline-copy .cursor')).toBeVisible()
       const dimensions = await page.evaluate(() => ({
         width: document.documentElement.clientWidth,
         scroll: document.documentElement.scrollWidth

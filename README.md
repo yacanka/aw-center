@@ -274,3 +274,32 @@ belgesini izleyin.
 - [Launcher runtime](docs/launcher-runtime.md)
 
 Eski review/roadmap dosyaları yalnız tarihsel snapshot notlarıdır; operasyonel sözleşme olarak kullanılmaz.
+
+### Ortak entegrasyon kimlik bilgileri
+
+`AWCENTER_USERNAME` ve `AWCENTER_PASSWORD`, settings içindeki `USERNAME` ve
+`PASSWORD` varsayılanlarını sağlar. Windows sisteminin `USERNAME` değişkeni
+okunmaz. DocProof, DOORS ve Teamcenter boş veya tanımlanmamış kullanıcı adı/parola
+ayarlarında bu varsayılanları kullanır. SMTP için bu varsayılan yalnız
+`AWCENTER_MAIL_TRANSPORT=django` olduğunda etkindir.
+
+Bu ortak değerler ve `DOCPROOF_USERNAME/PASSWORD`, `DOORS_USERNAME/PASSWORD`,
+`TEAMCENTER_USERNAME/PASSWORD`, `EMAIL_HOST_USER` ve `EMAIL_HOST_PASSWORD`
+değerleri UTF-8 metnin standart Base64 kodlaması olmalıdır. Dolu özel ayar ortak
+ayardan önceliklidir; kullanıcı adı ve parola ayrı ayrı çözülür. Settings yüklenirken
+bir kez decode edilir, mevcut istemciler çözülmüş değerleri kullanır. Geçersiz
+Base64 veya UTF-8 uygulamanın credential değerini göstermeden başlamasını engeller.
+Mevcut düz metin env değerlerini bu sürüme geçmeden önce Base64'e dönüştürün.
+
+Değeri terminal geçmişine yazmadan kodlamak için aşağıdaki komutu çalıştırıp
+çıktıyı ilgili env alanına alın (çıktı da gizli tutulmalıdır):
+
+```bash
+python -c 'import base64, getpass; print(base64.b64encode(getpass.getpass("Value: ").encode("utf-8")).decode("ascii"))'
+```
+
+Base64 şifreleme değildir; env dosyasının erişim izinlerini ve secret yönetimini
+koruyun. Jira kullanıcı oturumu, API anahtarları, veritabanı/Redis bağlantı bilgileri
+ve uygulama kullanıcı parolaları bu ortak entegrasyon ayarlarına bağlı değildir.
+Compose ortak değerleri yalnız ilgili servislerin mevcut credential alanlarına
+aktarır; notification/cleanup worker'a entegrasyon değişkenleri eklemez.
