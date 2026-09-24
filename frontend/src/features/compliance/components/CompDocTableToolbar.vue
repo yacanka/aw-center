@@ -124,8 +124,9 @@ function updatePageSize(value: number | null) {
       />
     </n-space>
     <n-text><strong>Total:</strong> {{ count }}</n-text>
-    <n-button size="tiny" aria-label="Column settings" @click="emit('settings')">
+    <n-button size="tiny" aria-label="Compliance document settings" @click="emit('settings')">
       <template #icon><Settings24Regular /></template>
+      Settings
     </n-button>
   </n-flex>
 </template>

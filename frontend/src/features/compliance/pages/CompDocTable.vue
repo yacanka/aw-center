@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import UpdateForm from '@/features/compliance/components/CompDocPopup.vue'
 import CompDocWorkspace from '@/features/compliance/components/CompDocWorkspace.vue'
 import UploadPopup from '@/features/compliance/components/UploadPopup.vue'
 import DoorsImportPopup from '@/features/compliance/components/DoorsImportPopup.vue'
-import CompDocColumnSettings from '@/features/compliance/components/CompDocColumnSettings.vue'
 import CompDocTableToolbar from '@/features/compliance/components/CompDocTableToolbar.vue'
 import CompDocBulkNumbering from '@/features/compliance/components/CompDocBulkNumbering.vue'
 import GraphComponent from '@/features/compliance/components/Graph.vue'
@@ -25,6 +24,7 @@ import { formatApiError } from '@/shared/api/apiError'
 import './CompDocTable.css'
 
 const route = useRoute()
+const router = useRouter()
 const store = provideCompdocController()
 const projectCatalog = useProjectCatalogStore()
 const project = computed(() => String(route.params.project || ''))
@@ -189,7 +189,7 @@ void projectCatalog.load().catch(() => undefined)
       @summary="graph.openModal(store.getCompdocs)"
       @check="issueChecks.checkAll"
       @export="download.openModal('Excel')"
-      @settings="table.settings.open"
+      @settings="router.push({ name: 'compdocsSettings', query: { project } })"
       @page-size="table.handlePageSize"
       @search="table.updateCustomFilter('search', $event)"
       @quick-filter="applyQuickFilter"
@@ -245,14 +245,5 @@ void projectCatalog.load().catch(() => undefined)
     <DoorsImportPopup v-if="canImport" ref="doorsImport" :collection-path="store.getUploadUrl" />
     <GraphComponent ref="graph" />
     <DownloadComponent ref="download" />
-    <CompDocColumnSettings
-      v-model:show="table.settings.state.visible"
-      v-model:settings="table.settings.state.list"
-      :fields="store.fields"
-      @default="table.settings.useDefault"
-      @all="table.settings.useAll"
-      @reset="table.settings.reset"
-      @apply="table.settings.apply"
-    />
   </template>
 </template>

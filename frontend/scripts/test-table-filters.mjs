@@ -70,13 +70,22 @@ test('reconciles preferences with the current server field schema', () => {
 
   assert.deepEqual(
     settings.map((setting) => setting.key),
-    ['name', 'status']
+    ['name']
   )
   assert.equal(settings[0].width, 600)
   assert.deepEqual(
     createDefaultColumnSettings(fields).map((setting) => setting.key),
     ['name', 'status']
   )
+})
+
+test('restores recommended columns only when no saved columns remain valid', () => {
+  const fields = [field('name', true, 'text'), field('status', true, 'select')]
+  assert.deepEqual(
+    reconcileColumnSettings([{ key: 'removed' }], fields),
+    createDefaultColumnSettings(fields)
+  )
+  assert.deepEqual(reconcileColumnSettings(null, fields), createDefaultColumnSettings(fields))
 })
 
 function field(key, defaultVisible, filterKind) {

@@ -1,134 +1,158 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useThemeVars } from 'naive-ui'
 import type { IColumnSetting, ICompDocFieldMetadata } from '@/features/compliance/models/compdocs'
+import { createAllColumnSettings } from '@/features/compliance/api/compdocColumns'
 
 const props = defineProps<{ fields: ICompDocFieldMetadata[] }>()
-const emit = defineEmits<{
-  apply: []
-  reset: []
-  default: []
-  all: []
-}>()
-const show = defineModel<boolean>('show', { required: true })
 const settings = defineModel<IColumnSetting[]>('settings', { required: true })
+const theme = useThemeVars()
+const search = ref('')
 const fieldsByKey = computed(() => new Map(props.fields.map((field) => [field.key, field])))
-
-function fieldOptions(currentKey: string) {
-  const selected = new Set(settings.value.map((setting) => setting.key))
-  return props.fields.map((field) => ({
-    label: field.label,
-    value: field.key,
-    disabled: field.key !== currentKey && selected.has(field.key)
-  }))
-}
-
-function field(key: string) {
-  return fieldsByKey.value.get(key)
-}
-
-function toggle(setting: IColumnSetting, key: 'sorter' | 'filter' | 'ellipsis') {
-  setting[key] = !setting[key]
-}
-
-function createSetting(): IColumnSetting {
-  const available = props.fields.find(
-    (candidate) => !settings.value.some((setting) => setting.key === candidate.key)
+const available = computed(() =>
+  props.fields
+    .filter((field) => !settings.value.some((item) => item.key === field.key))
+    .map((field) => ({ label: field.label, value: field.key }))
+)
+const visible = computed(() =>
+  settings.value.filter((item) =>
+    fieldsByKey.value.get(item.key)?.label.toLowerCase().includes(search.value.toLowerCase())
   )
-  return {
-    key: available?.key || '',
-    width: available?.width || 160,
-    sorter: Boolean(available?.sortable),
-    filter: Boolean(available && available.filter_kind !== 'none'),
-    ellipsis: Boolean(available?.ellipsis)
-  }
+)
+function add(key: string) {
+  const field = props.fields.find((field) => field.key === key)
+  if (field) settings.value = [...settings.value, ...createAllColumnSettings([field])]
+}
+function move(key: string, offset: number) {
+  const next = [...settings.value]
+  const index = next.findIndex((item) => item.key === key)
+  const target = index + offset
+  if (target < 0 || target >= next.length) return
+  ;[next[index], next[target]] = [next[target], next[index]]
+  settings.value = next
 }
 </script>
 
 <template>
-  <n-modal
-    v-model:show="show"
-    preset="card"
-    title="Column Settings"
-    class="app-modal app-modal--large"
-  >
-    <n-alert type="info" :bordered="false" style="margin-bottom: 12px">
-      Columns and capabilities are validated against the active project's server schema.
-    </n-alert>
-    <n-scrollbar style="max-height: min(600px, calc(100dvh - 220px)); padding-right: 16px">
-      <n-dynamic-input
-        v-model:value="settings"
-        show-sort-button
-        :min="1"
-        :on-create="createSetting"
-      >
-        <template #default="{ value }">
-          <n-grid
-            responsive="self"
-            item-responsive
-            cols="40"
-            x-gap="12"
-            style="align-items: center"
-          >
-            <n-grid-item span="0:40 760:13">
-              <n-select
-                v-model:value="value.key"
-                :options="fieldOptions(value.key)"
-                placeholder="Select Column"
-              />
-            </n-grid-item>
-            <n-grid-item span="0:40 760:7">
-              <n-input-number
-                v-model:value="value.width"
-                :min="60"
-                :max="600"
-                style="width: 100%"
-              />
-            </n-grid-item>
-            <n-grid-item span="0:40 760:5">
-              <n-tag size="small">{{ field(value.key)?.filter_kind || 'none' }}</n-tag>
-            </n-grid-item>
-            <n-grid-item span="0:40 760:5">
-              <n-button
-                block
-                :disabled="!field(value.key)?.sortable"
-                :type="value.sorter ? 'success' : 'default'"
-                @click="toggle(value, 'sorter')"
-              >
-                Sorter
-              </n-button>
-            </n-grid-item>
-            <n-grid-item span="0:40 760:5">
-              <n-button
-                block
-                :disabled="field(value.key)?.filter_kind === 'none'"
-                :type="value.filter ? 'success' : 'default'"
-                @click="toggle(value, 'filter')"
-              >
-                Filter
-              </n-button>
-            </n-grid-item>
-            <n-grid-item span="0:40 760:5">
-              <n-button
-                block
-                :type="value.ellipsis ? 'success' : 'default'"
-                @click="toggle(value, 'ellipsis')"
-              >
-                Tooltip
-              </n-button>
-            </n-grid-item>
-          </n-grid>
-        </template>
-      </n-dynamic-input>
-    </n-scrollbar>
-    <n-flex justify="space-between" style="margin-top: 16px">
-      <n-space>
-        <n-button @click="emit('default')">Recommended</n-button>
-        <n-button @click="emit('all')">All Fields</n-button>
-      </n-space>
-      <n-space>
-        <n-button type="error" secondary @click="emit('reset')">Reset</n-button>
-        <n-button type="primary" @click="emit('apply')">Apply</n-button>
-      </n-space>
+  <section class="column-editor">
+    <n-flex class="column-tools">
+      <n-input
+        v-model:value="search"
+        clearable
+        placeholder="Find a selected column"
+        aria-label="Find a selected column"
+      />
+      <n-select
+        :value="null"
+        :options="available"
+        filterable
+        :disabled="!available.length"
+        placeholder="Add a column"
+        aria-label="Add a column"
+        @update:value="add"
+      />
     </n-flex>
-  </n-modal>
+    <n-text depth="3"
+      >{{ settings.length }} columns selected. Use Move up and Move down to change their
+      order.</n-text
+    >
+    <n-empty v-if="!visible.length" description="No matching columns" />
+    <article
+      v-for="setting in visible"
+      :key="setting.key"
+      class="column-row"
+      :aria-label="fieldsByKey.get(setting.key)?.label"
+    >
+      <div class="column-heading">
+        <strong>{{ fieldsByKey.get(setting.key)?.label }}</strong>
+        <n-space :size="6">
+          <n-button
+            size="small"
+            :aria-label="`Move ${fieldsByKey.get(setting.key)?.label} up`"
+            :disabled="settings[0]?.key === setting.key"
+            @click="move(setting.key, -1)"
+            >Move up</n-button
+          >
+          <n-button
+            size="small"
+            :aria-label="`Move ${fieldsByKey.get(setting.key)?.label} down`"
+            :disabled="settings[settings.length - 1]?.key === setting.key"
+            @click="move(setting.key, 1)"
+            >Move down</n-button
+          >
+          <n-button
+            size="small"
+            :aria-label="`Remove ${fieldsByKey.get(setting.key)?.label}`"
+            :disabled="settings.length === 1"
+            @click="settings = settings.filter((item) => item.key !== setting.key)"
+            >Remove</n-button
+          >
+        </n-space>
+      </div>
+      <div class="column-controls">
+        <div>
+          <n-text depth="3">Width (px)</n-text
+          ><n-input-number
+            v-model:value="setting.width"
+            :aria-label="`${fieldsByKey.get(setting.key)?.label} width`"
+            :min="60"
+            :max="600"
+          />
+        </div>
+        <n-checkbox
+          v-model:checked="setting.sorter"
+          :disabled="!fieldsByKey.get(setting.key)?.sortable"
+          >Enable sorting</n-checkbox
+        >
+        <n-checkbox
+          v-model:checked="setting.filter"
+          :disabled="fieldsByKey.get(setting.key)?.filter_kind === 'none'"
+          >Enable filtering</n-checkbox
+        >
+        <n-checkbox v-model:checked="setting.ellipsis">Truncate with tooltip</n-checkbox>
+      </div>
+    </article>
+  </section>
 </template>
+
+<style scoped>
+.column-editor {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.column-tools > * {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.column-row {
+  padding: 16px;
+  border: 1px solid v-bind('theme.borderColor');
+  border-radius: v-bind('theme.borderRadius');
+  background: v-bind('theme.cardColor');
+}
+.column-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.column-controls {
+  display: grid;
+  grid-template-columns: 150px repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 16px;
+}
+@media (max-width: 760px) {
+  .column-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 440px) {
+  .column-controls {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

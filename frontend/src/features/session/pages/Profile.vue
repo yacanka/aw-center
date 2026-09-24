@@ -1,20 +1,13 @@
 <script setup lang="ts">
-import { computed, h } from 'vue'
-import { Settings16Regular, Door16Regular } from '@vicons/fluent'
+import { computed } from 'vue'
+import { useThemeVars } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '@/features/session/stores/session'
 
 const router = useRouter()
 const session = useSessionStore()
 
-const options = [
-  {
-    label: 'Settings',
-    key: 'settings',
-    icon: () => h(Settings16Regular, { style: 'width: 28px' })
-  },
-  { label: 'Logout', key: 'logout', icon: () => h(Door16Regular, { style: 'width: 28px' }) }
-]
+const themeVars = useThemeVars()
 
 defineProps<{ collapsed?: boolean }>()
 const displayName = computed(
@@ -31,56 +24,45 @@ const initials = computed(() =>
     .join('')
     .toUpperCase()
 )
-
-async function handleSelect(key: string | number) {
-  if (key == 'settings') {
-    router.push({ name: 'settings' })
-  } else if (key == 'logout') {
-    try {
-      await session.logout()
-      await router.push({ name: 'login' })
-    } catch {
-      // The server session may still be active; keep the authenticated UI in place.
-    }
-  }
-}
 </script>
 
 <template>
-  <n-dropdown trigger="click" :options="options" placement="top-start" @select="handleSelect">
-    <button
-      class="profile-trigger"
-      :class="{ collapsed }"
-      :aria-label="`Account menu: ${displayName}`"
+  <n-button
+    quaternary
+    class="profile-trigger"
+    :class="{ collapsed }"
+    :aria-label="`Account and settings: ${displayName}`"
+    title="Account and settings"
+    @click="router.push({ name: 'settings' })"
+  >
+    <span class="profile-avatar" aria-hidden="true">{{ initials }}</span>
+    <span v-if="!collapsed" class="profile-copy"
+      ><strong>{{ displayName }}</strong
+      ><span>Account &amp; settings</span></span
     >
-      <span class="profile-avatar" aria-hidden="true">{{ initials }}</span>
-      <span v-if="!collapsed" class="profile-copy"
-        ><strong>{{ displayName }}</strong
-        ><span>Account &amp; settings</span></span
-      >
-    </button>
-  </n-dropdown>
+  </n-button>
 </template>
 
 <style scoped>
 .profile-trigger {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-shrink: 0;
   width: 100%;
+  height: auto;
+  border-radius: 0;
   padding: 16px;
   border: 0;
-  border-top: 1px solid rgba(128, 128, 128, 0.2);
-  background: transparent;
-  color: inherit;
+  border-top: 1px solid v-bind('themeVars.borderColor');
   text-align: left;
   cursor: pointer;
 }
-.profile-trigger:hover {
-  background: rgba(128, 128, 128, 0.1);
+.profile-trigger :deep(.n-button__content) {
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 .profile-trigger:focus-visible {
-  outline: 2px solid #002fa7;
+  outline: 2px solid v-bind('themeVars.primaryColor');
   outline-offset: -3px;
 }
 .profile-trigger.collapsed {
@@ -93,8 +75,8 @@ async function handleSelect(key: string | number) {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: #002fa7;
-  color: #fff;
+  background: v-bind('themeVars.primaryColor');
+  color: v-bind('themeVars.baseColor');
   font-weight: 600;
   font-size: 14px;
 }

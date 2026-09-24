@@ -3,10 +3,10 @@ import base64
 import os
 import runpy
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from awcenter.settings import credential_from_env
 
@@ -75,3 +75,61 @@ class CredentialSettingsTests(SimpleTestCase):
     def test_decoding_preserves_whitespace_and_does_not_decode_twice(self):
         with patch.dict(os.environ, {"AWCENTER_PASSWORD": encode(" cGFzcw== \n")}):
             self.assertEqual(credential_from_env("AWCENTER_PASSWORD"), " cGFzcw== \n")
+
+    def test_decoded_credentials_reach_integration_clients(self):
+        from django.core.mail.backends.smtp import EmailBackend
+        from integrations import docproof
+        from integrations.doors.services import build_client_config as doors_config
+        from integrations.teamcenter.services import build_client_config as teamcenter_config
+        from integrations.teamcenter.auth import PasswordAuthenticator
+
+        # A password that itself looks like Base64 must survive without a second decode.
+        username, password = "örnek-user", encode("example-password")
+        for use_overrides in (False, True):
+            with self.subTest(use_overrides=use_overrides):
+                environment = {
+                    "AWCENTER_USERNAME": encode(username),
+                    "AWCENTER_PASSWORD": encode(password),
+                    "AWCENTER_MAIL_TRANSPORT": "django",
+                    "DOCPROOF_URL": "https://docproof.example.test",
+                    "TEAMCENTER_BASE_URL": "https://teamcenter.example.test",
+                }
+                if use_overrides:
+                    environment.update(AWCENTER_USERNAME="", AWCENTER_PASSWORD="")
+                    for prefix in ("DOCPROOF", "DOORS", "TEAMCENTER"):
+                        environment[f"{prefix}_USERNAME"] = encode(username)
+                        environment[f"{prefix}_PASSWORD"] = encode(password)
+                    environment["EMAIL_HOST_USER"] = encode(username)
+                    environment["EMAIL_HOST_PASSWORD"] = encode(password)
+                values = self.load_settings(environment)
+                integration_settings = {
+                    key: value for key, value in values.items()
+                    if key.startswith(("DOCPROOF_", "DOORS_", "TEAMCENTER_", "EMAIL_"))
+                }
+                with override_settings(**integration_settings):
+                    client = Mock()
+                    self.assertTrue(docproof.login(client))
+                    self.assertEqual(client.post.call_args.kwargs["data"], {
+                        "j_username": username, "j_password": password,
+                    })
+                    client.post.return_value.close.assert_called_once()
+                    doors = doors_config()
+                    self.assertEqual((doors.username, doors.password), (username, password))
+                    transport = Mock()
+                    PasswordAuthenticator(teamcenter_config(), transport).login()
+                    sent = transport.call.call_args.args[1]["credentials"]
+                    self.assertEqual((sent["user"], sent["password"]), (username, password))
+                    smtp = EmailBackend()
+                    self.assertEqual((smtp.username, smtp.password), (username, password))
+
+    def test_each_integration_rejects_invalid_encoded_credentials(self):
+        names = ["EMAIL_HOST_USER", "EMAIL_HOST_PASSWORD"]
+        names.extend(
+            f"{prefix}_{suffix}"
+            for prefix in ("DOCPROOF", "DOORS", "TEAMCENTER")
+            for suffix in ("USERNAME", "PASSWORD")
+        )
+        for name in names:
+            with self.subTest(name=name), self.assertRaises(ImproperlyConfigured) as caught:
+                self.load_settings({name: "invalid-base64!"})
+            self.assertEqual(str(caught.exception), f"{name} must contain a Base64-encoded UTF-8 value.")

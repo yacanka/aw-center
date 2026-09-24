@@ -17,7 +17,7 @@ LOGIN_TIMEOUT_SECONDS = 5
 
 
 def get_credentials() -> tuple[str, str] | None:
-    """Return process-environment credentials without reversible source encoding."""
+    """Return credentials already Base64-decoded by the settings boundary."""
 
     if not settings.DOCPROOF_USERNAME or not settings.DOCPROOF_PASSWORD:
         return None
