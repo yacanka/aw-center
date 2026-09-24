@@ -28,6 +28,7 @@ describe('login tagline', () => {
   })
   it('types, holds, deletes and advances to a different benefit', async () => {
     const wrapper = mount(LoginTagline)
+    expect(wrapper.find('button').exists()).toBe(false)
     await vi.advanceTimersByTimeAsync(3200)
     expect(wrapper.get('.tagline-copy').text()).toBe('L')
     await vi.advanceTimersByTimeAsync(45 * 65)
@@ -39,19 +40,6 @@ describe('login tagline', () => {
     wrapper.unmount()
     expect(vi.getTimerCount()).toBe(0)
     expect(removeListener).toHaveBeenCalled()
-  })
-  it('pauses and resumes without losing the current text', async () => {
-    const wrapper = mount(LoginTagline)
-    await vi.advanceTimersByTimeAsync(3500)
-    await wrapper.get('button').trigger('click')
-    const text = wrapper.get('.tagline-copy').text()
-    await vi.advanceTimersByTimeAsync(10000)
-    expect(wrapper.get('.tagline-copy').text()).toBe(text)
-    expect(wrapper.get('button').attributes('aria-pressed')).toBe('true')
-    await wrapper.get('button').trigger('click')
-    await vi.advanceTimersByTimeAsync(130)
-    expect(wrapper.get('.tagline-copy').text().length).toBeGreaterThan(text.length)
-    wrapper.unmount()
   })
   it('respects reduced motion, including preference changes', async () => {
     reduced = true

@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import base64
+import binascii
 import os
 from corsheaders.defaults import default_headers, default_methods
 from django.core.exceptions import ImproperlyConfigured
@@ -80,11 +82,32 @@ if not SECRET_KEY:
 IPV4_ADDRESS = env.str("IPV4_ADDRESS", default="127.0.0.1")
 PORT = env.int("PORT", default=8000)
 
+def credential_from_env(name, default=""):
+    """Decode a UTF-8 Base64 env credential; empty overrides inherit default.
+
+    Base64 is an encoding, not encryption. Never include the value in errors.
+    The default is already decoded and must not be decoded a second time.
+    """
+    encoded = env.str(name, default="")
+    if not encoded:
+        return default
+    try:
+        return base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (ValueError, binascii.Error, UnicodeError):
+        raise ImproperlyConfigured(
+            f"{name} must contain a Base64-encoded UTF-8 value."
+        ) from None
+
+
+# Avoid Windows' built-in USERNAME environment variable.
+USERNAME = credential_from_env("AWCENTER_USERNAME")
+PASSWORD = credential_from_env("AWCENTER_PASSWORD")
+
 DOCPROOF_ENABLED = env.bool("DOCPROOF_ENABLED", default=False)
 DOCPROOF_URL = env.str("DOCPROOF_URL", default="")
 DOCPROOF_VERIFY_SSL = env.bool("DOCPROOF_VERIFY_SSL", default=True)
-DOCPROOF_USERNAME = env.str("DOCPROOF_USERNAME", default="")
-DOCPROOF_PASSWORD = env.str("DOCPROOF_PASSWORD", default="")
+DOCPROOF_USERNAME = credential_from_env("DOCPROOF_USERNAME", default=USERNAME)
+DOCPROOF_PASSWORD = credential_from_env("DOCPROOF_PASSWORD", default=PASSWORD)
 DOCPROOF_MAX_RESPONSE_BYTES = env.int(
     "DOCPROOF_MAX_RESPONSE_BYTES",
     default=10 * 1024 * 1024,
@@ -114,8 +137,8 @@ DOORS_ENABLED = env.bool("DOORS_ENABLED", default=False)
 DOORS_EXECUTABLE = env.str("DOORS_EXECUTABLE", default="")
 DOORS_DATABASE = env.str("DOORS_DATABASE", default="")
 DOORS_OLE_PROG_ID = env.str("DOORS_OLE_PROG_ID", default="DOORS.Application")
-DOORS_USERNAME = env.str("DOORS_USERNAME", default="")
-DOORS_PASSWORD = env.str("DOORS_PASSWORD", default="")
+DOORS_USERNAME = credential_from_env("DOORS_USERNAME", default=USERNAME)
+DOORS_PASSWORD = credential_from_env("DOORS_PASSWORD", default=PASSWORD)
 DOORS_PREFER_ACTIVE_INSTANCE = env.bool("DOORS_PREFER_ACTIVE_INSTANCE", default=True)
 DOORS_AUTO_START_CLIENT = env.bool("DOORS_AUTO_START_CLIENT", default=True)
 DOORS_STARTUP_TIMEOUT_SECONDS = env.float("DOORS_STARTUP_TIMEOUT_SECONDS", default=90.0)
@@ -133,8 +156,8 @@ TEAMCENTER_ENABLED = env.bool("TEAMCENTER_ENABLED", default=False)
 TEAMCENTER_BASE_URL = env.str("TEAMCENTER_BASE_URL", default="")
 TEAMCENTER_SERVICE_ROOT = env.str("TEAMCENTER_SERVICE_ROOT", default="RestServices")
 TEAMCENTER_AUTH_MODE = env.str("TEAMCENTER_AUTH_MODE", default="password")
-TEAMCENTER_USERNAME = env.str("TEAMCENTER_USERNAME", default="")
-TEAMCENTER_PASSWORD = env.str("TEAMCENTER_PASSWORD", default="")
+TEAMCENTER_USERNAME = credential_from_env("TEAMCENTER_USERNAME", default=USERNAME)
+TEAMCENTER_PASSWORD = credential_from_env("TEAMCENTER_PASSWORD", default=PASSWORD)
 TEAMCENTER_GROUP = env.str("TEAMCENTER_GROUP", default="")
 TEAMCENTER_ROLE = env.str("TEAMCENTER_ROLE", default="")
 TEAMCENTER_VERIFY_SSL = env.bool("TEAMCENTER_VERIFY_SSL", default=True)
@@ -485,8 +508,12 @@ EMAIL_BACKEND = env.str(
 )
 EMAIL_HOST = env.str("EMAIL_HOST", default="localhost")
 EMAIL_PORT = env.int("EMAIL_PORT", default=25)
-EMAIL_HOST_USER = env.str("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD", default="")
+EMAIL_HOST_USER = credential_from_env(
+    "EMAIL_HOST_USER", default=USERNAME if AWCENTER_MAIL_TRANSPORT == "django" else ""
+)
+EMAIL_HOST_PASSWORD = credential_from_env(
+    "EMAIL_HOST_PASSWORD", default=PASSWORD if AWCENTER_MAIL_TRANSPORT == "django" else ""
+)
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
 EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
 DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="awcenter@localhost")

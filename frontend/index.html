@@ -7,9 +7,10 @@
     <meta name="application-name" content="AW Center" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <link rel="manifest" href="/app/manifest.webmanifest" />
-    <link rel="icon" href="/app/icons/pwa-192.png" type="image/png" />
-    <link rel="apple-touch-icon" href="/app/icons/pwa-192.png" />
+    <!-- Django serves these fixed URLs independently of the Vite asset base. -->
+    <link vite-ignore rel="manifest" href="/app/manifest.webmanifest" />
+    <link vite-ignore rel="icon" href="/app/icons/pwa-192.png" type="image/png" />
+    <link vite-ignore rel="apple-touch-icon" href="/app/icons/pwa-192.png" />
     <title>AW Center</title>
   </head>
   <body>

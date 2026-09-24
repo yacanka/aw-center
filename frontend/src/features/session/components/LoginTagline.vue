@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { NButton, useThemeVars } from 'naive-ui'
+import { useThemeVars } from 'naive-ui'
 
 const messages = [
   'Less routine. More room for your expertise.',
@@ -33,7 +33,6 @@ const themeVars = useThemeVars()
 const messageIndex = ref(0)
 const characterCount = ref(0)
 const deleting = ref(false)
-const paused = ref(false)
 const reducedMotion = ref(false)
 const visibleText = computed(() => messages[messageIndex.value]!.slice(0, characterCount.value))
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -45,7 +44,7 @@ function stop(): void {
 
 function schedule(delay = 65): void {
   stop()
-  if (paused.value || reducedMotion.value || document.hidden) return
+  if (reducedMotion.value || document.hidden) return
   timer = setTimeout(tick, delay)
 }
 
@@ -68,11 +67,6 @@ function tick(): void {
     schedule(3200)
     return
   }
-  schedule()
-}
-
-function togglePause(): void {
-  paused.value = !paused.value
   schedule()
 }
 
@@ -106,21 +100,11 @@ onBeforeUnmount(() => {
 <template>
   <div class="tagline">
     <p class="tagline-copy" aria-hidden="true">
-      {{ visibleText }}<span v-if="!reducedMotion" class="cursor" :class="{ paused }"></span>
+      {{ visibleText }}<span v-if="!reducedMotion" class="cursor"></span>
     </p>
     <p class="sr-only">
       AW Center brings project documents, compliance reviews and automation into one workspace.
     </p>
-    <n-button
-      v-if="!reducedMotion"
-      text
-      size="tiny"
-      class="motion-control"
-      :aria-pressed="paused"
-      @click="togglePause"
-    >
-      {{ paused ? 'Resume animation' : 'Pause animation' }}
-    </n-button>
   </div>
 </template>
 
@@ -145,12 +129,6 @@ onBeforeUnmount(() => {
   vertical-align: -0.12em;
   background: v-bind('themeVars.primaryColor');
   animation: blink 1s step-end infinite;
-}
-.cursor.paused {
-  animation: none;
-}
-.motion-control {
-  margin-top: 8px;
 }
 .sr-only {
   position: absolute;
