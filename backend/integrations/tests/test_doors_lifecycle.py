@@ -81,9 +81,9 @@ class DoorsDesktopLifecycleTests(SimpleTestCase):
                 transport.connect()
             start.assert_called_once()
             argv = start.call_args.args[0]
-            self.assertEqual(argv[:3], [str(executable), "-user", "automation"])
+            self.assertEqual(argv[:3], [str(executable), "-u", "automation"])
             self.assertTrue(argv[-1] == credential)
-            self.assertEqual(argv[-2], "-password")
+            self.assertEqual(argv[-2], "-P")
             self.assertNotIn("-batch", argv)
             self.assertNotIn(credential, repr(config))
             self.assertEqual(len(application.scripts), 2)

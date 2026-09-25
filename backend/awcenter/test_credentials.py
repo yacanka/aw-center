@@ -79,6 +79,7 @@ class CredentialSettingsTests(SimpleTestCase):
     def test_decoded_credentials_reach_integration_clients(self):
         from django.core.mail.backends.smtp import EmailBackend
         from integrations import docproof
+        from integrations.doors.transport import DoorsOleTransport
         from integrations.doors.services import build_client_config as doors_config
         from integrations.teamcenter.services import build_client_config as teamcenter_config
         from integrations.teamcenter.auth import PasswordAuthenticator
@@ -115,6 +116,9 @@ class CredentialSettingsTests(SimpleTestCase):
                     client.post.return_value.close.assert_called_once()
                     doors = doors_config()
                     self.assertEqual((doors.username, doors.password), (username, password))
+                    with patch.object(DoorsOleTransport, "executable", Path("doors.exe")):
+                        self.assertEqual(DoorsOleTransport(doors).start_command()[-4:],
+                                         ["-u", username, "-P", password])
                     transport = Mock()
                     PasswordAuthenticator(teamcenter_config(), transport).login()
                     sent = transport.call.call_args.args[1]["credentials"]
