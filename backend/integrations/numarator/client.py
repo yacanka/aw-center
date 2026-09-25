@@ -8,7 +8,7 @@ from pathlib import Path
 
 import requests
 from django.conf import settings
-from requests.exceptions import RequestException
+from requests.exceptions import RequestException, SSLError
 
 from awcenter.outbound_urls import normalize_outbound_base_url
 
@@ -223,7 +223,14 @@ class NumaratorClient:
                 ),
                 stream=True,
                 allow_redirects=False,
+                # Keep the integration CA authoritative, as in the live probe.
+                # A session-only value can be replaced by REQUESTS_CA_BUNDLE.
+                verify=self.session.verify,
             )
+        except SSLError as error:
+            raise NumaratorTemporaryError(
+                "Numarator TLS verification failed. Check the CA bundle and certificate hostname."
+            ) from error
         except RequestException as error:
             raise NumaratorTemporaryError("Numarator is temporarily unavailable.") from error
         try:
@@ -232,7 +239,12 @@ class NumaratorClient:
             if response.status_code == 429 or response.status_code >= 500:
                 raise NumaratorTemporaryError("Numarator is temporarily unavailable.")
             if response.status_code < 200 or response.status_code >= 300:
-                raise NumaratorRejectedError("Numarator rejected the request.")
+                message = {
+                    401: "Numarator rejected the API key (HTTP 401). Check the worker credential.",
+                    403: "Numarator denied permission (HTTP 403). Check API key scopes and format access.",
+                    404: "Numarator format or endpoint was not found (HTTP 404). Check the base URL, format code and API key access.",
+                }.get(response.status_code, "Numarator rejected the request.")
+                raise NumaratorRejectedError(message)
             payload = json.loads(_read_bounded(response).decode("utf-8"))
             if not isinstance(payload, dict) or payload.get("success") is not True:
                 raise NumaratorConflictError("Numarator returned an invalid result.")

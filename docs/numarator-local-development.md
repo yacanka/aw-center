@@ -95,6 +95,25 @@ bu platformda `spawn` kullanımını destekler.
 
 ## Doğrulama
 
+Production'daki **Live check** yalnız Numarator adresine erişimi sınar; API
+anahtarı göndermez ve `formats:read` / `numbers:generate` yetkilerini doğrulamaz.
+Başarılı live check sonrasında format okuma job'ı yine başarısız olabilir.
+Job mesajındaki güvenli hata nedenine göre kontrol et:
+
+- **TLS:** Worker'ın `NUMARATOR_CERTIFICATE_FILE` dosyasına erişimini ve
+  sertifikanın bağlantıda kullanılan hostname/IP ile eşleşmesini kontrol et.
+  Mevcut özel CA dosyası, process genelindeki `REQUESTS_CA_BUNDLE` veya
+  `CURL_CA_BUNDLE` değerlerinden önce gelir; TLS doğrulamasını kapatma.
+- **HTTP 401:** Worker'ın API anahtarının Numarator'de geçerli ve aktif olduğunu
+  kontrol et.
+- **HTTP 403:** Anahtarın gerekli scope'larını ve format erişimini kontrol et.
+- **HTTP 404:** Base URL'nin Numarator uygulamasına ait olduğunu, private v1
+  API'nin mevcut olduğunu ve izinli aktif formatın **kodunu** kullandığını
+  kontrol et. `NUMARATOR_PROJECT_FORMATS` UUID veya format adı değil kod içerir.
+
+Environment veya credential değişikliklerinden sonra launcher ve worker'ları
+yeniden başlat. API anahtarını ya da upstream hata gövdesini loglara ekleme.
+
 AW Center'da `compliance.test_numbering`, Numarator client contract testleri ve
 frontend `editor.test.ts`; Numarator'de launcher ile cookie/CSRF testleri bu
 sözleşmeyi kapsar. İki gerçek servisle kabul kontrolünde seçilen formatın çıktısı,
