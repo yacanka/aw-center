@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from django.conf import settings
 import requests
 
+from integrations.numarator.client import tls_verification as numarator_tls_verification
 from integrations.doors.services import integration_status as doors_status
 from integrations.teamcenter.services import tls_verification as teamcenter_tls_verification
 from integrations.jira.client import tls_verification as jira_tls_verification
@@ -64,7 +65,7 @@ def probe_numarator() -> ProbeOutcome:
 
     if not settings.NUMARATOR_ENABLED:
         return ProbeOutcome("not_configured", "Numarator is disabled.")
-    return _http_probe(settings.NUMARATOR_BASE_URL, settings.NUMARATOR_VERIFY_SSL)
+    return _http_probe(settings.NUMARATOR_BASE_URL, numarator_tls_verification())
 
 
 def probe_doors() -> ProbeOutcome:

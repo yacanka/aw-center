@@ -158,7 +158,7 @@ class DoorsOleTransport:
         if self.config.database:
             command.extend(["-d", self.config.database])
         if self.config.username:
-            command.extend(["-user", self.config.username, "-password", self.config.password])
+            command.extend(["-u", self.config.username, "-P", self.config.password])
         return command
 
     def wait_for_application(self, automation):

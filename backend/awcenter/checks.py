@@ -314,7 +314,10 @@ def _integration_checks():
                     id="awcenter.E028",
                 )
             )
-        if settings.NUMARATOR_VERIFY_SSL is False:
+        if (
+            settings.NUMARATOR_VERIFY_SSL is False
+            and not settings.NUMARATOR_CERTIFICATE_FILE.is_file()
+        ):
             checks.append(
                 Error(
                     "Numarator TLS verification cannot be disabled in production.",

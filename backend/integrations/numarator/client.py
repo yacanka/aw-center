@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 import requests
 from django.conf import settings
@@ -90,6 +91,12 @@ def is_configured(project_slug: str, *, require_credential: bool = False) -> boo
     return configured and (bool(settings.NUMARATOR_API_KEY) or not require_credential)
 
 
+def tls_verification() -> bool | str:
+    """Prefer a custom CA bundle, falling back to the configured verification policy."""
+    certificate = Path(settings.NUMARATOR_CERTIFICATE_FILE)
+    return str(certificate) if certificate.is_file() else settings.NUMARATOR_VERIFY_SSL
+
+
 class NumaratorClient:
     """Call the allowlisted Numarator endpoints with bounded JSON responses."""
 
@@ -104,7 +111,7 @@ class NumaratorClient:
         except ValueError as error:
             raise NumaratorConfigurationError("Numarator URL is invalid.") from error
         self.session = session or requests.Session()
-        self.session.verify = settings.NUMARATOR_VERIFY_SSL
+        self.session.verify = tls_verification()
         self.session.headers.update(
             {
                 "Accept": "application/json",
