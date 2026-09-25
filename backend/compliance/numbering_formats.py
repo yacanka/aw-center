@@ -63,7 +63,7 @@ def execute_numbering_format_description(job):
         contract = client.describe_format(format_code)
     except NumaratorError as error:
         raise JobExecutionFailure(
-            "Number format fields could not be loaded from Numarator.",
+            f"Number format fields could not be loaded from Numarator. {error}",
             "NUMARATOR_FORMAT_UNAVAILABLE", isinstance(error, NumaratorTemporaryError),
         ) from error
     finally:

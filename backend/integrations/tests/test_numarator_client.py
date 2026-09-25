@@ -1,10 +1,19 @@
 """Contract tests for the bounded Numarator client."""
 
 import json
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+import requests
 
 from django.test import SimpleTestCase, override_settings
 
-from integrations.numarator.client import NumaratorClient, NumaratorConflictError
+from integrations.numarator.client import (
+    NumaratorClient, NumaratorConflictError, NumaratorRejectedError,
+    NumaratorTemporaryError,
+)
 
 
 class FakeResponse:
@@ -48,6 +57,41 @@ class FakeSession:
     NUMARATOR_MAX_RESPONSE_BYTES=1024,
 )
 class NumaratorClientTests(SimpleTestCase):
+    def test_custom_ca_is_not_replaced_by_process_wide_requests_bundle(self):
+        with TemporaryDirectory() as directory:
+            certificate = Path(directory) / "numarator.pem"
+            certificate.touch()
+            response = FakeResponse({"success": True, "data": {
+                "code": "COVER_PAGE", "required_context": [],
+            }})
+            with override_settings(NUMARATOR_CERTIFICATE_FILE=certificate), patch.dict(
+                os.environ, {"REQUESTS_CA_BUNDLE": "/different-service-ca.pem"},
+            ), requests.Session() as session, patch.object(session, "send", return_value=response) as send:
+                result = NumaratorClient(session=session).describe_format("COVER_PAGE")
+            self.assertEqual(result["fields"], [])
+            self.assertEqual(send.call_args.kwargs["verify"], str(certificate))
+
+    def test_rejections_identify_configuration_problem_without_upstream_body(self):
+        for status, expected in (
+            (401, "API key"), (403, "permission"), (404, "endpoint"),
+        ):
+            with self.subTest(status=status):
+                response = FakeResponse({"detail": "private upstream data"}, status_code=status)
+                with self.assertRaises(NumaratorRejectedError) as raised:
+                    NumaratorClient(session=FakeSession(response)).describe_format("COVER_PAGE")
+                self.assertIn(expected, str(raised.exception))
+                self.assertNotIn("private upstream data", str(raised.exception))
+                self.assertTrue(response.closed)
+
+    def test_tls_failure_explains_certificate_check_without_raw_exception(self):
+        with requests.Session() as session, patch.object(
+            session, "request", side_effect=requests.exceptions.SSLError("private host and path"),
+        ):
+            with self.assertRaises(NumaratorTemporaryError) as raised:
+                NumaratorClient(session=session).describe_format("COVER_PAGE")
+        self.assertIn("TLS", str(raised.exception))
+        self.assertNotIn("private host", str(raised.exception))
+
     def test_generate_uses_private_endpoint_and_idempotency_header(self):
         response = FakeResponse(
             {

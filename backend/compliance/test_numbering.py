@@ -459,6 +459,25 @@ class CoverPageNumberingTests(TestCase):
         self.assertEqual(csrf_client.post(url, payload, format="json").status_code, 403)
         self.assertEqual(Job.objects.count(), 0)
 
+    def test_format_job_preserves_safe_authentication_failure(self):
+        from integrations.numarator.client import NumaratorClient
+        from integrations.tests.test_numarator_client import FakeResponse, FakeSession
+
+        remote = FakeResponse({"detail": "private upstream data"}, status_code=401)
+        client = NumaratorClient(session=FakeSession(remote))
+        url = self.url.replace("number-allocations", "numbering-options")
+        response = self.client.post(url, {
+            "client_operation_id": str(uuid4()), "format_code": "COVER_PAGE",
+        }, format="json")
+        self.assertEqual(response.status_code, 202)
+        with patch("compliance.numbering_formats.NumaratorClient", return_value=client):
+            execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        job = Job.objects.get(pk=response.data["id"])
+        self.assertEqual(job.status, JobStatus.FAILED)
+        self.assertEqual(job.error_code, "NUMARATOR_FORMAT_UNAVAILABLE")
+        self.assertIn("API key", job.message)
+        self.assertNotIn("private upstream data", job.message)
+
     @patch("compliance.numbering_executor.NumaratorClient")
     def test_custom_context_is_persisted_sent_and_part_of_idempotency(self, client_class):
         client = client_class.return_value
