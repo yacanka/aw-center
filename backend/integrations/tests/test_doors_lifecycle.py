@@ -467,7 +467,8 @@ class DoorsResultIntegrityTests(SimpleTestCase):
                 script = wrap_dxl(body, Path("result.txt"), mode)
                 self.assertNotRegex(script, r"\bObject\s+object\b")
                 self.assertEqual(script.count("if (!awc_attribute.object) continue"), 2)
-                self.assertIn("for awc_object in entire(module) do", script)
+                self.assertIn('read("/Project/Module", false, true)', script)
+                self.assertIn("for awc_object in module do", script)
                 self.assertIn('(awc_object."Absolute Number" "")', script)
                 self.assertIn("awc_escape(identifier(awc_object))", script)
                 self.assertIn('(level(awc_object) "")', script)
@@ -484,6 +485,7 @@ class DoorsResultIntegrityTests(SimpleTestCase):
             checklist.check_applicable_disciplines("/Project/Module"),
         ]
         for script in scripts:
+            self.assertIn('read("/Project/Module", false, true)', script)
             self.assertIn("if (awc_owns_module) close(module, false)", script)
             wrapped = wrap_dxl(script, Path("result.txt"), "file")
             self.assertIn("write(awc_result_file, CP_UTF8)", wrapped)

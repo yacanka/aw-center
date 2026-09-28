@@ -96,11 +96,12 @@ TEXT_FILTER_FIELDS = frozenset(
         "delivered_tech_doc_issue_2",
         "responsible",
         "moc",
+        "cat",
         "mom_no",
         "path",
     }
 )
-SELECT_FILTER_FIELDS = frozenset({"panel", "status", "cat"})
+SELECT_FILTER_FIELDS = frozenset({"panel", "status"})
 DATE_FILTER_FIELDS = frozenset(
     {"ubm_target_date", "ubm_delivery_date", "next_action_due_date", "created_at", "updated_at"}
 )
@@ -1182,8 +1183,6 @@ def _field_capabilities(field):
     option_source = "panels" if field == "panel" else None
     if field == "status":
         choices = [{"value": value, "label": label} for value, label in ComplianceDocument._meta.get_field("status").choices]
-    elif field == "cat":
-        choices = [{"value": value, "label": label} for value, label in ComplianceDocument._meta.get_field("cat").choices]
     return {
         "filter_kind": filter_kind,
         "sortable": public_field in ORDERING_FIELDS,

@@ -55,12 +55,12 @@
         </n-form-item-gi>
       </template>
       <n-form-item-gi span="0:48 700:8" path="cat" label="Cat">
-        <n-select
+        <n-input
           v-model:value="compdoc.cat"
-          :options="catOptions"
-          clearable
-          :disabled="readonly"
+          maxlength="12"
+          :readonly="readonly"
           :status="changed('cat')"
+          @keydown.enter.prevent
         />
       </n-form-item-gi>
       <n-form-item-gi span="0:48 700:8" path="moc" label="MoC">
@@ -101,7 +101,7 @@
 
 <script setup lang="ts">
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
-import { catOptions, mocOptions } from '@/features/compliance/api/compdocCatalog'
+import { mocOptions } from '@/features/compliance/api/compdocCatalog'
 
 const props = defineProps<{
   compdoc: ICompDoc
