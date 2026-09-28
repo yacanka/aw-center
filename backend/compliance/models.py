@@ -16,13 +16,6 @@ from .compdoc_workflow import WORKFLOW_STATUS_CHOICES
 
 
 STATUS_CHOICES = WORKFLOW_STATUS_CHOICES
-LOI_CHOICES = [
-    ("1", "1"),
-    ("2", "2"),
-    ("3", "3"),
-    ("not_retained", "Not Retained"),
-    ("retained", "Retained"),
-]
 
 
 class CoverPage(models.Model):
@@ -158,7 +151,7 @@ class ComplianceDocument(models.Model):
     tech_doc_issue_2 = models.CharField(max_length=255, null=True, blank=True)
     delivered_tech_doc_issue_2 = models.CharField(max_length=255, null=True, blank=True)
     responsible = models.CharField(max_length=64, null=True, blank=True)
-    cat = models.CharField(max_length=12, null=True, blank=True, choices=LOI_CHOICES)
+    cat = models.CharField(max_length=12, null=True, blank=True)
     moc = models.CharField(max_length=1, null=True, blank=True)
     mom_no = models.CharField(max_length=128, null=True, blank=True)
     requirements = models.JSONField(default=list, blank=True)

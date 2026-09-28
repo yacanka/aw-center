@@ -107,7 +107,7 @@ if (!null awc_open_error || null module) {{
     // Keep the built-in object property available for AttrDef.object below.
     Object awc_object
     int awc_count = 0
-    for awc_object in entire(module) do {{
+    for awc_object in module do {{
         if (awc_count >= {row_limit}) {{
             awc_emit("TRUNCATED")
             break

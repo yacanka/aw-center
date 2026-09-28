@@ -95,6 +95,42 @@ class ComplianceApiTests(TestCase):
         self.assertEqual(accepted.data["panel"], self.panel.pk)
         self.assertEqual(accepted.data["panel_name"], self.panel.name)
 
+    def test_cat_accepts_free_text_and_preserves_optional_values(self):
+        document = self.create_document()
+        self.client.force_authenticate(self.editor)
+        for value in ("Custom cat", "1", "not_retained", "", None):
+            with self.subTest(cat=value):
+                response = self.client.patch(
+                    f"{self.collection_url}{document.pk}/",
+                    {"version": document.version, "cat": value},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 200, response.data)
+                document.refresh_from_db()
+                self.assertEqual(document.cat, value)
+
+    def test_cat_supports_free_text_filtering(self):
+        document = self.create_document()
+        document.cat = "Custom cat"
+        document.save()
+        self.client.force_authenticate(self.viewer)
+        response = self.client.get(self.collection_url, {"cat": "custom"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["cat"], "Custom cat")
+
+    def test_cat_rejects_text_longer_than_field_limit(self):
+        document = self.create_document()
+        self.client.force_authenticate(self.editor)
+        response = self.client.patch(
+            f"{self.collection_url}{document.pk}/",
+            {"version": document.version, "cat": "x" * 13},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        document.refresh_from_db()
+        self.assertIsNone(document.cat)
+
     def test_optimistic_update_rejects_stale_version(self):
         document = self.create_document()
         url = f"{self.collection_url}{document.pk}/"
@@ -218,6 +254,8 @@ class ComplianceApiTests(TestCase):
         self.assertTrue(fields["name"]["sortable"])
         self.assertEqual(fields["panel"]["option_source"], "panels")
         self.assertTrue(fields["status"]["choices"])
+        self.assertEqual(fields["cat"]["filter_kind"], "text")
+        self.assertEqual(fields["cat"]["choices"], [])
 
     def test_reference_options_use_compliance_scope_only(self):
         team = Group.objects.create(name="Compliance team")

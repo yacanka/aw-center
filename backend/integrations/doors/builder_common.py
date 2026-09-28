@@ -113,9 +113,13 @@ def open_module(module_path: str, mode: str, *, promote_read: bool = False) -> s
 
 
 def open_named_module(path: str, mode: str, variable: str, *, promote_read: bool = False) -> str:
-    """Open a module from a trusted DXL expression while tracking ownership."""
+    """Open a module while tracking ownership; reads request Standard View.
+
+    Standard View avoids loading a saved filtered view. An already-open module
+    may have its view affected by the read call; its ownership stays unchanged.
+    """
     statements = {
-        "read": f"read({path}, false)",
+        "read": f"read({path}, false, true)",
         "edit": f"edit({path}, false, true)",
         "share": f"share({path}, false, true)",
     }

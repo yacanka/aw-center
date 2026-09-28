@@ -71,3 +71,52 @@ for (const theme of ['light', 'dark'] as const) {
     })
   }
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [390, 1440]) {
+    test(`remembers ${theme} after logout and reload at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ colorScheme: theme === 'light' ? 'dark' : 'light' })
+      let authenticated = true
+      await page.route('**/api/**', async (route) => {
+        const path = new URL(route.request().url()).pathname
+        if (!path.startsWith('/api/')) return route.fallback()
+        if (path === '/api/session/') {
+          if (route.request().method() === 'DELETE') authenticated = false
+          return route.fulfill({
+            json: {
+              state: authenticated ? 'authenticated' : 'anonymous',
+              user: authenticated
+                ? {
+                    id: 1,
+                    username: '123456',
+                    is_active: true,
+                    preferences: { theme, has_particles: false }
+                  }
+                : null
+            }
+          })
+        }
+        if (path === '/api/users/preferences/') {
+          return route.fulfill({ json: { theme, has_particles: false } })
+        }
+        if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
+        return route.fulfill({ json: [] })
+      })
+      await page.goto('/app/settings')
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await page.getByRole('button', { name: /log ?out|sign out/i }).click()
+      await expect(page).toHaveURL(/\/app\/login/)
+      const surface = theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(24, 24, 28)'
+      await expect(page.locator('.login-panel')).toHaveCSS('background-color', surface)
+      await page.reload()
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await expect(page.locator('.login-panel')).toHaveCSS('background-color', surface)
+      await page.getByRole('button', { name: 'Forgot Password?' }).click()
+      await expect(page.locator('.n-modal.app-modal')).toHaveCSS(
+        'background-color',
+        theme === 'light' ? surface : 'rgb(44, 44, 50)'
+      )
+    })
+  }
+}

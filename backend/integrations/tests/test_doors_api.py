@@ -45,7 +45,7 @@ class DoorsClientFoundationTests(SimpleTestCase):
         script = list_objects("/Project/Module", ["Object Text"], "entire", 25)
 
         self.assertIn("if (awc_count >= 25) break", script)
-        self.assertIn('read("/Project/Module", false)', script)
+        self.assertIn('read("/Project/Module", false, true)', script)
 
     def test_linker_builder_escapes_input_and_preserves_direction(self):
         """The fixed Linker emits no caller-controlled DXL and edits only its source."""
