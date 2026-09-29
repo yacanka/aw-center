@@ -4,16 +4,18 @@ import json
 
 from datetime import date
 from io import BytesIO
+from unittest.mock import patch
 
 import pandas as pd
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
+from rest_framework.exceptions import ValidationError
 
-from orgs.models import Panel, Project, ProjectRoleAssignment
+from orgs.models import Panel, Person, Project, ProjectRoleAssignment, ResponsibleAssignment
 
-from .models import ComplianceDocument, CoverPage, ImportAudit
+from .models import ComplianceDocument, CoverPage, ImportAudit, TrackingProfile
 
 
 class ComplianceImportTests(TestCase):
@@ -411,7 +413,7 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(confirmed.status_code, 201)
         self.assertEqual(ComplianceDocument.objects.get().panel, self.panel)
 
-    def test_conflicting_panel_and_ata_are_rejected(self):
+    def test_existing_ata_updates_panel_name_and_preserves_identity(self):
         Panel.objects.create(
             project=self.project,
             name="Electrical",
@@ -422,9 +424,195 @@ class ComplianceImportTests(TestCase):
         preview = self.preview(content)
 
         self.assertEqual(preview.status_code, 200)
-        self.assertEqual(preview.data["rejected_count"], 1)
-        self.assertIn("ata", preview.data["invalid_documents"][0]["fields"])
+        self.assertEqual(preview.data["rejected_count"], 0)
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.name, "Flight Controls")
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(confirmed.status_code, 201)
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.name, "Electrical")
+        self.assertEqual(ComplianceDocument.objects.get().panel_id, self.panel.pk)
+        self.assertEqual(Panel.objects.get(project=self.project, ata="24-00").name, "Electrical")
+
+    def test_new_panel_is_only_created_on_confirmation(self):
+        content = self.workbook(panel="Hydraulics", ata=29)
+        preview = self.preview(content)
+        self.assertEqual(preview.data["rejected_count"], 0)
+        self.assertFalse(Panel.objects.filter(project=self.project, ata="29-00").exists())
+        self.assertEqual(preview.data["panel_changes"], [{
+            "ata": "29-00", "old_name": None, "new_name": "Hydraulics", "action": "create",
+        }])
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(confirmed.status_code, 201)
+        panel = Panel.objects.get(project=self.project, ata="29-00")
+        self.assertEqual(ComplianceDocument.objects.get().panel, panel)
+        repeated = self.preview(content)
+        self.assertEqual(repeated.data["unchanged_count"], 1)
+        self.assertEqual(repeated.data["panel_changes"], [])
+
+    def test_last_valid_panel_name_wins_and_invalid_rows_have_no_side_effects(self):
+        output = BytesIO()
+        pd.DataFrame([
+            {"Document Name": "First", "Panel": "First name", "ATA Chapter": 29},
+            {"Document Name": "Second", "Panel": "Last valid name", "ATA Chapter": 29},
+            {"Document Name": "Invalid", "Panel": "Rejected name", "ATA Chapter": 29, "Notes": "x" * 5001},
+            {"Document Name": "Invalid new", "Panel": "Rejected new", "ATA Chapter": 30, "Notes": "x" * 5001},
+        ]).to_excel(output, index=False)
+        content = output.getvalue()
+        preview = self.preview(content)
+        self.assertEqual(preview.data["created_count"], 2)
+        self.assertEqual(preview.data["rejected_count"], 2)
+        response = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(response.status_code, 201)
+        panel = Panel.objects.get(project=self.project, ata="29-00")
+        self.assertEqual(panel.name, "Last valid name")
+        self.assertEqual(ComplianceDocument.objects.filter(panel=panel).count(), 2)
+        self.assertFalse(Panel.objects.filter(project=self.project, ata="30-00").exists())
+
+    def test_panel_change_after_preview_requires_new_confirmation(self):
+        content = self.workbook(panel="Renamed", ata=27)
+        preview = self.preview(content)
+        self.panel.name = "Changed concurrently"
+        self.panel.save()
+        response = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(response.status_code, 409)
         self.assertFalse(ComplianceDocument.objects.exists())
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.name, "Changed concurrently")
+
+    def test_new_panels_require_both_fields_and_valid_values(self):
+        for panel, ata in [("New", None), (None, 29), ("New", "invalid"), ("x" * 256, 29)]:
+            with self.subTest(panel=panel, ata=ata):
+                content = self.workbook(panel=panel, ata=ata)
+                preview = self.preview(content)
+                self.assertEqual(preview.data["rejected_count"], 1)
+                self.assertEqual(preview.data["panel_changes"], [])
+                self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        self.assertEqual(Panel.objects.filter(project=self.project).count(), 1)
+        self.assertFalse(ComplianceDocument.objects.exists())
+
+    def test_catalog_updates_are_project_scoped(self):
+        other = Project.objects.exclude(pk=self.project.pk).first()
+        panel = Panel.objects.create(project=other, ata="29-00", name="Other project")
+        content = self.workbook(panel="Local", ata=29)
+        preview = self.preview(content)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        panel.refresh_from_db()
+        self.assertEqual(panel.name, "Other project")
+        self.assertEqual(ComplianceDocument.objects.get().panel.project_id, self.project.pk)
+
+    def test_catalog_rename_applies_even_when_document_is_unchanged(self):
+        content = self.workbook(panel="Flight Controls", ata=27)
+        preview = self.preview(content)
+        self.confirm(content, preview.data["confirmation_token"])
+        document = ComplianceDocument.objects.get()
+        version = document.version
+        self.panel.discipline = "Preserved"
+        self.panel.save()
+        content = self.workbook(panel="Renamed", ata=27)
+        preview = self.preview(content)
+        self.assertEqual(preview.data["unchanged_count"], 1)
+        self.assertEqual(preview.data["panel_changes"][0]["old_name"], "Flight Controls")
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        self.panel.refresh_from_db()
+        document.refresh_from_db()
+        self.assertEqual(self.panel.name, "Renamed")
+        self.assertEqual(self.panel.discipline, "Preserved")
+        self.assertEqual(document.version, version)
+        self.assertEqual(document.panel_id, self.panel.pk)
+
+    def test_new_panel_attaches_to_existing_unassigned_document(self):
+        content = self.workbook()
+        preview = self.preview(content)
+        self.confirm(content, preview.data["confirmation_token"])
+        content = self.workbook(panel="New", ata=29)
+        preview = self.preview(content)
+        self.assertEqual(preview.data["updated_count"], 1)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        self.assertEqual(ComplianceDocument.objects.get().panel.ata, "29-00")
+
+    def test_new_panel_inserted_after_preview_rejects_confirmation(self):
+        content = self.workbook(panel="New", ata=29)
+        preview = self.preview(content)
+        existing = Panel.objects.create(project=self.project, ata="29-00", name="Concurrent")
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 409)
+        existing.refresh_from_db()
+        self.assertEqual(existing.name, "Concurrent")
+        self.assertFalse(ComplianceDocument.objects.exists())
+
+    def test_insert_between_revalidation_and_apply_conflicts_instead_of_overwriting(self):
+        from .imports import prepare_plan
+
+        content = self.workbook(panel="Imported", ata=29)
+        preview = self.preview(content)
+
+        def prepare_with_competing_insert(*args, **kwargs):
+            plan = prepare_plan(*args, **kwargs)
+            Panel.objects.create(project=self.project, ata="29-00", name="Competing")
+            return plan
+
+        with patch("compliance.imports.prepare_plan", side_effect=prepare_with_competing_insert):
+            response = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(ComplianceDocument.objects.exists())
+        self.assertEqual(ImportAudit.objects.get().status, ImportAudit.Status.FAILED)
+
+    def test_document_failure_rolls_back_panel_creation_and_rename(self):
+        for ata in (27, 29):
+            with self.subTest(ata=ata):
+                content = self.workbook(panel="New", ata=ata)
+                preview = self.preview(content)
+                with patch("compliance.imports.ComplianceDocumentSerializer.create", side_effect=ValidationError("Failure")):
+                    response = self.confirm(content, preview.data["confirmation_token"])
+                self.assertEqual(response.status_code, 400)
+                self.panel.refresh_from_db()
+                self.assertEqual(self.panel.name, "Flight Controls")
+                self.assertFalse(Panel.objects.filter(project=self.project, ata="29-00").exists())
+                self.assertFalse(ComplianceDocument.objects.exists())
+
+    def test_compliance_import_permission_does_not_grant_direct_organization_writes(self):
+        denied = self.client.patch(
+            f"/api/projects/ozgur/organization/panels/{self.panel.pk}/",
+            {"name": "Direct rename"}, format="json",
+        )
+        self.assertEqual(denied.status_code, 403)
+        content = self.workbook(panel="Imported rename", ata=27)
+        preview = self.preview(content)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.name, "Imported rename")
+        role = ProjectRoleAssignment.objects.get(user=self.user, project=self.project)
+        role.role = ProjectRoleAssignment.Role.VIEWER
+        role.save()
+        self.assertEqual(self.preview(content).status_code, 403)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 403)
+
+    def test_tracking_recipients_survive_rename_but_prevent_new_panel_attachment(self):
+        person = Person.objects.create(person_id="import-responsible", name="Responsible", email="responsible@example.test")
+        assignment = ResponsibleAssignment.objects.create(panel=self.panel, person=person, responsibility_role="AS")
+        content = self.workbook(panel="Flight Controls", ata=27)
+        preview = self.preview(content)
+        self.confirm(content, preview.data["confirmation_token"])
+        document = ComplianceDocument.objects.get()
+        profile = TrackingProfile.objects.create(
+            document=document, responsible_mode=TrackingProfile.ResponsibleMode.CUSTOM,
+            notification_enabled=True, notification_events=["overdue"],
+        )
+        profile.responsible_people.add(person)
+        content = self.workbook(panel="Renamed", ata=27)
+        preview = self.preview(content)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.panel_id, self.panel.pk)
+        self.assertEqual(list(profile.responsible_people.all()), [person])
+        content = self.workbook(panel="New", ata=29)
+        preview = self.preview(content)
+        self.assertEqual(preview.data["rejected_count"], 1)
+        self.assertEqual(preview.data["panel_changes"], [])
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        document.refresh_from_db()
+        self.assertEqual(document.panel_id, self.panel.pk)
+        self.assertFalse(Panel.objects.filter(project=self.project, ata="29-00").exists())
 
     def test_import_builds_to_be_issued_event_without_status_flow_column(self):
         content = self.workbook(

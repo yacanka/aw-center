@@ -8,7 +8,7 @@ vi.mock('@/features/integrations/api/doorsAutomation', () => ({
   enqueueDoorsModuleExport: mocks.enqueue
 }))
 vi.mock('@/features/compliance/composables/compdocController', () => ({
-  useCompdocController: () => ({ fetchCompdocs: vi.fn() })
+  useCompdocController: () => ({ fetchCompdocs: vi.fn(), fetchReferencePanels: vi.fn() })
 }))
 vi.mock('@/features/compliance/api/compdocImports', () => ({
   fetchDoorsImportSource: mocks.source,
@@ -77,6 +77,10 @@ describe('DOORS import field linking', () => {
       updated_count: 0,
       unchanged_count: 0,
       rejected_count: 1,
+      panel_changes: [
+        { ata: '29-00', old_name: null, new_name: 'Hydraulics', action: 'create' },
+        { ata: '27-00', old_name: 'Old name', new_name: 'Flight Controls', action: 'update' }
+      ],
       invalid_documents: [
         {
           row: 2,
@@ -132,6 +136,10 @@ describe('DOORS import field linking', () => {
         ' Başlık ': 'name'
       })
       expect(wrapper.text()).toContain('REQ-42')
+      expect(wrapper.text()).toContain('Hydraulics')
+      expect(wrapper.text()).toContain('29-00')
+      expect(wrapper.text()).toContain('Old name')
+      expect(wrapper.text()).toContain('Flight Controls')
       expect(wrapper.text()).toContain('Confirm import')
       await wrapper.findAll('select')[1].setValue('notes')
       expect(wrapper.text()).not.toContain('Confirm import')
