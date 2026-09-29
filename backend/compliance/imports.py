@@ -16,9 +16,6 @@ from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from orgs.ata import normalize_ata_chapter
-from orgs.models import Panel
-
 from .compdoc_import import (
     HeaderMappingResult,
     build_mapping_preview,
@@ -27,6 +24,7 @@ from .compdoc_import import (
     read_mapped_excel,
 )
 from .compdoc_workflow import WORKFLOW_STATUSES, parse_workflow_date
+from .import_panels import ImportPanels, PanelReference, PlannedPanelField, apply_panel_changes
 from .models import ComplianceDocument, CoverPage, ImportAudit, WorkflowEvent
 from .serializers import ComplianceDocumentSerializer
 from .services import (
@@ -98,6 +96,7 @@ class PlannedRow:
     workflow_events: tuple[PlannedWorkflowEvent, ...]
     target: ComplianceDocument | None
     action: str
+    panel_reference: PanelReference
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +104,8 @@ class ImportPlan:
     rows: tuple[PlannedRow, ...]
     errors: tuple[dict, ...]
     mapping: dict
+    panel_changes: tuple[dict, ...] = ()
+    panel_snapshot: tuple[dict, ...] = ()
 
     @property
     def counts(self):
@@ -247,21 +248,13 @@ def prepare_tabular_plan(
                 ambiguous_keys.add(key)
                 continue
             by_key[key] = document
-    panels = list(Panel.objects.filter(project=project))
-    panel_lookup = {}
-    for panel in panels:
-        for key in (panel.ata, panel.name):
-            if not key:
-                continue
-            matches = panel_lookup.setdefault(key.casefold(), [])
-            if panel not in matches:
-                matches.append(panel)
+    panels = ImportPanels(project, lock_existing=lock_existing)
 
     normalized = []
     errors = []
     for row_number, source in source_rows:
         try:
-            normalized.append((row_number, _normalize_row(source, panel_lookup)))
+            normalized.append((row_number, _normalize_row(source, panels)))
         except ValidationError as error:
             errors.append(_row_error(row_number, error))
 
@@ -388,12 +381,14 @@ def prepare_tabular_plan(
         if cover_page is not None:
             payload["cover_page"]["version"] = cover_page.version
 
+        reference = normalized_row["panel_reference"]
         serializer = ComplianceDocumentSerializer(
             target,
-            data=payload,
+            data={**payload, "panel": reference.panel},
             partial=target is not None,
             context={"request": request, "project": project},
         )
+        serializer.fields["panel"] = PlannedPanelField(allow_null=True)
         if not serializer.is_valid():
             errors.append(
                 {
@@ -404,9 +399,11 @@ def prepare_tabular_plan(
             )
             continue
         next_panel = serializer.validated_data.get("panel", target.panel if target else None)
-        if target is not None and getattr(next_panel, "pk", None) != target.panel_id:
+        new_panel = next_panel is not None and next_panel.pk is None
+        if target is not None and (new_panel or getattr(next_panel, "pk", None) != target.panel_id):
             try:
-                require_tracking_panel_compatibility(target, next_panel)
+                # An unsaved panel has no responsible assignments yet.
+                require_tracking_panel_compatibility(target, None if new_panel else next_panel)
             except ValidationError as error:
                 errors.append(_row_error(row_number, error))
                 continue
@@ -416,6 +413,8 @@ def prepare_tabular_plan(
             errors.append(_row_error(row_number, error))
             continue
         action = _resolve_action(target, serializer.validated_data, workflow_events)
+        if target is not None and new_panel:
+            action = "update"
         planned.append(
             PlannedRow(
                 row_number=row_number,
@@ -423,19 +422,24 @@ def prepare_tabular_plan(
                 workflow_events=workflow_events,
                 target=target,
                 action=action,
+                panel_reference=reference,
             )
         )
-    return ImportPlan(tuple(planned), tuple(errors), mapping)
+    return ImportPlan(
+        tuple(planned), tuple(errors), mapping,
+        panels.changes(planned), tuple(panels.snapshot),
+    )
 
 
-def _normalize_row(source, panel_lookup):
+def _normalize_row(source, panels):
     values = {key: _scalar(value) for key, value in source.items()}
     name = str(values["name"]) if values.get("name") is not None else ""
     cover_number = str(values["cover_page_no"]) if values.get("cover_page_no") is not None else ""
     if not name:
         raise ValidationError({"name": "Document name is required."})
 
-    panel = _resolve_panel(values, panel_lookup)
+    reference = panels.resolve(values)
+    panel = reference.panel
 
     payload = {
         field: _list_value(values.get(field)) if field in LIST_FIELDS else values.get(field)
@@ -451,6 +455,7 @@ def _normalize_row(source, panel_lookup):
     status = _normalize_status(values.get("status"))
     workflow_events, reconcile_workflow = _build_workflow_events(values, status)
     return {
+        "panel_reference": reference,
         "id": _document_id(values.get("id")),
         "payload": payload,
         "status": status,
@@ -467,59 +472,6 @@ def _document_id(value):
         return str(UUID(text))
     except ValueError as error:
         raise ValidationError({"id": "Use a valid document UUID."}) from error
-
-
-def _resolve_panel(values, panel_lookup):
-    """Resolve an optional panel name and/or flexibly formatted ATA chapter."""
-
-    panel_value = values.get("panel")
-    ata_value = values.get("ata")
-    has_panel = panel_value not in (None, "")
-    has_ata = ata_value not in (None, "")
-    if not has_panel and not has_ata:
-        return None
-
-    ata_panel = None
-    if has_ata:
-        try:
-            canonical_ata = normalize_ata_chapter(ata_value)
-        except ValueError as error:
-            raise ValidationError(
-                {"ata": "Use an ATA chapter such as 27, 2700, 27-00, or 27-10."}
-            ) from error
-        ata_matches = panel_lookup.get(canonical_ata.casefold(), ())
-        if not ata_matches:
-            raise ValidationError({"ata": "ATA chapter is unknown for this project."})
-        ata_panel = ata_matches[0]
-
-    if not has_panel:
-        return ata_panel
-
-    panel_matches = _panel_candidates(panel_value, panel_lookup)
-    if not panel_matches:
-        raise ValidationError({"panel": "Panel name or ATA is unknown for this project."})
-    if ata_panel is not None:
-        if ata_panel not in panel_matches:
-            raise ValidationError(
-                {"ata": "ATA chapter does not belong to the imported panel."}
-            )
-        return ata_panel
-    if len(panel_matches) > 1:
-        raise ValidationError(
-            {"ata": "ATA chapter is required because this panel name has multiple chapters."}
-        )
-    return panel_matches[0]
-
-
-def _panel_candidates(value, panel_lookup):
-    direct = panel_lookup.get(str(value).strip().casefold())
-    if direct:
-        return direct
-    try:
-        canonical_ata = normalize_ata_chapter(value)
-    except ValueError:
-        return ()
-    return panel_lookup.get(canonical_ata.casefold(), ())
 
 
 def _normalize_status(value):
@@ -678,6 +630,7 @@ def plan_fingerprint(plan: ImportPlan) -> str:
             "version": row.target.version if row.target else None,
             "identity": sorted(_payload_keys({"payload": row.payload})),
             "payload": row.payload,
+            "panel_ata": row.panel_reference.panel.ata if row.panel_reference.panel else None,
             "workflow_events": row.workflow_events,
             "target_cover": (
                 {
@@ -691,7 +644,10 @@ def plan_fingerprint(plan: ImportPlan) -> str:
         }
         for row in plan.rows
     ]
-    encoded = json.dumps(state, sort_keys=True, separators=(",", ":"), default=str).encode()
+    encoded = json.dumps(
+        {"rows": state, "panels": plan.panel_snapshot, "panel_changes": plan.panel_changes},
+        sort_keys=True, separators=(",", ":"), default=str,
+    ).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -808,7 +764,7 @@ def execute_source_plan(
     audit.error_summary = list(plan.errors)[:100]
     audit.status = (
         ImportAudit.Status.PARTIAL
-        if plan.errors and (counts["created_count"] or counts["updated_count"])
+        if plan.errors and (counts["created_count"] or counts["updated_count"] or plan.panel_changes)
         else ImportAudit.Status.FAILED
         if plan.errors
         else ImportAudit.Status.SUCCESS
@@ -820,12 +776,20 @@ def execute_source_plan(
 
 
 def _apply_plan(plan, project, request, audit):
+    panels = apply_panel_changes(plan.panel_changes, project)
     for row in plan.rows:
         if row.action == "unchanged":
             continue
         serializer = ComplianceDocumentSerializer(
             row.target,
-            data=row.payload,
+            data={
+                **row.payload,
+                "panel": (
+                    panels[row.panel_reference.panel.ata].pk
+                    if row.panel_reference.panel is not None and row.panel_reference.panel.ata in panels
+                    else row.payload["panel"]
+                ),
+            },
             partial=row.target is not None,
             context={"request": request, "project": project},
         )

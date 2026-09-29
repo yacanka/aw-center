@@ -83,6 +83,10 @@ Teknik project metadata'sı `projects.registry.PROJECT_DEFINITIONS` içindedir. 
 
 Compliance kayıtları tek `compliance.ComplianceDocument` tablosundadır ve `project` foreign key'i taşır. Cover page, workflow event, review, tracking, notification policy/log ve import audit aynı aggregate çevresindeki canonical modellerdir. Proje farkı schema/model kopyasıyla değil, gerekirse `projects/policies/` altındaki küçük ve testli strategy ile uygulanır.
 
+Compliance Excel ve DOORS importları ortak önizleme/onay akışında organizasyon panel kataloğunu da günceller. Anahtar proje + normalize ATA chapter'dır: mevcut ATA'nın panel adı güncellenir, yeni ATA için panel adı ve ATA birlikte gerekir. Aynı ATA için kabul edilen belge satırları arasındaki son dolu panel adı kazanır; reddedilen satırlar kataloğa etki etmez. Mevcut kayıt tek alanla kesin eşleşiyorsa kullanılabilir. Panel kimliği, discipline ve sorumlu atamaları korunur; ad değişikliği aynı paneli kullanan diğer belgelere de yansır.
+
+Önizleme salt okunurdur; `panel_changes` alanı ATA, eski/yeni ad ve işlemi gösterir. Panel durumu confirmation fingerprint'e dahildir ve onayda panel/belge değişiklikleri tek transaction'da uygulanır. Bu sınırlı katalog güncellemesi mevcut compliance editor import yetkisinin parçasıdır; doğrudan organizasyon düzenleme ve bağımsız panel importu için organization manager gerekliliği değişmez.
+
 Project URL scope'u açıktır:
 
 ```text

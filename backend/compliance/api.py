@@ -844,6 +844,7 @@ class ImportPreviewView(ProjectComplianceMixin, APIView):
             {
                 **plan.mapping,
                 **plan.counts,
+                "panel_changes": list(plan.panel_changes),
                 "invalid_documents": list(plan.errors),
                 "confirmation_token": create_confirmation(
                     uploaded_file,
@@ -880,6 +881,7 @@ class ImportConfirmView(ProjectComplianceMixin, APIView):
                 "audit_id": audit.pk,
                 "status": audit.status,
                 **plan.counts,
+                "panel_changes": list(plan.panel_changes),
                 "invalid_documents": list(plan.errors),
             },
             status=status.HTTP_201_CREATED,
@@ -937,6 +939,7 @@ class DoorsImportPreviewView(ProjectComplianceMixin, APIView):
             {
                 **plan.mapping,
                 **plan.counts,
+                "panel_changes": list(plan.panel_changes),
                 "job_id": job.pk,
                 "module_path": source["module_path"],
                 "invalid_documents": list(plan.errors),
@@ -983,6 +986,7 @@ class DoorsImportConfirmView(ProjectComplianceMixin, APIView):
                 "audit_id": audit.pk,
                 "status": audit.status,
                 **plan.counts,
+                "panel_changes": list(plan.panel_changes),
                 "invalid_documents": list(plan.errors),
             },
             status=status.HTTP_201_CREATED,

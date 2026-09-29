@@ -240,64 +240,80 @@ test('PoC Linker queues a durable preview and renders the verified result', asyn
   await expect(page.getByText('Target found', { exact: true })).toBeVisible()
 })
 
-test('stale compliance import refreshes the reviewed preview on VERSION_CONFLICT', async ({
-  page
-}) => {
-  await routeAuthenticatedShell(page)
-  await page.route('**/api/projects/', (route) =>
-    json(route, [
-      {
-        slug: 'aesa',
-        name: 'AESA',
-        capabilities: ['compliance'],
-        roles: { compliance: 'editor', organization: null, dcc: null }
-      }
-    ])
-  )
-  await page.route('**/api/projects/aesa/organization/panels/**', (route) =>
-    json(route, { count: 0, next: null, previous: null, results: [] })
-  )
-  await page.route('**/api/projects/aesa/compliance-documents/fields/', (route) =>
-    json(route, {
-      schema_version: 1,
-      project: 'aesa',
-      fields: [{ key: 'name', label: 'Name', required: true, read_only: false }]
-    })
-  )
-  await page.route('**/api/projects/aesa/compliance-documents/?*', (route) =>
-    json(route, { count: 0, next: null, previous: null, results: [] })
-  )
-  let previewCount = 0
-  await page.route('**/api/projects/aesa/compliance-documents/imports/**', async (route) => {
-    if (route.request().url().endsWith('/confirm/')) {
-      return route.fulfill({
-        status: 409,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          detail: 'The reviewed records changed.',
-          code: 'VERSION_CONFLICT'
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [390, 1440]) {
+    test(`stale compliance import refreshes the preview in ${theme} at ${width}px`, async ({
+      page
+    }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ colorScheme: theme })
+      await routeAuthenticatedShell(page)
+      await page.route('**/api/users/preferences/', (route) =>
+        json(route, { theme, has_particles: false })
+      )
+      await page.route('**/api/projects/', (route) =>
+        json(route, [
+          {
+            slug: 'aesa',
+            name: 'AESA',
+            capabilities: ['compliance'],
+            roles: { compliance: 'editor', organization: null, dcc: null }
+          }
+        ])
+      )
+      await page.route('**/api/projects/aesa/compliance-documents/options/**', (route) =>
+        json(route, { count: 0, next: null, previous: null, results: [] })
+      )
+      await page.route('**/api/projects/aesa/compliance-documents/fields/', (route) =>
+        json(route, {
+          schema_version: 1,
+          project: 'aesa',
+          fields: [{ key: 'name', label: 'Name', required: true, read_only: false }]
         })
+      )
+      await page.route('**/api/projects/aesa/compliance-documents/?*', (route) =>
+        json(route, { count: 0, next: null, previous: null, results: [] })
+      )
+      let previewCount = 0
+      await page.route('**/api/projects/aesa/compliance-documents/imports/**', async (route) => {
+        if (route.request().url().endsWith('/confirm/')) {
+          return route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              detail: 'The reviewed records changed.',
+              code: 'VERSION_CONFLICT'
+            })
+          })
+        }
+        previewCount += 1
+        return json(route, importPreview(`preview-${previewCount}`, previewCount))
       })
-    }
-    previewCount += 1
-    return json(route, importPreview(`preview-${previewCount}`, previewCount))
-  })
 
-  await page.goto('/app/compdocs/aesa')
-  await page.getByRole('button', { name: 'Import Excel', exact: true }).click()
-  await page.locator('input[type="file"]').setInputFiles({
-    name: 'compliance.xlsx',
-    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    buffer: Buffer.from('mocked-workbook')
-  })
-  await expect(page.getByText('Confirm Excel Import')).toBeVisible()
-  await page.getByRole('button', { name: 'Confirm Import' }).click()
+      await page.goto('/app/compdocs/aesa')
+      await page.getByRole('button', { name: 'Import Excel', exact: true }).click()
+      await page.locator('input[type="file"]').setInputFiles({
+        name: 'compliance.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer: Buffer.from('mocked-workbook')
+      })
+      await expect(page.getByText('Confirm Excel Import')).toBeVisible()
+      await expect(page.getByText('Create 29-00: Hydraulics')).toBeVisible()
+      await expect(page.getByText('Update 27-00: Old name → Flight Controls')).toBeVisible()
+      await page.screenshot({
+        path: `test-results/compliance-import-${theme}-${width}.png`,
+        fullPage: true,
+        animations: 'disabled'
+      })
+      await page.getByRole('button', { name: 'Confirm Import' }).click()
 
-  await expect(
-    page.getByText('The preview was refreshed; review it again.', { exact: false })
-  ).toBeVisible()
-  expect(previewCount).toBe(2)
-})
+      await expect(
+        page.getByText('The preview was refreshed; review it again.', { exact: false })
+      ).toBeVisible()
+      expect(previewCount).toBe(2)
+    })
+  }
+}
 
 test('reconciled ECR publication resumes with a new idempotent durable attempt', async ({
   page
@@ -438,6 +454,10 @@ function importPreview(confirmationToken: string, updatedCount: number) {
     updated_count: updatedCount,
     unchanged_count: 0,
     rejected_count: 0,
+    panel_changes: [
+      { ata: '29-00', old_name: null, new_name: 'Hydraulics', action: 'create' },
+      { ata: '27-00', old_name: 'Old name', new_name: 'Flight Controls', action: 'update' }
+    ],
     confirmation_token: confirmationToken,
     database_state_protected: true
   }

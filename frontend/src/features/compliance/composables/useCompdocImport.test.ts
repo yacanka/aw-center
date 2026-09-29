@@ -4,13 +4,18 @@ import type { UploadCustomRequestOptions } from 'naive-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ImportPreview } from '../api/compdocImports'
 
-const mocks = vi.hoisted(() => ({ preview: vi.fn(), confirm: vi.fn(), fetch: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  preview: vi.fn(),
+  confirm: vi.fn(),
+  fetch: vi.fn(),
+  panels: vi.fn()
+}))
 vi.mock('../api/compdocImports', () => ({
   previewCompdocImport: mocks.preview,
   confirmCompdocImport: mocks.confirm
 }))
 vi.mock('./compdocController', () => ({
-  useCompdocController: () => ({ fetchCompdocs: mocks.fetch })
+  useCompdocController: () => ({ fetchCompdocs: mocks.fetch, fetchReferencePanels: mocks.panels })
 }))
 import { useCompdocImport } from './useCompdocImport'
 
@@ -28,6 +33,7 @@ const result: ImportPreview = {
   updated_count: 0,
   unchanged_count: 0,
   rejected_count: 0,
+  panel_changes: [],
   confirmation_token: 'reviewed',
   database_state_protected: true
 }
@@ -79,6 +85,7 @@ describe('Excel linking preview workflow', () => {
       'Custom title': 'name'
     })
     expect(mocks.fetch).toHaveBeenCalledOnce()
+    expect(mocks.panels).toHaveBeenCalledOnce()
     expect(flow.showPreviewModal.value).toBe(false)
   })
 

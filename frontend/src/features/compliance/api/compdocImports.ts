@@ -13,6 +13,13 @@ export interface ImportInvalidDocument extends InvalidDocument {
   doors_object?: { absolute_number: number | null; identifier: string | null }
 }
 
+export interface ImportPanelChange {
+  ata: string
+  old_name: string | null
+  new_name: string
+  action: 'create' | 'update'
+}
+
 export interface ImportPreview {
   source_columns?: string[]
   target_fields?: DoorsImportTargetField[]
@@ -25,6 +32,7 @@ export interface ImportPreview {
   updated_count: number
   unchanged_count: number
   rejected_count: number
+  panel_changes: ImportPanelChange[]
   confirmation_token: string
   database_state_protected: boolean
 }
@@ -38,6 +46,7 @@ export interface ImportResult {
   updated_count: number
   unchanged_count: number
   rejected_count: number
+  panel_changes: ImportPanelChange[]
   invalid_documents: ImportInvalidDocument[]
 }
 

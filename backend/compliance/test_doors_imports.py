@@ -13,7 +13,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from jobs.models import Job, JobStatus
-from orgs.models import Project, ProjectRoleAssignment
+from orgs.models import Panel, Project, ProjectRoleAssignment
 
 from .models import ComplianceDocument, DoorsImportMapping, ImportAudit
 
@@ -83,6 +83,26 @@ class ComplianceDoorsImportTests(TestCase):
         source = self.client.get(self.source_url(job))
         self.assertEqual(source.status_code, 200)
         self.assertEqual(source.data["default_mapping"], mapping)
+
+    def test_doors_import_creates_and_renames_project_panels(self):
+        existing = Panel.objects.create(project=self.project, ata="27-00", name="Old")
+        job = self.export_job([
+            {"Title": "First", "Panel": "New", "ATA": "29"},
+            {"Title": "Second", "Panel": "Renamed", "ATA": "27"},
+        ])
+        values = {"job_id": job.pk, "mapping": {"Title": "name", "Panel": "panel", "ATA": "ata"}}
+        preview = self.client.post(self.preview_url(), values, format="json")
+        self.assertEqual(preview.data["created_count"], 2)
+        self.assertEqual(len(preview.data["panel_changes"]), 2)
+        self.assertFalse(Panel.objects.filter(project=self.project, ata="29-00").exists())
+        response = self.client.post(self.confirm_url(), {
+            **values, "confirmation_token": preview.data["confirmation_token"],
+        }, format="json")
+        self.assertEqual(response.status_code, 201)
+        existing.refresh_from_db()
+        self.assertEqual(existing.name, "Renamed")
+        self.assertEqual(ComplianceDocument.objects.get(name="Second").panel, existing)
+        self.assertEqual(ComplianceDocument.objects.get(name="First").panel.ata, "29-00")
 
     def test_confirmation_is_bound_to_reviewed_mapping(self):
         job = self.export_job(

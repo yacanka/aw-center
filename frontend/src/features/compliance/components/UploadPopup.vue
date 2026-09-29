@@ -73,6 +73,15 @@
           Reject: {{ preview?.rejected_count || 0 }}
         </n-tag>
       </n-space>
+      <n-alert v-if="preview.panel_changes?.length" type="info" title="Project panel changes">
+        These changes also apply to other documents using the same ATA chapter.
+        <ul>
+          <li v-for="change in preview.panel_changes" :key="change.ata">
+            {{ change.action === 'create' ? 'Create' : 'Update' }} {{ change.ata }}:
+            {{ change.old_name ? `${change.old_name} → ` : '' }}{{ change.new_name }}
+          </li>
+        </ul>
+      </n-alert>
       <n-data-table
         :columns="mappingColumns"
         :data="preview?.mapped_columns || []"
