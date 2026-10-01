@@ -3,6 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import ParticleAnimation from './particleTextAnimation.js'
 
 function setup() {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  )
   const context = {
     clearRect: vi.fn(),
     drawImage: vi.fn(),
@@ -26,11 +33,17 @@ function setup() {
     vi.fn(() => 1)
   )
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
-  const animation = new ParticleAnimation(
-    document.createElement('canvas'),
-    ['#00000088'],
-    'AW Center'
+  const canvas = document.createElement('canvas')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockImplementation(
+    () =>
+      ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+        left: 100,
+        top: 80
+      }) as DOMRect
   )
+  const animation = new ParticleAnimation(canvas, ['#00000088'], 'AW Center')
   return { animation, context }
 }
 
@@ -40,7 +53,33 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('welcome particle animation', () => {
+describe('particle heading animation', () => {
+  it('uses heading bounds and local pointer coordinates', () => {
+    const { animation } = setup()
+    vi.mocked(animation.canvas.getBoundingClientRect).mockReturnValue({
+      width: 320,
+      height: 100,
+      left: 100,
+      top: 80
+    } as DOMRect)
+    animation.resize()
+    expect(animation.ww).toBe(320)
+    expect(animation.wh).toBe(100)
+    animation.onMouseMove({ clientX: 150, clientY: 110 })
+    expect(animation.mouse).toEqual({ x: 50, y: 30 })
+    animation.destroy()
+  })
+
+  it('releases the pointer when it leaves the heading', () => {
+    const { animation } = setup()
+    animation.canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 140, clientY: 100 }))
+    expect(animation.mouse).toEqual({ x: 40, y: 20 })
+    animation.canvas.dispatchEvent(new MouseEvent('mouseleave'))
+    expect(animation.mouse.x).toBeLessThan(0)
+    expect(animation.mouse.y).toBeLessThan(0)
+    animation.destroy()
+  })
+
   it('scans a cropped mask and caches one sprite while compositing every particle separately', () => {
     const { animation, context } = setup()
     const [, , width, height] = context.getImageData.mock.calls[0]

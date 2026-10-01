@@ -26,8 +26,9 @@ export default class ParticleAnimation {
   }
 
   configureCanvas() {
-    this.ww = window.innerWidth
-    this.wh = window.innerHeight
+    const bounds = this.canvas.getBoundingClientRect()
+    this.ww = Math.max(1, bounds.width)
+    this.wh = Math.max(1, bounds.height)
     // Retain sharp edges on Retina screens without unbounded full-screen buffers.
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
     this.pixelRatio = pixelRatio
@@ -40,8 +41,13 @@ export default class ParticleAnimation {
     // Read pixels only from the text mask; keep the visible canvas GPU eligible.
     const mask = document.createElement('canvas')
     const ctx = mask.getContext('2d', { willReadFrequently: true })
-    const fontSize = Math.max(this.wh / 8, 60)
-    const font = `900 ${fontSize}px Quicksand`
+    const style = getComputedStyle(this.canvas)
+    let fontSize = Math.min(parseFloat(style.fontSize) || 60, this.wh * 0.8)
+    const fontFamily = style.fontFamily || 'sans-serif'
+    ctx.font = `900 ${fontSize}px ${fontFamily}`
+    const textWidth = ctx.measureText(this.text).width
+    fontSize *= Math.min(1, Math.max(1, this.ww - 8) / Math.max(1, textWidth))
+    const font = `900 ${fontSize}px ${fontFamily}`
     ctx.font = font
     const metrics = ctx.measureText(this.text)
     mask.width = Math.min(this.ww, Math.ceil(metrics.width + fontSize))
@@ -94,11 +100,15 @@ export default class ParticleAnimation {
       mousemove: (event) => this.onMouseMove(event),
       touchmove: (event) => this.onTouchMove(event),
       click: () => this.onMouseClick(),
-      touchend: () => this.onTouchEnd()
+      touchend: () => this.onTouchEnd(),
+      mouseleave: () => this.onTouchEnd()
     }
     for (const [name, listener] of Object.entries(this.listeners)) {
-      window.addEventListener(name, listener, { passive: true })
+      const target = name === 'resize' ? window : this.canvas.parentElement || this.canvas
+      target.addEventListener(name, listener, { passive: true })
     }
+    this.resizeObserver = new ResizeObserver(this.listeners.resize)
+    this.resizeObserver.observe(this.canvas)
     this.onVisibilityChange = () => {
       this.cancelFrame()
       if (this.playing && !document.hidden) this.render()
@@ -107,14 +117,14 @@ export default class ParticleAnimation {
   }
 
   onMouseMove(e) {
-    this.mouse.x = e.clientX
-    this.mouse.y = e.clientY
+    const bounds = this.canvas.getBoundingClientRect()
+    this.mouse.x = e.clientX - bounds.left
+    this.mouse.y = e.clientY - bounds.top
   }
 
   onTouchMove(e) {
     if (e.touches.length > 0) {
-      this.mouse.x = e.touches[0].clientX
-      this.mouse.y = e.touches[0].clientY
+      this.onMouseMove(e.touches[0])
     }
   }
 
@@ -186,9 +196,11 @@ export default class ParticleAnimation {
 
   destroy() {
     this.stop()
+    this.resizeObserver.disconnect()
     clearTimeout(this.resizeTimer)
     for (const [name, listener] of Object.entries(this.listeners)) {
-      window.removeEventListener(name, listener)
+      const target = name === 'resize' ? window : this.canvas.parentElement || this.canvas
+      target.removeEventListener(name, listener)
     }
     document.removeEventListener('visibilitychange', this.onVisibilityChange)
   }

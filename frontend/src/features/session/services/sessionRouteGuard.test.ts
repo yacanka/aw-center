@@ -40,7 +40,7 @@ describe('session route guard', () => {
     expect(session.bootstrap).toHaveBeenCalledWith(true)
   })
 
-  it('does not block a public welcome route on session I/O', async () => {
+  it('does not block a public invitation route on session I/O', async () => {
     const session: SessionRouteState = {
       status: 'unknown',
       isAuthenticated: false,
@@ -50,7 +50,7 @@ describe('session route guard', () => {
 
     await expect(
       resolveSessionRoute(
-        { name: 'welcome', fullPath: '/welcome', meta: { public: true } },
+        { name: 'invitation', fullPath: '/invite', meta: { public: true } },
         session
       )
     ).resolves.toBe(true)
