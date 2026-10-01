@@ -65,9 +65,19 @@ DOORS_AUTO_START_CLIENT=True
 DOORS_STARTUP_TIMEOUT_SECONDS=90
 DOORS_RUN_TIMEOUT_SECONDS=120
 DOORS_MAX_RESULT_BYTES=10485760
+MAX_DOORS_COLUMNS=50
 DOORS_RESULT_MODE=application_result
 DOORS_WORKER_LOCK_FILE=C:/Users/<user>/AppData/Local/AWCenter/state/doors-worker.lock
 ```
+
+`MAX_DOORS_COLUMNS`, `settings.py` üzerinden modül export'u, Compliance Documents
+import doğrulaması ve kalite raporunun ortak object attribute sınırını yönetir.
+Varsayılan 50'dir; pozitif bir tam sayı olmalıdır. Daha geniş modüller için seçilen
+env dosyasında örneğin `MAX_DOORS_COLUMNS=250` kullanılabilir. Backend ve DOORS
+worker aynı değeri kullanmalıdır; değişiklikten sonra ikisini yeniden başlatıp
+"Load module fields" ile yeni export oluşturun. Önceden kesilmiş job çıktıları
+yeniden kullanılmaz. Görünümde gizlenen veya boş olan object attribute'lar da
+sayılır; çıktı boyutu ve timeout sınırları ayrıca uygulanmaya devam eder.
 
 Gerçek DOORS kullanıcı adı/parolası yalnız seçilen, erişimi kısıtlı env dosyasına
 veya process environment'a girilir. `DOORS_EXECUTABLE` boşsa executable,

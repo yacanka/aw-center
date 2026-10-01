@@ -4,7 +4,7 @@
     preset="card"
     title="Import from DOORS"
     :mask-closable="!busy"
-    class="app-modal app-modal--large"
+    class="app-modal app-modal--xlarge"
   >
     <n-space vertical size="large">
       <n-alert type="info" :bordered="false">
@@ -41,10 +41,12 @@
         </n-alert>
 
         <n-data-table
+          class="doors-link-table"
           :columns="linkColumns"
           :data="linkRows"
           :pagination="false"
-          :scroll-x="660"
+          :scroll-x="1060"
+          table-layout="fixed"
           size="small"
         />
         <n-alert v-if="mappingProblem" type="warning">{{ mappingProblem }}</n-alert>
@@ -167,10 +169,11 @@ const mappingProblem = computed(() => {
 })
 
 const linkColumns: DataTableColumns<LinkRow> = [
-  { title: 'DOORS field', key: 'source' },
+  { title: 'DOORS field', key: 'source', width: 240 },
   {
     title: 'Compliance field',
     key: 'target',
+    width: 320,
     render(row) {
       return h(NSelect, {
         value: row.target,
@@ -193,14 +196,21 @@ const linkColumns: DataTableColumns<LinkRow> = [
   {
     title: 'Populated objects',
     key: 'populated',
+    width: 180,
+    align: 'center',
     render: (row) => {
       const summary = source.value?.column_summaries?.[row.source]
-      return summary ? `${summary.populated_count} / ${source.value?.row_count}` : '—'
+      return h(
+        'span',
+        { class: 'doors-object-count' },
+        summary ? `${summary.populated_count} / ${source.value?.row_count}` : '—'
+      )
     }
   },
   {
     title: 'Exported examples',
     key: 'examples',
+    width: 320,
     render: (row) => source.value?.column_summaries?.[row.source]?.examples.join(' · ') || '—'
   }
 ]
@@ -338,3 +348,16 @@ function delay(milliseconds: number) {
 
 defineExpose({ setActive })
 </script>
+
+<style scoped>
+.doors-link-table :deep(.n-data-table-td) {
+  overflow-wrap: anywhere;
+  word-break: normal;
+  vertical-align: top;
+}
+
+.doors-link-table :deep(.doors-object-count) {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+</style>

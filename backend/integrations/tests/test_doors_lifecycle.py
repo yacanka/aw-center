@@ -459,6 +459,22 @@ class DoorsResultIntegrityTests(SimpleTestCase):
         self.assertIn("ATTRIBUTE_AMBIGUOUS", script)
         self.assertIn('awc_emit("OBJECT\\t" awc_escape(awc_name))', script)
 
+    def test_export_uses_current_configured_column_limit(self):
+        for limit in (2, 250):
+            with self.subTest(limit=limit), override_settings(MAX_DOORS_COLUMNS=limit):
+                script = builder_read.export_module("/Project/Module", 20)
+                self.assertEqual(script.count(f"if (awc_attribute_count >= {limit})"), 2)
+                with self.assertRaises(ValueError):
+                    builder_read.export_module("/Project/Module", 20, limit + 1)
+                with self.assertRaises(ValueError):
+                    builder_read.export_module("/Project/Module", 20, 0)
+
+    @override_settings(MAX_DOORS_COLUMNS=250)
+    def test_export_accepts_explicit_limit_up_to_configured_maximum(self):
+        for limit in (1, 250):
+            script = builder_read.export_module("/Project/Module", 20, limit)
+            self.assertEqual(script.count(f"if (awc_attribute_count >= {limit})"), 2)
+
     def test_export_does_not_shadow_object_attribute_property(self):
         """An Object named object breaks AttrDef.object in the nested row loop."""
         body = builder_read.export_module("/Project/Module", 20, 5)

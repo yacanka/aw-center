@@ -147,6 +147,10 @@ DOORS_AUTO_START_CLIENT = env.bool("DOORS_AUTO_START_CLIENT", default=True)
 DOORS_STARTUP_TIMEOUT_SECONDS = env.float("DOORS_STARTUP_TIMEOUT_SECONDS", default=90.0)
 DOORS_RUN_TIMEOUT_SECONDS = env.float("DOORS_RUN_TIMEOUT_SECONDS", default=120.0)
 DOORS_MAX_RESULT_BYTES = env.int("DOORS_MAX_RESULT_BYTES", default=10 * 1024 * 1024)
+# Shared by module export, compliance import validation, and quality reports.
+MAX_DOORS_COLUMNS = env.int("MAX_DOORS_COLUMNS", default=50)
+if MAX_DOORS_COLUMNS < 1:
+    raise ImproperlyConfigured("MAX_DOORS_COLUMNS must be greater than zero.")
 DOORS_RESULT_MODE = env.str("DOORS_RESULT_MODE", default="application_result")
 _LOCAL_APP_DATA = Path(os.environ.get("LOCALAPPDATA", BASE_DIR / ".runtime"))
 DOORS_WORKER_LOCK_FILE = Path(

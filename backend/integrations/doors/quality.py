@@ -9,6 +9,8 @@ import re
 import unicodedata
 from difflib import SequenceMatcher
 
+from django.conf import settings
+
 MAX_FINDINGS = 200
 MAX_EVIDENCE = 20
 ALIASES = {
@@ -193,5 +195,5 @@ def analyze_module(exported, progress):
                     "conflicting_chapters": len(conflicts),
                     "finding_count": finding_count, "omitted_findings": max(0, finding_count - MAX_FINDINGS)},
         "findings": (conflicts + row_findings)[:MAX_FINDINGS],
-        "limits": {"objects": 10000, "attributes": 50, "findings": MAX_FINDINGS, "evidence_per_finding": MAX_EVIDENCE},
+        "limits": {"objects": 10000, "attributes": settings.MAX_DOORS_COLUMNS, "findings": MAX_FINDINGS, "evidence_per_finding": MAX_EVIDENCE},
     }
