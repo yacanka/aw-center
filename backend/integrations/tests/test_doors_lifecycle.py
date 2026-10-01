@@ -475,6 +475,20 @@ class DoorsResultIntegrityTests(SimpleTestCase):
             script = builder_read.export_module("/Project/Module", 20, limit)
             self.assertEqual(script.count(f"if (awc_attribute_count >= {limit})"), 2)
 
+    def test_export_formats_only_typed_dates_as_iso_calendar_dates(self):
+        """Guard generated DXL: the OLE test doubles cannot execute date conversion."""
+        body = builder_read.export_module("/Project/Module", 20)
+        for mode in (RESULT_MODE_APPLICATION, "file"):
+            with self.subTest(mode=mode):
+                script = wrap_dxl(body, Path("result.txt"), mode)
+                self.assertIn("AttrType awc_type = awc_definition.type", script)
+                self.assertIn("if (awc_type.type != attrDate) return awc_value", script)
+                self.assertIn('if (null awc_value || awc_value == "") return awc_value', script)
+                self.assertIn("Date awc_date = awc_source.awc_name", script)
+                self.assertIn('return stringOf(awc_date, "yyyy-MM-dd")', script)
+                self.assertIn("awc_export_value(awc_object, awc_attribute)", script)
+                self.assertIn('awc_row += "\\t" awc_escape(awc_value)', script)
+
     def test_export_does_not_shadow_object_attribute_property(self):
         """An Object named object breaks AttrDef.object in the nested row loop."""
         body = builder_read.export_module("/Project/Module", 20, 5)
@@ -488,7 +502,8 @@ class DoorsResultIntegrityTests(SimpleTestCase):
                 self.assertIn('(awc_object."Absolute Number" "")', script)
                 self.assertIn("awc_escape(identifier(awc_object))", script)
                 self.assertIn('(level(awc_object) "")', script)
-                self.assertIn('awc_escape(awc_object.awc_attribute_name "")', script)
+                self.assertIn("awc_export_value(awc_object, awc_attribute)", script)
+                self.assertIn("awc_escape(awc_value)", script)
                 self.assertIn("if (awc_count >= 20)", script)
                 self.assertEqual(script.count("if (awc_attribute_count >= 5)"), 2)
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -83,6 +84,51 @@ class ComplianceDoorsImportTests(TestCase):
         source = self.client.get(self.source_url(job))
         self.assertEqual(source.status_code, 200)
         self.assertEqual(source.data["default_mapping"], mapping)
+
+    def test_iso_export_dates_survive_preview_confirmation_and_workflow_projection(self):
+        job = self.export_job([
+            {"Title": "Dated", "Cover": "CP-D", "Target": "2028-02-29", "Delivery": "2028-03-01", "Effective": "", "Status": ""},
+            {"Title": "Undated", "Cover": "CP-D", "Target": "", "Delivery": None, "Effective": "", "Status": ""},
+            {"Title": "01 October 2026 Thursday", "Cover": "CP-D", "Target": "", "Delivery": "", "Effective": "2026-10-01", "Status": "To Be Issued"},
+        ])
+        mapping = {
+            "Title": "name", "Cover": "cover_page_no", "Target": "ubm_target_date",
+            "Delivery": "ubm_delivery_date", "Effective": "effective_date", "Status": "status",
+        }
+        values = {"job_id": job.pk, "mapping": mapping}
+        preview = self.client.post(self.preview_url(), values, format="json")
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["created_count"], 3)
+        self.assertEqual(preview.data["rejected_count"], 0)
+        confirmed = self.client.post(self.confirm_url(), {
+            **values, "confirmation_token": preview.data["confirmation_token"],
+        }, format="json")
+        self.assertEqual(confirmed.status_code, 201)
+        document = ComplianceDocument.objects.get(name="Dated")
+        self.assertEqual(document.ubm_target_date, date(2028, 2, 29))
+        self.assertEqual(document.ubm_delivery_date, date(2028, 3, 1))
+        self.assertEqual(
+            list(document.workflow_events.order_by("sequence").values_list("effective_date", flat=True)),
+            [date(2028, 2, 29), date(2028, 3, 1)],
+        )
+        undated = ComplianceDocument.objects.get(name="Undated")
+        self.assertIsNone(undated.ubm_target_date)
+        self.assertIsNone(undated.ubm_delivery_date)
+        effective = ComplianceDocument.objects.get(name="01 October 2026 Thursday")
+        self.assertEqual(effective.workflow_events.get().effective_date, date(2026, 10, 1))
+
+    def test_invalid_export_date_is_rejected_with_doors_object_context(self):
+        job = self.export_job([{"Title": "Invalid date", "Cover": "CP-D", "Target": "2026-02-29"}])
+        preview = self.client.post(self.preview_url(), {
+            "job_id": job.pk,
+            "mapping": {"Title": "name", "Cover": "cover_page_no", "Target": "ubm_target_date"},
+        }, format="json")
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["rejected_count"], 1)
+        error = preview.data["invalid_documents"][0]
+        self.assertIn("ubm_target_date", error["fields"])
+        self.assertEqual(error["doors_object"], {"absolute_number": 1, "identifier": "REQ-1"})
+        self.assertFalse(ComplianceDocument.objects.exists())
 
     def test_doors_import_creates_and_renames_project_panels(self):
         existing = Panel.objects.create(project=self.project, ata="27-00", name="Old")

@@ -79,6 +79,13 @@ worker aynı değeri kullanmalıdır; değişiklikten sonra ikisini yeniden baş
 yeniden kullanılmaz. Görünümde gizlenen veya boş olan object attribute'lar da
 sayılır; çıktı boyutu ve timeout sınırları ayrıca uygulanmaya devam eder.
 
+Compliance Documents için modül export'u, temel türü `Date` olan dolu object
+attribute'larını DOORS içinde `yyyy-MM-dd` biçimine çevirir. Böylece yerel ay/gün
+adları import'a taşınmaz; saat içeren değerlerde DOORS istemcisinin takvim günü
+alınır. Özel isimli Date türleri de kapsanır; boş değerler ve diğer türler korunur.
+Bu dönüşüm yeni export'lara uygulanır: güncellemeden sonra "Load module fields"
+ile kaynağı yeniden yükleyin. Eski job artifact'ları değiştirilmez.
+
 Gerçek DOORS kullanıcı adı/parolası yalnız seçilen, erişimi kısıtlı env dosyasına
 veya process environment'a girilir. `DOORS_EXECUTABLE` boşsa executable,
 `DOORS_OLE_PROG_ID` için Windows COM kaydının 64/32 bit görünümlerinden bulunur.
