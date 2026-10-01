@@ -17,6 +17,7 @@ const protectedRoutes = [
   '/app/accelerator/outlook',
   '/app/task/ecr',
   '/app/settings',
+  '/app/compare',
   '/app/compare/excel',
   '/app/compare/word',
   '/app/compare/pdf',
@@ -109,6 +110,20 @@ async function routeResponsiveApi(
       return json(route, isAuthenticated() ? authenticatedSession : anonymousSession)
     }
     if (path === '/api/users/preferences/') return json(route, { theme, has_particles: false })
+    if (path === '/api/tools/compare/presets/') {
+      return json(route, {
+        presets: [
+          {
+            id: 'balanced',
+            label: 'Balanced',
+            description: 'Everyday revision comparisons.',
+            equal_ratio: 0.92,
+            weak_equal_ratio: 0.7
+          }
+        ],
+        default: 'balanced'
+      })
+    }
     if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
     if (path === '/api/projects/') {
       return json(route, [

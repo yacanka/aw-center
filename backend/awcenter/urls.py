@@ -39,6 +39,7 @@ urlpatterns = [
     path("api/releases/", include("releases.urls")),
     path("api/tools/ddf/", include("ddf.urls")),
     path("api/tools/excel/", include("excel.urls")),
+    path("api/tools/compare/", include("comparison.urls")),
     path("api/tools/word/", include("word.urls")),
     path("api/tools/pdf/", include("pdf.urls")),
     path("api/tools/outlook/", include("outlook.urls")),

@@ -18,6 +18,8 @@ class PageJobMonitor {
   readonly downloading = ref(false)
   readonly active = computed(() => isActiveJobStatus(this.job.value?.status))
   private refreshTimer: number | undefined
+  private revision = 0
+  private disposed = false
 
   constructor(
     private readonly queryKey: string,
@@ -32,16 +34,22 @@ class PageJobMonitor {
 
   readonly refresh = async (jobId = this.job.value?.id): Promise<void> => {
     if (!jobId) return
+    const revision = this.revision
     try {
-      this.setJob(await fetchJob(jobId), false)
+      const next = await fetchJob(jobId)
+      if (this.disposed || revision !== this.revision) return
+      this.setJob(next, false)
       this.errorMessage.value = ''
     } catch (error) {
+      if (this.disposed || revision !== this.revision) return
       this.errorMessage.value = formatApiError(error)
       this.stopRefresh()
     }
   }
 
   readonly setJob = (nextJob: Job, updateUrl = true): void => {
+    if (this.disposed) return
+    if (updateUrl) this.revision++
     this.job.value = nextJob
     if (updateUrl) {
       void this.router.replace({
@@ -83,6 +91,23 @@ class PageJobMonitor {
     this.refreshTimer = undefined
   }
 
+  /** Detach the old input and invalidate any outstanding restoration/poll. */
+  readonly reset = (): void => {
+    this.revision++
+    this.stopRefresh()
+    this.job.value = null
+    this.errorMessage.value = ''
+    const query = { ...this.route.query }
+    delete query[this.queryKey]
+    void this.router.replace({ query })
+  }
+
+  readonly dispose = (): void => {
+    this.disposed = true
+    this.revision++
+    this.stopRefresh()
+  }
+
   get bindings() {
     return {
       active: this.active,
@@ -94,6 +119,7 @@ class PageJobMonitor {
       job: this.job,
       openJobCenter: this.openJobCenter,
       refresh: () => (this.job.value ? this.refresh() : this.restore()),
+      reset: this.reset,
       setJob: this.setJob
     }
   }
@@ -121,5 +147,6 @@ export function usePageJob(queryKey: string) {
   const monitor = new PageJobMonitor(queryKey, useRoute(), useRouter())
   onMounted(monitor.restore)
   onBeforeUnmount(monitor.stopRefresh)
+  onBeforeUnmount(monitor.dispose)
   return monitor.bindings
 }

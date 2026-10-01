@@ -69,3 +69,8 @@ class WordComparisonHelperTests(SimpleTestCase):
             cell = worksheet.cell(row=2, column=headers[field])
             self.assertNotEqual(cell.data_type, "f")
             self.assertTrue(cell.value.startswith("'"))
+
+    def test_below_threshold_candidate_remains_visible_as_an_insertion(self):
+        rows = align_paragraphs_indexed([(0, 'abc')], [(0, 'abd')], .98, .90)
+        self.assertIn((0, 'abc', None, None, 'delete'), rows)
+        self.assertIn((None, None, 0, 'abd', 'insert'), rows)
