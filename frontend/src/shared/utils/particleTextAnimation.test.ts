@@ -34,6 +34,23 @@ function setup() {
   )
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
   const canvas = document.createElement('canvas')
+  const heading = document.createElement('span')
+  for (const [text, top] of [
+    ['AW', 200],
+    ['Center', 300]
+  ] as const) {
+    const line = document.createElement('span')
+    line.className = 'particle-line'
+    line.textContent = text
+    vi.spyOn(line, 'getBoundingClientRect').mockReturnValue({ left: 120, top } as DOMRect)
+    heading.appendChild(line)
+  }
+  vi.spyOn(heading, 'getBoundingClientRect').mockReturnValue({
+    width: 440,
+    height: 200,
+    left: 120,
+    top: 200
+  } as DOMRect)
   vi.spyOn(canvas, 'getBoundingClientRect').mockImplementation(
     () =>
       ({
@@ -43,7 +60,7 @@ function setup() {
         top: 80
       }) as DOMRect
   )
-  const animation = new ParticleAnimation(canvas, ['#00000088'], 'AW Center')
+  const animation = new ParticleAnimation(canvas, ['#00000088'], 'AW Center', heading)
   return { animation, context }
 }
 
@@ -54,17 +71,43 @@ afterEach(() => {
 })
 
 describe('particle heading animation', () => {
-  it('uses heading bounds and local pointer coordinates', () => {
+  it('places two text lines at the heading while drawing escaped particles on the full screen', () => {
+    const { animation, context } = setup()
+    expect(context.fillText.mock.calls.map(([value]) => value)).toEqual(['AW', 'Center'])
+    expect(animation.ww).toBe(window.innerWidth)
+    expect(animation.wh).toBe(window.innerHeight)
+    expect(animation.particles[0].dest.x).toBeGreaterThanOrEqual(18)
+    animation.particles[0].x = 700
+    animation.particles[0].y = 500
+    context.drawImage.mockClear()
+    animation.render(17)
+    expect(context.drawImage.mock.calls[0][1]).toBeGreaterThan(560)
+    animation.destroy()
+  })
+
+  it('starts with a readable heading before pointer interaction scatters particles', () => {
     const { animation } = setup()
-    vi.mocked(animation.canvas.getBoundingClientRect).mockReturnValue({
+    const first = animation.particles[0]
+    expect(Math.abs(first.x - first.dest.x)).toBeLessThan(10)
+    expect(Math.abs(first.y - first.dest.y)).toBeLessThan(10)
+    expect(first.vx).toBe(0)
+    expect(first.vy).toBe(0)
+    first.update({ x: first.x - 20, y: first.y }, 1, 80)
+    expect(first.vx).not.toBe(0)
+    animation.destroy()
+  })
+
+  it('keeps viewport bounds and local pointer coordinates when the heading changes size', () => {
+    const { animation } = setup()
+    vi.mocked(animation.heading.getBoundingClientRect).mockReturnValue({
       width: 320,
       height: 100,
       left: 100,
       top: 80
     } as DOMRect)
     animation.resize()
-    expect(animation.ww).toBe(320)
-    expect(animation.wh).toBe(100)
+    expect(animation.ww).toBe(window.innerWidth)
+    expect(animation.wh).toBe(window.innerHeight)
     animation.onMouseMove({ clientX: 150, clientY: 110 })
     expect(animation.mouse).toEqual({ x: 50, y: 30 })
     animation.destroy()
@@ -72,9 +115,9 @@ describe('particle heading animation', () => {
 
   it('releases the pointer when it leaves the heading', () => {
     const { animation } = setup()
-    animation.canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 140, clientY: 100 }))
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 140, clientY: 100 }))
     expect(animation.mouse).toEqual({ x: 40, y: 20 })
-    animation.canvas.dispatchEvent(new MouseEvent('mouseleave'))
+    window.dispatchEvent(new MouseEvent('mouseleave'))
     expect(animation.mouse.x).toBeLessThan(0)
     expect(animation.mouse.y).toBeLessThan(0)
     animation.destroy()
@@ -119,20 +162,18 @@ describe('particle heading animation', () => {
     animation.destroy()
   })
 
-  it('preserves the original screen-aligned two-pixel sampling grid', () => {
+  it('keeps a three-pixel sampling grid and aligns both lines to the heading', () => {
     vi.stubGlobal('innerWidth', 1279)
     vi.stubGlobal('innerHeight', 719)
     const { animation, context } = setup()
     for (const particle of animation.particles) {
-      expect(particle.dest.x % 2).toBe(0)
-      expect(particle.dest.y % 2).toBe(0)
+      expect(particle.dest.x % 3).toBe(0)
+      expect(particle.dest.y % 3).toBe(0)
     }
     const first = animation.particles[0]
-    expect(context.fillText).toHaveBeenCalledWith(
-      'AW Center',
-      window.innerWidth / 2 - first.dest.x,
-      window.innerHeight / 2 - first.dest.y
-    )
+    expect(first.dest.x).toBe(18)
+    expect(context.fillText).toHaveBeenNthCalledWith(1, 'AW', 2, 0)
+    expect(context.fillText).toHaveBeenNthCalledWith(2, 'Center', 2, 100)
     animation.destroy()
   })
 
