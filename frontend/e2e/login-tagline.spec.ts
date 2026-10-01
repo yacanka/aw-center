@@ -9,7 +9,10 @@ for (const theme of ['light', 'dark'] as const) {
         if (!new URL(route.request().url()).pathname.startsWith('/api/')) return route.fallback()
         return route.fulfill({ json: { state: 'anonymous', user: null } })
       })
-      await page.goto('/app/login')
+      await page.goto('/app/')
+      await expect(page).toHaveURL(/\/app\/login$/, { timeout: 3000 })
+      await expect(page.getByRole('heading', { name: 'AW Center', exact: true })).toBeVisible()
+      await expect(page.locator('#brand-heading canvas')).toBeHidden()
       const tagline = page.locator('.tagline-copy')
       await expect(tagline).toHaveText('Less routine. More room for your expertise.')
       await expect(page.getByRole('button', { name: 'Pause animation' })).toHaveCount(0)
@@ -22,6 +25,16 @@ for (const theme of ['light', 'dark'] as const) {
         fullPage: true
       })
       await page.emulateMedia({ reducedMotion: 'no-preference' })
+      await expect(page.locator('#brand-heading canvas')).toBeVisible()
+      await page.getByRole('textbox', { name: 'Username', exact: true }).fill('U12345')
+      await expect(page.getByRole('textbox', { name: 'Username', exact: true })).toHaveValue(
+        'U12345'
+      )
+      await page.waitForTimeout(1500)
+      await page.screenshot({
+        path: `test-results/login-particles-${theme}-${width}.png`,
+        fullPage: true
+      })
       await expect(
         page.getByRole('button', { name: /Pause animation|Resume animation/ })
       ).toHaveCount(0)

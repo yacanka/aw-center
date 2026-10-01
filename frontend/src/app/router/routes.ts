@@ -1,6 +1,5 @@
 import type { RouteComponent, RouteRecordRaw } from 'vue-router'
 import LoginView from '@/features/session/pages/Login.vue'
-import Welcome from '@/app/pages/Welcome.vue'
 import { navigationAccessPolicy } from '@/features/session/services/accessPolicy'
 
 /** Return a Vue Router-native lazy component loader. */
@@ -9,8 +8,8 @@ function lazyRoute(loader: () => Promise<RouteComponent>) {
 }
 
 export const routes: RouteRecordRaw[] = [
-  { path: '/', redirect: '/welcome' },
-  { path: '/welcome', name: 'welcome', meta: { public: true }, component: Welcome },
+  { path: '/', redirect: '/login' },
+  { path: '/welcome', redirect: '/login' },
   { path: '/home', name: 'home', component: lazyRoute(() => import('@/app/pages/Home.vue')) },
   {
     path: '/integrations',

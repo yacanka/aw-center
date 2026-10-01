@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import ParticleTextAnimator from '@/shared/components/ParticleTextAnimator.vue'
 import { NFormItem, useThemeVars, type FormInst, type FormRules } from 'naive-ui'
 import { useRouter, useRoute } from 'vue-router'
 import { validateForm } from '@/shared/composables/forms'
@@ -12,6 +13,7 @@ import { takePasswordResetCapability } from '@/features/session/services/passwor
 import { USERNAME_MESSAGE, USERNAME_PATTERN } from '@/features/session/services/usernamePolicy'
 
 const themeVars = useThemeVars()
+const particleColors = computed(() => [themeVars.value.textColor1])
 
 const route = useRoute()
 const router = useRouter()
@@ -65,7 +67,7 @@ function openPasswordRecovery(): void {
       <section class="login-intro" aria-labelledby="brand-heading">
         <div class="intro-rule" aria-hidden="true"></div>
         <h1 id="brand-heading">
-          AW <span class="brand-line">Center<span class="heading-dot">.</span></span>
+          <ParticleTextAnimator text="AW Center" :colors="particleColors" />
         </h1>
         <LoginTagline />
       </section>
@@ -182,18 +184,10 @@ function openPasswordRecovery(): void {
 
 .login-intro h1 {
   margin: 0;
-  font-size: clamp(64px, 7.5vw, 108px);
+  font-size: clamp(48px, 5vw, 72px);
   font-weight: 600;
   line-height: 0.98;
   letter-spacing: -0.065em;
-}
-
-.brand-line {
-  display: block;
-}
-
-.heading-dot {
-  color: v-bind('themeVars.primaryColor');
 }
 
 .login-panel {
@@ -269,10 +263,6 @@ function openPasswordRecovery(): void {
 
   .login-intro h1 {
     font-size: clamp(48px, 12vw, 56px);
-  }
-
-  .brand-line {
-    display: inline;
   }
 
   .login-panel {
