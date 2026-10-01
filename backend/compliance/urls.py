@@ -2,6 +2,8 @@ from django.urls import path
 
 from .api import (
     ActivityView,
+    StatusCollectionView,
+    StatusDetailView,
     ArchiveView,
     DashboardView,
     DocumentCollectionView,
@@ -33,6 +35,8 @@ from .api import (
 
 
 urlpatterns = [
+    path("statuses/", StatusCollectionView.as_view(), name="compliance-status-list"),
+    path("statuses/<uuid:status_id>/", StatusDetailView.as_view(), name="compliance-status-detail"),
     path("", DocumentCollectionView.as_view(), name="compliance-document-list"),
     path("fields/", DocumentFieldsView.as_view(), name="compliance-document-fields"),
     path("options/", ReferenceOptionCollectionView.as_view(), name="compliance-document-options"),

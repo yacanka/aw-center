@@ -4,16 +4,6 @@ import type {
   DashboardTimeline
 } from '@/features/compliance/models/compdocDashboard'
 
-const STATUS_BUCKETS = new Set([
-  'to_be_issued',
-  'airworthiness_review',
-  'to_be_re-submitted',
-  'to_be_updated',
-  'authority_review',
-  'authority_approved',
-  'delayed',
-  'unknown'
-])
 const PENDING_BUCKETS: Record<string, 'authority' | 'ubm' | 'aw'> = {
   to_be_updated: 'ubm',
   airworthiness_review: 'aw',
@@ -37,7 +27,8 @@ export function buildClientCompdocSummary(
   const scheduled = new Map<number, number>()
   const actual = new Map<number, number>()
   rows.forEach((row) => {
-    statuses[normalizedStatus(row.status)] += 1
+    const status = normalizedStatus(row.status)
+    statuses[status] = (statuses[status] || 0) + 1
     const milestones = documentMilestones(row)
     accumulatePending(milestones.entries, pendingDays, startOfDay(today))
     accumulateDate(scheduled, milestones.target, new Set(['to_be_issued', 'delayed']))
@@ -75,12 +66,12 @@ function documentMilestones(row: ICompDoc) {
 }
 
 function emptyStatuses() {
-  return Object.fromEntries([...STATUS_BUCKETS].map((status) => [status, 0]))
+  return Object.create(null) as Record<string, number>
 }
 
 function normalizedStatus(value: unknown) {
   const status = String(value || 'unknown')
-  return STATUS_BUCKETS.has(status) ? status : 'unknown'
+  return status
 }
 
 function normalizedFlow(value: IStatusFlow[]) {

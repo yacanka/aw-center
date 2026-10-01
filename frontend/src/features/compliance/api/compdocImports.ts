@@ -21,6 +21,8 @@ export interface ImportPanelChange {
 }
 
 export interface ImportPreview {
+  status_changes?: Array<{ value: string; label: string }>
+  unknown_status_rows?: number[]
   source_columns?: string[]
   target_fields?: DoorsImportTargetField[]
   header_row: number | null

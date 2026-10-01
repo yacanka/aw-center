@@ -12,25 +12,6 @@ export interface StatusColorSet {
   color75: string
 }
 
-const BASE_STATUS_OPTIONS: CompdocOption[] = [
-  { value: 'to_be_issued', label: 'To be Issued' },
-  { value: 'airworthiness_review', label: 'Airworthiness Review' },
-  { value: 'to_be_re-submitted', label: 'To be Re-Submitted' },
-  { value: 'to_be_updated', label: 'To be Updated' },
-  { value: 'authority_review', label: 'Authority Review' },
-  { value: 'authority_approved', label: 'Authority Approved' }
-]
-
-export const workflowStatusOptions: CompdocOption[] = [
-  ...BASE_STATUS_OPTIONS,
-  { value: 'unknown', label: 'Unknown' }
-]
-
-export const statusOptions: CompdocOption[] = [
-  ...workflowStatusOptions,
-  { value: 'delayed', label: 'Delayed' }
-]
-
 export const statusColors: Record<string, StatusColorSet> = {
   to_be_issued: colorSet('#FFC7CE'),
   airworthiness_review: colorSet('#FFEB9C'),

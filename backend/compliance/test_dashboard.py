@@ -48,7 +48,8 @@ class DashboardTests(TestCase):
             )
             for index in range(205)
         ])
-        with self.assertNumQueries(3):
+        # The project vocabulary adds one bounded query, independent of document count.
+        with self.assertNumQueries(4):
             summary = build_dashboard(self.project, today=TODAY)
 
         self.assertEqual(summary["total"], 205)

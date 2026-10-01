@@ -30,6 +30,6 @@ function renderStatus(row: ICompDoc) {
       color: colors ? { color: colors.color25, textColor: colors.color } : undefined,
       bordered: false
     },
-    () => humanizeCompdocStatus(status)
+    () => row.status_label || humanizeCompdocStatus(status)
   )
 }

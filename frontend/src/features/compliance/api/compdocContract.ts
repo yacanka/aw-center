@@ -82,6 +82,7 @@ export function normalizeCompdoc(value: unknown): ICompDoc {
     requirements: stringArray(value.requirements),
     status_flow: [],
     status: stringValue(value.status),
+    status_label: stringOrUndefined(value.status_label),
     owner: nullableNumber(value.owner),
     owner_group: nullableNumber(value.owner_group),
     next_action_due_date: nullableString(value.next_action_due_date),

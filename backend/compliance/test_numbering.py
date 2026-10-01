@@ -73,6 +73,14 @@ class CoverPageNumberingTests(TestCase):
             },
         }
 
+    def test_numbering_draft_does_not_conflict_with_a_real_placeholder_named_cover(self):
+        cover = CoverPage.objects.create(project=self.project, number="NUMARATOR-PENDING")
+        ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Generated document",
+        )
+        response = self.client.post(self.url, self.payload(), format="json")
+        self.assertEqual(response.status_code, 202, response.data)
+
     def test_editor_can_enqueue_idempotently_but_viewer_cannot(self):
         payload = self.payload()
 
@@ -228,7 +236,7 @@ class CoverPageNumberingTests(TestCase):
         self.assertEqual(CoverPageNumberAllocation.objects.count(), 0)
         self.assertEqual(Job.objects.count(), 0)
 
-    def test_document_can_be_created_without_cover_page_number(self):
+    def test_manual_document_requires_cover_page_number(self):
         response = self.client.post(
             "/api/projects/ozgur/compliance-documents/",
             {
@@ -239,8 +247,8 @@ class CoverPageNumberingTests(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.data["cover_page"]["number"], "")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(ComplianceDocument.objects.exists())
 
     @patch("compliance.numbering_executor.NumaratorClient")
     def test_use_notification_retry_does_not_create_another_document(self, client_class):

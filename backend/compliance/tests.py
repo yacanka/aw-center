@@ -21,6 +21,7 @@ from orgs.models import (
 
 from .models import (
     ComplianceDocument,
+    DocumentStatus,
     CoverPage,
     NotificationPolicy,
     ReviewTask,
@@ -32,6 +33,9 @@ from .models import (
 class ComplianceApiTests(TestCase):
     def setUp(self):
         self.project = Project.objects.get(slug="ozgur")
+        for value in ("to_be_issued", "authority_review"):
+            DocumentStatus.objects.get_or_create(project=self.project, value=value,
+                                                defaults={"label": value.replace("_", " ")})
         self.panel = Panel.objects.create(
             project=self.project,
             name="Flight",

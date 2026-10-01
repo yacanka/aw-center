@@ -49,8 +49,8 @@
     </n-alert>
     <div v-if="mode === 'manual'" style="margin-top: 16px">
       <n-p
-        >Link Excel columns to document fields. Unlinked columns will be ignored. Name is
-        required.</n-p
+        >Link Excel columns to document fields. Unlinked columns will be ignored. Cover Page No and
+        Name are required.</n-p
       >
       <n-form-item v-for="column in source?.source_columns || []" :key="column" :label="column">
         <n-select
@@ -73,6 +73,13 @@
           Reject: {{ preview?.rejected_count || 0 }}
         </n-tag>
       </n-space>
+      <n-alert v-if="preview.status_changes?.length" type="info" title="New project statuses">
+        {{ preview.status_changes.map((item) => item.label).join(', ') }}
+      </n-alert>
+      <n-alert v-if="preview.unknown_status_rows?.length" type="info" title="Unknown status">
+        Rows {{ preview.unknown_status_rows.join(', ') }} will use Unknown, including existing
+        documents.
+      </n-alert>
       <n-alert v-if="preview.panel_changes?.length" type="info" title="Project panel changes">
         These changes also apply to other documents using the same ATA chapter.
         <ul>

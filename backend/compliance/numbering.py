@@ -69,7 +69,7 @@ class CoverPageAllocationRequestSerializer(serializers.Serializer):
         candidate["cover_page"] = {**cover_page, "number": "NUMARATOR-PENDING"}
         document_serializer = ComplianceDocumentSerializer(
             data=candidate,
-            context=self.context,
+            context={**self.context, "numbering_draft": True},
         )
         document_serializer.is_valid(raise_exception=True)
         snapshot = _json_snapshot(document_serializer.validated_data)

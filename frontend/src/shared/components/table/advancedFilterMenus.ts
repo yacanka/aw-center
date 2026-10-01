@@ -8,7 +8,6 @@ import {
   NSelect,
   NSpace
 } from 'naive-ui'
-import { statusOptions } from '@/features/compliance/api/compdocCatalog'
 
 type FilterHandler = (attribute: string, value: unknown) => void
 type CleanHandler = (attribute: string) => void
@@ -35,11 +34,12 @@ export function getDateFilterMenuFunc(
 export function getArrayFilterMenuFunc(
   attribute: string,
   onApply: FilterHandler,
-  onClean: CleanHandler
+  onClean: CleanHandler,
+  options: Array<{ value: string; label: string }> = []
 ) {
   const state = reactive<ArrayFilterState>({ filter: false, values: [] })
   return (actions: FilterMenuActions) =>
-    renderArrayMenu(attribute, state, actions, onApply, onClean)
+    renderArrayMenu(attribute, state, actions, onApply, onClean, options)
 }
 
 function renderDateMenu(
@@ -104,7 +104,8 @@ function renderArrayMenu(
   state: ArrayFilterState,
   actions: FilterMenuActions,
   onApply: FilterHandler,
-  onClean: CleanHandler
+  onClean: CleanHandler,
+  options: Array<{ value: string; label: string }>
 ) {
   const apply = () => applyArrayFilter(attribute, state, onApply)
   const clean = () => cleanArrayFilter(attribute, state, actions, onClean)
@@ -112,19 +113,26 @@ function renderArrayMenu(
     NSpace,
     { vertical: true, style: { padding: '8px' } },
     {
-      default: () => [statusCheckboxes(state), h(NDivider), arrayToggle(state, apply, clean)]
+      default: () => [
+        statusCheckboxes(state, options),
+        h(NDivider),
+        arrayToggle(state, apply, clean)
+      ]
     }
   )
 }
 
-function statusCheckboxes(state: ArrayFilterState) {
+function statusCheckboxes(
+  state: ArrayFilterState,
+  options: Array<{ value: string; label: string }>
+) {
   return h(
     NCheckboxGroup,
     {
       value: state.values,
       'onUpdate:value': (values: Array<string | number>) => (state.values = values)
     },
-    () => h(NSpace, { vertical: true }, () => statusOptions.map(statusCheckbox))
+    () => h(NSpace, { vertical: true }, () => options.map(statusCheckbox))
   )
 }
 

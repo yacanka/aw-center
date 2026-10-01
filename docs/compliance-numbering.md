@@ -1,10 +1,18 @@
 # Bulk cover page numbering
 
-Excel import accepts a missing **Cover Page Number** column or blank cells. Only
-the document name is required. Unnumbered documents receive independent cover
-pages and can use **Assign missing numbers** after import. Reimport matching still
-uses cover number plus document name or technical number; export and retain the
-document UUID when updating a document after its number has been assigned.
+**Cover Page Number** and **Name** are required for manual document creation and
+Excel/DOORS imports. Their combination is unique within a project; neither field
+is individually unique. Other document metadata is optional. Technical document
+numbers may repeat and are not used to identify an existing row during import.
+Imports match by cover number and name, or by an explicitly supplied document UUID;
+both required values must still be supplied when using a UUID. Use the UUID when
+renaming a document or changing its cover number through import.
+
+Single-document Numarator creation assigns a number before persisting the document.
+Existing unnumbered records are preserved by migration and remain eligible for
+**Assign missing numbers**. They must receive a number before ordinary edits can
+be saved. Migration `0013_require_document_identity` removes the additional
+technical-number uniqueness constraint without deleting or rewriting documents.
 
 Editors can open **Assign missing numbers** beside **New** in the Compliance
 Documents table. The preview uses only the active, unnumbered documents on the currently displayed

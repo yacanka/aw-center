@@ -18,12 +18,15 @@ from rest_framework.exceptions import ValidationError
 
 from .compdoc_import import (
     HeaderMappingResult,
+    REQUIRED_IMPORT_FIELDS,
     build_mapping_preview,
     choose_header_row,
     get_missing_required_fields,
     read_mapped_excel,
 )
-from .compdoc_workflow import WORKFLOW_STATUSES, parse_workflow_date
+from .compdoc_workflow import parse_workflow_date
+from .status_catalog import normalize_status, ensure_status, lock_status_project
+from .models import DocumentStatus
 from .import_panels import ImportPanels, PanelReference, PlannedPanelField, apply_panel_changes
 from .models import ComplianceDocument, CoverPage, ImportAudit, WorkflowEvent
 from .serializers import ComplianceDocumentSerializer
@@ -97,6 +100,8 @@ class PlannedRow:
     target: ComplianceDocument | None
     action: str
     panel_reference: PanelReference
+    status_value: str
+    status_label: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +111,8 @@ class ImportPlan:
     mapping: dict
     panel_changes: tuple[dict, ...] = ()
     panel_snapshot: tuple[dict, ...] = ()
+    status_changes: tuple[dict, ...] = ()
+    unknown_status_rows: tuple[int, ...] = ()
 
     @property
     def counts(self):
@@ -168,7 +175,7 @@ def prepare_plan(
     mapping = build_mapping_preview(preview_frame.columns, header)
     mapping["source_columns"] = [str(column) for column in preview_frame.columns]
     mapping["target_fields"] = [
-        {"key": field, "label": field.replace("_", " ").title(), "required": field == "name"}
+        {"key": field, "label": field.replace("_", " ").title(), "required": field in REQUIRED_IMPORT_FIELDS}
         for field in sorted(IMPORT_FIELDS)
     ]
     if mapping["missing_columns"]:
@@ -346,20 +353,6 @@ def prepare_tabular_plan(
                 )
                 continue
             matches = {by_key[key] for key in keys if key in by_key}
-            if len(matches) > 1:
-                errors.append(
-                    {
-                        "row": row_number,
-                        "code": "IMPORT_IDENTITY_CONFLICT",
-                        "fields": {
-                            "document": (
-                                "The document name and technical number match different existing "
-                                "documents; export and provide the document UUID."
-                            )
-                        },
-                    }
-                )
-                continue
             target = next(iter(matches), None)
         if target is not None and target.is_archived:
             errors.append(
@@ -374,10 +367,6 @@ def prepare_tabular_plan(
         cover_page = cover_pages_by_number.get(
             _canonical_identity(payload["cover_page"]["number"])
         )
-        if target is not None and not payload["cover_page"]["number"]:
-            cover_page = target.cover_page
-            # Missing import numbers must not detach a previously allocated cover.
-            payload["cover_page"]["number"] = cover_page.number
         if cover_page is not None:
             payload["cover_page"]["version"] = cover_page.version
 
@@ -423,11 +412,22 @@ def prepare_tabular_plan(
                 target=target,
                 action=action,
                 panel_reference=reference,
+                status_value=normalized_row["status"],
+                status_label=normalized_row["status_label"],
             )
         )
+    existing_statuses = set(DocumentStatus.objects.filter(project=project).values_list("value", flat=True))
+    requested_statuses = {}
+    for row in planned:
+        requested_statuses.setdefault(row.status_value, row.status_label)
+        for event in row.workflow_events:
+            requested_statuses.setdefault(event.status, event.status.replace("_", " ").title())
+    changes = tuple({"value": value, "label": label} for value, label in requested_statuses.items()
+                    if value not in existing_statuses)
     return ImportPlan(
         tuple(planned), tuple(errors), mapping,
-        panels.changes(planned), tuple(panels.snapshot),
+        panels.changes(planned), tuple(panels.snapshot), changes,
+        tuple(row.row_number for row in planned if row.status_value == "unknown"),
     )
 
 
@@ -437,6 +437,8 @@ def _normalize_row(source, panels):
     cover_number = str(values["cover_page_no"]) if values.get("cover_page_no") is not None else ""
     if not name:
         raise ValidationError({"name": "Document name is required."})
+    if not cover_number:
+        raise ValidationError({"cover_page_no": "Cover page number is required."})
 
     reference = panels.resolve(values)
     panel = reference.panel
@@ -452,13 +454,16 @@ def _normalize_row(source, panels):
         "number": cover_number,
         "issue": values.get("cover_page_issue"),
     }
-    status = _normalize_status(values.get("status"))
+    status, status_label = normalize_status(values.get("status"))
     workflow_events, reconcile_workflow = _build_workflow_events(values, status)
     return {
         "panel_reference": reference,
         "id": _document_id(values.get("id")),
         "payload": payload,
         "status": status,
+        "status_label": status_label,
+        "effective_date": _effective_date(values.get("effective_date")),
+        "has_delivery_date": values.get("ubm_delivery_date") not in (None, ""),
         "workflow_events": workflow_events,
         "reconcile_workflow": reconcile_workflow,
     }
@@ -474,31 +479,12 @@ def _document_id(value):
         raise ValidationError({"id": "Use a valid document UUID."}) from error
 
 
-def _normalize_status(value):
-    if value in (None, ""):
-        return None
-    status = re.sub(r"\s+", "_", str(value).strip().casefold().replace(".", ""))
-    if status not in WORKFLOW_STATUSES:
-        raise ValidationError({"status": "Unsupported workflow status."})
-    return status
-
-
 def _build_workflow_events(values, status):
     raw_effective_date = values.get("effective_date")
     raw_target_date = values.get("ubm_target_date")
     raw_delivery_date = values.get("ubm_delivery_date")
     has_target_date = raw_target_date not in (None, "")
     has_delivery_date = raw_delivery_date not in (None, "")
-
-    if not status:
-        if any(
-            value not in (None, "")
-            for value in (raw_effective_date, raw_target_date, raw_delivery_date)
-        ):
-            raise ValidationError(
-                {"status": "A workflow status is required when a workflow date is provided."}
-            )
-        return (), False
 
     if has_delivery_date and not has_target_date:
         raise ValidationError(
@@ -553,18 +539,12 @@ def _payload_keys(values):
     payload = values["payload"]
     cover = _canonical_identity(payload["cover_page"]["number"])
     keys = {("name", cover, _canonical_identity(payload["name"]))}
-    tech_doc_no = _canonical_identity(payload.get("tech_doc_no"))
-    if tech_doc_no:
-        keys.add(("tech_doc_no", cover, tech_doc_no))
     return frozenset(keys)
 
 
 def _document_keys(document):
     cover = _canonical_identity(document.cover_page.number)
     keys = {("name", cover, _canonical_identity(document.name))}
-    tech_doc_no = _canonical_identity(document.tech_doc_no)
-    if tech_doc_no:
-        keys.add(("tech_doc_no", cover, tech_doc_no))
     return frozenset(keys)
 
 
@@ -579,7 +559,7 @@ def _normalized_cover_issue(value):
 def _pending_workflow_events(target, normalized_row):
     requested = normalized_row["workflow_events"]
     if target is None:
-        return tuple(event for event in requested if event.status != "unknown")
+        return () if len(requested) == 1 and requested[0].status == "unknown" else requested
     if not normalized_row["reconcile_workflow"]:
         if not requested or requested[-1].status == target.status:
             return ()
@@ -589,6 +569,17 @@ def _pending_workflow_events(target, normalized_row):
         PlannedWorkflowEvent(event.status, event.effective_date)
         for event in target.import_workflow_events
     )
+    if normalized_row["status"] == "unknown" and len(existing) >= 2:
+        # An Unknown current status is a new transition, not a
+        # request to replace the immutable status at the delivery milestone.
+        if existing[0] != requested[0] or (
+            normalized_row["has_delivery_date"]
+            and existing[1].effective_date != requested[1].effective_date
+        ):
+            raise ValidationError({"status_flow": "Imported milestones conflict with existing history."})
+        if target.status == "unknown":
+            return ()
+        return (PlannedWorkflowEvent("unknown", normalized_row["effective_date"]),)
     if len(existing) > len(requested) or existing != requested[: len(existing)]:
         raise ValidationError(
             {
@@ -630,6 +621,8 @@ def plan_fingerprint(plan: ImportPlan) -> str:
             "version": row.target.version if row.target else None,
             "identity": sorted(_payload_keys({"payload": row.payload})),
             "payload": row.payload,
+            "status_value": row.status_value,
+            "status_label": row.status_label,
             "panel_ata": row.panel_reference.panel.ata if row.panel_reference.panel else None,
             "workflow_events": row.workflow_events,
             "target_cover": (
@@ -738,7 +731,7 @@ def execute_source_plan(
         **audit_values,
     )
     try:
-        with transaction.atomic():
+        with lock_status_project(project):
             plan = prepare_locked()
             if plan_fingerprint(plan) != expected_fingerprint:
                 raise VersionConflict("Import targets changed after preview.")
@@ -778,6 +771,9 @@ def execute_source_plan(
 def _apply_plan(plan, project, request, audit):
     panels = apply_panel_changes(plan.panel_changes, project)
     for row in plan.rows:
+        ensure_status(project, row.status_value, row.status_label)
+        for event in row.workflow_events:
+            ensure_status(project, event.status, event.status.replace("_", " ").title())
         if row.action == "unchanged":
             continue
         serializer = ComplianceDocumentSerializer(

@@ -87,10 +87,10 @@ class ComplianceDoorsImportTests(TestCase):
     def test_doors_import_creates_and_renames_project_panels(self):
         existing = Panel.objects.create(project=self.project, ata="27-00", name="Old")
         job = self.export_job([
-            {"Title": "First", "Panel": "New", "ATA": "29"},
-            {"Title": "Second", "Panel": "Renamed", "ATA": "27"},
+            {"Title": "First", "Cover": "CP-P", "Panel": "New", "ATA": "29"},
+            {"Title": "Second", "Cover": "CP-P", "Panel": "Renamed", "ATA": "27"},
         ])
-        values = {"job_id": job.pk, "mapping": {"Title": "name", "Panel": "panel", "ATA": "ata"}}
+        values = {"job_id": job.pk, "mapping": {"Title": "name", "Cover": "cover_page_no", "Panel": "panel", "ATA": "ata"}}
         preview = self.client.post(self.preview_url(), values, format="json")
         self.assertEqual(preview.data["created_count"], 2)
         self.assertEqual(len(preview.data["panel_changes"]), 2)
@@ -142,17 +142,17 @@ class ComplianceDoorsImportTests(TestCase):
         })
         self.assertEqual(
             [field["key"] for field in response.data["target_fields"] if field["required"]],
-            ["name"],
+            ["cover_page_no", "name"],
         )
 
     def test_exact_attribute_mapping_reports_the_empty_object_only(self):
         job = self.export_job([
-            {" Başlık ": "Document", "Başlık": ""},
-            {" Başlık ": " \t", "Başlık": "Other attribute is populated"},
+            {" Başlık ": "Document", "Başlık": "", "Cover": "CP-D"},
+            {" Başlık ": " \t", "Başlık": "Other attribute is populated", "Cover": "CP-D"},
         ])
 
         response = self.client.post(self.preview_url(), {
-            "job_id": job.pk, "mapping": {" Başlık ": "name"},
+            "job_id": job.pk, "mapping": {" Başlık ": "name", "Cover": "cover_page_no"},
         }, format="json")
 
         self.assertEqual(response.status_code, 200)

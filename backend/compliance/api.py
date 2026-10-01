@@ -24,7 +24,7 @@ from orgs.access_policy import has_project_role, require_project_role
 from orgs.models import Project, ProjectRoleAssignment
 from projects.registry import PROJECT_DEFINITIONS
 
-from .compdoc_workflow import WORKFLOW_STATUSES
+from .status_catalog import create_status, delete_status, status_options, status_payload
 from .compdoc_import import REQUIRED_IMPORT_FIELDS
 from .dashboard import build_dashboard
 from .doors_imports import (
@@ -155,6 +155,25 @@ class ProjectComplianceMixin:
             queryset.select_related("project", "panel", "cover_page", "owner", "owner_group"),
             pk=document_id,
         )
+
+
+class StatusCollectionView(ProjectComplianceMixin, APIView):
+    def get(self, request, project_slug):
+        return Response(status_options(self.project))
+
+    def post(self, request, project_slug):
+        require_project_role(request.user, self.project, ProjectRoleAssignment.Domain.COMPLIANCE,
+                             ProjectRoleAssignment.Role.MANAGER)
+        item = create_status(self.project, request.data.get("label"))
+        return Response(status_payload(item), status=status.HTTP_201_CREATED)
+
+
+class StatusDetailView(ProjectComplianceMixin, APIView):
+    minimum_role = ProjectRoleAssignment.Role.MANAGER
+
+    def delete(self, request, project_slug, status_id):
+        delete_status(self.project, status_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class DocumentCollectionView(ProjectComplianceMixin, APIView):
@@ -392,14 +411,15 @@ class DocumentHistoryView(ProjectComplianceMixin, APIView):
 
 class DocumentFieldsView(ProjectComplianceMixin, APIView):
     def get(self, request, project_slug):
+        options = status_options(self.project)
         excluded = {"project", "history", "version"}
         fields = [
             {
                 "key": field.name,
                 "label": str(field.verbose_name).replace("_", " ").title(),
-                "required": not field.blank and not field.null,
+                "required": field.name in {"name", "cover_page"},
                 "read_only": not field.editable,
-                **_field_capabilities(field.name),
+                **_field_capabilities(field.name, options),
             }
             for field in ComplianceDocument._meta.fields
             if field.name not in excluded
@@ -488,7 +508,7 @@ class DashboardView(ProjectComplianceMixin, APIView):
 
 class TransitionInputSerializer(serializers.Serializer):
     version = serializers.IntegerField(min_value=1)
-    status = serializers.ChoiceField(choices=sorted(WORKFLOW_STATUSES))
+    status = serializers.CharField(max_length=128)
     effective_date = serializers.DateField()
     next_action_due_date = serializers.DateField(required=False, allow_null=True)
     reason = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
@@ -845,6 +865,8 @@ class ImportPreviewView(ProjectComplianceMixin, APIView):
                 **plan.mapping,
                 **plan.counts,
                 "panel_changes": list(plan.panel_changes),
+                "status_changes": list(plan.status_changes),
+                "unknown_status_rows": list(plan.unknown_status_rows),
                 "invalid_documents": list(plan.errors),
                 "confirmation_token": create_confirmation(
                     uploaded_file,
@@ -882,6 +904,8 @@ class ImportConfirmView(ProjectComplianceMixin, APIView):
                 "status": audit.status,
                 **plan.counts,
                 "panel_changes": list(plan.panel_changes),
+                "status_changes": list(plan.status_changes),
+                "unknown_status_rows": list(plan.unknown_status_rows),
                 "invalid_documents": list(plan.errors),
             },
             status=status.HTTP_201_CREATED,
@@ -940,6 +964,8 @@ class DoorsImportPreviewView(ProjectComplianceMixin, APIView):
                 **plan.mapping,
                 **plan.counts,
                 "panel_changes": list(plan.panel_changes),
+                "status_changes": list(plan.status_changes),
+                "unknown_status_rows": list(plan.unknown_status_rows),
                 "job_id": job.pk,
                 "module_path": source["module_path"],
                 "invalid_documents": list(plan.errors),
@@ -987,6 +1013,8 @@ class DoorsImportConfirmView(ProjectComplianceMixin, APIView):
                 "status": audit.status,
                 **plan.counts,
                 "panel_changes": list(plan.panel_changes),
+                "status_changes": list(plan.status_changes),
+                "unknown_status_rows": list(plan.unknown_status_rows),
                 "invalid_documents": list(plan.errors),
             },
             status=status.HTTP_201_CREATED,
@@ -1110,9 +1138,7 @@ def _apply_document_filters(queryset, query_params):
             validator = (
                 serializers.IntegerField(min_value=1)
                 if field == "panel"
-                else serializers.ChoiceField(
-                    choices=ComplianceDocument._meta.get_field(field).choices
-                )
+                else serializers.CharField(max_length=128)
             )
             validated = [validator.run_validation(value) for value in values[:100]]
             queryset = queryset.filter(**{f"{field}__in": validated})
@@ -1171,7 +1197,7 @@ def _doors_import_job(request, job_id):
     return job
 
 
-def _field_capabilities(field):
+def _field_capabilities(field, statuses=()):
     public_field = "cover_page_no" if field == "cover_page" else field
     if public_field in DATE_FILTER_FIELDS:
         filter_kind = "date"
@@ -1186,7 +1212,7 @@ def _field_capabilities(field):
     choices = []
     option_source = "panels" if field == "panel" else None
     if field == "status":
-        choices = [{"value": value, "label": label} for value, label in ComplianceDocument._meta.get_field("status").choices]
+        choices = [{"value": item["value"], "label": item["label"]} for item in statuses]
     return {
         "filter_kind": filter_kind,
         "sortable": public_field in ORDERING_FIELDS,

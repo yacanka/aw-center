@@ -287,7 +287,8 @@ def _bind_existing_document(allocation):
     ).exists():
         raise NumaratorConflictError("The generated number already exists in this project.")
     payload = dict(snapshot)
-    cover_data = payload.pop("cover_page")
+    cover_data = payload["cover_page"]
+    payload["cover_page"] = {**cover_data, "number": allocation.remote_number}
     serializer = ComplianceDocumentSerializer(
         document,
         data=payload,

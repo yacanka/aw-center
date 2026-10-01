@@ -4,16 +4,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 
-WORKFLOW_STATUS_CHOICES = (
-    ("to_be_issued", "To be Issued"),
-    ("airworthiness_review", "Airworthiness Review"),
-    ("to_be_re-submitted", "To be Re-Submitted"),
-    ("to_be_updated", "To be Updated"),
-    ("authority_review", "Authority Review"),
-    ("authority_approved", "Authority Approved"),
-    ("unknown", "Unknown"),
-)
-WORKFLOW_STATUSES = {value for value, _label in WORKFLOW_STATUS_CHOICES}
 DATE_FORMATS = ("%d.%m.%Y", "%Y-%m-%d", "%Y/%m/%d")
 
 
@@ -31,7 +21,7 @@ def extract_workflow_projection(value) -> WorkflowProjection:
 
     entries = [item for item in value if _valid_entry(item)] if isinstance(value, list) else []
     candidate = entries[-1]["status"].strip() if entries else "unknown"
-    status = candidate if candidate in WORKFLOW_STATUSES else "unknown"
+    status = candidate
     target_date = parse_workflow_date(entries[0].get("date")) if entries else None
     delivery_date = parse_workflow_date(entries[1].get("date")) if len(entries) > 1 else None
     return WorkflowProjection(status, target_date, delivery_date)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
-import { workflowStatusOptions } from '@/features/compliance/api/compdocCatalog'
+import { useCompdocStatuses } from '@/features/compliance/composables/statuses'
 import {
   transitionCompdoc,
   type TransitionRequest
@@ -14,16 +14,23 @@ const props = defineProps<{
   document: ICompDoc
 }>()
 const emit = defineEmits<{ changed: [] }>()
+const { statuses, loading, error, load } = useCompdocStatuses(
+  () => props.project,
+  () => props.show
+)
 const saving = ref(false)
 const transition = ref<TransitionRequest>(emptyTransition())
 const currentWorkflowStatus = computed(() =>
   props.document.status === 'delayed' ? 'to_be_issued' : props.document.status
 )
 const availableStatuses = computed(() =>
-  workflowStatusOptions.filter((option) => option.value !== currentWorkflowStatus.value)
+  statuses.value.filter((option) => option.value !== currentWorkflowStatus.value)
 )
 const canSubmit = computed(
   () =>
+    !loading.value &&
+    !error.value &&
+    statuses.value.some((option) => option.value === transition.value.status) &&
     Boolean(props.document.id && transition.value.version) &&
     Boolean(transition.value.status) &&
     Boolean(transition.value.effective_date) &&
@@ -57,7 +64,7 @@ function localDate(): string {
 }
 
 async function submitTransition(): Promise<void> {
-  if (!props.document.id || !transition.value.version) {
+  if (!canSubmit.value || !props.document.id) {
     window.$message.error('Reload the document before recording a transition.')
     return
   }
@@ -82,10 +89,15 @@ async function submitTransition(): Promise<void> {
     </n-alert>
     <n-form label-placement="top">
       <n-grid responsive="screen" cols="1 s:2" :x-gap="12">
+        <n-alert v-if="error" type="error"
+          >{{ error }} <n-button @click="load">Retry</n-button></n-alert
+        >
         <n-form-item-gi label="New status">
           <n-select
             v-model:value="transition.status"
             :options="availableStatuses"
+            :loading="loading"
+            :disabled="loading || Boolean(error)"
             placeholder="Select a new status"
           />
         </n-form-item-gi>

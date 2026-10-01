@@ -121,7 +121,11 @@ export function useCompdocImport(uploadUrl: () => string) {
     window.$loadingBar.finish()
     callbacks.value?.onFinish()
     showUploadSuccess(result.detail, result.invalid_documents)
-    await Promise.all([store.fetchCompdocs(), store.fetchReferencePanels()])
+    await Promise.all([
+      store.fetchCompdocs(),
+      store.fetchReferencePanels(),
+      store.fetchCompDocFields()
+    ])
     resetUploadState()
   }
 

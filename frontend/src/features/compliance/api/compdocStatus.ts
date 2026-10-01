@@ -9,7 +9,7 @@ export function withCompdocDisplayStatus(row: ICompDoc, today = new Date()) {
   if (targetDay === null) return row
   const currentDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
   const overdueDays = Math.floor((currentDay - targetDay) / DAY_MILLISECONDS)
-  return overdueDays > 0 ? { ...row, status: 'delayed' } : row
+  return overdueDays > 0 ? { ...row, status: 'delayed', status_label: 'Delayed' } : row
 }
 
 function isoDay(value: string): number | null {

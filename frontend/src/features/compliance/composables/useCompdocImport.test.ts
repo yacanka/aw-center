@@ -15,7 +15,11 @@ vi.mock('../api/compdocImports', () => ({
   confirmCompdocImport: mocks.confirm
 }))
 vi.mock('./compdocController', () => ({
-  useCompdocController: () => ({ fetchCompdocs: mocks.fetch, fetchReferencePanels: mocks.panels })
+  useCompdocController: () => ({
+    fetchCompdocs: mocks.fetch,
+    fetchCompDocFields: vi.fn().mockResolvedValue(undefined),
+    fetchReferencePanels: mocks.panels
+  })
 }))
 import { useCompdocImport } from './useCompdocImport'
 

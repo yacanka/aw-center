@@ -5,6 +5,11 @@ for (const theme of ['light', 'dark'] as const) {
     test(`compliance settings save and inherit ${theme} theme at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
       await page.emulateMedia({ colorScheme: theme })
+      let complianceRole = 'manager'
+      let statuses = [
+        { id: 'unknown', value: 'unknown', label: 'Unknown', usage_count: 0, can_delete: false },
+        { id: 'used', value: 'in_review', label: 'In Review', usage_count: 2, can_delete: false }
+      ]
       await page.route('**/api/**', async (route) => {
         const path = new URL(route.request().url()).pathname
         if (!path.startsWith('/api/')) return route.fallback()
@@ -27,10 +32,27 @@ for (const theme of ['light', 'dark'] as const) {
               slug: 'aesa',
               name: 'AESA',
               capabilities: ['compliance'],
-              roles: { compliance: 'viewer', dcc: null, organization: null }
+              roles: { compliance: complianceRole, dcc: null, organization: null }
             }
           ]
-        else if (path.endsWith('/compliance-documents/fields/'))
+        else if (path.endsWith('/compliance-documents/statuses/')) {
+          if (route.request().method() === 'POST') {
+            const label = route.request().postDataJSON().label
+            const item = {
+              id: 'custom',
+              value: 'custom_review',
+              label,
+              usage_count: 0,
+              can_delete: true
+            }
+            statuses.push(item)
+            return route.fulfill({ status: 201, json: item })
+          }
+          body = statuses
+        } else if (path.endsWith('/compliance-documents/statuses/custom/')) {
+          statuses = statuses.filter((item) => item.id !== 'custom')
+          return route.fulfill({ status: 204 })
+        } else if (path.endsWith('/compliance-documents/fields/'))
           body = {
             schema_version: 1,
             project: 'aesa',
@@ -70,6 +92,29 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(
         page.getByRole('heading', { name: 'Compliance document settings' })
       ).toBeVisible()
+      const statusCard = page
+        .locator('.n-card')
+        .filter({ has: page.getByText('Statuses', { exact: true }) })
+      await expect(statusCard.getByText('In Review', { exact: true })).toBeVisible()
+      await expect(
+        statusCard.getByRole('button', { name: 'Delete', exact: true }).first()
+      ).toBeDisabled()
+      await statusCard.getByRole('textbox', { name: 'New status name' }).fill('Custom Review')
+      await statusCard.getByRole('button', { name: 'Add status', exact: true }).click()
+      await expect(statusCard.getByText('Custom Review', { exact: true })).toBeVisible()
+      await expect(statusCard.getByRole('textbox', { name: 'New status name' })).toBeEnabled()
+      await expect(statusCard.locator('.n-spin-body')).toHaveCount(0)
+      await statusCard.getByRole('button', { name: 'Delete', exact: true }).last().click()
+      await expect(
+        page.getByText('Delete Custom Review? Existing history will be preserved.')
+      ).toBeVisible()
+      await page.screenshot({
+        path: `test-results/compdoc-status-dialog-${theme}-${width}.png`,
+        animations: 'disabled',
+        fullPage: true
+      })
+      await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+      await expect(statusCard.getByText('Custom Review', { exact: true })).toHaveCount(0)
       const editor = page.locator('.column-editor')
       await expect(editor).toBeVisible()
       await expect(editor.locator('.column-row').first()).toHaveCSS(
@@ -101,8 +146,10 @@ for (const theme of ['light', 'dark'] as const) {
         scroll: document.documentElement.scrollWidth
       }))
       expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width + 1)
+      await expect(statusCard.locator('.n-spin-body')).toHaveCount(0)
       await page.screenshot({
         path: `test-results/compdoc-settings-${theme}-${width}.png`,
+        animations: 'disabled',
         fullPage: true
       })
       await page.goto('/app/compdocs/settings?project=forbidden')
@@ -121,9 +168,17 @@ for (const theme of ['light', 'dark'] as const) {
       )
       await page.goto('/app/compdocs/settings?project=aesa')
       await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+      await expect(statusCard.getByText('In Review', { exact: true })).toBeVisible()
       await expect(editor).toHaveCount(0)
       await page.getByRole('button', { name: 'Retry', exact: true }).click()
       await expect(editor.locator('.column-row')).toHaveCount(2)
+      complianceRole = 'viewer'
+      await page.reload()
+      await expect(statusCard.getByText('In Review', { exact: true })).toBeVisible()
+      await expect(statusCard.getByRole('button', { name: 'Add status', exact: true })).toHaveCount(
+        0
+      )
+      await expect(statusCard.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
     })
   }
 }

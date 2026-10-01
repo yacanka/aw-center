@@ -8,7 +8,11 @@ vi.mock('@/features/integrations/api/doorsAutomation', () => ({
   enqueueDoorsModuleExport: mocks.enqueue
 }))
 vi.mock('@/features/compliance/composables/compdocController', () => ({
-  useCompdocController: () => ({ fetchCompdocs: vi.fn(), fetchReferencePanels: vi.fn() })
+  useCompdocController: () => ({
+    fetchCompdocs: vi.fn(),
+    fetchCompDocFields: vi.fn().mockResolvedValue(undefined),
+    fetchReferencePanels: vi.fn()
+  })
 }))
 vi.mock('@/features/compliance/api/compdocImports', () => ({
   fetchDoorsImportSource: mocks.source,
