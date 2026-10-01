@@ -1,9 +1,10 @@
 export default class ParticleAnimation {
-  constructor(canvas, colors, text) {
+  constructor(canvas, colors, text, heading) {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d')
     this.colors = colors
     this.text = text
+    this.heading = heading
     this.particles = []
     this.sprites = new Map()
     this.mouse = { x: 0, y: 0 }
@@ -17,7 +18,7 @@ export default class ParticleAnimation {
     this.configureCanvas()
 
     this.mouseRadius = Math.min(this.ww / 10, 80)
-    this.size = 2
+    this.size = 3
     this.amount = 0
 
     this.initScene()
@@ -41,30 +42,33 @@ export default class ParticleAnimation {
     // Read pixels only from the text mask; keep the visible canvas GPU eligible.
     const mask = document.createElement('canvas')
     const ctx = mask.getContext('2d', { willReadFrequently: true })
-    const style = getComputedStyle(this.canvas)
-    let fontSize = Math.min(parseFloat(style.fontSize) || 60, this.wh * 0.8)
+    const style = getComputedStyle(this.heading)
+    const fontSize = parseFloat(style.fontSize) || 60
     const fontFamily = style.fontFamily || 'sans-serif'
-    ctx.font = `900 ${fontSize}px ${fontFamily}`
-    const textWidth = ctx.measureText(this.text).width
-    fontSize *= Math.min(1, Math.max(1, this.ww - 8) / Math.max(1, textWidth))
-    const font = `900 ${fontSize}px ${fontFamily}`
-    ctx.font = font
-    const metrics = ctx.measureText(this.text)
-    mask.width = Math.min(this.ww, Math.ceil(metrics.width + fontSize))
-    mask.height = Math.min(this.wh, Math.ceil(fontSize * 2))
-    const offsetX = Math.floor((this.ww - mask.width) / (2 * this.size)) * this.size
-    const offsetY = Math.floor((this.wh - mask.height) / (2 * this.size)) * this.size
-    ctx.font = font
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    // Match main's screen-aligned sampling grid even when the mask is cropped.
-    ctx.fillText(this.text, this.ww / 2 - offsetX, this.wh / 2 - offsetY)
+    const headingBounds = this.heading.getBoundingClientRect()
+    const canvasBounds = this.canvas.getBoundingClientRect()
+    const offsetX = Math.floor((headingBounds.left - canvasBounds.left) / this.size) * this.size
+    const offsetY = Math.floor((headingBounds.top - canvasBounds.top) / this.size) * this.size
+    mask.width = Math.max(1, Math.min(this.ww, Math.ceil(headingBounds.width + fontSize / 2)))
+    mask.height = Math.max(1, Math.min(this.wh, Math.ceil(headingBounds.height + fontSize / 2)))
+    ctx.font = `${style.fontWeight} ${fontSize}px ${fontFamily}`
+    ctx.letterSpacing = style.letterSpacing
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    for (const line of this.heading.querySelectorAll('.particle-line')) {
+      const bounds = line.getBoundingClientRect()
+      ctx.fillText(
+        line.textContent,
+        bounds.left - canvasBounds.left - offsetX,
+        bounds.top - canvasBounds.top - offsetY
+      )
+    }
     const data = ctx.getImageData(0, 0, mask.width, mask.height).data
     this.particles = []
     for (let x = 0; x < mask.width; x += this.size) {
       for (let y = 0; y < mask.height; y += this.size) {
         if (data[(x + y * mask.width) * 4 + 3] > 0) {
-          this.particles.push(new Particle(x + offsetX, y + offsetY, this.colors, this.ww, this.wh))
+          this.particles.push(new Particle(x + offsetX, y + offsetY, this.colors))
         }
       }
     }
@@ -74,7 +78,7 @@ export default class ParticleAnimation {
   }
 
   createSprites() {
-    const radius = this.ww <= 500 ? 1.2 : 2
+    const radius = this.ww <= 500 ? 0.9 : 1
     this.spriteSize = Math.ceil(radius * 2 + 2)
     this.sprites.clear()
     for (const color of new Set(this.colors)) {
@@ -103,12 +107,12 @@ export default class ParticleAnimation {
       touchend: () => this.onTouchEnd(),
       mouseleave: () => this.onTouchEnd()
     }
+    this.listeners.scroll = this.listeners.resize
     for (const [name, listener] of Object.entries(this.listeners)) {
-      const target = name === 'resize' ? window : this.canvas.parentElement || this.canvas
-      target.addEventListener(name, listener, { passive: true })
+      window.addEventListener(name, listener, { passive: true })
     }
     this.resizeObserver = new ResizeObserver(this.listeners.resize)
-    this.resizeObserver.observe(this.canvas)
+    this.resizeObserver.observe(this.heading)
     this.onVisibilityChange = () => {
       this.cancelFrame()
       if (this.playing && !document.hidden) this.render()
@@ -199,22 +203,20 @@ export default class ParticleAnimation {
     this.resizeObserver.disconnect()
     clearTimeout(this.resizeTimer)
     for (const [name, listener] of Object.entries(this.listeners)) {
-      const target = name === 'resize' ? window : this.canvas.parentElement || this.canvas
-      target.removeEventListener(name, listener)
+      window.removeEventListener(name, listener)
     }
     document.removeEventListener('visibilitychange', this.onVisibilityChange)
   }
 }
 
 class Particle {
-  constructor(x, y, colors, ww, wh) {
-    this.x = ww / 2
-    this.y = wh / 2
+  constructor(x, y, colors) {
+    this.x = x
+    this.y = y
     this.dest = { x, y }
 
-    const speed = Math.min(ww / 84, 20)
-    this.vx = (Math.random() - 0.5) * speed
-    this.vy = (Math.random() - 0.5) * speed
+    this.vx = 0
+    this.vy = 0
     this.accX = 0
     this.accY = 0
     this.friction = Math.random() * 0.035 + 0.92

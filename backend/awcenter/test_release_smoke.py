@@ -12,22 +12,33 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from docx import Document
 
-from compliance.models import ComplianceDocument, ImportAudit
+from compliance.models import ComplianceDocument, DocumentStatus, ImportAudit
 from dcc.models import DccRecord
 from jobs.models import Job, WorkerHeartbeat
 from orgs.models import Project
 from users.models import PasswordResetDelivery
+from users.username_policy import validate_username_format
+
+from .release_smoke import _smoke_username
 
 
 class ReleaseSmokeTests(TestCase):
     def setUp(self):
         self.operator = get_user_model().objects.create_superuser(
-            username="release-operator",
+            username="A12345",
             email="operator@example.invalid",
             password="StrongPass!123",
         )
 
+    def test_smoke_username_obeys_login_policy_and_skips_existing_user(self):
+        get_user_model().objects.create_user(username="S12345")
+        with patch("awcenter.release_smoke.secrets.randbelow", return_value=12345):
+            username = _smoke_username("S")
+        validate_username_format(username)
+        self.assertEqual(username, "S12346")
+
     def test_core_stage_exercises_contracts_and_removes_ephemeral_state(self):
+        initial_statuses = set(DocumentStatus.objects.values_list("pk", flat=True))
         with tempfile.TemporaryDirectory() as directory:
             template = Path(directory) / "hys_dcc_template.docx"
             document = Document()
@@ -50,9 +61,10 @@ class ReleaseSmokeTests(TestCase):
         self.assertIn("Release smoke passed", output.getvalue())
         self.assertFalse(ComplianceDocument.objects.exists())
         self.assertFalse(ImportAudit.objects.exists())
+        self.assertEqual(set(DocumentStatus.objects.values_list("pk", flat=True)), initial_statuses)
         self.assertFalse(Job.objects.exists())
         self.assertFalse(WorkerHeartbeat.objects.filter(worker_id__startswith="release-smoke-").exists())
-        self.assertFalse(get_user_model().objects.filter(username__startswith="release-smoke-").exists())
+        self.assertEqual(get_user_model().objects.count(), 1)
 
     @override_settings(
         AWCENTER_MAIL_TRANSPORT="django",
@@ -77,7 +89,7 @@ class ReleaseSmokeTests(TestCase):
         self.assertIn("Message-ID", mail.outbox[0].extra_headers)
         self.assertFalse(PasswordResetDelivery.objects.exists())
         self.assertFalse(
-            get_user_model().objects.filter(username__startswith="release-mail-smoke-").exists()
+            get_user_model().objects.exclude(pk=self.operator.pk).exists()
         )
 
     def test_requires_explicit_fresh_install_confirmation(self):

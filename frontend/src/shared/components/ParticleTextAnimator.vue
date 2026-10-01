@@ -3,6 +3,7 @@ import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import ParticleAnimation from '@/shared/utils/particleTextAnimation.js'
 
 const props = defineProps<{ text: string; colors: string[] }>()
+const heading = ref<HTMLElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const animated = ref(false)
 let animation: ParticleAnimation | null = null
@@ -14,8 +15,8 @@ async function updateMotion() {
   animation = null
   animated.value = !motionPreference?.matches
   await nextTick()
-  if (disposed || !animated.value || !canvas.value) return
-  animation = new ParticleAnimation(canvas.value, props.colors, props.text)
+  if (disposed || !animated.value || !canvas.value || !heading.value) return
+  animation = new ParticleAnimation(canvas.value, props.colors, props.text, heading.value)
 }
 
 onMounted(() => {
@@ -35,24 +36,39 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <span class="particle-heading">
-    <span :class="{ 'accessible-text': animated }">{{ text }}</span>
-    <canvas v-if="animated" ref="canvas" aria-hidden="true"></canvas>
+  <span ref="heading" class="particle-heading">
+    <span class="accessible-text">{{ text }}</span>
+    <span
+      v-for="line in text.split(' ')"
+      :key="line"
+      class="particle-line"
+      :class="{ 'particle-line--hidden': animated }"
+      aria-hidden="true"
+      >{{ line }}</span
+    >
   </span>
+  <Teleport to="body">
+    <canvas v-if="animated" ref="canvas" class="particle-text-canvas" aria-hidden="true"></canvas>
+  </Teleport>
 </template>
 
 <style scoped>
 .particle-heading {
-  position: relative;
   display: block;
-  height: 1.3em;
 }
-canvas {
-  position: absolute;
+.particle-line {
+  display: block;
+  white-space: nowrap;
+}
+.particle-line--hidden {
+  visibility: hidden;
+}
+.particle-text-canvas {
+  position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  font: inherit;
+  z-index: 1;
+  width: 100vw;
+  height: 100dvh;
   pointer-events: none;
 }
 .accessible-text {

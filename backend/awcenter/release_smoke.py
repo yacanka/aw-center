@@ -15,8 +15,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from openpyxl import Workbook
 from rest_framework.test import APIClient
 
-from compliance.models import ComplianceDocument, CoverPage, ImportAudit
 from automations.models import EcrWorkflow
+from compliance.models import ComplianceDocument, CoverPage, DocumentStatus, ImportAudit
+from compliance.status_catalog import delete_status
 from dcc.models import DccRecord, JiraIssueDraft
 from jobs.models import Job, JobStatus, WorkerHeartbeat
 from jobs.services import create_job
@@ -74,13 +75,14 @@ def run_core_smoke(*, operator_username: str, project_slug: str) -> dict:
         raise ReleaseSmokeError("The smoke project is not enabled or was not seeded.")
 
     run_id = uuid.uuid4().hex
-    username = f"release-smoke-{run_id[:16]}"
+    username = _smoke_username("S")
     password = secrets.token_urlsafe(32)
     user = None
     outsider = None
     document_id = None
     cover_page_id = None
     audit_id = None
+    status_id = None
     job_id = None
     worker_id = f"release-smoke-{run_id}"
     try:
@@ -90,7 +92,7 @@ def run_core_smoke(*, operator_username: str, project_slug: str) -> dict:
             password=password,
         )
         outsider = get_user_model().objects.create_user(
-            username=f"release-smoke-outsider-{run_id[:16]}",
+            username=_smoke_username("T"),
             password=secrets.token_urlsafe(32),
         )
         smoke_host = _smoke_host()
@@ -162,6 +164,9 @@ def run_core_smoke(*, operator_username: str, project_slug: str) -> dict:
         )
         _expect(confirmation.status_code == 201, "Compliance import confirmation failed.")
         audit_id = confirmation.data.get("audit_id")
+        status_id = DocumentStatus.objects.get(
+            project=project, value=f"release_smoke_{run_id[:12]}"
+        ).pk
         document = ComplianceDocument.objects.get(
             project=project,
             tech_doc_no=f"SMOKE-TD-{run_id[:12]}",
@@ -172,7 +177,7 @@ def run_core_smoke(*, operator_username: str, project_slug: str) -> dict:
             f"/api/projects/{project.slug}/compliance-documents/{document.pk}/transitions/",
             {
                 "version": document.version,
-                "status": "to_be_issued",
+                "status": "unknown",
                 "effective_date": date.today().isoformat(),
                 "reason": "First-production release smoke",
             },
@@ -238,6 +243,8 @@ def run_core_smoke(*, operator_username: str, project_slug: str) -> dict:
             CoverPage.history.model.objects.filter(id=cover_page_id).delete()
         if audit_id:
             ImportAudit.objects.filter(pk=audit_id).delete()
+        if status_id:
+            delete_status(project, status_id)
         if user:
             ProjectRoleAssignment.objects.filter(user=user).delete()
             user.delete()
@@ -250,11 +257,10 @@ def run_notification_smoke(*, operator_username: str, recipient: str) -> dict:
 
     assert_fresh_install()
     require_operator(operator_username)
-    run_id = uuid.uuid4().hex
     user = None
     try:
         user = get_user_model().objects.create_user(
-            username=f"release-mail-smoke-{run_id[:16]}",
+            username=_smoke_username("M"),
             email=recipient,
             password=secrets.token_urlsafe(32),
         )
@@ -272,6 +278,17 @@ def run_notification_smoke(*, operator_username: str, recipient: str) -> dict:
     finally:
         if user:
             user.delete()
+
+
+def _smoke_username(prefix: str) -> str:
+    """Choose an unused six-character name accepted by browser login."""
+
+    start = secrets.randbelow(100_000)
+    for offset in range(100_000):
+        candidate = f"{prefix}{(start + offset) % 100_000:05d}"
+        if not get_user_model().objects.filter(username=candidate).exists():
+            return candidate
+    raise ReleaseSmokeError("No available smoke username remains.")
 
 
 def _grant_smoke_roles(user, project) -> None:
@@ -292,12 +309,13 @@ def _compliance_workbook(run_id: str) -> bytes:
     output = BytesIO()
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.append(["Document Name", "Cover Page Number", "Technical Document No"])
+    worksheet.append(["Document Name", "Cover Page Number", "Technical Document No", "Status"])
     worksheet.append(
         [
             f"Release smoke {run_id[:12]}",
             f"SMOKE-CP-{run_id[:12]}",
             f"SMOKE-TD-{run_id[:12]}",
+            f"Release smoke {run_id[:12]}",
         ]
     )
     workbook.save(output)
