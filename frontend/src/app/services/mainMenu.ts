@@ -19,7 +19,7 @@ import {
   People24Regular,
   PeopleAudience24Regular
 } from '@vicons/fluent'
-import { Excel, Pdf, Word } from '@/app/stores/iconStore'
+import { Pdf } from '@/app/stores/iconStore'
 import type { ProjectRegistryItem } from '@/features/projects/models/projectRegistry'
 import type { IUser } from '@/features/session/models/auth'
 import { filterNavigationByAccess } from '@/features/session/services/accessPolicy'
@@ -75,7 +75,7 @@ function workflowOptions(
     ),
     doorsGroup(),
     menuItem('Teamcenter', '/teamcenter/agent', 'teamcenter', Glasses24Regular),
-    compareGroup(),
+    menuItem('Compare', '/compare', 'compare', ArrowRepeatAll24Regular),
     groupItem('Pdf', '/pdf', 'pdf', Pdf, [menuItem('Split', '/pdf/split', 'split', Cut24Regular)]),
     menuItem('Media Converter', '/media-converter', 'mediaConverter', ImageMultiple24Regular),
     menuItem('Translator', '/translator', 'translator', ArrowReset24Regular),
@@ -130,14 +130,6 @@ function developerGroup(): ProjectMenuOption {
   return groupItem('Developer', '/developer', 'developer', Code24Regular, [
     menuItem('DOORS', '/developer/doors', 'developerDoors', Door20Regular),
     menuItem('Test Data', '/developer/test-data', 'developerTestData', Code24Regular)
-  ])
-}
-
-function compareGroup(): ProjectMenuOption {
-  return groupItem('Compare', '/compare', 'compare', ArrowRepeatAll24Regular, [
-    menuItem('Excel', '/compare/excel', 'excel', Excel),
-    menuItem('Word', '/compare/word', 'word', Word),
-    menuItem('Pdf', '/compare/pdf', 'pdf', Pdf)
   ])
 }
 

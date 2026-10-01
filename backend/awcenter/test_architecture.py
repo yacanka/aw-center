@@ -16,6 +16,7 @@ FEATURE_PACKAGES = frozenset(
         "attention",
         "automations",
         "compliance",
+        "comparison",
         "dcc",
         "ddf",
         "excel",

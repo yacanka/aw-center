@@ -14,6 +14,9 @@ from awcenter.file_security import (
 LOCAL_QUEUE = "local"
 DOORS_QUEUE = "doors"
 SUPPORTED_QUEUES = frozenset({LOCAL_QUEUE, DOORS_QUEUE})
+COMPARISON_PACKAGE_POLICY = UploadPolicy(
+    frozenset({".zip"}), "COMPARE_MAX_PACKAGE_BYTES", 101 * 1024 * 1024,
+)
 JSON_OPERATION_POLICY = UploadPolicy(
     frozenset({".json"}),
     "JOB_JSON_MAX_INPUT_BYTES",
@@ -33,6 +36,20 @@ class ExecutorMetadata:
 
 
 EXECUTOR_CATALOG = (
+    ExecutorMetadata(
+        kind="comparison.inspect",
+        dotted_path="comparison.executor.execute_inspection",
+        queue=LOCAL_QUEUE,
+        upload_policy=COMPARISON_PACKAGE_POLICY,
+        timeout_seconds=900,
+    ),
+    ExecutorMetadata(
+        kind="comparison.compare",
+        dotted_path="comparison.executor.execute_comparison",
+        queue=LOCAL_QUEUE,
+        upload_policy=COMPARISON_PACKAGE_POLICY,
+        timeout_seconds=900,
+    ),
     ExecutorMetadata(
         kind="dcc.create_document",
         dotted_path="dcc.document_job.execute_dcc_document_creation",

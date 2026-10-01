@@ -172,19 +172,24 @@ export const routes: RouteRecordRaw[] = [
 function comparisonRoutes(): RouteRecordRaw[] {
   return [
     {
+      path: '/compare',
+      name: 'compare',
+      component: lazyRoute(() => import('@/features/tools/pages/compare/Compare.vue'))
+    },
+    {
       path: '/compare/excel',
       name: 'excelCompare',
-      component: lazyRoute(() => import('@/features/tools/pages/compare/ExcelCompare.vue'))
+      redirect: '/compare'
     },
     {
       path: '/compare/word',
       name: 'wordCompare',
-      component: lazyRoute(() => import('@/features/tools/pages/compare/WordCompare.vue'))
+      redirect: '/compare'
     },
     {
       path: '/compare/pdf',
       name: 'pdfCompare',
-      component: lazyRoute(() => import('@/features/tools/pages/compare/PdfCompare.vue'))
+      redirect: '/compare'
     }
   ]
 }
