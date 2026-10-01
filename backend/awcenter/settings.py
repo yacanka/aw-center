@@ -351,6 +351,7 @@ CSRF_TRUSTED_ORIGINS = env.list(
 )
 
 ROOT_URLCONF = 'awcenter.urls'
+TEST_RUNNER = 'awcenter.test_runner.ProcessSafeDiscoverRunner'
 
 TEMPLATES = [
     {

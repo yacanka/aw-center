@@ -165,6 +165,18 @@ Frontend lock dosyasının canonical üreticisi `frontend/package.json` içindek
 
 `format:check` read-only'dir. CI source'u otomatik formatlamaz. Bundle build, `check-bundle-budget.mjs` ve postbuild artifact existence kontrolüyle tamamlanır.
 
+## SQLite ve izole worker testleri
+
+Varsayılan Django test çalıştırıcısı `awcenter.test_runner.ProcessSafeDiscoverRunner`'dır. SQLite için otomatik seçilen test veritabanı sistemin geçici dizininde dosya olarak oluşturulur ve çalışma sonunda temizlenir. Böylece Windows/macOS `spawn` alt process'leri test kayıtlarına erişebilir. Açıkça verilen `TEST.NAME` ve PostgreSQL davranışı korunur; otomatik geçici SQLite dosyası `--keepdb` ile kalıcı hale gelmez. Geliştirme/production veritabanı yolu değiştirilmez. SQLite testleri seri çalışır: `--parallel` istenirse çalıştırıcı uyarı verir ve tüm testleri tek test sürecinde yürütür. Bu sınır, Django'nun daemon test havuzunun gerçek executor alt process'lerini başlatamaması ve SQLite spawn clone'larını belleğe taşıması nedeniyle gereklidir; PostgreSQL paralellik ayarı değiştirilmez.
+
+`jobs.tests.test_isolated_worker` gerçek alt process testleri, aktif test veritabanının yolunu ve geçici private-artifact dizinini yalnız test süresince alt process environment'ına aktarır. Parent terminal CAS/fencing, timeout, cancellation ve dış sisteme yazma belirsizliği senaryoları bu sınır üzerinden çalışır. Bootstrap Django'yu hazırladıktan sonra `jobs.child_execution` modülünü yükler; ana `jobs.worker` modülüne geri bağımlılık yoktur.
+
+Python 3.11 ortamında hedefli doğrulama:
+
+```bash
+python backend/manage.py test awcenter.test_architecture awcenter.test_database_settings jobs.tests.test_isolated_worker compliance.test_imports compliance.test_import_concurrency compliance.test_doors_imports
+```
+
 ## CI ve release gate
 
 GitHub Actions jobs:
@@ -172,7 +184,7 @@ GitHub Actions jobs:
 - Backend: Python 3.11, PostgreSQL/Redis, fresh migration, checks/tests, dependency audit, integrated frontend/static smoke.
 - Frontend: Node 22, `npm ci`, format/type/unit-contract test, Playwright Chromium E2E, build, npm audit ve immutable artifact upload.
 - Compatibility: Python 3.14 üzerinde backend check/test.
-- Windows native: Python 3.11 üzerinde launcher/worker/DOORS regresyonları; repository dışındaki geçici dizinlerde production SQLite migration, file cache ve `check --deploy` sözleşmesi.
+- Windows native: Python 3.11 üzerinde launcher/DOORS, gerçek izole worker process'leri, SQLite eşzamanlılık, mimari ve compliance Excel/DOORS import regresyonları; repository dışındaki geçici dizinlerde production SQLite migration, file cache ve `check --deploy` sözleşmesi.
 - Future container: digest-pinned base/infra image'lar, commit-SHA-pinned actions, combined image, resolved digest/frontend tree verification, release manifest/CycloneDX SBOM, fresh-schema migration, `run_release_smoke` core+notification kapıları, deploy checks, readiness, worker heartbeat ve source read-only assertion.
 
 `verify_release_image.py`, BuildKit digest'i ve image frontend ağacını schema-2 release manifestine bağlar. `deployment_preflight.py` environment/runtime-path sözleşmesinin yanında manifest ve verification kaydındaki release, commit, manifest SHA-256, frontend tree/count ve `AWCENTER_IMAGE` digest eşliğini yeniden doğrular. Testler hem image-verification üretimindeki değiştirilmiş dist/manifest reddini hem deploy-time değiştirilmiş evidence/env reddini ayrı kapsamalıdır.

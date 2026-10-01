@@ -11,7 +11,7 @@ def bootstrap_executor_process(job_id, kind, resolver_path, connection):
 
         django.setup()
         resolve_executor = load_callable(resolver_path)
-        from .worker import execute_in_child
+        from .child_execution import execute_in_child
     except BaseException as error:
         try:
             connection.send(
