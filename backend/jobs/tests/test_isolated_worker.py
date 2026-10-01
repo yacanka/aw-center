@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 
 from jobs.contracts import JobExecutionResult
@@ -51,6 +52,21 @@ class IsolatedWorkerTests(TransactionTestCase):
         self.private_root = Path(tempfile.mkdtemp())
         self.settings_override = override_settings(PRIVATE_MEDIA_ROOT=self.private_root)
         self.settings_override.enable()
+        if connection.vendor == "sqlite":
+            # Spawn reloads settings instead of inheriting the parent's test DB.
+            # Export the actual test database path, never the source DB.
+            database_name = connection.settings_dict["NAME"]
+            self.assertFalse(
+                connection.creation.is_in_memory_db(database_name),
+                "Spawn regressions require a file-backed SQLite test database.",
+            )
+            database_path = Path(database_name).resolve()
+            environment = patch.dict(os.environ, {
+                "DATABASE_URL": f"sqlite:///{database_path.as_posix()}",
+                "PRIVATE_MEDIA_ROOT": str(self.private_root),
+            })
+            environment.start()
+            self.addCleanup(environment.stop)
         self.user = get_user_model().objects.create_user("isolated-worker-owner")
 
     def tearDown(self):
