@@ -2,6 +2,8 @@
 
 from collections.abc import Iterable
 
+from django.conf import settings
+
 from .builder_common import open_module, attribute_fragments
 from .escape import dxl_quote
 
@@ -174,10 +176,12 @@ def get_attr(module_path: str, search_text: str, case_sensitive: bool = False) -
     )
 
 
-def export_module(module_path: str, row_limit: int, attribute_limit: int = 50) -> str:
-    """Build a bounded read of object attributes and values for import mapping."""
+def export_module(module_path: str, row_limit: int, attribute_limit: int | None = None) -> str:
+    """Build an export bounded by MAX_DOORS_COLUMNS or a smaller explicit limit."""
 
-    if not 1 <= int(attribute_limit) <= 50:
+    if attribute_limit is None:
+        attribute_limit = settings.MAX_DOORS_COLUMNS
+    if not 1 <= int(attribute_limit) <= settings.MAX_DOORS_COLUMNS:
         raise ValueError("Unsupported DOORS attribute limit.")
     return EXPORT_MODULE_TEMPLATE.format(
         open_statement=open_module(module_path, "read"),

@@ -241,7 +241,28 @@ class ComplianceDoorsImportTests(TestCase):
         self.assertIn(response.data["code"], {"IMPORT_ROW_LIMIT", "VALIDATION_ERROR"})
         self.assertFalse(ComplianceDocument.objects.exists())
 
-    def export_job(self, rows, *, truncated=False):
+    @override_settings(MAX_DOORS_COLUMNS=250)
+    def test_source_accepts_configured_column_limit_and_rejects_overflow(self):
+        for count, expected_status in ((250, 200), (251, 400)):
+            with self.subTest(columns=count):
+                job = self.export_job([{f"Field {index}": "value" for index in range(count)}])
+                response = self.client.get(self.source_url(job))
+                self.assertEqual(response.status_code, expected_status)
+
+    @override_settings(MAX_DOORS_COLUMNS=2)
+    def test_source_enforces_lower_configured_column_limit(self):
+        job = self.export_job([{"Title": "Doc", "Cover": "CP", "Extra": "value"}])
+        self.assertEqual(self.client.get(self.source_url(job)).status_code, 400)
+
+    @override_settings(MAX_DOORS_COLUMNS=250)
+    def test_attribute_truncation_is_rejected_with_configured_limit(self):
+        job = self.export_job([{"Title": "Doc"}], attributes_truncated=True)
+        response = self.client.get(self.source_url(job))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("250-field", str(response.data))
+        self.assertFalse(ComplianceDocument.objects.exists())
+
+    def export_job(self, rows, *, truncated=False, attributes_truncated=False):
         columns = list(rows[0])
         payload = {
             "type": "doors_module_export",
@@ -250,7 +271,7 @@ class ComplianceDoorsImportTests(TestCase):
             "columns": columns,
             "count": len(rows),
             "truncated": truncated,
-            "attributes_truncated": False,
+            "attributes_truncated": attributes_truncated,
             "results": [
                 {
                     "absolute_number": index,

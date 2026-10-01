@@ -24,7 +24,6 @@ from .models import DoorsImportMapping, ImportAudit
 
 
 DOORS_CONFIRMATION_SALT = "awcenter.compliance-doors-import.v1"
-MAX_DOORS_COLUMNS = 50
 
 
 def load_doors_source(job):
@@ -60,12 +59,12 @@ def load_doors_source(job):
         )
     if payload.get("attributes_truncated") is True:
         raise ValidationError(
-            {"job_id": "The DOORS module exceeds the 50-field import limit."},
+            {"job_id": f"The DOORS module exceeds the {settings.MAX_DOORS_COLUMNS}-field import limit."},
             code="DOORS_IMPORT_COLUMN_LIMIT",
         )
     if not isinstance(module_path, str) or not module_path.strip() or len(module_path) > 1024:
         raise _invalid_source()
-    if not isinstance(columns, list) or not 1 <= len(columns) <= MAX_DOORS_COLUMNS:
+    if not isinstance(columns, list) or not 1 <= len(columns) <= settings.MAX_DOORS_COLUMNS:
         raise _invalid_source()
     if any(
         not isinstance(column, str) or not column.strip() or len(column) > 256

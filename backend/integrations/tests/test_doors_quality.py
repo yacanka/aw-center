@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from integrations.doors.quality import analyze_module, chapters_from, discover_attribute
 from integrations.doors.worker_tasks import check_module_quality, WorkerTaskPayloadError
@@ -26,6 +26,11 @@ def snapshot(values, columns=None, **flags):
 
 
 class DoorsQualityTests(SimpleTestCase):
+    @override_settings(MAX_DOORS_COLUMNS=250)
+    def test_report_includes_configured_attribute_limit(self):
+        result = self.analyze([("27", "Panel A")])
+        self.assertEqual(result["limits"]["attributes"], 250)
+
     def analyze(self, values, **kwargs):
         return analyze_module(snapshot(values, **kwargs), Mock())
 
