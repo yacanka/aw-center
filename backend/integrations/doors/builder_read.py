@@ -88,6 +88,20 @@ if (!null awc_open_error || null module) {{
 '''
 
 EXPORT_MODULE_TEMPLATE = r'''
+string awc_export_value(Object awc_source, AttrDef awc_definition) {{
+    string awc_name = awc_definition.name
+    string awc_value = awc_source.awc_name ""
+    if (null awc_value || awc_value == "") return awc_value
+    AttrType awc_type = awc_definition.type
+    if (null awc_type) return awc_value
+    if (awc_type.type != attrDate) return awc_value
+
+    // Read the typed value; localized display text is not an import format.
+    Date awc_date = awc_source.awc_name
+    if (null awc_date) return awc_value
+    return stringOf(awc_date, "yyyy-MM-dd")
+}}
+
 noError
 {open_statement}
 string awc_open_error = lastError
@@ -120,8 +134,8 @@ if (!null awc_open_error || null module) {{
         for awc_attribute in module do {{
             if (!awc_attribute.object) continue
             if (awc_attribute_count >= {attribute_limit}) break
-            string awc_attribute_name = awc_attribute.name
-            awc_row += "\t" awc_escape(awc_object.awc_attribute_name "")
+            string awc_value = awc_export_value(awc_object, awc_attribute)
+            awc_row += "\t" awc_escape(awc_value)
             awc_attribute_count++
         }}
         awc_emit(stringOf(awc_row))
