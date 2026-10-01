@@ -72,8 +72,20 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     return allocation.value.job?.message || 'Cover page number allocation queued.'
   })
   const rules = computed<FormRules>(() => ({
-    name: [{ required: true, trigger: 'blur' }],
-    cover_page_no: []
+    name: [
+      { required: true, whitespace: true, message: 'Name is required.', trigger: ['blur', 'input'] }
+    ],
+    cover_page_no:
+      numberSource.value === 'numarator'
+        ? []
+        : [
+            {
+              required: true,
+              whitespace: true,
+              message: 'Cover page number is required.',
+              trigger: ['blur', 'input']
+            }
+          ]
   }))
   const isDirty = computed(
     () => !readonly.value && JSON.stringify(compdoc.value) !== JSON.stringify(originalCompdoc.value)

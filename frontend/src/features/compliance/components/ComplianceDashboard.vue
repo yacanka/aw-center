@@ -61,6 +61,7 @@
         {{ qualityMessage }}
       </n-alert>
       <CompDocPanelDashboard
+        :statuses="summary.statuses"
         class="panel-breakdown"
         :loading="loading"
         :panels="summary.panels"
@@ -69,7 +70,10 @@
       />
       <div class="dashboard-grid">
         <div class="dashboard-column">
-          <CompDocStatusDashboard :counts="focusedAnalytics.chart_status_counts" />
+          <CompDocStatusDashboard
+            :statuses="summary.statuses"
+            :counts="focusedAnalytics.chart_status_counts"
+          />
           <CompDocRiskDashboard :project="activeProject" :risk="focusedAnalytics.risk" />
         </div>
         <CompDocTimelineDashboard

@@ -78,6 +78,13 @@
             Reject: {{ preview.rejected_count }}
           </n-tag>
         </n-space>
+        <n-alert v-if="preview.status_changes?.length" type="info" title="New project statuses">
+          {{ preview.status_changes.map((item) => item.label).join(', ') }}
+        </n-alert>
+        <n-alert v-if="preview.unknown_status_rows?.length" type="info" title="Unknown status">
+          Rows {{ preview.unknown_status_rows.join(', ') }} will use Unknown, including existing
+          documents.
+        </n-alert>
         <n-alert v-if="preview.panel_changes?.length" type="info" title="Project panel changes">
           These changes also apply to other documents using the same ATA chapter.
           <ul>
@@ -290,7 +297,11 @@ async function confirmImport() {
       preview.value.confirmation_token
     )
     window.$notification.success({ title: 'Success', description: result.detail, duration: 3000 })
-    await Promise.all([store.fetchCompdocs(), store.fetchReferencePanels()])
+    await Promise.all([
+      store.fetchCompdocs(),
+      store.fetchReferencePanels(),
+      store.fetchCompDocFields()
+    ])
     show.value = false
     reset()
   } catch (error) {

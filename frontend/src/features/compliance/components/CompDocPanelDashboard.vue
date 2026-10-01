@@ -19,28 +19,40 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { humanizeCompdocStatus } from '@/features/compliance/api/compdocWorkspace'
+import type { CompdocOption } from '@/features/compliance/api/compdocCatalog'
 import type { DataTableColumns } from 'naive-ui'
 import type { DashboardPanel } from '@/features/compliance/models/compdocDashboard'
 
 const props = defineProps<{
+  statuses?: CompdocOption[]
   loading: boolean
   panels: DashboardPanel[]
   selectedPanel?: string
 }>()
 const emit = defineEmits<{ select: [panel: DashboardPanel] }>()
 
-const columns: DataTableColumns<DashboardPanel> = [
-  { title: 'Panel', key: 'panel', minWidth: 140, ellipsis: { tooltip: true } },
-  { title: 'ATA', key: 'ata', width: 80 },
-  statusColumn('To issue', 'to_be_issued', true),
-  statusColumn('Update', 'to_be_updated'),
-  statusColumn('Re-submit', 'to_be_re-submitted'),
-  statusColumn('AW review', 'airworthiness_review'),
-  statusColumn('Authority', 'authority_review'),
-  statusColumn('Approved', 'authority_approved'),
-  statusColumn('Unknown', 'unknown'),
-  { title: 'Total', key: 'total', width: 64, align: 'center', render: (row) => row.analytics.total }
-]
+const columns = computed<DataTableColumns<DashboardPanel>>(() => {
+  const statuses = new Map((props.statuses || []).map((item) => [item.value, item.label]))
+  props.panels.forEach((panel) =>
+    Object.keys(panel.analytics.chart_status_counts).forEach((value) => {
+      if (!statuses.has(value)) statuses.set(value, humanizeCompdocStatus(value))
+    })
+  )
+  return [
+    { title: 'Panel', key: 'panel', minWidth: 140, ellipsis: { tooltip: true } },
+    { title: 'ATA', key: 'ata', width: 80 },
+    ...[...statuses].map(([value, label]) => statusColumn(label, value)),
+    {
+      title: 'Total',
+      key: 'total',
+      width: 64,
+      align: 'center',
+      render: (row) => row.analytics.total
+    }
+  ]
+})
 
 function statusColumn(
   title: string,

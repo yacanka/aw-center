@@ -103,7 +103,7 @@ function field(key, defaultVisible, filterKind) {
   }
 }
 
-test('builds resilient CompDoc chart aggregates without changing status buckets', () => {
+test('builds resilient CompDoc chart aggregates including custom project statuses', () => {
   const rows = [
     document('delayed', [{ status: 'to_be_issued', date: '20.07.2026' }]),
     document('authority_approved', [
@@ -119,7 +119,8 @@ test('builds resilient CompDoc chart aggregates without changing status buckets'
 
   assert.equal(summary.statuses.delayed, 1)
   assert.equal(summary.statuses.authority_approved, 1)
-  assert.equal(summary.statuses.unknown, 1)
+  assert.equal(summary.statuses.unexpected, 1)
+  assert.equal(summary.statuses.unknown, undefined)
   assert.deepEqual(summary.pendingDays, { authority: 5, ubm: 6, aw: 0 })
   assert.equal(summary.timeline.scheduled.length, 2)
 })

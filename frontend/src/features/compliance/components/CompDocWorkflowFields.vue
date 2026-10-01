@@ -5,7 +5,9 @@
     </n-alert>
     <n-descriptions label-placement="top" :column="3" bordered size="small">
       <n-descriptions-item label="Current status">
-        <n-tag type="success" round>{{ statusLabel(compdoc.status) }}</n-tag>
+        <n-tag type="success" round>{{
+          compdoc.status_label || statusLabel(compdoc.status)
+        }}</n-tag>
       </n-descriptions-item>
       <n-descriptions-item label="UBM target">
         {{ compdoc.ubm_target_date || 'Not recorded' }}
@@ -22,12 +24,12 @@
 
 <script setup lang="ts">
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
-import { statusOptions } from '@/features/compliance/api/compdocCatalog'
+import { humanizeCompdocStatus } from '@/features/compliance/api/compdocWorkspace'
 
 defineProps<{ compdoc: ICompDoc }>()
 
 function statusLabel(status: string): string {
-  return statusOptions.find((option) => option.value === status)?.label || status || 'Unknown'
+  return humanizeCompdocStatus(status)
 }
 </script>
 

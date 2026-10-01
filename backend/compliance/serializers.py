@@ -13,6 +13,7 @@ from .notifications import SUPPORTED_EVENTS
 
 from .models import (
     ComplianceDocument,
+    DocumentStatus,
     CoverPage,
     ImportAudit,
     ReviewTask,
@@ -60,7 +61,7 @@ def tracking_responsible_options(document):
 class CoverPageSerializer(serializers.ModelSerializer):
     number = serializers.CharField(
         max_length=32,
-        allow_blank=True,
+        allow_blank=False,
         required=True,
         trim_whitespace=True,
     )
@@ -101,6 +102,13 @@ class CoverPageVersionConflict(APIException):
 
 
 class ComplianceDocumentSerializer(serializers.ModelSerializer):
+    status_label = serializers.SerializerMethodField()
+
+    def get_status_label(self, document):
+        if not hasattr(self, "_status_labels"):
+            self._status_labels = dict(DocumentStatus.objects.filter(project=document.project_id).values_list("value", "label"))
+        return self._status_labels.get(document.status, document.status.replace("_", " ").capitalize())
+
     project_slug = serializers.CharField(source="project.slug", read_only=True)
     panel_name = serializers.CharField(source="panel.name", read_only=True, allow_null=True)
     ata = serializers.CharField(source="panel.ata", read_only=True, allow_null=True)
@@ -140,6 +148,7 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             "mom_no",
             "requirements",
             "status",
+            "status_label",
             "ubm_target_date",
             "ubm_delivery_date",
             "path",
@@ -193,6 +202,13 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"cover_page": {"number": "This field is required."}}
             )
+        number = (
+            cover_page["number"] if cover_page is not None
+            else self.instance.cover_page.number if self.instance is not None else ""
+        )
+        if not number.strip():
+            raise serializers.ValidationError({"cover_page": {"number": "This field is required."}})
+        self._validate_identity(attributes, number, project)
         attributes.pop("change_reason", None)
         self._normalize_lists(attributes)
         self._reject_control_characters(attributes)
@@ -200,6 +216,21 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         if notes is not None and len(notes) > 5000:
             raise serializers.ValidationError({"notes": "Use at most 5000 characters."})
         return attributes
+
+    def _validate_identity(self, attributes, number, project):
+        # Allocation drafts have no real cover number yet; binding validates it later.
+        if self.context.get("numbering_draft", False):
+            return
+        name = attributes.get("name", self.instance.name if self.instance is not None else "")
+        duplicate = ComplianceDocument.objects.filter(
+            project=project, cover_page__number=number, name=name,
+        )
+        if self.instance is not None:
+            duplicate = duplicate.exclude(pk=self.instance.pk)
+        if duplicate.exists():
+            raise serializers.ValidationError({
+                "name": "A document with this cover page number and name already exists in this project.",
+            })
 
     @staticmethod
     def _normalize_lists(attributes):
@@ -247,22 +278,6 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         number = str(data.get("number", "")).strip()
         issue_provided = "issue" in data
         issue = data.get("issue")
-        if not number:
-            if self.instance is not None and not self.instance.cover_page.number:
-                cover_page = self.instance.cover_page
-                if issue_provided and cover_page.issue != issue:
-                    if data.get("version") != cover_page.version:
-                        raise CoverPageVersionConflict()
-                    cover_page.issue = issue
-                    cover_page.version += 1
-                    cover_page._history_user = self.context["request"].user
-                    cover_page.save(update_fields=["issue", "version"])
-                return cover_page
-            return CoverPage.objects.create(
-                project=self.context["project"],
-                number="",
-                issue=issue,
-            )
         expected_version = data.get("version")
         cover_page = CoverPage.objects.select_for_update().filter(
             project=self.context["project"],
@@ -287,6 +302,8 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        from .status_catalog import ensure_status
+        ensure_status(self.context["project"], "unknown", "Unknown")
         cover_page = self._resolve_cover_page(validated_data.pop("cover_page"))
         document = ComplianceDocument(
             **validated_data,

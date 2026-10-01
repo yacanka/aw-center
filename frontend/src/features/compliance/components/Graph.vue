@@ -41,6 +41,7 @@
 </template>
 
 <script setup lang="ts">
+import { useThemeVars } from 'naive-ui'
 import { computed, ref, watch } from 'vue'
 import { Bar, Doughnut, Line } from 'vue-chartjs'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
@@ -70,7 +71,17 @@ const activeTab = ref(localStorage.getItem('summaryActiveTab') || 'status')
 const documents = ref<ICompDoc[]>([])
 const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const summary = computed(() => buildClientCompdocSummary(documents.value))
-const statusRows = computed(() => createStatusChartRows(summary.value.statuses))
+const themeVars = useThemeVars()
+const statusRows = computed(() =>
+  createStatusChartRows(
+    summary.value.statuses,
+    documents.value.map((row) => ({
+      value: row.status,
+      label: row.status_label || row.status.replaceAll('_', ' ')
+    })),
+    themeVars.value.textColor3
+  )
+)
 const visibleStatusRows = computed(() => statusRows.value.filter((row) => row.count > 0))
 const statusTotal = computed(() => visibleStatusRows.value.reduce((sum, row) => sum + row.count, 0))
 const statusData = computed(() => createStatusChartData(statusRows.value))

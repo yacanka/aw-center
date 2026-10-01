@@ -25,6 +25,7 @@ export interface ICompDoc {
   mom_no: string
   requirements: string[]
   status_flow: IStatusFlow[]
+  status_label?: string
   status: string
   owner?: number | null
   owner_group?: number | null

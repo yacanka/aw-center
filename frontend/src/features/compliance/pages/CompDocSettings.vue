@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import { createCompdocController } from '@/features/compliance/composables/compdocController'
+import CompDocStatusSettings from '@/features/compliance/components/CompDocStatusSettings.vue'
 import CompDocColumnSettings from '@/features/compliance/components/CompDocColumnSettings.vue'
 import {
   createAllColumnSettings,
@@ -117,8 +118,8 @@ void catalog.load().catch(() => undefined)
       >
       <h1>Compliance document settings</h1>
       <n-text depth="3"
-        >Customize your document table. Preferences are saved in this browser; they do not change
-        documents or other users' settings.</n-text
+        >Manage shared project statuses and your document table. Table preferences are saved in this
+        browser; status options apply to everyone in the project.</n-text
       >
     </header>
     <n-card title="Project" size="small">
@@ -132,6 +133,12 @@ void catalog.load().catch(() => undefined)
       />
       <n-text depth="3">Column layouts are saved separately for each project.</n-text>
     </n-card>
+    <CompDocStatusSettings
+      v-if="project && canView"
+      :key="project"
+      :project="project"
+      :can-manage="catalog.hasManagementRole(project, 'compliance', 'manager')"
+    />
     <n-alert v-if="catalog.error" type="error"
       >{{ catalog.error }}
       <n-button @click="catalog.load(true).catch(() => undefined)">Retry</n-button></n-alert

@@ -36,7 +36,9 @@ const emit = defineEmits<{
   changed: []
 }>()
 
-const statusLabel = computed(() => humanizeCompdocStatus(props.document?.status))
+const statusLabel = computed(
+  () => props.document?.status_label || humanizeCompdocStatus(props.document?.status)
+)
 const reference = computed(() => (props.document ? getCompdocReference(props.document) : ''))
 const statusColor = computed(() => statusColors[String(props.document?.status || '')])
 const activeTab = ref<WorkspaceTab>('overview')

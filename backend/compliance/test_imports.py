@@ -102,14 +102,14 @@ class ComplianceImportTests(TestCase):
 
     def test_manual_mapping_recovers_unrecognized_headers_and_audits_links(self):
         output = BytesIO()
-        pd.DataFrame([{"Custom heading": "Manual document", "Custom notes": "Note"}]).to_excel(output, index=False)
+        pd.DataFrame([{"Custom heading": "Manual document", "Custom notes": "Note", "Custom cover": "CP-M"}]).to_excel(output, index=False)
         content = output.getvalue()
         automatic = self.preview(content)
         self.assertEqual(automatic.status_code, 200)
-        self.assertEqual(automatic.data["missing_columns"], ["name"])
+        self.assertEqual(automatic.data["missing_columns"], ["name", "cover_page_no"])
         self.assertEqual(automatic.data["confirmation_token"], "")
-        self.assertEqual(automatic.data["source_columns"], ["Custom heading", "Custom notes"])
-        mapping = {"Custom heading": "name", "Custom notes": "notes"}
+        self.assertEqual(automatic.data["source_columns"], ["Custom heading", "Custom notes", "Custom cover"])
+        mapping = {"Custom heading": "name", "Custom notes": "notes", "Custom cover": "cover_page_no"}
         preview = self.manual_request(content, mapping)
         self.assertEqual(preview.status_code, 200)
         self.assertEqual(preview.data["created_count"], 1)
@@ -121,10 +121,10 @@ class ComplianceImportTests(TestCase):
 
     def test_manual_confirmation_rejects_changed_or_omitted_links(self):
         content = self.workbook()
-        mapping = {"Document Name": "name"}
+        mapping = {"Document Name": "name", "Cover Page Number": "cover_page_no"}
         preview = self.manual_request(content, mapping)
         token = preview.data["confirmation_token"]
-        changed = self.manual_request(content, {"Technical Document No": "name"}, token)
+        changed = self.manual_request(content, {"Technical Document No": "name", "Cover Page Number": "cover_page_no"}, token)
         self.assertEqual(changed.status_code, 400)
         self.assertEqual(self.confirm(content, token).status_code, 400)
         self.assertFalse(ComplianceDocument.objects.exists())
@@ -142,30 +142,26 @@ class ComplianceImportTests(TestCase):
 
     def test_manual_mapping_ignores_unselected_column_with_target_field_name(self):
         output = BytesIO()
-        pd.DataFrame([{"Title": "Selected", "name": "Ignored"}]).to_excel(output, index=False)
+        pd.DataFrame([{"Title": "Selected", "name": "Ignored", "Cover": "CP-M"}]).to_excel(output, index=False)
         content = output.getvalue()
-        mapping = {"Title": "name"}
+        mapping = {"Title": "name", "Cover": "cover_page_no"}
         preview = self.manual_request(content, mapping)
         self.assertEqual(preview.data["created_count"], 1)
         self.assertEqual(self.manual_request(content, mapping, preview.data["confirmation_token"]).status_code, 201)
         self.assertEqual(ComplianceDocument.objects.get().name, "Selected")
 
-    def test_import_without_cover_column_can_be_reimported(self):
+    def test_import_without_cover_column_requires_a_new_preview(self):
         output = BytesIO()
         pd.DataFrame([{"Document Name": "Unnumbered", "Technical Document No": "TD-NEW"}]).to_excel(output, index=False)
         content = output.getvalue()
         preview = self.preview(content)
         self.assertEqual(preview.status_code, 200)
-        self.assertEqual(preview.data["rejected_count"], 0)
-        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
-        document = ComplianceDocument.objects.get()
-        self.assertEqual(document.cover_page.number, "")
-        again = self.preview(content)
-        self.assertEqual(again.data["unchanged_count"], 1)
-        self.assertEqual(self.confirm(content, again.data["confirmation_token"]).status_code, 201)
-        self.assertEqual(ComplianceDocument.objects.count(), 1)
+        self.assertEqual(preview.data["missing_columns"], ["cover_page_no"])
+        self.assertEqual(preview.data["confirmation_token"], "")
+        self.assertEqual(self.confirm(content, "").status_code, 400)
+        self.assertFalse(ComplianceDocument.objects.exists())
 
-    def test_blank_covers_have_independent_issues_and_versions(self):
+    def test_blank_covers_are_rejected_without_creating_records(self):
         output = BytesIO()
         pd.DataFrame([
             {"Document Name": "First", "Cover Page Number": "", "Cover Page Issue": "A"},
@@ -173,26 +169,31 @@ class ComplianceImportTests(TestCase):
         ]).to_excel(output, index=False)
         content = output.getvalue()
         preview = self.preview(content)
-        self.assertEqual(preview.data["created_count"], 2, preview.data)
-        self.assertEqual(preview.data["rejected_count"], 0)
+        self.assertEqual(preview.data["created_count"], 0, preview.data)
+        self.assertEqual(preview.data["rejected_count"], 2)
         self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
-        self.assertEqual(CoverPage.objects.filter(number="").count(), 2)
-        cover = ComplianceDocument.objects.get(name="First").cover_page
-        cover.version = 5
-        cover.save()
-        again = self.preview(content)
-        self.assertEqual(again.data["unchanged_count"], 2)
+        self.assertFalse(CoverPage.objects.exists())
+        self.assertFalse(ComplianceDocument.objects.exists())
 
-    def test_import_by_uuid_without_number_preserves_assigned_number(self):
+    def test_import_by_uuid_still_requires_number_and_allows_explicit_rename(self):
         cover = CoverPage.objects.create(project=self.project, number="CP-ALLOCATED")
         document = ComplianceDocument.objects.create(project=self.project, cover_page=cover, name="Before")
+        row = {"id": str(document.pk), "Document Name": "After"}
         output = BytesIO()
-        pd.DataFrame([{"id": str(document.pk), "Document Name": "After"}]).to_excel(output, index=False)
+        pd.DataFrame([row]).to_excel(output, index=False)
+        preview = self.preview(output.getvalue())
+        self.assertEqual(preview.data["missing_columns"], ["cover_page_no"])
+        self.assertEqual(preview.data["confirmation_token"], "")
+        document.refresh_from_db()
+        self.assertEqual(document.name, "Before")
+        output = BytesIO()
+        pd.DataFrame([{**row, "Cover Page Number": cover.number}]).to_excel(output, index=False)
         content = output.getvalue()
         preview = self.preview(content)
         self.assertEqual(preview.data["updated_count"], 1, preview.data)
         self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
         document.refresh_from_db()
+        self.assertEqual(document.name, "After")
         self.assertEqual(document.cover_page_id, cover.pk)
         self.assertEqual(document.cover_page.number, "CP-ALLOCATED")
 
@@ -212,8 +213,8 @@ class ComplianceImportTests(TestCase):
         document = ComplianceDocument.objects.create(
             project=self.project,
             cover_page=cover,
-            name="Before import",
-            tech_doc_no="TD-I",
+            name="Imported Document",
+            tech_doc_no=None,
             panel=None,
         )
         content = self.workbook()
@@ -453,10 +454,10 @@ class ComplianceImportTests(TestCase):
     def test_last_valid_panel_name_wins_and_invalid_rows_have_no_side_effects(self):
         output = BytesIO()
         pd.DataFrame([
-            {"Document Name": "First", "Panel": "First name", "ATA Chapter": 29},
-            {"Document Name": "Second", "Panel": "Last valid name", "ATA Chapter": 29},
-            {"Document Name": "Invalid", "Panel": "Rejected name", "ATA Chapter": 29, "Notes": "x" * 5001},
-            {"Document Name": "Invalid new", "Panel": "Rejected new", "ATA Chapter": 30, "Notes": "x" * 5001},
+            {"Document Name": "First", "Cover Page Number": "CP-P", "Panel": "First name", "ATA Chapter": 29},
+            {"Document Name": "Second", "Cover Page Number": "CP-P", "Panel": "Last valid name", "ATA Chapter": 29},
+            {"Document Name": "Invalid", "Cover Page Number": "CP-P", "Panel": "Rejected name", "ATA Chapter": 29, "Notes": "x" * 5001},
+            {"Document Name": "Invalid new", "Cover Page Number": "CP-P", "Panel": "Rejected new", "ATA Chapter": 30, "Notes": "x" * 5001},
         ]).to_excel(output, index=False)
         content = output.getvalue()
         preview = self.preview(content)

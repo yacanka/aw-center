@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
+import { NForm, NFormItem } from 'naive-ui'
+import type { FormInst } from 'naive-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 
@@ -82,6 +84,48 @@ describe('cover page numbering in the document editor', () => {
     await flushPromises()
     return state
   }
+
+  it('rejects blank identity and accepts optional metadata or a generated cover', async () => {
+    const state = await editor('new')
+    const form = ref<FormInst | null>(null)
+    wrappers.push(
+      mount(
+        defineComponent({
+          setup: () => () =>
+            h(
+              NForm,
+              {
+                ref: form,
+                model: state.compdoc.value,
+                rules: state.rules.value
+              },
+              {
+                default: () => [
+                  h(NFormItem, { path: 'name' }),
+                  h(NFormItem, { path: 'cover_page_no' })
+                ]
+              }
+            )
+        })
+      )
+    )
+    await expect(form.value!.validate()).rejects.toBeDefined()
+    state.compdoc.value.cover_page_no = 'CP-1'
+    state.compdoc.value.name = '   '
+    await flushPromises()
+    await expect(form.value!.validate()).rejects.toBeDefined()
+    state.compdoc.value.name = 'Document'
+    state.compdoc.value.cover_page_no = '   '
+    await flushPromises()
+    await expect(form.value!.validate()).rejects.toBeDefined()
+    state.compdoc.value.cover_page_no = 'CP-1'
+    await flushPromises()
+    await expect(form.value!.validate()).resolves.toBeDefined()
+    state.compdoc.value.cover_page_no = ''
+    state.numberSource.value = 'numarator'
+    await flushPromises()
+    await expect(form.value!.validate()).resolves.toBeDefined()
+  })
 
   it('requires a format selection when several formats are allowed', async () => {
     const state = await editor()

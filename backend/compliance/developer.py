@@ -20,7 +20,7 @@ from orgs.models import Panel, Person, Project, ProjectRoleAssignment, Responsib
 from .models import (
     ComplianceDocument, CoverPage, CoverPageNumberAllocation, DocumentPurgeAudit,
     DoorsImportMapping, ImportAudit, NotificationLog, NotificationPolicy, ReviewTask,
-    TrackingProfile, WorkflowEvent,
+    TrackingProfile, WorkflowEvent, DocumentStatus,
 )
 from .reset_guard import lock_reset_state
 
@@ -38,6 +38,7 @@ def _reset_querysets():
         "reviews": ReviewTask.objects.all(),
         "workflow_events": WorkflowEvent.objects.all(),
         "documents": ComplianceDocument.objects.all(),
+        "statuses": DocumentStatus.objects.exclude(value="unknown"),
         "cover_pages": CoverPage.objects.all(),
         "document_history": ComplianceDocument.history.all(),
         "cover_page_history": CoverPage.history.all(),

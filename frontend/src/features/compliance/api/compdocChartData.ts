@@ -1,3 +1,4 @@
+import type { CompdocOption } from './compdocCatalog'
 import type { ChartData } from 'chart.js'
 import type {
   DashboardPoint,
@@ -24,9 +25,24 @@ export interface StatusChartRow {
 }
 
 /** Build stable status rows while preserving zero-value categories in the legend. */
-export function createStatusChartRows(counts: Record<string, number>): StatusChartRow[] {
+export function createStatusChartRows(
+  counts: Record<string, number>,
+  options: CompdocOption[] = [],
+  neutralColor = 'currentColor'
+): StatusChartRow[] {
   const total = Object.values(counts).reduce((sum, value) => sum + safeNumber(value), 0)
-  return STATUS_PRESENTATION.map((status) => {
+  const vocabulary = new Map(options.map((option) => [option.value, option.label]))
+  Object.keys(counts).forEach((value) => {
+    if (!vocabulary.has(value))
+      vocabulary.set(
+        value,
+        STATUS_PRESENTATION.find((item) => item.value === value)?.label ||
+          value.replaceAll('_', ' ')
+      )
+  })
+  return [...vocabulary].map(([value, label]) => {
+    const color = STATUS_PRESENTATION.find((item) => item.value === value)?.color || neutralColor
+    const status = { value, label, color }
     const count = safeNumber(counts[status.value])
     return { ...status, count, percentage: total ? Math.round((count / total) * 100) : 0 }
   })

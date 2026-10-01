@@ -106,6 +106,7 @@ export interface DashboardAnalytics {
 }
 
 export interface CompDocDashboardSummary extends DashboardAnalytics {
+  statuses?: Array<{ value: string; label: string }>
   project: string
   archived: number
   generated_at: string

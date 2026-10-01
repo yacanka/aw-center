@@ -12,10 +12,19 @@ from simple_history.models import HistoricalRecords
 
 from orgs.models import Panel, Project
 
-from .compdoc_workflow import WORKFLOW_STATUS_CHOICES
+class DocumentStatus(models.Model):
+    """Assignable vocabulary shared by users of one compliance project."""
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="compliance_statuses")
+    value = models.CharField(max_length=128)
+    label = models.CharField(max_length=128)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
 
-STATUS_CHOICES = WORKFLOW_STATUS_CHOICES
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["project", "value"], name="compliance_unique_project_status")]
+        ordering = ["label", "value"]
+
 
 
 class CoverPage(models.Model):
@@ -27,7 +36,7 @@ class CoverPage(models.Model):
         on_delete=models.CASCADE,
         related_name="cover_pages",
     )
-    number = models.CharField(max_length=32, blank=True)
+    number = models.CharField(max_length=32)
     issue = models.CharField(max_length=255, null=True, blank=True)
     version = models.PositiveBigIntegerField(default=1)
     history = HistoricalRecords()
@@ -41,6 +50,11 @@ class CoverPage(models.Model):
                 name="compliance_unique_project_cover_page",
             )
         ]
+
+    def clean(self):
+        super().clean()
+        if not self.number or not self.number.strip():
+            raise ValidationError({"number": "Cover page number is required."})
 
     def __str__(self):
         return f"{self.project.slug}: {self.number}"
@@ -156,8 +170,7 @@ class ComplianceDocument(models.Model):
     mom_no = models.CharField(max_length=128, null=True, blank=True)
     requirements = models.JSONField(default=list, blank=True)
     status = models.CharField(
-        max_length=32,
-        choices=STATUS_CHOICES,
+        max_length=128,
         default="unknown",
         db_index=True,
         editable=False,
@@ -203,11 +216,6 @@ class ComplianceDocument(models.Model):
                 fields=["project", "cover_page", "name"],
                 name="compliance_unique_cover_page_document_name",
             ),
-            models.UniqueConstraint(
-                fields=["project", "cover_page", "tech_doc_no"],
-                condition=Q(tech_doc_no__isnull=False) & ~Q(tech_doc_no=""),
-                name="compliance_unique_cover_page_tech_doc",
-            ),
         ]
         indexes = [
             models.Index(fields=["project", "is_archived", "status"]),
@@ -216,6 +224,10 @@ class ComplianceDocument(models.Model):
 
     def clean(self):
         super().clean()
+        if not self.name or not self.name.strip():
+            raise ValidationError({"name": "Document name is required."})
+        if self.cover_page_id and not self.cover_page.number.strip():
+            raise ValidationError({"cover_page": "Cover page number is required."})
         if self.cover_page_id and self.cover_page.project_id != self.project_id:
             raise ValidationError({"cover_page": "Cover page must belong to the project."})
         if self.panel_id and self.panel.project_id != self.project_id:
@@ -240,8 +252,8 @@ class WorkflowEvent(models.Model):
         related_name="workflow_events",
     )
     sequence = models.PositiveIntegerField()
-    previous_status = models.CharField(max_length=32, blank=True)
-    status = models.CharField(max_length=32, choices=STATUS_CHOICES)
+    previous_status = models.CharField(max_length=128, blank=True)
+    status = models.CharField(max_length=128)
     effective_date = models.DateField()
     next_action_due_date = models.DateField(null=True, blank=True)
     reason = models.CharField(max_length=255)

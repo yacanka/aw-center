@@ -5,9 +5,8 @@ from collections import Counter
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from .compdoc_workflow import WORKFLOW_STATUSES
 from .dashboard_timeline import build_timeline
-from .models import ComplianceDocument, WorkflowEvent
+from .models import ComplianceDocument, WorkflowEvent, DocumentStatus
 from .risk import (
     DEFAULT_RISK_POLICY,
     accumulate_document_risk,
@@ -70,6 +69,7 @@ def build_dashboard(project, *, today=None):
     )
     return {
         "project": project.slug,
+        "statuses": list(DocumentStatus.objects.filter(project=project).values("value", "label")),
         **_serialize(overall, current_day),
         "archived": documents.filter(is_archived=True).count(),
         "panels": [
@@ -140,7 +140,7 @@ def _chart_status(document, today):
         and not document.ubm_delivery_date
     ):
         return "delayed"
-    return document.status if document.status in WORKFLOW_STATUSES else "unknown"
+    return document.status or "unknown"
 
 
 def _accumulate_pending(state, entries, today):

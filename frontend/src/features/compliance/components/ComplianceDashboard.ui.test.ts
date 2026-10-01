@@ -21,7 +21,10 @@ vi.mock('@/features/projects/stores/projectCatalog', () => ({
 vi.mock('@/features/session/stores/session', () => ({
   useSessionStore: () => ({ getPreferences: { theme: 'light' } })
 }))
-vi.mock('naive-ui', () => ({ useMessage: () => ({ warning: mocks.warning }) }))
+vi.mock('naive-ui', () => ({
+  useMessage: () => ({ warning: mocks.warning }),
+  useThemeVars: () => ({ value: { textColor3: '#888' } })
+}))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('vue-chartjs', () => {
   function chart(name: string) {

@@ -40,6 +40,8 @@
 </template>
 
 <script setup lang="ts">
+import { useThemeVars } from 'naive-ui'
+import type { CompdocOption } from '@/features/compliance/api/compdocCatalog'
 import { computed } from 'vue'
 import { Doughnut } from 'vue-chartjs'
 import { useSessionStore } from '@/features/session/stores/session'
@@ -56,6 +58,7 @@ import {
 
 const props = defineProps<{
   counts: Record<string, number>
+  statuses?: CompdocOption[]
   selectedPanel?: string
 }>()
 defineEmits<{ 'clear-panel': [] }>()
@@ -63,7 +66,10 @@ defineEmits<{ 'clear-panel': [] }>()
 ensureCompdocChartsRegistered()
 const userStore = useSessionStore()
 const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
-const statusRows = computed(() => createStatusChartRows(props.counts))
+const themeVars = useThemeVars()
+const statusRows = computed(() =>
+  createStatusChartRows(props.counts, props.statuses, themeVars.value.textColor3)
+)
 const total = computed(() => statusRows.value.reduce((sum, row) => sum + row.count, 0))
 const chartData = computed(() => createStatusChartData(statusRows.value))
 const chartOptions = computed(() => createStatusChartOptions(theme.value))

@@ -10,7 +10,8 @@ from orgs.access_policy import has_project_role
 from orgs.models import Person, ProjectRoleAssignment
 from integrations.docproof import normalize_document_number, search_document_issue
 
-from .compdoc_workflow import WORKFLOW_STATUSES
+from .status_catalog import lock_status_project
+from .models import DocumentStatus
 from .models import ComplianceDocument, ReviewTask, TrackingProfile, WorkflowEvent
 
 
@@ -121,8 +122,12 @@ def _serializer_changes_document(document, values):
     return False
 
 
-@transaction.atomic
-def transition_document(
+def transition_document(**kwargs):
+    with lock_status_project(kwargs["project"]):
+        return _transition_document(**kwargs)
+
+
+def _transition_document(
     *,
     project,
     document_id,
@@ -137,7 +142,7 @@ def transition_document(
     document = _lock_document(project, document_id)
     _require_active(document)
     _require_version(document, expected_version)
-    if new_status not in WORKFLOW_STATUSES:
+    if not DocumentStatus.objects.filter(project=project, value=new_status).exists():
         raise ValidationError({"status": "Select a supported workflow status."})
     if new_status == document.status:
         raise ValidationError({"status": "Select a status different from the current status."})
