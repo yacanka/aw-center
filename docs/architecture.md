@@ -57,7 +57,12 @@ Güncel Windows profilinde process'ler aynı production env dosyasını okur; uy
 seviyesindeki sorumluluk sınırları yine korunur. Tek DOORS-capable worker dosya
 kilidiyle zorlanır. SQLite yerel NTFS üzerinde, repository/OneDrive/network share
 dışında ve `CONN_MAX_AGE=0` ile kullanılır. Repository dışındaki file cache geçici
-JIRA session state'ini web ve worker arasında paylaşır. Container profilinde secret ve volume
+JIRA session state'ini web ve worker arasında paylaşır. Başlangıç kontrolleri ve
+JIRA oturum işlemleri aynı cache politikasını uygular: Windows-native production
+repository dışında mutlak bir file cache dizini, container production Redis
+gerektirir. Production JIRA credential'ı explicit Fernet anahtarıyla şifrelenir;
+owner scope, TTL ve logout temizliği her iki profilde de korunur.
+Container profilinde secret ve volume
 capability'leri process başına daha dar biçimde ayrılmaya devam edecektir.
 
 ## Backend sınırları
@@ -180,6 +185,15 @@ Runtime verileri dört ayrı sınıfta tutulur:
 
 Private media static olarak servis edilmez. Private download, authenticated owner
 authorization kontrolü ve stored SHA-256 doğrulamasıyla Django üzerinden akar.
+
+Job silme sinyali input/output storage ve adlarını sabitler; dosyaları ilgili
+database bağlantısının başarılı commit'inden sonra siler. Rollback/savepoint
+rollback sırasında dosyalar korunur. Geçici filesystem hatası diğer artifact'ın
+silinmesini durdurmaz; güvenli log kaydı bırakılır. Cleanup worker eski ve artık
+referans edilmeyen input dosyalarını da tarayarak başarısız veya process kapanması
+nedeniyle kaçırılmış temizliği tekrar dener. Retention dış transaction içinde
+çağrıldığında orphan taraması da commit sonrasına ertelenir; deferred tarama
+sayıları senkron `CleanupResult` içinde sıfırdır.
 Backend, worker ve cleanup aynı açıkça yapılandırılmış dizini görür.
 
 Cache-backed Outlook MSG attachment'ları ayrı fakat aynı ilkeye bağlı bir private transferdir: parse response'u `download_url` açığa çıkarmaz; 48 karakterlik owner-bound capability yalnız authenticated `POST /api/tools/outlook/msg/download/` body içinde kullanılır. Capability kısa ömürlü ve tek kullanımlıktır; backend cache'lenmiş byte'ların SHA-256 değerini indirme response'undan önce yeniden hesaplar.

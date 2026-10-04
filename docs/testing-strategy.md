@@ -138,9 +138,11 @@ Değişen yüzeyle orantılı olarak en az şunları değerlendirin:
 - Outlook attachment capability'sinde cross-user kullanım, query/URL sızıntısı, replay ve cached SHA-256 mismatch; production file cache üzerinde aynı payload'ı okuyan thread/process'ler için tek başarılı tüketim, expiry ve kilit hatasında payload reddi;
 - idempotency key replay: aynı input ve farklı input;
 - ECR'de cross-owner erişim, stale approve/reject version, credential payload reddi, missing/expired JIRA session, stale publication fence ve explicit resume öncesi reconciliation doğrulaması;
+- JIRA'da `DEBUG=False` + Windows-native file cache ile şifreli oturumun ayrı process'ten okunması/silinmesi, owner scope, expiry/corrupt kayıt temizliği ve deployment profiline uymayan cache'in reddi; container Redis gereksiniminin korunması;
 - subtask create/resume'da legacy credential reddi, unknown/required field kontrolü, marker reuse ve uncertain provider write sonrası otomatik retry olmaması;
 - Watcher reminder'da record/project scope, stale version, aynı idempotency replay'i, saatlik cooldown, alıcıların response'ta gizlenmesi ve stale mail lease;
 - expired/recovered lease ve stale worker publish;
+- Job silmede gerçek commit, outer/savepoint/cascade rollback, artifact adlarının snapshot'ı, storage hatasında diğer dosyanın silinmesi ve cleanup worker retry; retention rollback'te input/output korunması;
 - untrusted proxy, missing/invalid/expired certificate ve fingerprint mismatch;
 - Redis authenticated health + unauthenticated command rejection ve Nginx loopback-only readiness;
 - response/log içinde secret, path, certificate veya upstream exception sızıntısı.

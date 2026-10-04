@@ -229,11 +229,13 @@ jobs:
           awcenter.test_database_settings
           awcenter.test_runner_lifecycle
           jobs.tests.test_isolated_worker
+          jobs.tests.test_artifact_deletion
           compliance.test_imports
           compliance.test_import_concurrency
           compliance.test_doors_imports
           integrations.tests.test_doors_worker_tasks
           integrations.tests.test_probes
+          integrations.tests.test_jira_sessions
           outlook.tests
           integrations.tests.test_mail
           awcenter.test_mail_settings

@@ -5,6 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from .models import Job, JobStatus
@@ -43,6 +44,11 @@ def cleanup_expired_jobs(days=None):
     deleted_objects, _ = Job.objects.filter(
         status__in=terminal_statuses, completed_at__lt=cutoff
     ).delete()
+    if transaction.get_connection().in_atomic_block:
+        # An outer rollback restores the job references. Do not classify their
+        # files as orphans before that transaction has actually committed.
+        transaction.on_commit(lambda: cleanup_orphan_artifacts(now))
+        return CleanupResult(expired_preview_count, deleted_objects)
     staging_files, orphan_outputs = cleanup_orphan_artifacts(now)
     return CleanupResult(
         expired_preview_count,
@@ -53,7 +59,7 @@ def cleanup_expired_jobs(days=None):
 
 
 def cleanup_orphan_artifacts(now=None):
-    """Remove old unpublished staging and unreferenced final output files."""
+    """Remove old staging/output files; retry orphan input cleanup after commit."""
 
     current_time = now or timezone.now()
     grace_seconds = max(
@@ -78,7 +84,36 @@ def cleanup_orphan_artifacts(now=None):
                 continue
             path.unlink(missing_ok=True)
             orphan_count += 1
+    transaction.on_commit(lambda: _cleanup_orphan_inputs(current_time))
     return staging_count, orphan_count
+
+
+def _cleanup_orphan_inputs(now):
+    """Recover failed/missed post-commit deletes without touching live job files."""
+
+    grace_seconds = max(
+        int(settings.JOB_EXECUTION_TIMEOUT_SECONDS),
+        int(settings.JOB_LEASE_SECONDS),
+        60,
+    ) + 60
+    cutoff = now.timestamp() - grace_seconds
+    root = Path(settings.PRIVATE_MEDIA_ROOT).resolve()
+    referenced = {
+        name
+        for files in Job.objects.values_list("input_file", "output_file")
+        for name in files
+        if name
+    }
+    jobs_root = root / "jobs"
+    if jobs_root.is_symlink():
+        return
+    for path in jobs_root.glob("*/*/input*"):
+        if path.parent.is_symlink() or path.parent.parent.is_symlink():
+            continue
+        if not _old_regular_file(path, cutoff):
+            continue
+        if path.relative_to(root).as_posix() not in referenced:
+            path.unlink(missing_ok=True)
 
 
 def _delete_old_files(directory, cutoff):

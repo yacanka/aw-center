@@ -1,9 +1,16 @@
+import json
+import subprocess
+import sys
+from datetime import timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 from orgs.models import Project, ProjectRoleAssignment
 
@@ -11,6 +18,7 @@ from integrations.jira.sessions import (
     JiraSessionConfigurationError,
     clear_jira_session,
     connect_jira_session,
+    ensure_jira_enabled,
     get_jira_session,
     owner_cache_key,
     session_cipher,
@@ -229,3 +237,113 @@ class JiraSessionTests(TestCase):
         self.assertEqual(legacy.data["code"], "JIRA_SESSION_CANONICAL_REQUIRED")
         connector_for.assert_called_once()
         self.assertEqual(connector_for.call_args.args[0].pk, self.user.pk)
+
+    @override_settings(DEBUG=False, AWCENTER_DEPLOYMENT_MODE="windows-native")
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_windows_file_cache_shares_encrypted_owner_session_with_another_process(
+        self, connector
+    ):
+        connector.return_value.current_user.return_value = {"name": "jira-owner"}
+        with TemporaryDirectory() as directory:
+            config = {
+                "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+                "LOCATION": directory,
+            }
+            with override_settings(CACHES={"default": config}):
+                response = self.client.post(
+                    SESSION_URL, {"JSESSIONID": "process-session-fixture"}, format="json"
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("process-session-fixture", str(response.data))
+                self.assertNotIn(
+                    "process-session-fixture", cache.get(owner_cache_key(self.user))
+                )
+                self.assertIsNone(get_jira_session(self.other_user))
+                child = subprocess.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        """
+import json, sys, django
+from django.test import override_settings
+config = json.load(sys.stdin)
+django.setup()
+from integrations.jira.sessions import ensure_jira_enabled, get_jira_session, clear_jira_session
+with override_settings(DEBUG=False, AWCENTER_DEPLOYMENT_MODE="windows-native",
+        JIRA_ENABLED=True, JIRA_SESSION_ENCRYPTION_KEY=config["key"],
+        CACHES={"default": config["cache"]}):
+    ensure_jira_enabled()
+    record = get_jira_session(config["owner"])
+    result = {"owned": record is not None and record.credential == "process-session-fixture",
+              "other": get_jira_session(config["other"]) is None}
+    clear_jira_session(config["owner"])
+    print(json.dumps(result))
+""",
+                    ],
+                    input=json.dumps({
+                        "cache": config,
+                        "key": TEST_FERNET_KEY,
+                        "owner": self.user.pk,
+                        "other": self.other_user.pk,
+                    }),
+                    text=True,
+                    capture_output=True,
+                    timeout=30,
+                    cwd=Path(__file__).resolve().parents[2],
+                )
+                self.assertEqual(child.returncode, 0, child.stderr)
+                self.assertEqual(json.loads(child.stdout), {"owned": True, "other": True})
+                self.assertIsNone(get_jira_session(self.user))
+                self.assertEqual(self.client.delete(SESSION_URL).status_code, 204)
+
+    @override_settings(DEBUG=False, AWCENTER_DEPLOYMENT_MODE="windows-native")
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_windows_file_cache_discards_expired_and_corrupt_sessions(self, connector):
+        connector.return_value.current_user.return_value = {"name": "jira-owner"}
+        with TemporaryDirectory() as directory:
+            with override_settings(
+                CACHES={"default": {
+                    "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+                    "LOCATION": directory,
+                }}
+            ):
+                connect_jira_session(self.user, "expiry-session-fixture")
+                with patch(
+                    "integrations.jira.sessions.timezone.now",
+                    return_value=timezone.now() + timedelta(seconds=61),
+                ):
+                    self.assertIsNone(get_jira_session(self.user))
+                self.assertIsNone(cache.get(owner_cache_key(self.user)))
+                cache.set(owner_cache_key(self.user), "corrupt-ciphertext")
+                self.assertIsNone(get_jira_session(self.user))
+                self.assertIsNone(cache.get(owner_cache_key(self.user)))
+
+    @override_settings(DEBUG=False)
+    def test_production_rejects_cache_that_does_not_match_deployment_profile(self):
+        file_backend = "django.core.cache.backends.filebased.FileBasedCache"
+        redis_backend = "django.core.cache.backends.redis.RedisCache"
+        cases = [
+            ("windows-native", {"BACKEND": redis_backend}),
+            ("windows-native", {"BACKEND": file_backend, "LOCATION": "relative-cache"}),
+            ("windows-native", {
+                "BACKEND": file_backend,
+                "LOCATION": str(Path(__file__).resolve().parents[3] / "cache"),
+            }),
+            ("container", {"BACKEND": file_backend, "LOCATION": "/tmp/cache"}),
+            ("development", {"BACKEND": redis_backend}),
+        ]
+        for mode, config in cases:
+            with self.subTest(mode=mode, config=config):
+                with override_settings(
+                    AWCENTER_DEPLOYMENT_MODE=mode, CACHES={"default": config}
+                ):
+                    with self.assertRaises(JiraSessionConfigurationError):
+                        ensure_jira_enabled()
+
+    @override_settings(
+        DEBUG=False,
+        AWCENTER_DEPLOYMENT_MODE="container",
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache"}},
+    )
+    def test_container_keeps_redis_session_policy(self):
+        ensure_jira_enabled()

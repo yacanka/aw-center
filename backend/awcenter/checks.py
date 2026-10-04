@@ -9,6 +9,7 @@ from django.conf import settings
 from django.core.checks import Error, Tags, register
 from django.http.request import validate_host
 
+from awcenter.cache_policy import production_cache_is_valid
 from awcenter.outbound_urls import normalize_outbound_base_url
 
 
@@ -110,13 +111,8 @@ def _windows_native_runtime_checks(database_engine):
                 id="awcenter.E032",
             )
         )
-    cache = settings.CACHES["default"]
-    cache_directory = Path(cache.get("LOCATION", ""))
-    if (
-        cache.get("BACKEND")
-        != "django.core.cache.backends.filebased.FileBasedCache"
-        or not cache_directory.is_absolute()
-        or _is_within(cache_directory, settings.REPOSITORY_DIR)
+    if not production_cache_is_valid(
+        "windows-native", settings.CACHES["default"], settings.REPOSITORY_DIR
     ):
         checks.append(
             Error(
@@ -165,8 +161,9 @@ def _container_runtime_checks(database_engine):
                 id="awcenter.E001",
             )
         )
-    cache_backend = settings.CACHES["default"]["BACKEND"]
-    if "redis" not in cache_backend.casefold():
+    if not production_cache_is_valid(
+        "container", settings.CACHES["default"], settings.REPOSITORY_DIR
+    ):
         checks.append(
             Error(
                 "Container production requires a process-shared Redis cache.",
