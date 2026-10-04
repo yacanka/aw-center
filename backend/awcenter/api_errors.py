@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
 from awcenter.error_guidance import guidance_for
+from awcenter.logging import exception_log_context
 from awcenter.request_context import get_request_id
 
 DEFAULT_ERROR_CODE = "ERROR"
@@ -77,7 +78,12 @@ def _unexpected_error_response(exception, context):
     logger.error(
         "Unhandled API exception type=%s",
         exception.__class__.__name__,
-        extra={"request": request},
+        extra={
+            "event": "api.unhandled_exception",
+            "request": request,
+            "request_id": request_id or get_request_id(),
+            **exception_log_context(type(exception), exception.__traceback__),
+        },
     )
     payload = build_error_payload(
         {"detail": "An unexpected server error occurred."},

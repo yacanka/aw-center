@@ -105,12 +105,18 @@ function field(key, defaultVisible, filterKind) {
 
 test('builds resilient CompDoc chart aggregates including custom project statuses', () => {
   const rows = [
-    document('delayed', [{ status: 'to_be_issued', date: '20.07.2026' }]),
-    document('authority_approved', [
-      { status: 'to_be_issued', date: '01.07.2026' },
-      { status: 'authority_review', date: '10.07.2026' },
-      { status: 'authority_approved', date: '15.07.2026' }
-    ]),
+    {
+      ...document('delayed', [{ status: 'to_be_issued', date: '20.07.2026' }]),
+      ubm_target_date: '2026-07-20'
+    },
+    {
+      ...document('authority_approved', [
+        { status: 'to_be_issued', date: '01.07.2026' },
+        { status: 'authority_review', date: '10.07.2026' },
+        { status: 'authority_approved', date: '15.07.2026' }
+      ]),
+      ubm_target_date: '2026-07-01'
+    },
     document('to_be_updated', [{ status: 'to_be_updated', date: '18.07.2026' }]),
     document('unexpected', [{ status: 'to_be_issued', date: '31.02.2026' }])
   ]
@@ -157,6 +163,19 @@ test('keeps delivery-only workflow projections out of the scheduled series', () 
   assert.equal(summary.timeline.actual[0].x, '21.07.2026')
 })
 
+test('revised target controls scheduled dates and delayed display', () => {
+  const row = {
+    ...document('to_be_issued', []),
+    ubm_target_date: '2026-07-01',
+    ubm_revised_target_date: '2026-08-01',
+    ubm_delivery_date: '2026-06-01'
+  }
+  const summary = buildClientCompdocSummary([row], new Date(2026, 6, 22))
+  assert.equal(summary.timeline.scheduled[0].x, '01.08.2026')
+  assert.equal(summary.timeline.actual[0].x, '01.06.2026')
+  assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 22)).status, 'to_be_issued')
+})
+
 test('marks yesterday as delayed without a UTC/local timezone offset', () => {
   const row = {
     ...document('to_be_issued', []),
@@ -165,6 +184,11 @@ test('marks yesterday as delayed without a UTC/local timezone offset', () => {
 
   assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 22)).status, 'delayed')
   assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 21)).status, 'to_be_issued')
+  assert.equal(
+    withCompdocDisplayStatus({ ...row, ubm_delivery_date: '2026-07-01' }, new Date(2026, 6, 22))
+      .status,
+    'to_be_issued'
+  )
 })
 
 test('creates zero-safe doughnut data and anchored stepped burndown lines', () => {

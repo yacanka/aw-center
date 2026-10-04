@@ -19,6 +19,8 @@ export type ReleaseNote = {
   items: ReleaseNoteItem[]
 }
 
+const RELEASE_SEEN_BATCH_SIZE = 1000
+
 export const useReleaseNotesStore = defineStore('releaseNotes', {
   state: () => ({
     loading: false as boolean,
@@ -45,9 +47,11 @@ export const useReleaseNotesStore = defineStore('releaseNotes', {
         this.unseen_ids = res.data.mark_seen_ids
         this.show = true
 
-        await axios.post(`releases/release-notes/bulk-seen`, {
-          ids: res.data.mark_seen_ids
-        })
+        for (let offset = 0; offset < this.unseen_ids.length; offset += RELEASE_SEEN_BATCH_SIZE) {
+          await axios.post('releases/release-notes/bulk-seen', {
+            ids: this.unseen_ids.slice(offset, offset + RELEASE_SEEN_BATCH_SIZE)
+          })
+        }
       } catch (err: any) {
         const status = err?.response?.status
         if (status === 204) {

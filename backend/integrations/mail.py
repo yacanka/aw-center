@@ -1,6 +1,7 @@
 """Linux-safe outbound mail adapter with no COM or ambient credential fallback."""
 
 import re
+from smtplib import SMTPServerDisconnected
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -39,16 +40,12 @@ def send_html_email(subject, html_body, to, *, cc=None, bcc=None, message_id=Non
         headers=headers,
     )
     message.attach_alternative(str(html_body), "text/html")
-    if message.send(fail_silently=False) < 1:
+    try:
+        sent = message.send(fail_silently=False)
+    except SMTPServerDisconnected as exc:
+        # smtplib wraps socket read timeouts as a disconnection with context.
+        if isinstance(exc.__context__, TimeoutError):
+            raise TimeoutError("Outbound SMTP operation timed out.") from None
+        raise
+    if sent < 1:
         raise MailUnavailable("Outbound mail was not accepted by the configured backend.")
-
-
-def load_template_text(path):
-    return path.read_text(encoding="utf-8")
-
-
-def replace_placeholders(template, replacements):
-    rendered = template
-    for key, value in replacements.items():
-        rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
-    return rendered

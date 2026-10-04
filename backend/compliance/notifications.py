@@ -32,7 +32,17 @@ def scan_notifications(*, project_slug=None):
         materialized, cancelled, claims = _prepare_scan(project_slug)
 
     sent = failed = 0
-    for log_id, lease_token in claims:
+    attempted = set()
+    for index in range(max(int(settings.COMPDOC_NOTIFICATION_BATCH_SIZE), 1)):
+        if index:
+            with lock_reset_state() as state:
+                if state and state.active:
+                    break
+                claims = claim_notifications(project_slug=project_slug, limit=1, exclude_ids=attempted)
+        if not claims:
+            break
+        log_id, lease_token = claims[0]
+        attempted.add(log_id)
         if deliver_notification(log_id, lease_token):
             sent += 1
         elif NotificationLog.objects.filter(
@@ -64,7 +74,7 @@ def _prepare_scan(project_slug):
         )
 
     cancelled = cancel_ineligible_notifications(project_slug=project_slug)
-    return materialized, cancelled, claim_notifications(project_slug=project_slug)
+    return materialized, cancelled, claim_notifications(project_slug=project_slug, limit=1)
 
 
 def materialize_profile_events(profile, *, today=None):
@@ -108,8 +118,8 @@ def detect_events(profile, *, today=None):
     document = profile.document
     current_day = today or timezone.localdate()
     events = {}
-    target = document.ubm_target_date
-    if document.status == "to_be_issued" and target:
+    target = document.current_target_date
+    if document.status == "to_be_issued" and target and not document.ubm_delivery_date:
         remaining_days = (target - current_day).days
         if remaining_days < 0:
             events["overdue"] = target.isoformat()
@@ -121,7 +131,7 @@ def detect_events(profile, *, today=None):
 
 
 @transaction.atomic
-def claim_notifications(*, now=None, project_slug=None):
+def claim_notifications(*, now=None, project_slug=None, limit=None, exclude_ids=()):
     """Fence pending or expired claims and return opaque claim pairs."""
 
     current_time = now or timezone.now()
@@ -137,11 +147,15 @@ def claim_notifications(*, now=None, project_slug=None):
     if project_slug:
         queryset = queryset.filter(profile__document__project__slug=project_slug)
     queryset = queryset.order_by("created_at", "id")
+    queryset = queryset.exclude(pk__in=exclude_ids)
     if connection.features.has_select_for_update_skip_locked:
         queryset = queryset.select_for_update(skip_locked=True)
     else:
         queryset = queryset.select_for_update()
-    logs = list(queryset[: max(int(settings.COMPDOC_NOTIFICATION_BATCH_SIZE), 1)])
+    batch_size = max(int(settings.COMPDOC_NOTIFICATION_BATCH_SIZE), 1)
+    if limit is not None:
+        batch_size = min(batch_size, limit)
+    logs = list(queryset[:batch_size])
     claimed = []
     for log in logs:
         token = uuid.uuid4()
@@ -175,7 +189,10 @@ def deliver_notification(log_id, lease_token):
         log = NotificationLog.objects.select_related(
             "profile__document__project",
             "profile__document__panel",
-        ).get(pk=log_id, status=NotificationLog.Status.CLAIMED, lease_token=lease_token)
+        ).get(
+            pk=log_id, status=NotificationLog.Status.CLAIMED, lease_token=lease_token,
+            claim_expires_at__gt=timezone.now(),
+        )
         if not notification_is_enabled(log.profile, log.event_type, log.event_key):
             return _finish_cancelled(log_id, lease_token)
         recipients = resolve_recipients(log.profile)
@@ -187,6 +204,9 @@ def deliver_notification(log_id, lease_token):
         return False
     except MailUnavailable:
         return _finish_failure(log_id, lease_token, "MAIL_TRANSPORT_UNAVAILABLE")
+    except TimeoutError:
+        LOGGER.warning("Compliance SMTP operation timed out.", extra={"notification_id": str(log_id)})
+        return _finish_failure(log_id, lease_token, "MAIL_DELIVERY_TIMEOUT")
     except Exception:
         LOGGER.exception(
             "Compliance notification delivery failed.",
@@ -281,6 +301,7 @@ def _finish_success(log_id, lease_token, recipient_count):
         pk=log_id,
         status=NotificationLog.Status.CLAIMED,
         lease_token=lease_token,
+        claim_expires_at__gt=timezone.now(),
     ).update(
         status=NotificationLog.Status.SENT,
         recipient_count=recipient_count,
@@ -299,6 +320,7 @@ def _finish_failure(log_id, lease_token, error_code):
         pk=log_id,
         status=NotificationLog.Status.CLAIMED,
         lease_token=lease_token,
+        claim_expires_at__gt=timezone.now(),
     ).update(
         status=NotificationLog.Status.FAILED,
         error_code=error_code,
@@ -316,6 +338,7 @@ def _finish_cancelled(log_id, lease_token):
         pk=log_id,
         status=NotificationLog.Status.CLAIMED,
         lease_token=lease_token,
+        claim_expires_at__gt=timezone.now(),
     ).update(
         status=NotificationLog.Status.CANCELLED,
         error_code="NOTIFICATION_DISABLED",

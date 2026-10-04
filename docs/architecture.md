@@ -131,6 +131,8 @@ Subtask Creator'ın manual ve Excel girişleri `/api/dcc/subtasks/` altında bir
 
 Watcher reminder endpoint'i owner/assignee scope'undaki DCC kaydını, optimistic `version` değerini ve operator rolünü doğrular. Açık JIRA subtasks'tan bounded ve doğrulanmış e-posta listesi çıkarılır; adresler API response'una yazılmaz. Web process'i SMTP çağrısı yapmaz. `DccReminderDelivery` outbox'ı notification worker tarafından row lease, retry ve stable `Message-ID` ile teslim edilir; aynı kayıt için yeni gönderim bir saatlik cooldown'a tabidir.
 
+Ortak mail adapter'ında `EMAIL_TIMEOUT` varsayılan 10 saniyelik socket bekleme sınırıdır; değer pozitif, en fazla 30 saniye ve notification lease'inden kısa olmalıdır. Bu sınır DNS çözümlemesi veya tüm SMTP konuşması için toplam süre garantisi değildir. Worker her kuyrukta mevcut batch sayısı sınırını koruyarak kayıtları gönderimden hemen önce tek tek claim eder; sırada bekleyen kayıtların lease'i tüketilmez. Her kayıt aynı turda en fazla bir kez denenir; lease/retry süresi tur içinde dolsa da yeniden seçilmez. Timeout `MAIL_DELIVERY_TIMEOUT` ile mevcut retry akışına girer; Message-ID ve password-reset link'i korunur. Süresi dolmuş veya değişmiş lease ile gönderim başlatılmaz ve terminal sonuç yazılmaz. SMTP kabulünden sonra bağlantı kaybolursa retry yineleme riski taşır; stable Message-ID tam olarak bir kez teslim garantisi vermez.
+
 ## Authentication ve authorization
 
 Browser sözleşmesi:
@@ -149,6 +151,10 @@ Güncel Windows profilinde DOORS general worker doğrudan SQLite job kuyruğunu 
 private artifact dizinini kullanır; browser request process'i COM çalıştırmaz.
 
 ## API ve hata yüzeyi
+
+Beklenmeyen API hatasının JSON log'u `api.unhandled_exception`, request ID ve exception türüne ek olarak yalnız en iç frame'in modül, fonksiyon ve satırını `exception_location` içinde taşır. Worker'ın `error_type`/`failure_stage` ve bildirim kimlikleri allowlist üzerinden korunur; ham exception mesajı, traceback kaynak metni, local değişkenler, payload ve filesystem yolu eklenmez. Browser'a dönen `INTERNAL_ERROR` yanıtı genel kalır.
+
+Release note `bulk-seen` girdisi en fazla 1.000 pozitif signed64 integer ID kabul eder; boyut kontrolü child doğrulamasından önce yapılır. Oluşturma ve ön okuma aynı transaction içindedir; sıralı `get_or_create` sayesinde aynı kullanıcı/not çifti eşzamanlı çağrılarda tek kayıt oluşturur. `created`, yalnız o isteğin gerçekten eklediği kayıt sayısıdır; boş liste, tekrarlar ve aktif olmayan/bulunmayan ID'ler sayıyı artırmaz. İstemci uzun okunmamış listelerini 1.000'lik gruplar halinde gönderir.
 
 Canonical root surface:
 
@@ -177,6 +183,14 @@ authorization kontrolü ve stored SHA-256 doğrulamasıyla Django üzerinden aka
 Backend, worker ve cleanup aynı açıkça yapılandırılmış dizini görür.
 
 Cache-backed Outlook MSG attachment'ları ayrı fakat aynı ilkeye bağlı bir private transferdir: parse response'u `download_url` açığa çıkarmaz; 48 karakterlik owner-bound capability yalnız authenticated `POST /api/tools/outlook/msg/download/` body içinde kullanılır. Capability kısa ömürlü ve tek kullanımlıktır; backend cache'lenmiş byte'ların SHA-256 değerini indirme response'undan önce yeniden hesaplar.
+
+Payload yalnız cache kaydını başarıyla silen çağrıya döner. Windows file cache'inde
+silme ve integration probe `add` işlemleri process'ler arası işletim sistemi
+kilidiyle korunur; kilit en fazla iki saniye beklenir, alınamazsa işlem reddedilir.
+Kilit dosyaları `CACHE_DIRECTORY/.operation-locks/` altında en fazla 256 sabit
+stripe kullanır ve capability içermez. `cache.clear()` bu dosyaları korur;
+çalışan process'ler varken kilit dizinini silmeyin. Process kapanınca işletim
+sistemi kilidi bırakır; payload süresi ve temizliği Django cache tarafından yönetilir.
 
 ## Frontend sınırları
 

@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
+from awcenter.cache_locks import atomic_cache_add
 from .probe_adapters import ProbeOutcome, probe_integration
 
 CACHE_PREFIX = "aw:integration-probe:v1"
@@ -29,7 +30,7 @@ def claim_refresh_slot(subject_identifier: object) -> bool:
 
     key = f"{CACHE_PREFIX}:refresh:{subject_identifier}"
     timeout = max(1, settings.INTEGRATION_PROBE_REFRESH_COOLDOWN_SECONDS)
-    return cache.add(key, True, timeout=timeout)
+    return atomic_cache_add(key, True, timeout=timeout)
 
 
 def _get_probe(identifier: str, refresh: bool) -> dict:
@@ -38,7 +39,7 @@ def _get_probe(identifier: str, refresh: bool) -> dict:
         return {**cached, "source": "cache"}
     if cache.get(_key(identifier, "circuit")):
         return _circuit_result()
-    if not cache.add(_key(identifier, "lock"), True, timeout=_lock_seconds()):
+    if not atomic_cache_add(_key(identifier, "lock"), True, timeout=_lock_seconds()):
         concurrent_result = cache.get(_key(identifier, "result"))
         if concurrent_result:
             return {**concurrent_result, "source": "cache"}
@@ -76,8 +77,12 @@ def _record_circuit_state(identifier: str, status: str) -> None:
     if status not in FAILURE_STATUSES:
         cache.delete_many([failure_key, _key(identifier, "circuit")])
         return
-    cache.add(failure_key, 0, timeout=settings.INTEGRATION_PROBE_FAILURE_WINDOW_SECONDS)
-    failures = cache.incr(failure_key)
+    atomic_cache_add(failure_key, 0, timeout=settings.INTEGRATION_PROBE_FAILURE_WINDOW_SECONDS)
+    try:
+        failures = cache.incr(failure_key)
+    except ValueError:
+        # Lock failure or eviction can leave no counter. Keep the safe observation.
+        return
     if failures >= settings.INTEGRATION_PROBE_FAILURE_THRESHOLD:
         cache.set(
             _key(identifier, "circuit"),

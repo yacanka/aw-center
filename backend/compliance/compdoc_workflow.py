@@ -1,30 +1,9 @@
-"""Workflow projection helpers for compliance documents."""
+"""Date parsing shared by compliance imports and workflow transitions."""
 
-from dataclasses import dataclass
 from datetime import date, datetime
 
 
 DATE_FORMATS = ("%d.%m.%Y", "%Y-%m-%d", "%Y/%m/%d")
-
-
-@dataclass(frozen=True)
-class WorkflowProjection:
-    """Queryable fields derived from the workflow event list."""
-
-    status: str
-    target_date: date | None
-    delivery_date: date | None
-
-
-def extract_workflow_projection(value) -> WorkflowProjection:
-    """Return safe current-status and milestone projections from JSON data."""
-
-    entries = [item for item in value if _valid_entry(item)] if isinstance(value, list) else []
-    candidate = entries[-1]["status"].strip() if entries else "unknown"
-    status = candidate
-    target_date = parse_workflow_date(entries[0].get("date")) if entries else None
-    delivery_date = parse_workflow_date(entries[1].get("date")) if len(entries) > 1 else None
-    return WorkflowProjection(status, target_date, delivery_date)
 
 
 def parse_workflow_date(value) -> date | None:
@@ -42,7 +21,3 @@ def parse_workflow_date(value) -> date | None:
         except ValueError:
             continue
     return None
-
-
-def _valid_entry(value):
-    return isinstance(value, dict) and isinstance(value.get("status"), str) and value["status"].strip()

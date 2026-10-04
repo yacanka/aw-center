@@ -1,6 +1,5 @@
 import json
 import logging
-import math
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 
@@ -17,23 +16,26 @@ from .comparer.report_generator import HTMLReportGenerator
 from .comparer.text_comparator import PDFComparator
 
 logger = logging.getLogger(__name__)
+MAX_SPLIT_PARTS = 1000
 
 def _split_plan(num_pages: int, parts: int | None, pages_per_part: int | None):
     if parts is None and pages_per_part is None:
         raise ValueError("Either 'parts' or 'pages_per_part' must be provided.")
 
     if parts is None:
-        parts = math.ceil(num_pages / max(1, pages_per_part))
+        if pages_per_part < 1:
+            raise ValueError("'pages_per_parts' must be >= 1.")
+        parts = (num_pages - 1) // pages_per_part + 1
 
     if parts < 1:
         raise ValueError("'parts' must be >= 1.")
+    if parts > num_pages:
+        raise ValueError("'parts' must not exceed the PDF page count.")
+    if parts > MAX_SPLIT_PARTS:
+        raise ValueError(f"The PDF must produce at most {MAX_SPLIT_PARTS} parts.")
 
-    base = num_pages // parts
-    rem = num_pages % parts
-
-    counts = [(base + 1 if i < rem else base) for i in range(parts)]
-    counts = [c for c in counts if c > 0]
-    return counts
+    base, rem = divmod(num_pages, parts)
+    return [(base + 1 if i < rem else base) for i in range(parts)]
 
 
 def _parse_split_parameters(raw_parameters: str | None) -> tuple[int | None, int | None]:
@@ -53,13 +55,15 @@ def _parse_split_parameters(raw_parameters: str | None) -> tuple[int | None, int
     )
     if (parts is None) == (pages_per_part is None):
         raise ValueError("Provide exactly one of 'parts' or 'pages_per_parts'.")
+    if parts is not None and parts > MAX_SPLIT_PARTS:
+        raise ValueError(f"'parts' must be <= {MAX_SPLIT_PARTS}.")
     return parts, pages_per_part
 
 
 def _optional_positive_integer(value, field_name: str) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise ValueError(f"'{field_name}' must be a positive integer.")
     try:
         parsed = int(value)

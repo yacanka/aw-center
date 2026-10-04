@@ -103,7 +103,7 @@ TEXT_FILTER_FIELDS = frozenset(
 )
 SELECT_FILTER_FIELDS = frozenset({"panel", "status"})
 DATE_FILTER_FIELDS = frozenset(
-    {"ubm_target_date", "ubm_delivery_date", "next_action_due_date", "created_at", "updated_at"}
+    {"ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date", "next_action_due_date", "created_at", "updated_at"}
 )
 FILTER_FIELD_LOOKUPS = {
     "cover_page_no": "cover_page__number",
@@ -1106,6 +1106,9 @@ def _export_document_row(document):
         "requirements": "; ".join(document.requirements or ()),
         "status": document.status,
         "effective_date": document.current_effective_date,
+        "ubm_target_date": document.ubm_target_date,
+        "ubm_revised_target_date": document.ubm_revised_target_date,
+        "ubm_delivery_date": document.ubm_delivery_date,
         "path": document.path,
         "notes": document.notes,
     }

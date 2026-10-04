@@ -168,10 +168,6 @@ def _transition_document(
 
     document.status = new_status
     document.next_action_due_date = next_action_due_date
-    if sequence == 1:
-        document.ubm_target_date = effective_date
-    elif sequence == 2:
-        document.ubm_delivery_date = effective_date
     document.version += 1
     document._history_user = user
     document._change_reason = reason[:100]
@@ -179,8 +175,6 @@ def _transition_document(
         update_fields=[
             "status",
             "next_action_due_date",
-            "ubm_target_date",
-            "ubm_delivery_date",
             "version",
             "updated_at",
         ]

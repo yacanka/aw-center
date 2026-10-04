@@ -260,6 +260,36 @@ class ComplianceApiTests(TestCase):
         self.assertTrue(fields["status"]["choices"])
         self.assertEqual(fields["cat"]["filter_kind"], "text")
         self.assertEqual(fields["cat"]["choices"], [])
+        self.assertEqual(fields["ubm_revised_target_date"]["filter_kind"], "date")
+        self.assertTrue(fields["ubm_revised_target_date"]["sortable"])
+        self.assertFalse(fields["ubm_revised_target_date"]["read_only"])
+
+    def test_all_three_dates_can_be_saved_and_filtered_independently(self):
+        document = self.create_document()
+        self.client.force_authenticate(self.editor)
+        response = self.client.patch(
+            f"{self.collection_url}{document.pk}/",
+            {
+                "version": document.version,
+                "ubm_target_date": "2026-09-20",
+                "ubm_revised_target_date": "2026-09-25",
+                "ubm_delivery_date": "2026-09-10",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["ubm_revised_target_date"], "2026-09-25")
+        self.assertEqual(
+            self.client.get(self.collection_url, {"ubm_revised_target_date": "2026-09-25"}).data["count"],
+            1,
+        )
+        self.assertEqual(document.workflow_events.count(), 0)
+        invalid = self.client.patch(
+            f"{self.collection_url}{document.pk}/",
+            {"version": response.data["version"], "ubm_revised_target_date": "2026-02-29"},
+            format="json",
+        )
+        self.assertEqual(invalid.status_code, 400)
 
     def test_reference_options_use_compliance_scope_only(self):
         team = Group.objects.create(name="Compliance team")
@@ -427,6 +457,26 @@ class ComplianceApiTests(TestCase):
         self.assertEqual(name_cell.data_type, "s")
         self.assertEqual(name_cell.value, "'=1+1")
 
+    def test_export_includes_all_independent_dates(self):
+        document = self.create_document()
+        document.ubm_target_date = date(2026, 9, 20)
+        document.ubm_revised_target_date = date(2026, 9, 25)
+        document.ubm_delivery_date = date(2026, 9, 10)
+        document.save(update_fields=["ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date"])
+        self.client.force_authenticate(self.viewer)
+
+        response = self.client.get(f"{self.collection_url}export/")
+
+        self.assertEqual(response.status_code, 200)
+        worksheet = load_workbook(BytesIO(response.content), data_only=True).active
+        headers = {cell.value: cell.column for cell in worksheet[1]}
+        for field, expected in (
+            ("ubm_target_date", date(2026, 9, 20)),
+            ("ubm_revised_target_date", date(2026, 9, 25)),
+            ("ubm_delivery_date", date(2026, 9, 10)),
+        ):
+            self.assertEqual(worksheet.cell(row=2, column=headers[field]).value.date(), expected)
+
     @override_settings(AWCENTER_MAX_COMPDOC_EXPORT_ROWS=1)
     def test_export_fails_closed_above_configured_row_limit(self):
         self.create_document()
@@ -447,8 +497,12 @@ class ComplianceApiTests(TestCase):
         self.assertEqual(response.status_code, 413)
         self.assertEqual(response.data["code"], "COMPDOC_EXPORT_ROW_LIMIT")
 
-    def test_transition_event_and_projection_commit_together(self):
+    def test_transition_updates_status_without_changing_document_dates(self):
         document = self.create_document()
+        document.ubm_target_date = date(2026, 9, 20)
+        document.ubm_revised_target_date = date(2026, 9, 25)
+        document.ubm_delivery_date = date(2026, 9, 10)
+        document.save(update_fields=["ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date"])
         self.client.force_authenticate(self.editor)
 
         response = self.client.post(
@@ -467,7 +521,9 @@ class ComplianceApiTests(TestCase):
         document.refresh_from_db()
         event = WorkflowEvent.objects.get(document=document)
         self.assertEqual(document.status, event.status)
-        self.assertEqual(document.ubm_target_date, date(2026, 8, 11))
+        self.assertEqual(document.ubm_target_date, date(2026, 9, 20))
+        self.assertEqual(document.ubm_revised_target_date, date(2026, 9, 25))
+        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 10))
         self.assertEqual(document.version, 2)
 
     def test_transition_rejects_a_date_before_the_latest_event(self):

@@ -1,19 +1,40 @@
 <template>
-  <n-card title="Workflow" size="small">
+  <n-card title="Workflow and dates" size="small">
     <n-alert type="info" :show-icon="false">
       Workflow history is audit-controlled. Record status changes from the document workspace.
     </n-alert>
-    <n-descriptions label-placement="top" :column="3" bordered size="small">
+    <n-descriptions label-placement="top" :column="isNarrow ? 1 : 2" bordered size="small">
       <n-descriptions-item label="Current status">
         <n-tag type="success" round>{{
           compdoc.status_label || statusLabel(compdoc.status)
         }}</n-tag>
       </n-descriptions-item>
       <n-descriptions-item label="UBM target">
-        {{ compdoc.ubm_target_date || 'Not recorded' }}
+        <span v-if="readonly">{{ compdoc.ubm_target_date || 'Not recorded' }}</span>
+        <n-date-picker
+          v-else
+          v-model:formatted-value="compdoc.ubm_target_date"
+          type="date"
+          clearable
+        />
+      </n-descriptions-item>
+      <n-descriptions-item label="UBM revised target">
+        <span v-if="readonly">{{ compdoc.ubm_revised_target_date || 'Not recorded' }}</span>
+        <n-date-picker
+          v-else
+          v-model:formatted-value="compdoc.ubm_revised_target_date"
+          type="date"
+          clearable
+        />
       </n-descriptions-item>
       <n-descriptions-item label="UBM delivery">
-        {{ compdoc.ubm_delivery_date || 'Not recorded' }}
+        <span v-if="readonly">{{ compdoc.ubm_delivery_date || 'Not recorded' }}</span>
+        <n-date-picker
+          v-else
+          v-model:formatted-value="compdoc.ubm_delivery_date"
+          type="date"
+          clearable
+        />
       </n-descriptions-item>
     </n-descriptions>
     <n-text depth="3" class="workflow-note">
@@ -25,8 +46,10 @@
 <script setup lang="ts">
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import { humanizeCompdocStatus } from '@/features/compliance/api/compdocWorkspace'
+import { useMediaQuery } from '@/shared/composables/mediaQuery'
 
-defineProps<{ compdoc: ICompDoc }>()
+defineProps<{ compdoc: ICompDoc; readonly: boolean }>()
+const isNarrow = useMediaQuery('(max-width: 640px)')
 
 function statusLabel(status: string): string {
   return humanizeCompdocStatus(status)
