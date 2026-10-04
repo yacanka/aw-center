@@ -13,6 +13,8 @@ from django.core.cache import cache
 from django.utils import timezone
 from jira import JIRAError
 
+from awcenter.cache_policy import production_cache_is_valid
+
 from .client import JiraConfigurationError, JiraConnector, validated_session_id
 
 CACHE_KEY_PREFIX = "integrations:jira-session:v1"
@@ -218,10 +220,12 @@ def session_cipher():
 def ensure_jira_enabled():
     if not settings.JIRA_ENABLED:
         raise JiraSessionConfigurationError()
-    if not settings.DEBUG:
-        cache_backend = settings.CACHES["default"]["BACKEND"]
-        if "redis" not in cache_backend.casefold():
-            raise JiraSessionConfigurationError()
+    if not settings.DEBUG and not production_cache_is_valid(
+        settings.AWCENTER_DEPLOYMENT_MODE,
+        settings.CACHES["default"],
+        settings.REPOSITORY_DIR,
+    ):
+        raise JiraSessionConfigurationError()
 
 
 def sanitize_jira_identity(value):

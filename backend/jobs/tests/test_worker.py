@@ -312,7 +312,8 @@ class JobWorkerTests(JobTestCase):
         storage = job.input_file.storage
         artifact_name = job.input_file.name
 
-        job.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            job.delete()
 
         self.assertFalse(storage.exists(artifact_name))
 
@@ -326,7 +327,8 @@ class JobWorkerTests(JobTestCase):
         job.completed_at = timezone.now() - timedelta(days=2)
         job.save(update_fields=["completed_at"])
 
-        call_command("cleanup_jobs", days=1)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("cleanup_jobs", days=1)
 
         self.assertFalse(storage.exists(artifact_name))
         self.assertFalse(type(job).objects.filter(pk=job.pk).exists())

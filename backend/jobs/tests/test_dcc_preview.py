@@ -121,7 +121,8 @@ class DccPreviewApiTests(JobTestCase):
         job.confirmation_expires_at = timezone.now() - timedelta(seconds=1)
         job.save(update_fields=["confirmation_expires_at"])
 
-        call_command("cleanup_jobs", days=30)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("cleanup_jobs", days=30)
 
         self.assertFalse(Job.objects.filter(pk=job.id).exists())
         self.assertFalse(storage.exists(artifact))
