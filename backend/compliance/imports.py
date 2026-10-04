@@ -12,7 +12,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch
+from django.db.models import OuterRef, Subquery
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -62,6 +62,7 @@ IMPORT_FIELDS = {
     "status",
     "effective_date",
     "ubm_target_date",
+    "ubm_revised_target_date",
     "ubm_delivery_date",
     "notes",
     "path",
@@ -220,16 +221,13 @@ def prepare_tabular_plan(
 ) -> ImportPlan:
     """Apply the canonical Excel validation and matching rules to mapped rows."""
 
+    latest_transition = WorkflowEvent.objects.filter(
+        document_id=OuterRef("pk")
+    ).order_by("-sequence").values("effective_date")[:1]
     documents = (
         ComplianceDocument.objects.filter(project=project)
         .select_related("cover_page", "panel")
-        .prefetch_related(
-            Prefetch(
-                "workflow_events",
-                queryset=WorkflowEvent.objects.order_by("sequence"),
-                to_attr="import_workflow_events",
-            )
-        )
+        .annotate(latest_workflow_date=Subquery(latest_transition))
     )
     if lock_existing:
         # ``panel`` is nullable, so PostgreSQL renders its select_related join as
@@ -404,6 +402,15 @@ def prepare_tabular_plan(
         action = _resolve_action(target, serializer.validated_data, workflow_events)
         if target is not None and new_panel:
             action = "update"
+        status_value = (
+            target.status if target is not None and not normalized_row["status_provided"]
+            else normalized_row["status"]
+        )
+        status_label = (
+            status_value.replace("_", " ").title()
+            if target is not None and not normalized_row["status_provided"]
+            else normalized_row["status_label"]
+        )
         planned.append(
             PlannedRow(
                 row_number=row_number,
@@ -412,8 +419,8 @@ def prepare_tabular_plan(
                 target=target,
                 action=action,
                 panel_reference=reference,
-                status_value=normalized_row["status"],
-                status_label=normalized_row["status_label"],
+                status_value=status_value,
+                status_label=status_label,
             )
         )
     existing_statuses = set(DocumentStatus.objects.filter(project=project).values_list("value", flat=True))
@@ -454,18 +461,22 @@ def _normalize_row(source, panels):
         "number": cover_number,
         "issue": values.get("cover_page_issue"),
     }
+    for field in ("ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date"):
+        if field in values:
+            payload[field] = _parse_import_date(values[field], field)
     status, status_label = normalize_status(values.get("status"))
-    workflow_events, reconcile_workflow = _build_workflow_events(values, status)
+    workflow_events = (
+        PlannedWorkflowEvent(status, _effective_date(values.get("effective_date"))),
+    )
     return {
         "panel_reference": reference,
         "id": _document_id(values.get("id")),
         "payload": payload,
         "status": status,
         "status_label": status_label,
-        "effective_date": _effective_date(values.get("effective_date")),
-        "has_delivery_date": values.get("ubm_delivery_date") not in (None, ""),
+        "status_provided": "status" in values,
+        "explicit_effective_date": values.get("effective_date") not in (None, ""),
         "workflow_events": workflow_events,
-        "reconcile_workflow": reconcile_workflow,
     }
 
 
@@ -477,37 +488,6 @@ def _document_id(value):
         return str(UUID(text))
     except ValueError as error:
         raise ValidationError({"id": "Use a valid document UUID."}) from error
-
-
-def _build_workflow_events(values, status):
-    raw_effective_date = values.get("effective_date")
-    raw_target_date = values.get("ubm_target_date")
-    raw_delivery_date = values.get("ubm_delivery_date")
-    has_target_date = raw_target_date not in (None, "")
-    has_delivery_date = raw_delivery_date not in (None, "")
-
-    if has_delivery_date and not has_target_date:
-        raise ValidationError(
-            {"ubm_delivery_date": "A UBM target date is required before the delivery date."}
-        )
-
-    target_date = _parse_import_date(raw_target_date, "ubm_target_date")
-    delivery_date = _parse_import_date(raw_delivery_date, "ubm_delivery_date")
-    if delivery_date and status == "to_be_issued":
-        raise ValidationError({"status": "The delivered status must follow To Be Issued."})
-
-    if target_date:
-        events = [PlannedWorkflowEvent("to_be_issued", target_date)]
-        if status != "to_be_issued":
-            current_date = delivery_date or _effective_date(raw_effective_date)
-            if current_date < target_date:
-                raise ValidationError(
-                    {"ubm_delivery_date": "The delivery date cannot be before the UBM target date."}
-                )
-            events.append(PlannedWorkflowEvent(status, current_date))
-        return tuple(events), True
-
-    return (PlannedWorkflowEvent(status, _effective_date(raw_effective_date)),), False
 
 
 def _effective_date(value):
@@ -560,35 +540,23 @@ def _pending_workflow_events(target, normalized_row):
     requested = normalized_row["workflow_events"]
     if target is None:
         return () if len(requested) == 1 and requested[0].status == "unknown" else requested
-    if not normalized_row["reconcile_workflow"]:
-        if not requested or requested[-1].status == target.status:
-            return ()
-        return requested
-
-    existing = tuple(
-        PlannedWorkflowEvent(event.status, event.effective_date)
-        for event in target.import_workflow_events
-    )
-    if normalized_row["status"] == "unknown" and len(existing) >= 2:
-        # An Unknown current status is a new transition, not a
-        # request to replace the immutable status at the delivery milestone.
-        if existing[0] != requested[0] or (
-            normalized_row["has_delivery_date"]
-            and existing[1].effective_date != requested[1].effective_date
-        ):
-            raise ValidationError({"status_flow": "Imported milestones conflict with existing history."})
-        if target.status == "unknown":
-            return ()
-        return (PlannedWorkflowEvent("unknown", normalized_row["effective_date"]),)
-    if len(existing) > len(requested) or existing != requested[: len(existing)]:
-        raise ValidationError(
-            {
-                "status_flow": (
-                    "Imported workflow milestones conflict with the existing immutable history."
-                )
-            }
-        )
-    return requested[len(existing) :]
+    if not normalized_row["status_provided"]:
+        return ()
+    if requested[-1].status == target.status:
+        return ()
+    if target.latest_workflow_date and normalized_row["explicit_effective_date"]:
+        if requested[-1].effective_date < target.latest_workflow_date:
+            raise ValidationError({
+                "effective_date": "The effective date cannot precede the latest transition."
+            })
+    if not normalized_row["explicit_effective_date"] and target.latest_workflow_date:
+        # Legacy imports used target dates as transition dates; keep their immutable
+        # history ordered without making new document dates depend on that history.
+        event = requested[-1]
+        return (PlannedWorkflowEvent(
+            event.status, max(event.effective_date, target.latest_workflow_date)
+        ),)
+    return requested
 
 
 def _resolve_action(target, validated_data, workflow_events):

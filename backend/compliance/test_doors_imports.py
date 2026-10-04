@@ -16,7 +16,7 @@ from rest_framework.test import APIClient
 from jobs.models import Job, JobStatus
 from orgs.models import Panel, Project, ProjectRoleAssignment
 
-from .models import ComplianceDocument, DoorsImportMapping, ImportAudit
+from .models import ComplianceDocument, CoverPage, DoorsImportMapping, ImportAudit, WorkflowEvent
 
 
 class ComplianceDoorsImportTests(TestCase):
@@ -85,15 +85,15 @@ class ComplianceDoorsImportTests(TestCase):
         self.assertEqual(source.status_code, 200)
         self.assertEqual(source.data["default_mapping"], mapping)
 
-    def test_iso_export_dates_survive_preview_confirmation_and_workflow_projection(self):
+    def test_iso_export_dates_survive_preview_confirmation_independently(self):
         job = self.export_job([
-            {"Title": "Dated", "Cover": "CP-D", "Target": "2028-02-29", "Delivery": "2028-03-01", "Effective": "", "Status": ""},
+            {"Title": "Dated", "Cover": "CP-D", "Target": "2028-02-29", "Revised": "2028-03-15", "Delivery": "2028-02-01", "Effective": "", "Status": ""},
             {"Title": "Undated", "Cover": "CP-D", "Target": "", "Delivery": None, "Effective": "", "Status": ""},
             {"Title": "01 October 2026 Thursday", "Cover": "CP-D", "Target": "", "Delivery": "", "Effective": "2026-10-01", "Status": "To Be Issued"},
         ])
         mapping = {
             "Title": "name", "Cover": "cover_page_no", "Target": "ubm_target_date",
-            "Delivery": "ubm_delivery_date", "Effective": "effective_date", "Status": "status",
+            "Revised": "ubm_revised_target_date", "Delivery": "ubm_delivery_date", "Effective": "effective_date", "Status": "status",
         }
         values = {"job_id": job.pk, "mapping": mapping}
         preview = self.client.post(self.preview_url(), values, format="json")
@@ -106,10 +106,11 @@ class ComplianceDoorsImportTests(TestCase):
         self.assertEqual(confirmed.status_code, 201)
         document = ComplianceDocument.objects.get(name="Dated")
         self.assertEqual(document.ubm_target_date, date(2028, 2, 29))
-        self.assertEqual(document.ubm_delivery_date, date(2028, 3, 1))
+        self.assertEqual(document.ubm_revised_target_date, date(2028, 3, 15))
+        self.assertEqual(document.ubm_delivery_date, date(2028, 2, 1))
         self.assertEqual(
             list(document.workflow_events.order_by("sequence").values_list("effective_date", flat=True)),
-            [date(2028, 2, 29), date(2028, 3, 1)],
+            [],
         )
         undated = ComplianceDocument.objects.get(name="Undated")
         self.assertIsNone(undated.ubm_target_date)
@@ -129,6 +130,31 @@ class ComplianceDoorsImportTests(TestCase):
         self.assertIn("ubm_target_date", error["fields"])
         self.assertEqual(error["doors_object"], {"absolute_number": 1, "identifier": "REQ-1"})
         self.assertFalse(ComplianceDocument.objects.exists())
+
+    def test_explicit_out_of_order_transition_is_rejected_in_doors_preview(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-D")
+        document = ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Existing", status="to_be_issued",
+        )
+        WorkflowEvent.objects.create(
+            document=document, sequence=1, status="to_be_issued",
+            effective_date=date(2028, 9, 20), source=WorkflowEvent.Source.IMPORT,
+        )
+        job = self.export_job([{
+            "Title": "Existing", "Cover": "CP-D", "Status": "Authority Review",
+            "Effective": "2028-09-10", "Delivery": "2028-09-01",
+        }])
+        preview = self.client.post(self.preview_url(), {
+            "job_id": job.pk,
+            "mapping": {
+                "Title": "name", "Cover": "cover_page_no", "Status": "status",
+                "Effective": "effective_date", "Delivery": "ubm_delivery_date",
+            },
+        }, format="json")
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["rejected_count"], 1)
+        self.assertIn("effective_date", preview.data["invalid_documents"][0]["fields"])
 
     def test_doors_import_creates_and_renames_project_panels(self):
         existing = Panel.objects.create(project=self.project, ata="27-00", name="Old")

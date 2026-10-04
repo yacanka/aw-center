@@ -133,6 +133,18 @@ class DashboardTests(TestCase):
         self.assertIsNone(summary["timeline"]["last_actual"])
         self.assertEqual(summary["performance"]["actual"]["filled"], 0)
 
+    def test_revised_target_controls_delay_and_scheduled_timeline(self):
+        self.document(
+            status="to_be_issued",
+            ubm_target_date=date(2026, 7, 1),
+            ubm_revised_target_date=date(2026, 8, 1),
+        )
+
+        summary = build_dashboard(self.project, today=TODAY)
+
+        self.assertEqual(summary["chart_status_counts"], {"to_be_issued": 1})
+        self.assertEqual(summary["performance"]["scheduled"]["filled"], 0)
+
     def test_invalid_event_order_is_reported_without_negative_pending_days(self):
         self.document(
             events=[

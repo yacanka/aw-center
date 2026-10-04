@@ -150,6 +150,7 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             "status",
             "status_label",
             "ubm_target_date",
+            "ubm_revised_target_date",
             "ubm_delivery_date",
             "path",
             "notes",
@@ -167,8 +168,6 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             "status",
-            "ubm_target_date",
-            "ubm_delivery_date",
             "owner",
             "owner_group",
             "next_action_due_date",

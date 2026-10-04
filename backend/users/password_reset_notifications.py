@@ -92,19 +92,26 @@ def enqueue_password_reset(user):
 def process_password_reset_deliveries():
     """Claim and deliver one bounded password-reset batch."""
 
-    sent = failed = 0
-    claims = claim_password_reset_deliveries()
-    for delivery_id, lease_token in claims:
+    processed = sent = failed = 0
+    attempted = set()
+    for _ in range(max(int(settings.COMPDOC_NOTIFICATION_BATCH_SIZE), 1)):
+        # Claim immediately before sending so queue wait does not consume a lease.
+        claims = claim_password_reset_deliveries(limit=1, exclude_ids=attempted)
+        if not claims:
+            break
+        delivery_id, lease_token = claims[0]
+        attempted.add(delivery_id)
+        processed += 1
         outcome = deliver_password_reset(delivery_id, lease_token)
         if outcome == PasswordResetDelivery.Status.SENT:
             sent += 1
         elif outcome == PasswordResetDelivery.Status.FAILED:
             failed += 1
-    return {"processed": len(claims), "sent": sent, "failed": failed}
+    return {"processed": processed, "sent": sent, "failed": failed}
 
 
 @transaction.atomic
-def claim_password_reset_deliveries(*, now=None):
+def claim_password_reset_deliveries(*, now=None, limit=None, exclude_ids=()):
     """Fence pending, retryable, or abandoned deliveries."""
 
     current_time = now or timezone.now()
@@ -119,11 +126,14 @@ def claim_password_reset_deliveries(*, now=None):
             claim_expires_at__lte=current_time,
         )
     ).order_by("requested_at", "id")
+    queryset = queryset.exclude(pk__in=exclude_ids)
     if connection.features.has_select_for_update_skip_locked:
         queryset = queryset.select_for_update(skip_locked=True)
     else:
         queryset = queryset.select_for_update()
     batch_size = max(int(settings.COMPDOC_NOTIFICATION_BATCH_SIZE), 1)
+    if limit is not None:
+        batch_size = min(batch_size, limit)
     deliveries = list(queryset[:batch_size])
     claims = []
     for delivery in deliveries:
@@ -159,6 +169,7 @@ def deliver_password_reset(delivery_id, lease_token):
             pk=delivery_id,
             status=PasswordResetDelivery.Status.CLAIMED,
             lease_token=lease_token,
+            claim_expires_at__gt=timezone.now(),
         )
     except PasswordResetDelivery.DoesNotExist:
         return None
@@ -177,6 +188,9 @@ def deliver_password_reset(delivery_id, lease_token):
         )
     except MailUnavailable:
         return _finish_failure(delivery_id, lease_token, "MAIL_TRANSPORT_UNAVAILABLE")
+    except TimeoutError:
+        LOGGER.warning("Password-reset SMTP operation timed out.", extra={"delivery_id": str(delivery_id)})
+        return _finish_failure(delivery_id, lease_token, "MAIL_DELIVERY_TIMEOUT")
     except Exception as exc:
         LOGGER.warning(
             "Password-reset notification delivery failed.",
@@ -222,6 +236,7 @@ def _finish_success(delivery_id, lease_token):
         pk=delivery_id,
         status=PasswordResetDelivery.Status.CLAIMED,
         lease_token=lease_token,
+        claim_expires_at__gt=timezone.now(),
     ).update(
         status=PasswordResetDelivery.Status.SENT,
         error_code="",
@@ -239,6 +254,7 @@ def _finish_failure(delivery_id, lease_token, error_code):
         pk=delivery_id,
         status=PasswordResetDelivery.Status.CLAIMED,
         lease_token=lease_token,
+        claim_expires_at__gt=timezone.now(),
     ).update(
         status=PasswordResetDelivery.Status.FAILED,
         error_code=error_code,
@@ -255,6 +271,7 @@ def _finish_cancelled(delivery_id, lease_token, error_code):
         pk=delivery_id,
         status=PasswordResetDelivery.Status.CLAIMED,
         lease_token=lease_token,
+        claim_expires_at__gt=timezone.now(),
     ).update(
         status=PasswordResetDelivery.Status.CANCELLED,
         error_code=error_code,

@@ -21,13 +21,16 @@ these views and never downloads the paginated document register for analytics.
 
 ## Metric definitions
 
-- The status chart derives **Delayed** from an unissued document whose UBM target
+- The status chart derives **Delayed** from an unissued document whose current UBM target
   is before today and which has no delivery date. This does not change stored
   workflow status or the existing `status_counts` contract.
-- Burndown lines count remaining documents against UBM target dates and actual
+- Burndown lines count remaining documents against current UBM target dates and actual
   UBM delivery dates. Future delivery dates do not count as actual deliveries.
   Documents with no delivery evidence remain outstanding, including unknown status.
-- **Scheduled** is the proportion with a target on or before today; **Issued**
+- The current target uses the revised UBM target when present, otherwise the original
+  UBM target. Both stored target dates and the delivery date are independent fields;
+  workflow transition dates are separate audit events.
+- **Scheduled** is the proportion with a current target on or before today; **Issued**
   uses deliveries on or before today; **Authority approved** uses current status.
 - Pending days accumulate workflow intervals: updates belong to UBM, airworthiness
   review and re-submission to AW, and authority review to Authority. An unissued
@@ -44,7 +47,8 @@ paths, recipients and actor details are not included.
 
 Workflow events are prefetched in batches of 500 documents, preventing queries per
 document. Timeline size grows with distinct milestone dates and panel counts; each
-scope's risk list stays capped at 25. There is no new database schema or dependency.
+scope's risk list stays capped at 25. The revised target adds one nullable date field
+and no dependency.
 
 Regression coverage lives in `compliance.test_dashboard`, `compliance.test_risk`,
 `compdocDashboard.test.ts` and `ComplianceDashboard.ui.test.ts`.

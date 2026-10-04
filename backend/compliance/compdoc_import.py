@@ -37,6 +37,7 @@ FIELD_ALIASES = {
     "tech_doc_issue": ("tech doc issue", "technical document issue", "td issue"),
     "delivered_tech_doc_issue": ("delivered tech doc issue", "delivered issue", "delivery issue"),
     "ubm_target_date": ("ubm target date", "target date", "planned date", "hedef tarih"),
+    "ubm_revised_target_date": ("ubm revised target date", "revised target date", "revised planned date", "revize hedef tarih"),
     "ubm_delivery_date": ("ubm delivery date", "delivery date", "delivered date", "teslim tarih"),
     "requirements": ("requirements", "requirement", "reqs", "gereksinimler"),
     "status_flow": ("status flow", "workflow", "status history", "flow"),

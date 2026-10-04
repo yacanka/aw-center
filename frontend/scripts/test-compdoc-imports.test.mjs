@@ -198,6 +198,9 @@ test('regular document updates send only canonical editable fields and version',
     path: 'controlled/reference',
     signature_panel: [],
     requirements: [],
+    ubm_target_date: '2026-09-20',
+    ubm_revised_target_date: '2026-09-25',
+    ubm_delivery_date: '2026-09-10',
     status_flow: [{ status: 'authority_review', date: '29.07.2026' }]
   })
 
@@ -205,6 +208,8 @@ test('regular document updates send only canonical editable fields and version',
   assert.equal(payload.name, 'Document')
   assert.deepEqual(payload.cover_page, { number: 'CP-7', issue: 'A' })
   assert.equal(payload.path, 'controlled/reference')
+  assert.equal(payload.ubm_revised_target_date, '2026-09-25')
+  assert.equal(payload.ubm_delivery_date, '2026-09-10')
   assert.equal('id' in payload, false)
   assert.equal('status_flow' in payload, false)
   const createPayload = buildCompdocCreatePayload({
@@ -215,6 +220,7 @@ test('regular document updates send only canonical editable fields and version',
   })
   assert.equal('version' in createPayload, false)
   assert.match(workflowFieldsSource, /UBM target/)
+  assert.match(workflowFieldsSource, /UBM revised target/)
   assert.match(workflowFieldsSource, /Activity tab/)
   assert.match(workflowFieldsSource, /Current status/)
   assert.match(workflowFieldsSource, /audit-controlled/)

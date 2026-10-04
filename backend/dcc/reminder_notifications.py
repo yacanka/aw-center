@@ -18,30 +18,39 @@ LOGGER = logging.getLogger(__name__)
 
 
 def process_dcc_reminder_deliveries():
-    sent = failed = 0
-    claims = claim_dcc_reminders()
-    for delivery_id, lease_token in claims:
+    processed = sent = failed = 0
+    attempted = set()
+    for _ in range(max(int(settings.COMPDOC_NOTIFICATION_BATCH_SIZE), 1)):
+        claims = claim_dcc_reminders(limit=1, exclude_ids=attempted)
+        if not claims:
+            break
+        delivery_id, lease_token = claims[0]
+        attempted.add(delivery_id)
+        processed += 1
         if deliver_dcc_reminder(delivery_id, lease_token):
             sent += 1
         else:
             failed += 1
-    return {"processed": len(claims), "sent": sent, "failed": failed}
+    return {"processed": processed, "sent": sent, "failed": failed}
 
 
 @transaction.atomic
-def claim_dcc_reminders(*, now=None):
+def claim_dcc_reminders(*, now=None, limit=None, exclude_ids=()):
     current_time = now or timezone.now()
     queryset = DccReminderDelivery.objects.filter(
         Q(status=DccReminderDelivery.Status.PENDING)
         | Q(status=DccReminderDelivery.Status.FAILED, next_attempt_at__lte=current_time)
         | Q(status=DccReminderDelivery.Status.CLAIMED, claim_expires_at__lte=current_time)
     ).order_by("created_at", "id")
+    queryset = queryset.exclude(pk__in=exclude_ids)
     queryset = (
         queryset.select_for_update(skip_locked=True)
         if connection.features.has_select_for_update_skip_locked
         else queryset.select_for_update()
     )
     batch_size = max(int(settings.COMPDOC_NOTIFICATION_BATCH_SIZE), 1)
+    if limit is not None:
+        batch_size = min(batch_size, limit)
     claims = []
     for delivery in list(queryset[:batch_size]):
         token = uuid.uuid4()
@@ -74,6 +83,7 @@ def deliver_dcc_reminder(delivery_id, lease_token):
             pk=delivery_id,
             status=DccReminderDelivery.Status.CLAIMED,
             lease_token=lease_token,
+            claim_expires_at__gt=timezone.now(),
         )
     except DccReminderDelivery.DoesNotExist:
         return False
@@ -87,33 +97,36 @@ def deliver_dcc_reminder(delivery_id, lease_token):
         )
     except MailUnavailable:
         return finish_failure(delivery_id, lease_token, "MAIL_TRANSPORT_UNAVAILABLE")
+    except TimeoutError:
+        LOGGER.warning("DCC reminder SMTP operation timed out.", extra={"delivery_id": str(delivery_id)})
+        return finish_failure(delivery_id, lease_token, "MAIL_DELIVERY_TIMEOUT")
     except Exception as error:
         LOGGER.warning(
             "DCC reminder delivery failed.",
             extra={"delivery_id": str(delivery_id), "error_type": type(error).__name__},
         )
         return finish_failure(delivery_id, lease_token, "MAIL_DELIVERY_FAILED")
-    return finish_success(delivery_id, lease_token)
+    return finish_success(delivery_id, lease_token, len(delivery.recipients))
 
 
 @transaction.atomic
-def finish_success(delivery_id, lease_token):
-    delivery = DccReminderDelivery.objects.filter(
+def finish_success(delivery_id, lease_token, recipient_count):
+    updated = DccReminderDelivery.objects.filter(
         pk=delivery_id,
         status=DccReminderDelivery.Status.CLAIMED,
         lease_token=lease_token,
-    ).first()
-    if delivery is None:
-        return False
-    delivery.status = DccReminderDelivery.Status.SENT
-    delivery.recipient_count = len(delivery.recipients)
-    delivery.error_code = ""
-    delivery.lease_token = None
-    delivery.claim_expires_at = None
-    delivery.next_attempt_at = None
-    delivery.sent_at = timezone.now()
-    delivery.save()
-    return True
+        claim_expires_at__gt=timezone.now(),
+    ).update(
+        status=DccReminderDelivery.Status.SENT,
+        recipient_count=recipient_count,
+        error_code="",
+        lease_token=None,
+        claim_expires_at=None,
+        next_attempt_at=None,
+        sent_at=timezone.now(),
+        updated_at=timezone.now(),
+    )
+    return updated == 1
 
 
 @transaction.atomic
@@ -122,6 +135,7 @@ def finish_failure(delivery_id, lease_token, error_code):
         pk=delivery_id,
         status=DccReminderDelivery.Status.CLAIMED,
         lease_token=lease_token,
+        claim_expires_at__gt=timezone.now(),
     ).update(
         status=DccReminderDelivery.Status.FAILED,
         error_code=error_code,

@@ -85,6 +85,10 @@ jobs:
         working-directory: backend
         run: python manage.py test
 
+      - name: Run PDF regressions explicitly
+        working-directory: backend
+        run: python manage.py test pdf.tests
+
       - name: Run launcher regression tests
         run: python -m unittest scripts.test_launcher scripts.test_launcher_jobs scripts.test_release_metadata
 
@@ -178,7 +182,10 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements.txt
       - working-directory: backend
-        run: python manage.py check && python manage.py test
+        run: |
+          python manage.py check
+          python manage.py test
+          python manage.py test pdf.tests
 
   windows-native:
     name: Windows native production contract
@@ -226,6 +233,15 @@ jobs:
           compliance.test_import_concurrency
           compliance.test_doors_imports
           integrations.tests.test_doors_worker_tasks
+          integrations.tests.test_probes
+          outlook.tests
+          integrations.tests.test_mail
+          awcenter.test_mail_settings
+          users.test_password_reset_delivery
+          dcc.test_reminder_notifications
+          compliance.test_notifications
+          releases.tests
+          awcenter.test_safe_logging
 
       - name: Verify isolated Windows SQLite production profile
         shell: pwsh

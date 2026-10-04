@@ -175,8 +175,9 @@ class ComplianceDocument(models.Model):
         db_index=True,
         editable=False,
     )
-    ubm_target_date = models.DateField(null=True, blank=True, db_index=True, editable=False)
-    ubm_delivery_date = models.DateField(null=True, blank=True, db_index=True, editable=False)
+    ubm_target_date = models.DateField(null=True, blank=True, db_index=True)
+    ubm_revised_target_date = models.DateField(null=True, blank=True, db_index=True)
+    ubm_delivery_date = models.DateField(null=True, blank=True, db_index=True)
     path = models.CharField(max_length=512, null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
     owner = models.ForeignKey(
@@ -221,6 +222,11 @@ class ComplianceDocument(models.Model):
             models.Index(fields=["project", "is_archived", "status"]),
             models.Index(fields=["project", "next_action_due_date"]),
         ]
+
+    @property
+    def current_target_date(self):
+        """Use the revised target for due calculations when one is recorded."""
+        return self.ubm_revised_target_date or self.ubm_target_date
 
     def clean(self):
         super().clean()

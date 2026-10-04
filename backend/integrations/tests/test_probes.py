@@ -1,11 +1,15 @@
 """Tests for safe, cached, circuit-broken integration health probes."""
 
+from concurrent.futures import ThreadPoolExecutor
+from tempfile import TemporaryDirectory
+from threading import Barrier
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 import requests
 
+from awcenter.cache_locks import _open_locked_file
 from integrations.probe_adapters import ProbeOutcome, probe_jira
 from integrations.probes import _get_probe, claim_refresh_slot, probe_catalog
 
@@ -137,3 +141,46 @@ class IntegrationProbeOrchestrationTests(SimpleTestCase):
         self.assertTrue(claim_refresh_slot("user-1"))
         self.assertFalse(claim_refresh_slot("user-1"))
         self.assertTrue(claim_refresh_slot("user-2"))
+
+
+class FileCacheIntegrationProbeTests(IntegrationProbeOrchestrationTests):
+    """Protect probe refresh claims with the Windows production cache backend."""
+
+    def setUp(self):
+        directory = self.enterContext(TemporaryDirectory(prefix="probe-cache-test-"))
+        self.enterContext(override_settings(CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+                "LOCATION": directory,
+            },
+        }))
+        super().setUp()
+
+    def test_concurrent_forced_refresh_has_one_winner(self):
+        barrier = Barrier(8)
+
+        def claim(subject):
+            barrier.wait(timeout=10)
+            return claim_refresh_slot(subject)
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            for index in range(10):
+                with self.subTest(subject=index):
+                    results = list(executor.map(claim, [f"synthetic-{index}"] * 8))
+                    self.assertEqual(sum(results), 1)
+
+    @patch("integrations.probes.probe_integration")
+    def test_failure_counter_lock_error_preserves_sanitized_probe_result(self, probe_mock):
+        probe_mock.return_value = ProbeOutcome("unavailable", "Service is unreachable.")
+
+        def deny_failure_counter_lock(key):
+            if key.endswith(":failures"):
+                raise PermissionError
+            return _open_locked_file(key)
+
+        with patch("awcenter.cache_locks._open_locked_file", deny_failure_counter_lock):
+            result = _get_probe("jira", refresh=True)
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["source"], "live")
+        self.assertEqual(_get_probe("jira", refresh=False)["source"], "cache")

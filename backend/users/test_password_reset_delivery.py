@@ -4,6 +4,7 @@ import html
 import json
 import re
 import uuid
+from datetime import timedelta
 from io import StringIO
 from unittest.mock import patch
 
@@ -21,6 +22,7 @@ from .password_reset_notifications import (
     claim_password_reset_deliveries,
     deliver_password_reset,
     enqueue_password_reset,
+    process_password_reset_deliveries,
 )
 
 
@@ -176,6 +178,118 @@ class PasswordResetDeliveryTests(TestCase):
         send_mock.assert_not_called()
         delivery.refresh_from_db()
         self.assertEqual(delivery.status, PasswordResetDelivery.Status.CLAIMED)
+
+    @override_settings(AWCENTER_MAIL_TRANSPORT="django")
+    def test_timeout_retries_stable_link_and_keeps_next_delivery_unclaimed(self):
+        from integrations.mail import send_html_email
+
+        first, _ = enqueue_password_reset(self.user)
+        other_user = User.objects.create_user(
+            username="other-reset-user", email="other@example.invalid", password="pass",
+        )
+        second, _ = enqueue_password_reset(other_user)
+        attempts = []
+
+        def smtp_send(subject, body, recipients, **kwargs):
+            attempts.append((body, kwargs["message_id"]))
+            if kwargs["message_id"] == first.message_id:
+                second.refresh_from_db()
+                self.assertEqual(second.status, PasswordResetDelivery.Status.PENDING)
+                raise TimeoutError("private upstream timeout detail")
+            send_html_email(subject, body, recipients, **kwargs)
+
+        with patch("users.password_reset_notifications.send_html_email", side_effect=smtp_send):
+            result = process_password_reset_deliveries()
+
+        self.assertEqual(result, {"processed": 2, "sent": 1, "failed": 1})
+        first.refresh_from_db()
+        self.assertEqual(first.error_code, "MAIL_DELIVERY_TIMEOUT")
+        self.assertIsNotNone(first.next_attempt_at)
+        self.assertIsNone(first.lease_token)
+        second.refresh_from_db()
+        self.assertEqual(second.status, PasswordResetDelivery.Status.SENT)
+        first.next_attempt_at = timezone.now()
+        first.save(update_fields=["next_attempt_at"])
+        process_password_reset_deliveries()
+        first.refresh_from_db()
+        self.assertEqual(first.status, PasswordResetDelivery.Status.SENT)
+        self.assertEqual(mail.outbox[-1].extra_headers["Message-ID"], attempts[0][1])
+        self.assertEqual(mail.outbox[-1].alternatives[0].content, attempts[0][0])
+
+    def test_expired_lease_cannot_send_or_publish(self):
+        delivery, _ = enqueue_password_reset(self.user)
+        delivery_id, token = claim_password_reset_deliveries()[0]
+        PasswordResetDelivery.objects.filter(pk=delivery_id).update(
+            claim_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        with patch("users.password_reset_notifications.send_html_email") as smtp_send:
+            self.assertIsNone(deliver_password_reset(delivery_id, token))
+        smtp_send.assert_not_called()
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, PasswordResetDelivery.Status.CLAIMED)
+
+    def test_timeout_after_reclaim_cannot_overwrite_new_lease(self):
+        delivery, _ = enqueue_password_reset(self.user)
+        delivery_id, token = claim_password_reset_deliveries()[0]
+        new_token = uuid.uuid4()
+
+        def timeout_after_reclaim(*args, **kwargs):
+            PasswordResetDelivery.objects.filter(pk=delivery_id).update(lease_token=new_token)
+            raise TimeoutError()
+
+        with patch(
+            "users.password_reset_notifications.send_html_email",
+            side_effect=timeout_after_reclaim,
+        ):
+            self.assertIsNone(deliver_password_reset(delivery_id, token))
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.lease_token, new_token)
+        self.assertEqual(delivery.status, PasswordResetDelivery.Status.CLAIMED)
+
+    def test_timeout_after_lease_expiry_leaves_claim_recoverable(self):
+        delivery, _ = enqueue_password_reset(self.user)
+        delivery_id, token = claim_password_reset_deliveries()[0]
+
+        def expired_timeout(*args, **kwargs):
+            PasswordResetDelivery.objects.filter(pk=delivery_id).update(
+                claim_expires_at=timezone.now() - timedelta(seconds=1),
+            )
+            raise TimeoutError()
+
+        with patch("users.password_reset_notifications.send_html_email", side_effect=expired_timeout):
+            self.assertIsNone(deliver_password_reset(delivery_id, token))
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, PasswordResetDelivery.Status.CLAIMED)
+        self.assertEqual(delivery.lease_token, token)
+        self.assertEqual(delivery.error_code, "")
+
+    @override_settings(AWCENTER_MAIL_TRANSPORT="django", COMPDOC_NOTIFICATION_BATCH_SIZE=2)
+    def test_lease_overrun_is_not_reclaimed_again_in_same_pass(self):
+        from integrations.mail import send_html_email
+
+        first, _ = enqueue_password_reset(self.user)
+        other = User.objects.create_user(
+            "overrun-reset-user", email="other@example.invalid", password="pass",
+        )
+        second, _ = enqueue_password_reset(other)
+
+        def overrun(subject, body, recipients, **kwargs):
+            if kwargs["message_id"] == first.message_id:
+                PasswordResetDelivery.objects.filter(pk=first.pk).update(
+                    claim_expires_at=timezone.now() - timedelta(seconds=1),
+                )
+            send_html_email(subject, body, recipients, **kwargs)
+
+        with patch("users.password_reset_notifications.send_html_email", side_effect=overrun):
+            process_password_reset_deliveries()
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.attempt_count, 1)
+        self.assertEqual(first.status, PasswordResetDelivery.Status.CLAIMED)
+        self.assertEqual(second.status, PasswordResetDelivery.Status.SENT)
+        self.assertEqual(process_password_reset_deliveries()["sent"], 1)
+        first.refresh_from_db()
+        self.assertEqual(first.status, PasswordResetDelivery.Status.SENT)
 
     @override_settings(AWCENTER_MAIL_TRANSPORT="django")
     def test_notification_worker_processes_password_reset_outbox(self):

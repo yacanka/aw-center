@@ -10,12 +10,13 @@ import pandas as pd
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.exceptions import ValidationError
 
 from orgs.models import Panel, Person, Project, ProjectRoleAssignment, ResponsibleAssignment
 
-from .models import ComplianceDocument, CoverPage, ImportAudit, TrackingProfile
+from .models import ComplianceDocument, CoverPage, ImportAudit, TrackingProfile, WorkflowEvent
 
 
 class ComplianceImportTests(TestCase):
@@ -43,7 +44,9 @@ class ComplianceImportTests(TestCase):
         cover="CP-I",
         tech="TD-I",
         status=None,
+        effective_date=None,
         target_date=None,
+        revised_target_date=None,
         delivery_date=None,
         panel=None,
         ata=None,
@@ -56,8 +59,12 @@ class ComplianceImportTests(TestCase):
         }
         if status is not None:
             row["Status"] = status
+        if effective_date is not None:
+            row["Effective Date"] = effective_date
         if target_date is not None:
             row["UBM Target Date"] = target_date
+        if revised_target_date is not None:
+            row["UBM Revised Target Date"] = revised_target_date
         if delivery_date is not None:
             row["UBM Delivery Date"] = delivery_date
         if panel is not None:
@@ -633,7 +640,7 @@ class ComplianceImportTests(TestCase):
         self.assertIsNone(document.ubm_delivery_date)
         self.assertEqual(
             (event.status, event.effective_date),
-            ("to_be_issued", date(2026, 9, 10)),
+            ("to_be_issued", timezone.localdate()),
         )
 
     def test_import_appends_current_status_with_ubm_delivery_date(self):
@@ -662,21 +669,117 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(
             events,
             [
-                ("to_be_issued", date(2026, 9, 10)),
-                ("authority_review", date(2026, 9, 18)),
+                ("to_be_issued", timezone.localdate()),
+                ("authority_review", timezone.localdate()),
             ],
         )
         self.assertEqual(document.status, "authority_review")
         self.assertEqual(document.ubm_delivery_date, date(2026, 9, 18))
 
-    def test_delivery_date_without_prior_target_is_rejected(self):
-        response = self.preview(
-            self.workbook(
-                status="Authority Review",
-                delivery_date=date(2026, 9, 18),
-            )
+    def test_dates_are_independent_of_each_other_and_workflow_history(self):
+        content = self.workbook(
+            status="Authority Review",
+            target_date=date(2026, 9, 20),
+            revised_target_date=date(2026, 9, 25),
+            delivery_date=date(2026, 9, 18),
         )
+        preview = self.preview(content)
+        self.assertEqual(preview.data["rejected_count"], 0, preview.data)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        document = ComplianceDocument.objects.get()
+        self.assertEqual(document.ubm_target_date, date(2026, 9, 20))
+        self.assertEqual(document.ubm_revised_target_date, date(2026, 9, 25))
+        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 18))
+        self.assertEqual(document.workflow_events.count(), 1)
+
+        updated = self.workbook(
+            status="Authority Review", target_date=date(2026, 10, 1),
+            revised_target_date=date(2026, 9, 15), delivery_date=date(2026, 9, 10),
+        )
+        preview = self.preview(updated)
+        self.assertEqual(preview.data["updated_count"], 1, preview.data)
+        self.assertEqual(self.confirm(updated, preview.data["confirmation_token"]).status_code, 201)
+        document.refresh_from_db()
+        self.assertEqual(document.ubm_target_date, date(2026, 10, 1))
+        self.assertEqual(document.ubm_revised_target_date, date(2026, 9, 15))
+        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 10))
+        self.assertEqual(document.workflow_events.count(), 1)
+
+        cleared = self.workbook(status="Authority Review", revised_target_date="")
+        preview = self.preview(cleared)
+        self.assertEqual(preview.data["updated_count"], 1, preview.data)
+        self.assertEqual(self.confirm(cleared, preview.data["confirmation_token"]).status_code, 201)
+        document.refresh_from_db()
+        self.assertIsNone(document.ubm_revised_target_date)
+        self.assertEqual(document.ubm_target_date, date(2026, 10, 1))
+        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 10))
+
+    def test_delivery_date_without_target_is_accepted(self):
+        content = self.workbook(status="To Be Issued", delivery_date=date(2026, 9, 18))
+        preview = self.preview(content)
+        self.assertEqual(preview.data["rejected_count"], 0, preview.data)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        document = ComplianceDocument.objects.get()
+        self.assertEqual(document.status, "to_be_issued")
+        self.assertIsNone(document.ubm_target_date)
+        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 18))
+
+    def test_legacy_future_workflow_event_does_not_block_independent_dates(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-I")
+        document = ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Imported Document",
+            status="to_be_issued", ubm_target_date=date(2028, 9, 20),
+        )
+        WorkflowEvent.objects.create(
+            document=document, sequence=1, status="to_be_issued",
+            effective_date=date(2028, 9, 20), source=WorkflowEvent.Source.IMPORT,
+        )
+        content = self.workbook(
+            status="Authority Review", target_date=date(2028, 9, 20),
+            delivery_date=date(2028, 9, 10),
+        )
+
+        preview = self.preview(content)
+        self.assertEqual(preview.data["rejected_count"], 0, preview.data)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(confirmed.status_code, 201, confirmed.data)
+        document.refresh_from_db()
+        self.assertEqual(document.ubm_delivery_date, date(2028, 9, 10))
+        self.assertEqual(document.workflow_events.count(), 2)
+
+    def test_explicit_out_of_order_transition_is_reported_in_preview(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-I")
+        document = ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Imported Document",
+            status="to_be_issued",
+        )
+        WorkflowEvent.objects.create(
+            document=document, sequence=1, status="to_be_issued",
+            effective_date=date(2028, 9, 20), source=WorkflowEvent.Source.IMPORT,
+        )
+        response = self.preview(self.workbook(
+            status="Authority Review", effective_date=date(2028, 9, 10),
+            target_date=date(2028, 9, 20), delivery_date=date(2028, 9, 1),
+        ))
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["rejected_count"], 1)
-        self.assertIn("ubm_delivery_date", response.data["invalid_documents"][0]["fields"])
+        self.assertIn("effective_date", response.data["invalid_documents"][0]["fields"])
+
+    def test_date_only_import_preserves_existing_status(self):
+        initial = self.workbook(status="Authority Review")
+        preview = self.preview(initial)
+        self.assertEqual(self.confirm(initial, preview.data["confirmation_token"]).status_code, 201)
+        document = ComplianceDocument.objects.get()
+        date_only = self.workbook(revised_target_date=date(2026, 9, 25))
+
+        preview = self.preview(date_only)
+        self.assertEqual(preview.data["updated_count"], 1, preview.data)
+        self.assertEqual(self.confirm(date_only, preview.data["confirmation_token"]).status_code, 201)
+        document.refresh_from_db()
+        self.assertEqual(document.status, "authority_review")
+        self.assertEqual(document.ubm_revised_target_date, date(2026, 9, 25))
+        self.assertEqual(document.workflow_events.count(), 1)
+        unchanged = self.preview(date_only)
+        self.assertEqual(unchanged.data["unchanged_count"], 1, unchanged.data)

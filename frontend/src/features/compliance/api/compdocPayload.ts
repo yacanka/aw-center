@@ -17,6 +17,9 @@ export interface CompDocWritePayload {
   moc: string | null
   mom_no: string
   requirements: string[]
+  ubm_target_date: string | null
+  ubm_revised_target_date: string | null
+  ubm_delivery_date: string | null
   path: string
   notes: string
   change_reason?: string
@@ -62,6 +65,9 @@ function buildWritePayload(document: ICompDoc): CompDocWritePayload {
     moc: document.moc,
     mom_no: document.mom_no,
     requirements: document.requirements,
+    ubm_target_date: document.ubm_target_date || null,
+    ubm_revised_target_date: document.ubm_revised_target_date || null,
+    ubm_delivery_date: document.ubm_delivery_date || null,
     path: document.path,
     notes: document.notes,
     change_reason: document.change_reason

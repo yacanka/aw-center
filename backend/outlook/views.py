@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 
 from awcenter.file_security import MSG_POLICY, validate_request_upload
 from awcenter.api_errors import error_response
+from awcenter.cache_locks import cache_entry_lock
 from jobs.contracts import JobExecutionFailure
 
 from .message_helpers import (
@@ -150,7 +151,7 @@ def valid_capability(value):
 
 
 def consume_attachment_capability(capability, owner_id):
-    """Atomically fence one owner-bound capability before returning its payload."""
+    """Return an owner-bound payload only after atomically removing its cache entry."""
 
     if not valid_capability(capability):
         return None
@@ -158,16 +159,16 @@ def consume_attachment_capability(capability, owner_id):
     package = cache.get(key)
     if not package or package.get("owner_id") != owner_id:
         return None
-    # ``add`` is the portable atomic cache primitive supported by both Redis
-    # and the local test backend.  Keep the consumed marker for the full
-    # capability lifetime so a crash between the fence and payload deletion
-    # cannot make the token reusable.
-    if not cache.add(consumed_cache_key(capability), True, CACHE_SECONDS):
-        return None
-    package = cache.get(key)
-    if not package or package.get("owner_id") != owner_id:
-        return None
-    cache.delete(key)
+    # A file cache needs a process-shared lock; Redis/LocMem delete atomically.
+    # Readers may share a snapshot, but only the successful remover can return it.
+    with cache_entry_lock(key) as acquired:
+        if not acquired:
+            return None
+        package = cache.get(key)
+        if not package or package.get("owner_id") != owner_id:
+            return None
+        if not cache.delete(key):
+            return None
     return package
 
 
@@ -185,9 +186,3 @@ def cache_key(token):
     """Return a namespace-isolated cache key."""
 
     return f"{CACHE_PREFIX}:{token}"
-
-
-def consumed_cache_key(token):
-    """Return the atomic replay-fence key for an attachment capability."""
-
-    return f"{cache_key(token)}:consumed"

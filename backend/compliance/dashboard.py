@@ -38,7 +38,7 @@ def build_dashboard(project, *, today=None):
         documents.filter(is_archived=False)
         .select_related("panel", "cover_page")
         .only(
-            "id", "name", "status", "ubm_target_date", "ubm_delivery_date",
+            "id", "name", "status", "ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date",
             "next_action_due_date", "tech_doc_no", "tech_doc_no_2",
             "panel__id", "panel__name", "panel__ata", "cover_page__number",
         )
@@ -106,8 +106,8 @@ def _accumulate(state, document, entries, today):
     state["chart_statuses"][status] += 1
     if document.next_action_due_date and document.next_action_due_date < today:
         state["overdue"] += 1
-    if document.ubm_target_date:
-        state["scheduled"][document.ubm_target_date] += 1
+    if document.current_target_date:
+        state["scheduled"][document.current_target_date] += 1
     if document.ubm_delivery_date and document.ubm_delivery_date <= today:
         state["actual"][document.ubm_delivery_date] += 1
     state["quality"]["missing_panel"] += not document.panel_id
@@ -116,7 +116,7 @@ def _accumulate(state, document, entries, today):
     _accumulate_pending(state, entries, today)
     # Initial planned dates can precede any workflow event in imported records.
     if not entries and status == "delayed":
-        state["pending_days"]["ubm"] += (today - document.ubm_target_date).days
+        state["pending_days"]["ubm"] += (today - document.current_target_date).days
     accumulate_document_risk(
         state["risk"],
         {
@@ -126,7 +126,7 @@ def _accumulate(state, document, entries, today):
             "ata": document.panel.ata if document.panel_id else None,
             "tech_doc_no": document.tech_doc_no,
             "tech_doc_no_2": document.tech_doc_no_2,
-            "ubm_target_date": document.ubm_target_date,
+            "ubm_target_date": document.current_target_date,
         },
         entries, status, today, DEFAULT_RISK_POLICY,
     )
@@ -135,8 +135,8 @@ def _accumulate(state, document, entries, today):
 def _chart_status(document, today):
     if (
         document.status == "to_be_issued"
-        and document.ubm_target_date
-        and document.ubm_target_date < today
+        and document.current_target_date
+        and document.current_target_date < today
         and not document.ubm_delivery_date
     ):
         return "delayed"

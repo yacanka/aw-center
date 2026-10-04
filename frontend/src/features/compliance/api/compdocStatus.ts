@@ -4,8 +4,9 @@ const DAY_MILLISECONDS = 86_400_000
 
 /** Return a display-only delayed status without mutating API data. */
 export function withCompdocDisplayStatus(row: ICompDoc, today = new Date()) {
-  if (row.status !== 'to_be_issued' || !row.ubm_target_date) return row
-  const targetDay = isoDay(row.ubm_target_date)
+  const target = row.ubm_revised_target_date || row.ubm_target_date
+  if (row.status !== 'to_be_issued' || !target || row.ubm_delivery_date) return row
+  const targetDay = isoDay(target)
   if (targetDay === null) return row
   const currentDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
   const overdueDays = Math.floor((currentDay - targetDay) / DAY_MILLISECONDS)

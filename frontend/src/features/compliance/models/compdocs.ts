@@ -34,6 +34,7 @@ export interface ICompDoc {
   archived_at?: string | null
   archive_reason?: string
   ubm_target_date: string | null
+  ubm_revised_target_date: string | null
   ubm_delivery_date: string | null
   path: string
   notes: string

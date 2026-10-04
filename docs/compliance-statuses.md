@@ -6,7 +6,9 @@ Status options belong to a project and are shared by that project's users. A doc
 
 Excel and DOORS imports discover status options from valid rows. Preview shows proposed new options and rows using Unknown without writing the catalog. Confirmation creates options in the same transaction as the documents. Failed rows and rolled-back imports do not leave options behind.
 
-Missing or blank status means `unknown`, including when updating an existing document. A change to Unknown appends a workflow event; it does not rewrite history. Supplied milestone dates must remain consistent with recorded history. New documents without workflow dates remain Unknown without an artificial transition.
+New documents without a status start as `unknown`. When updating an existing document, an omitted status column preserves its current status; a mapped but blank status cell explicitly changes it to Unknown. A status change appends a workflow event without rewriting history. An explicit effective date must not precede the latest workflow event. When no effective date is supplied, import keeps the event chronology valid even for legacy records whose events used a future target date.
+
+The original UBM target, revised UBM target and UBM delivery dates are independent document fields. Their order does not constrain imports or workflow event dates. The revised target takes precedence for current due and risk calculations while the original target remains available for reference.
 
 Status names are single-line strings of at most 128 characters. Codes retain the legacy import normalization: trim whitespace, case-fold, remove periods, replace whitespace with underscores. The normalized code is also limited to 128 characters. Equivalent codes reuse the project's existing option and label. `unknown` is the protected default; `delayed` remains a calculated display state and cannot be assigned.
 

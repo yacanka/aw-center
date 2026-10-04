@@ -49,6 +49,7 @@ const EMPTY_COMPDOC: ICompDoc = {
   status_flow: [],
   status: '',
   ubm_target_date: '',
+  ubm_revised_target_date: '',
   ubm_delivery_date: '',
   path: '',
   notes: '',

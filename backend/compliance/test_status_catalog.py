@@ -86,11 +86,11 @@ class StatusCatalogTests(TestCase):
         self.import_rows(rows)
         document = ComplianceDocument.objects.get()
         self.assertEqual(document.status, "custom_review")
-        self.import_rows([{"Document Name": "Document"}])
+        self.import_rows([{"Document Name": "Document", "Status": ""}])
         document.refresh_from_db()
         self.assertEqual(document.status, "unknown")
         self.assertEqual(list(document.workflow_events.order_by("sequence").values_list("status", flat=True)), ["custom_review", "unknown"])
-        self.import_rows([{"Document Name": "Document"}])
+        self.import_rows([{"Document Name": "Document", "Status": ""}])
         self.assertEqual(document.workflow_events.count(), 2)
 
     def test_options_are_project_scoped_and_transition_requires_catalog(self):
@@ -168,12 +168,12 @@ class StatusCatalogTests(TestCase):
         row = {"Document Name": "Document", "Status": "Custom Review",
                "UBM Target Date": "2026-01-01", "UBM Delivery Date": "2026-02-01"}
         self.import_rows([row])
-        del row["Status"]
+        row["Status"] = ""
         self.import_rows([row])
         document = ComplianceDocument.objects.get()
         self.assertEqual(document.status, "unknown")
         self.assertEqual(document.ubm_delivery_date, date(2026, 2, 1))
-        self.assertEqual(list(document.workflow_events.order_by("sequence").values_list("status", flat=True)), ["to_be_issued", "custom_review", "unknown"])
+        self.assertEqual(list(document.workflow_events.order_by("sequence").values_list("status", flat=True)), ["custom_review", "unknown"])
 
     def test_explicit_unknown_reimport_with_milestones_preserves_history(self):
         row = {"Document Name": "Document", "Status": "Custom Review",
@@ -183,4 +183,4 @@ class StatusCatalogTests(TestCase):
         self.import_rows([row])
         document = ComplianceDocument.objects.get()
         self.assertEqual(document.status, "unknown")
-        self.assertEqual(document.workflow_events.count(), 3)
+        self.assertEqual(document.workflow_events.count(), 2)

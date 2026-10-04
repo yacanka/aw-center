@@ -56,11 +56,14 @@ Dar backend örnekleri:
 ```bash
 ../.venv/bin/python manage.py test users.test_auth_csrf
 ../.venv/bin/python manage.py test compliance
+../.venv/bin/python manage.py test pdf.tests
 ../.venv/bin/python manage.py test jobs
 ../.venv/bin/python manage.py test automations integrations.tests.test_doors_api \
   integrations.tests.test_doors_worker_tasks
 ../.venv/bin/python manage.py test awcenter.test_architecture awcenter.test_deployment_contract
 ```
+
+PDF dizini namespace package olduğu için varsayılan test keşfine dahil olmaz. CI, Python 3.11 backend ve Python 3.14 compatibility kapılarında `pdf.tests` etiketini ayrıca çalıştırır.
 
 Frontend, repository kökünden:
 
@@ -126,9 +129,13 @@ Değişen yüzeyle orantılı olarak en az şunları değerlendirin:
 - anonymous, authenticated fakat yetkisiz ve doğru role sahip kullanıcı;
 - missing/invalid CSRF ve session invalidation;
 - known/unknown account için aynı password-reset response, SMTP'siz web enqueue, raw-token persistence reddi, stale mail lease ve fragment capability'nin hemen scrub edilmesi;
+- Sessiz loopback SMTP peer'inde sınırlı bekleme, geçersiz timeout ayarlarının başlangıçta reddi, timeout sonrası stable Message-ID/link ile retry, sonraki kaydın gönderim öncesine kadar pending kalması, expired/reclaimed lease ile sonuç yazılmaması ve diğer notification kuyruklarının ilerlemesi;
 - cross-project object ID ve disabled/unknown project;
+- Release bulk-seen'de erken liste sınırı, strict integer ID, duplicate/inactive/user scope, session+CSRF ve gerçek iki bağlantılı eşzamanlı POST'ların doğru `created` toplamı; frontend'de uzun listelerin bounded gruplar halinde gönderilmesi;
+- API/worker JSON log'larında hata konumu ve allowlisted aşama bilgisi; ham hata mesajı, payload, credential, local değerler ve filesystem yolu redaction regresyonları;
 - unsafe filename, traversal, yanlış signature, oversized upload, archive expansion;
-- Outlook attachment capability'sinde cross-user kullanım, query/URL sızıntısı, replay ve cached SHA-256 mismatch;
+- PDF bölmede `parts` için sayfa sayısı ve 1.000 parça sınırı, `pages_per_parts` ile türetilen parça sayısında aynı üst sınır, ondalıklı/geçersiz parametre reddi ve her iki modda ZIP içindeki sayfa sırasının korunması;
+- Outlook attachment capability'sinde cross-user kullanım, query/URL sızıntısı, replay ve cached SHA-256 mismatch; production file cache üzerinde aynı payload'ı okuyan thread/process'ler için tek başarılı tüketim, expiry ve kilit hatasında payload reddi;
 - idempotency key replay: aynı input ve farklı input;
 - ECR'de cross-owner erişim, stale approve/reject version, credential payload reddi, missing/expired JIRA session, stale publication fence ve explicit resume öncesi reconciliation doğrulaması;
 - subtask create/resume'da legacy credential reddi, unknown/required field kontrolü, marker reuse ve uncertain provider write sonrası otomatik retry olmaması;

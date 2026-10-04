@@ -23,6 +23,7 @@ const TABLE_FIELDS = new Set([
   'path',
   'status',
   'ubm_target_date',
+  'ubm_revised_target_date',
   'ubm_delivery_date',
   'next_action_due_date',
   'is_archived',
@@ -38,6 +39,7 @@ const DEFAULT_FIELDS = new Set([
   'tech_doc_no',
   'tech_doc_issue',
   'ubm_target_date',
+  'ubm_revised_target_date',
   'ubm_delivery_date',
   'moc',
   'status'
@@ -45,6 +47,7 @@ const DEFAULT_FIELDS = new Set([
 
 const DATE_FIELDS = new Set([
   'ubm_target_date',
+  'ubm_revised_target_date',
   'ubm_delivery_date',
   'next_action_due_date',
   'created_at',
@@ -90,6 +93,7 @@ export function normalizeCompdoc(value: unknown): ICompDoc {
     archived_at: nullableString(value.archived_at),
     archive_reason: stringValue(value.archive_reason),
     ubm_target_date: nullableString(value.ubm_target_date),
+    ubm_revised_target_date: nullableString(value.ubm_revised_target_date),
     ubm_delivery_date: nullableString(value.ubm_delivery_date),
     path: stringValue(value.path),
     notes: stringValue(value.notes),

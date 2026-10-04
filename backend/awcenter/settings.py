@@ -516,6 +516,11 @@ EMAIL_BACKEND = env.str(
 )
 EMAIL_HOST = env.str("EMAIL_HOST", default="localhost")
 EMAIL_PORT = env.int("EMAIL_PORT", default=25)
+EMAIL_TIMEOUT = env.float("EMAIL_TIMEOUT", default=10.0)
+if not 0 < EMAIL_TIMEOUT <= 30:
+    raise ImproperlyConfigured("EMAIL_TIMEOUT must be greater than 0 and at most 30 seconds.")
+if EMAIL_TIMEOUT >= max(COMPDOC_NOTIFICATION_LOCK_SECONDS, 30):
+    raise ImproperlyConfigured("EMAIL_TIMEOUT must be shorter than the notification lease.")
 EMAIL_HOST_USER = credential_from_env(
     "EMAIL_HOST_USER", default=USERNAME if AWCENTER_MAIL_TRANSPORT == "django" else ""
 )

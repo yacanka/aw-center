@@ -79,7 +79,7 @@
           :original="originalCompdoc"
           :readonly="formReadonly"
         />
-        <CompDocWorkflowFields :compdoc="compdoc" />
+        <CompDocWorkflowFields :compdoc="compdoc" :readonly="formReadonly" />
         <CompDocNotesFields
           :compdoc="compdoc"
           :original="originalCompdoc"
