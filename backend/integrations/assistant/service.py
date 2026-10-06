@@ -1,8 +1,8 @@
 """Stateless, read-only application assistance grounded in authorized guides."""
 import json
 
-from integrations.ai import AIRequestPolicy, AIServiceError, ChatMessage, complete_json
-from integrations.ai.transport import invalid_response
+from integrations.ai import AIRequestPolicy, AIServiceError, ChatMessage, complete_text
+from integrations.ai.transport import invalid_response, parse_json
 
 from .access import authorized_guides
 from .context import build_context
@@ -52,6 +52,17 @@ def _validate_result(result):
             raise invalid_response()
 
 
+def _parse_reply(content):
+    """Accept prose without cards; keep structured replies strictly validated."""
+    try:
+        return parse_json(content)
+    except (ValueError, TypeError, RecursionError, OverflowError):
+        # A broken structured reply must not bypass schema validation as prose.
+        if content.lstrip().startswith(("{", "[")):
+            raise invalid_response() from None
+        return {"answer": content, "application_ids": [], "source_ids": []}
+
+
 def _resolve_ids(ids, guides, *, source=False):
     resolved = []
     seen = set()
@@ -88,7 +99,7 @@ def answer_question(user, *, message: str, history: list[dict[str, str]], curren
     messages = [ChatMessage("system", SYSTEM_PROMPT + context)]
     messages.extend(ChatMessage(row["role"], row["content"]) for row in data["history"])
     messages.append(ChatMessage("user", data["message"]))
-    result = complete_json(messages, policy=ASSISTANT_POLICY)
+    result = _parse_reply(complete_text(messages, policy=ASSISTANT_POLICY))
     _validate_result(result)
     return {
         "answer": result["answer"],
