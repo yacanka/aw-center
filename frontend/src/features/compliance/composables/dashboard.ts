@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import type {
   CompDocDashboardSummary,
@@ -24,10 +24,16 @@ export function useCompdocDashboard() {
   const summary = ref<CompDocDashboardSummary | null>(null)
   const loading = ref(false)
   const error = ref('')
+  const breakdownMode = ref<'panel' | 'ata'>('panel')
+  const displayedPanels = computed(
+    () =>
+      (breakdownMode.value === 'panel' ? summary.value?.panel_groups : summary.value?.panels) || []
+  )
   const selectedPanelId = ref<string | null>(null)
   const selectedPanel = computed(
-    () => summary.value?.panels.find((panel) => panel.id === selectedPanelId.value) || null
+    () => displayedPanels.value.find((panel) => panel.id === selectedPanelId.value) || null
   )
+  watch(breakdownMode, () => (selectedPanelId.value = null))
   const focusedAnalytics = computed(() => selectedPanel.value?.analytics || summary.value)
   let activeController: AbortController | null = null
   let requestSequence = 0
@@ -93,6 +99,8 @@ export function useCompdocDashboard() {
 
   return {
     activeProject,
+    breakdownMode,
+    displayedPanels,
     error,
     loading,
     loadProject,

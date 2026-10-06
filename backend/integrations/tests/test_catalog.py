@@ -5,6 +5,9 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
+from integrations.catalog import integration_catalog
+from integrations.tests.test_ai_config import ABSENT_CONFIGURATION, CENTRAL_CONFIGURATION
+
 
 class IntegrationHubTests(TestCase):
     """Verify safe integration discovery for authenticated users."""
@@ -45,7 +48,7 @@ class IntegrationHubTests(TestCase):
         serialized = response.content.decode("utf-8")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()["integrations"]), 8)
+        self.assertEqual(len(response.json()["integrations"]), 9)
         self.assertNotIn("service-password", serialized)
         self.assertNotIn("internal.example", serialized)
 
@@ -60,6 +63,20 @@ class IntegrationHubTests(TestCase):
         self.assertEqual(len(identifiers), len(set(identifiers)))
         self.assertTrue(all(isinstance(item["capabilities"], list) for item in integrations))
         self.assertIn("document-analysis", local_ai["capabilities"])
+
+    @override_settings(**ABSENT_CONFIGURATION)
+    def test_ai_chat_catalog_discloses_only_configuration_readiness(self):
+        for configured in (False, True):
+            with self.subTest(configured=configured), override_settings(
+                **(CENTRAL_CONFIGURATION if configured else {})
+            ):
+                item = next(entry for entry in integration_catalog() if entry["id"] == "ai-chat")
+                self.assertEqual(item["configured"], configured)
+                self.assertEqual(item["status"], "ready" if configured else "attention")
+                self.assertIsNone(item["route"])
+                self.assertNotIn("health", item)
+                self.assertNotIn("central.example.test", str(item))
+                self.assertNotIn("synthetic-central-token", str(item))
 
     @patch("integrations.api.claim_refresh_slot", return_value=True)
     @patch("integrations.api.probe_catalog")

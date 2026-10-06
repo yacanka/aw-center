@@ -82,6 +82,25 @@ capability'leri process başına daha dar biçimde ayrılmaya devam edecektir.
 
 `backend/awcenter/test_architecture.py`, production import graph'ini, jobs kernel bağımsızlığını, kaldırılmış runtime package'larını, browser auth sınırını ve canonical URL yüzeyini fitness function olarak kilitler.
 
+### Merkezi AI ve asistan sınırı
+
+`integrations.ai` immutable mesaj/configuration/policy sözleşmeleri, stateless
+`complete_text`/`complete_json` ve bounded HTTPS transport'u içerir. Bağımlılık yönü
+feature → client → transport'tur; çekirdek Django request, kullanıcı/project,
+assessment, assistant veya job modüllerini import etmez. Prompt, domain şeması ve
+yetki çağıran feature'da kalır. `integrations.assessment` mevcut DDF/Watcher çağrı
+ve hata sözleşmesini bu client'a uyarlar; ayrı konuşmalar arasında history veya
+mutable HTTP session paylaşılmaz.
+
+`integrations.assistant` salt okunur yetkili rehber kataloğu, bounded bağlam,
+prompt, sonuç doğrulaması ve authenticated catalog/chat endpoint'lerini sahiplenir.
+Model yalnız o request'in yetkili kimliklerini önerebilir; backend bunları
+canonical route kartlarına çözer. Yanıt düz metindir, model URL/kod/callable
+çalıştırılmaz. Asistan gerçek belge/iş kayıtlarına erişmez ve iş başlatmaz.
+Configuration durumunu gösteren `ai-chat` Integration Hub girdisi canlı probe
+yapmaz; yerel `ai` toolkit'inden ayrıdır. Aile seçimi, API limitleri ve yeni
+tüketici/rehber ekleme akışı [ai-assistant.md](ai-assistant.md) içindedir.
+
 ## Project ve compliance aggregate'i
 
 Teknik project metadata'sı `projects.registry.PROJECT_DEFINITIONS` içindedir. Her definition `slug`, capability'ler ve güvenli server-side handler/template referanslarını taşır. `orgs.Project` business karşılığıdır; fresh migration canonical satırları seed eder. API yalnız registry'de bulunan, enabled ve kullanıcı rolüyle erişilebilen project'leri döndürür.
@@ -213,6 +232,14 @@ sistemi kilidi bırakır; payload süresi ve temizliği Django cache tarafından
 - `frontend/src/features/<feature>/api/`: feature'ın typed request/response sınırı.
 - `frontend/src/features/<feature>/composables/`: route controller'ları ile form/query/list state'i.
 - `features/session/stores/session.ts`, `features/projects/stores/projectCatalog.ts` ve credential içermeyen JIRA connection store'u: yalnız uygulama ömürlü state.
+- `features/assistant/stores/assistant.ts`: session-scoped, yalnız bellekte bounded sohbet ve yetkili katalog; protected shell paneli ilk açılışta lazy yükler.
+
+Asistanın konuşması route değişimi ve panel kapatma/açmada korunur. Yeni sohbet,
+logout, kimlik değişimi ve session expiry abort/generation fence ile bekleyen
+sonucun yeni oturuma yazılmasını engeller; local/session storage veya database
+konuşma deposu yoktur. Frontend exact registered internal route kontrolü backend
+yetkisinin yerine geçmez. Panel ortak NConfigProvider/useThemeVars ve mevcut
+session/CSRF client'ını kullanır.
 
 CompDoc, organization, user administration, DDF, presentation, Outlook ve DOORS ekran state'i route-local controller/API'lere aittir. Pinia fitness allowlist'i yeni route store'u eklenmesini engeller.
 

@@ -19,6 +19,7 @@ from .serializers import (
     DccRecordDeleteSerializer,
     DccRecordSerializer,
     DccRecordUpdateSerializer,
+    DccRecordFilterSerializer,
 )
 
 
@@ -27,6 +28,12 @@ class DccRecordCollectionView(APIView):
 
     def get(self, request):
         records = project_records_for_user(request.user)
+        filters = DccRecordFilterSerializer(data=request.query_params)
+        filters.is_valid(raise_exception=True)
+        for name, value in filters.validated_data.items():
+            lookup = name if name == "active" else f"{name}__icontains"
+            records = records.filter(**{lookup: value})
+        records = records.order_by("-updated_at", "issue", "id")
         paginator = StandardResultsSetPagination()
         page = paginator.paginate_queryset(records, request, view=self)
         return paginator.get_paginated_response(DccRecordSerializer(page, many=True).data)

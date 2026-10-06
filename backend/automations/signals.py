@@ -1,9 +1,14 @@
-"""Private artifact cleanup for feature-owned workflows."""
+"""ECR domain events and private artifact lifecycle handlers."""
 
 from django.db.models.signals import post_delete, post_save
-from django.dispatch import receiver
+from django.dispatch import Signal, receiver
 
 from .models import EcrWorkflow
+
+
+# Sent synchronously inside publication completion so receiver failures roll back
+# the workflow and its dependent writes together. Payload: owner, issue, title, projects.
+ecr_publication_completed = Signal()
 
 
 @receiver(post_delete, sender=EcrWorkflow)

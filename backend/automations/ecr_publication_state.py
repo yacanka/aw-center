@@ -9,6 +9,7 @@ from jobs.execution import current_execution_lease, lock_active_execution
 from .ecr_access import PUBLISHER, require_ecr_role
 from .ecr_services import record_ecr_event
 from .models import EcrWorkflow, EcrWorkflowStatus
+from .signals import ecr_publication_completed
 
 
 def validate_ecr_publication_fence(job):
@@ -98,6 +99,13 @@ def complete_ecr_publication(job):
         workflow.last_error_message = ""
         workflow.version += 1
         workflow.save()
+        ecr_publication_completed.send(
+            sender=EcrWorkflow,
+            owner=workflow.owner,
+            issue=workflow.jira_issue_key,
+            title=workflow.snapshot["title"],
+            projects=list(workflow.projects.all()),
+        )
         record_ecr_event(
             workflow,
             job.owner,

@@ -11,6 +11,7 @@ from django.http.request import validate_host
 
 from awcenter.cache_policy import production_cache_is_valid
 from awcenter.outbound_urls import normalize_outbound_base_url
+from integrations.ai.config import configuration_status
 
 
 PLACEHOLDER_SECRETS = {
@@ -329,19 +330,20 @@ def _integration_checks():
                     id="awcenter.E034",
                 )
             )
-    if settings.ASSESSMENT_API_URL:
-        parsed_assessment = urlparse(settings.ASSESSMENT_API_URL)
-        if (
-            parsed_assessment.scheme != "https"
-            or not parsed_assessment.hostname
-            or parsed_assessment.hostname not in settings.ASSESSMENT_API_ALLOWED_HOSTS
-        ):
-            checks.append(
-                Error(
-                    "Assessment API requires HTTPS and an explicit host allowlist.",
-                    id="awcenter.E023",
-                )
+    if configuration_status(prefer_assessment=True) == "invalid":
+        checks.append(
+            Error(
+                "Assessment API requires a complete safe provider configuration and bounded limits.",
+                id="awcenter.E023",
             )
+        )
+    if configuration_status() == "invalid":
+        checks.append(
+            Error(
+                "Central AI API requires a complete safe provider configuration and bounded limits.",
+                id="awcenter.E038",
+            )
+        )
     if (
         settings.AWCENTER_MAIL_TRANSPORT == "django"
         and not settings.EMAIL_USE_TLS

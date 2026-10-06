@@ -1,29 +1,46 @@
 <template>
-  <n-modal v-model:show="visible" preset="dialog" title="Queue watcher reminder" centered>
+  <n-modal
+    v-model:show="visible"
+    preset="dialog"
+    title="Send a reminder"
+    centered
+    :mask-closable="!submitting"
+    :closable="!submitting"
+    :close-on-esc="!submitting"
+  >
     <n-space vertical>
       <n-alert type="info" :bordered="false">
-        The reminder will be queued for assignees of open JIRA subtasks. Mail is delivered by the
-        notification worker.
+        Assignees of unfinished JIRA subtasks receive this reminder. Completed subtasks are
+        excluded.
       </n-alert>
-      <n-input :value="record?.issue || ''" disabled />
-      <n-input-number
-        v-model:value="ccbNo"
-        :min="1"
-        :max="999999"
-        placeholder="CCB number"
-        style="width: 100%"
-      />
-      <n-date-picker
-        v-model:formatted-value="dueDate"
-        type="date"
-        value-format="yyyy-MM-dd"
-        format="dd.MM.yyyy"
-        style="width: 100%"
-      />
-      <n-alert v-if="errorMessage" type="error">{{ errorMessage }}</n-alert>
+      <n-text strong>{{ record?.issue }} · {{ record?.title }}</n-text>
+      <n-form-item label="CCB number">
+        <n-input-number
+          v-model:value="ccbNo"
+          :min="1"
+          :max="999999"
+          placeholder="CCB number"
+          :disabled="submitting"
+          :input-props="{ 'aria-label': 'CCB number' }"
+          style="width: 100%"
+        />
+      </n-form-item>
+      <n-form-item label="Response due date">
+        <n-date-picker
+          v-model:formatted-value="dueDate"
+          type="date"
+          :disabled="submitting"
+          :input-props="{ 'aria-label': 'Response due date' }"
+          value-format="yyyy-MM-dd"
+          format="dd.MM.yyyy"
+          style="width: 100%"
+        />
+      </n-form-item>
+      <n-text depth="2">One reminder per issue can be queued each hour.</n-text>
+      <n-alert v-if="errorMessage" role="alert" type="error">{{ errorMessage }}</n-alert>
     </n-space>
     <template #action>
-      <n-button @click="visible = false">Cancel</n-button>
+      <n-button :disabled="submitting" @click="visible = false">Cancel</n-button>
       <n-button
         type="primary"
         :loading="submitting"
@@ -58,14 +75,14 @@ function open(value: IDcc): void {
 }
 
 async function submit(): Promise<void> {
-  if (!record.value || !ccbNo.value || !dueDate.value) return
+  if (submitting.value || !record.value || !ccbNo.value || !dueDate.value) return
   submitting.value = true
   errorMessage.value = ''
   try {
     await createDccReminder(record.value, ccbNo.value, dueDate.value)
-    window.$notification.success({
-      title: 'Reminder queued',
-      description: 'The notification worker will deliver the watcher reminder.'
+    window.$message.success(`Reminder queued for ${record.value.issue}.`, {
+      duration: 3000,
+      closable: true
     })
     visible.value = false
   } catch (error) {

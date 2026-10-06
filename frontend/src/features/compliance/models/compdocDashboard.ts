@@ -111,4 +111,5 @@ export interface CompDocDashboardSummary extends DashboardAnalytics {
   archived: number
   generated_at: string
   panels: DashboardPanel[]
+  panel_groups: DashboardPanel[]
 }

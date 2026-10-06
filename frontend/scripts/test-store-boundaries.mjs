@@ -6,6 +6,7 @@ import test from 'node:test'
 const sourceRoot = join(process.cwd(), 'src')
 const featureRoot = join(sourceRoot, 'features')
 const featureNames = [
+  'assistant',
   'attention',
   'compliance',
   'dcc',
@@ -74,6 +75,7 @@ test('limits Pinia to application-lifetime state', () => {
   assert.deepEqual(piniaStores, [
     'app/stores/popupStore.js',
     'app/stores/releaseNotes.ts',
+    'features/assistant/stores/assistant.ts',
     'features/dcc/stores/dcc.ts',
     'features/projects/stores/projectCatalog.ts',
     'features/session/stores/session.ts'

@@ -1,14 +1,77 @@
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+from tempfile import TemporaryDirectory
+from unittest import skipUnless
 
 import yaml
 from django.test import SimpleTestCase
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+COMPOSE_COMMAND = (
+    [shutil.which("docker-compose")] if shutil.which("docker-compose") else None
+)
+AI_SETTING_NAMES = (
+    "URL", "MODEL_ID", "TOKEN", "ALLOWED_HOSTS", "CONNECT_TIMEOUT_SECONDS",
+    "READ_TIMEOUT_SECONDS", "MAX_RESPONSE_BYTES",
+)
 
 
 class DeploymentContractTests(SimpleTestCase):
     """Protect the future immutable container topology."""
+
+    @skipUnless(COMPOSE_COMMAND, "Compose CLI is required for environment rendering")
+    def test_compose_keeps_unset_central_settings_absent_and_explicit_empty_present(self):
+        with TemporaryDirectory(prefix="ai-compose-test-") as directory:
+            env_file = Path(directory) / "empty.env"
+            env_file.write_text("", encoding="utf-8")
+            environment = {
+                "PATH": os.environ.get("PATH", ""),
+                "AWCENTER_RELEASE": "synthetic-release",
+                "SECRET_KEY": "synthetic-test-secret",
+                "AWCENTER_HOST": "awcenter.example.test",
+                "DATABASE_URL": "postgres://synthetic:synthetic@database/awcenter",
+                "REDIS_PASSWORD": "synthetic-password",
+                "AWCENTER_IMAGE": "example.test/awcenter@sha256:" + "a" * 64,
+                "AI_MODEL_DIRECTORY": directory,
+                "DOCUMENT_TEMPLATE_DIRECTORY": directory,
+                "TLS_CERTIFICATE_FILE": str(Path(directory) / "cert.pem"),
+                "TLS_PRIVATE_KEY_FILE": str(Path(directory) / "key.pem"),
+                "POSTGRES_PASSWORD": "synthetic-password",
+            }
+            for explicit_empty in (False, True):
+                with self.subTest(explicit_empty=explicit_empty):
+                    fixture = {**environment}
+                    if explicit_empty:
+                        fixture["AI_API_TOKEN"] = ""
+                    result = subprocess.run(
+                        [*COMPOSE_COMMAND, "--env-file", str(env_file), "-f",
+                         str(REPOSITORY_ROOT / "docker-compose.yml"), "config", "--format", "json"],
+                        env=fixture, capture_output=True, text=True, check=True, timeout=30,
+                    )
+                    services = json.loads(result.stdout)["services"]
+                    backend_environment = services["backend"]["environment"]
+                    for suffix in AI_SETTING_NAMES:
+                        name = f"AI_API_{suffix}"
+                        if explicit_empty and suffix == "TOKEN":
+                            self.assertEqual(backend_environment[name], "")
+                        else:
+                            # Compose retains unresolved passthrough keys as null;
+                            # they are unset in the container, unlike explicit "".
+                            self.assertIsNone(backend_environment.get(name))
+
+    def test_ai_provider_environment_is_limited_to_backend_lifecycle(self):
+        services = yaml.safe_load(self.read("docker-compose.yml"))["services"]
+        backend_environment = services["backend"]["environment"]
+        for suffix in AI_SETTING_NAMES:
+            self.assertIn(f"AI_API_{suffix}", backend_environment)
+        for name in ("worker", "notification-worker", "cleanup-worker"):
+            self.assertFalse(any(
+                key.startswith(("AI_API_", "ASSESSMENT_API_"))
+                for key in services[name]["environment"]
+            ))
 
     def test_docker_context_excludes_workstation_generated_and_secret_state(self):
         """Local ignored artifacts cannot alter or leak into a release image build."""

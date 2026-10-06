@@ -7,6 +7,7 @@ from pathlib import Path
 from django.conf import settings
 
 from integrations.teamcenter.services import integration_status as teamcenter_status
+from integrations.ai.config import configuration_status
 
 
 def integration_catalog():
@@ -20,6 +21,7 @@ def integration_catalog():
         _numarator_integration(),
         _office_integration(),
         _ai_integration(),
+        _ai_chat_integration(),
         _media_integration(),
     ]
 
@@ -152,6 +154,15 @@ def _ai_integration():
         "Private local-model Word translation and explainable compliance analysis.",
         ["translation", "document-analysis", "local-models", "document-privacy"],
         "/translator",
+    )
+
+
+def _ai_chat_integration():
+    configured = configuration_status() == "configured"
+    return _item(
+        "ai-chat", "AI Chat Service", configured,
+        "Configured remote chat access; availability and response quality are not checked.",
+        ["chat", "application-guidance"], None,
     )
 
 

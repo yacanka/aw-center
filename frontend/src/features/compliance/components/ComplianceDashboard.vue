@@ -61,10 +61,11 @@
         {{ qualityMessage }}
       </n-alert>
       <CompDocPanelDashboard
+        v-model:mode="breakdownMode"
         :statuses="summary.statuses"
         class="panel-breakdown"
         :loading="loading"
-        :panels="summary.panels"
+        :panels="displayedPanels"
         :selected-panel="selectedPanel?.id"
         @select="togglePanel"
       />
@@ -98,6 +99,8 @@ import CompDocTimelineDashboard from './CompDocTimelineDashboard.vue'
 
 const {
   activeProject,
+  breakdownMode,
+  displayedPanels,
   error,
   loading,
   loadProject,

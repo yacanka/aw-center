@@ -8,8 +8,21 @@ from urllib.parse import urlparse
 from django.conf import settings
 from jira import JIRA, JIRAError
 
-ISSUE_KEY_PATTERN = re.compile(r"[A-Z]+-\d+")
+ISSUE_KEY_PATTERN = re.compile(r"(?<![A-Z0-9_])[A-Z][A-Z0-9_]*-\d+(?![A-Z0-9_])")
 logger = logging.getLogger(__name__)
+
+
+def is_completed_status(status):
+    """Use workflow categories, falling back for servers that omit them."""
+    if isinstance(status, dict):
+        name, category = status.get("name"), status.get("statusCategory")
+    else:
+        name = getattr(status, "name", "")
+        category = getattr(status, "statusCategory", None)
+    key = category.get("key") if isinstance(category, dict) else getattr(category, "key", None)
+    if key:
+        return key == "done"
+    return str(name or "").casefold() in {"closed", "done", "resolved"}
 
 
 class JiraConfigurationError(ValueError):
@@ -260,7 +273,7 @@ class JiraConnector:
         return [
             subtask
             for reference in references
-            if (subtask := self.jira.issue(reference.key)).fields.status.name != "Closed"
+            if not is_completed_status((subtask := self.jira.issue(reference.key)).fields.status)
         ]
 
     def add_attachment(self, file, filename=None):

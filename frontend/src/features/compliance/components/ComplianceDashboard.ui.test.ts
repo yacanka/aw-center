@@ -40,6 +40,7 @@ vi.mock('vue-chartjs', () => {
 import ComplianceDashboard from './ComplianceDashboard.vue'
 import CompDocTimelineDashboard from './CompDocTimelineDashboard.vue'
 import CompDocRiskDashboard from './CompDocRiskDashboard.vue'
+import CompDocPanelDashboard from './CompDocPanelDashboard.vue'
 
 const Slot = { template: '<div><slot name="header" /><slot /></div>' }
 const Table = defineComponent({
@@ -58,6 +59,7 @@ const Table = defineComponent({
 const stubs = {
   NTabs: { props: ['value'], emits: ['update:value'], template: '<div><slot /></div>' },
   NTabPane: true,
+  NTab: Slot,
   NSpin: Slot,
   NEmpty: true,
   NGrid: Slot,
@@ -90,12 +92,44 @@ describe('compliance dashboard scope', () => {
   })
   afterEach(() => wrappers.splice(0).forEach((wrapper) => wrapper.unmount()))
 
-  async function dashboard() {
+  async function dashboard(mode = 'ata') {
     const wrapper = mount(ComplianceDashboard, { global: { stubs } })
     wrappers.push(wrapper)
     await flushPromises()
+    if (wrapper.findComponent(CompDocPanelDashboard).exists())
+      wrapper.findComponent(CompDocPanelDashboard).vm.$emit('update:mode', mode)
+    await flushPromises()
     return wrapper
   }
+
+  it('panel focus updates every chart and risk scope, and switching modes clears focus', async () => {
+    const summary = dashboardSummary()
+    summary.total = 10
+    summary.chart_status_counts.delayed = 10
+    mocks.fetch.mockResolvedValueOnce(summary)
+    const wrapper = await dashboard('panel')
+    expect(wrapper.findAll('tr')).toHaveLength(1)
+    await wrapper.findAll('tr')[0].trigger('dblclick')
+    expect(wrapper.findComponent({ name: 'DoughnutChart' }).props('data').datasets[0].data).toEqual(
+      [3]
+    )
+    expect(wrapper.findComponent({ name: 'LineChart' }).props('data').datasets[1].data[0].y).toBe(3)
+    expect(wrapper.findComponent({ name: 'BarChart' }).props('data').datasets[0].data).toEqual([
+      0, 20, 0
+    ])
+    expect(
+      wrapper.findComponent(CompDocTimelineDashboard).props('performance').scheduled.filled
+    ).toBe(3)
+    expect(wrapper.findComponent(CompDocRiskDashboard).props('risk').at_risk_count).toBe(3)
+    expect(wrapper.findAll('tr')[0].attributes('aria-selected')).toBe('true')
+    expect(mocks.fetch).toHaveBeenCalledTimes(1)
+    wrapper.findComponent(CompDocPanelDashboard).vm.$emit('update:mode', 'ata')
+    await flushPromises()
+    expect(wrapper.findAll('tr')).toHaveLength(2)
+    expect(wrapper.findComponent(CompDocTimelineDashboard).props('documentCount')).toBe(10)
+    await wrapper.findAll('tr')[0].trigger('dblclick')
+    expect(wrapper.findComponent(CompDocTimelineDashboard).props('documentCount')).toBe(1)
+  })
 
   it('double-click updates doughnut, burndown, bars, performance and risk together', async () => {
     const wrapper = await dashboard()
@@ -198,6 +232,28 @@ describe('compliance dashboard scope', () => {
     const updated = dashboardSummary()
     updated.panels = []
     mocks.fetch.mockResolvedValueOnce(updated)
+    await refresh()
+    await flushPromises()
+    expect(wrapper.findComponent(CompDocTimelineDashboard).props('documentCount')).toBe(3)
+  })
+
+  it('refreshes focused panel groups and clears groups that disappear', async () => {
+    const wrapper = await dashboard('panel')
+    await wrapper.findAll('tr')[0].trigger('dblclick')
+    const updated = dashboardSummary()
+    updated.panel_groups[0].ata = '27, 28, 29'
+    updated.panel_groups[0].analytics.total = 4
+    mocks.fetch.mockResolvedValueOnce(updated)
+    const refresh = () =>
+      wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Refresh')!
+        .trigger('click')
+    await refresh()
+    await flushPromises()
+    expect(wrapper.findComponent(CompDocTimelineDashboard).props('documentCount')).toBe(4)
+    expect(wrapper.findAll('tr')[0].text()).toContain('27, 28, 29')
+    mocks.fetch.mockResolvedValueOnce({ ...updated, panel_groups: [] })
     await refresh()
     await flushPromises()
     expect(wrapper.findComponent(CompDocTimelineDashboard).props('documentCount')).toBe(3)

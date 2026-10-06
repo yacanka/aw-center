@@ -25,6 +25,8 @@ export function parseCompdocDashboard(value: unknown): CompDocDashboardSummary {
     !Number.isFinite(Date.parse(value.generated_at)) ||
     !Array.isArray(value.panels) ||
     !value.panels.every(isPanel) ||
+    !Array.isArray(value.panel_groups) ||
+    !value.panel_groups.every(isPanel) ||
     !isAnalytics(value)
   ) {
     throw new Error('The compliance dashboard response is invalid.')
@@ -34,7 +36,8 @@ export function parseCompdocDashboard(value: unknown): CompDocDashboardSummary {
     project: value.project,
     archived: value.archived,
     generated_at: value.generated_at,
-    panels: value.panels
+    panels: value.panels,
+    panel_groups: value.panel_groups
   }
 }
 

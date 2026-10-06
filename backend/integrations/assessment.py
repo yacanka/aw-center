@@ -1,13 +1,29 @@
-"""Fail-closed adapter for the configured document assessment service."""
+"""Compatibility adapter for document assessment through the shared AI client."""
 
-from urllib.parse import urlsplit
+from .ai import client as ai_client
+from .ai.config import resolve_configuration
+from .ai.contracts import AIRequestPolicy, AIServiceError, ChatMessage
 
-import requests
-from django.conf import settings
+# Document prompts are larger than chat messages; this accommodates the existing
+# HTTP request budget even after requests' ASCII-escaped JSON encoding.
+ASSESSMENT_MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
-DEFAULT_HEADERS = {
-    "Accept": "text/plain",
-    "Content-Type": "application/json; charset=utf-8",
+_ERROR_CONTRACTS = {
+    "AI_CONFIGURATION_ERROR": (
+        "The assessment service is not configured safely.", "ASSESSMENT_CONFIGURATION_ERROR", 503,
+    ),
+    "AI_UNAVAILABLE": (
+        "The assessment service is unavailable.", "ASSESSMENT_UNAVAILABLE", 503,
+    ),
+    "AI_UPSTREAM_REJECTED": (
+        "The assessment service rejected the request.", "ASSESSMENT_UPSTREAM_REJECTED", 502,
+    ),
+    "AI_RESPONSE_INVALID": (
+        "The assessment service returned an invalid response.", "ASSESSMENT_RESPONSE_INVALID", 502,
+    ),
+    "AI_INVALID_INPUT": (
+        "The assessment request is invalid.", "ASSESSMENT_INVALID_INPUT", 400,
+    ),
 }
 
 
@@ -21,112 +37,27 @@ class AssessmentServiceError(RuntimeError):
         self.response_status = response_status
 
 
-def request_assessment(payload):
-    """Return bounded decoded response lines from the allowlisted HTTPS service."""
+def request_assessment(prompt):
+    """Return complete chat content, preserving the assessment error contract.
 
-    url = validated_assessment_url()
-    timeout = validated_timeout()
-    maximum_bytes = validated_maximum_response_bytes()
+    Prefer an active legacy provider family; otherwise use the central family.
+    Prompts are sent unchanged as one user message without retries or history.
+    Invalid input is rejected before network access with ASSESSMENT_INVALID_INPUT.
+    """
     try:
-        with requests.post(
-            url,
-            json=payload,
-            headers=DEFAULT_HEADERS,
-            timeout=timeout,
-            stream=True,
-            allow_redirects=False,
-        ) as response:
-            if response.status_code != 200:
-                raise AssessmentServiceError(
-                    "The assessment service rejected the request.",
-                    "ASSESSMENT_UPSTREAM_REJECTED",
-                    502,
-                )
-            return read_bounded_lines(response, maximum_bytes)
-    except requests.RequestException as error:
-        raise AssessmentServiceError(
-            "The assessment service is unavailable.",
-            "ASSESSMENT_UNAVAILABLE",
-            503,
-        ) from error
-
-
-def validated_assessment_url():
-    """Return an HTTPS URL whose hostname is explicitly allowlisted."""
-
-    url = str(settings.ASSESSMENT_API_URL or "").strip()
-    parsed = urlsplit(url)
-    configured_hosts = settings.ASSESSMENT_API_ALLOWED_HOSTS
-    if isinstance(configured_hosts, str):
-        configured_hosts = configured_hosts.split(",")
-    allowed_hosts = {
-        str(host).strip().lower()
-        for host in configured_hosts
-        if str(host).strip()
-    }
-    if (
-        not url
-        or parsed.scheme.lower() != "https"
-        or not parsed.hostname
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-        or parsed.hostname.lower() not in allowed_hosts
-    ):
-        raise AssessmentServiceError(
-            "The assessment service is not configured safely.",
-            "ASSESSMENT_CONFIGURATION_ERROR",
-            503,
+        configuration = resolve_configuration(prefer_assessment=True)
+        policy = AIRequestPolicy(
+            purpose="assessment",
+            max_request_bytes=ASSESSMENT_MAX_REQUEST_BYTES,
+            max_response_bytes=configuration.max_response_bytes,
+            connect_timeout=configuration.connect_timeout,
+            read_timeout=configuration.read_timeout,
         )
-    return url
-
-
-def validated_timeout():
-    """Return positive bounded connect and read timeouts."""
-
-    connect = float(settings.ASSESSMENT_API_CONNECT_TIMEOUT_SECONDS)
-    read = float(settings.ASSESSMENT_API_READ_TIMEOUT_SECONDS)
-    if not 0 < connect <= 60 or not 0 < read <= 300:
-        raise AssessmentServiceError(
-            "The assessment service is not configured safely.",
-            "ASSESSMENT_CONFIGURATION_ERROR",
-            503,
+        return ai_client.complete_text(
+            [ChatMessage(role="user", content=prompt)],
+            policy=policy,
+            configuration=configuration,
         )
-    return connect, read
-
-
-def validated_maximum_response_bytes():
-    """Return a bounded response limit suitable for streamed text."""
-
-    maximum = int(settings.ASSESSMENT_API_MAX_RESPONSE_BYTES)
-    if not 1024 <= maximum <= 10 * 1024 * 1024:
-        raise AssessmentServiceError(
-            "The assessment service is not configured safely.",
-            "ASSESSMENT_CONFIGURATION_ERROR",
-            503,
-        )
-    return maximum
-
-
-def read_bounded_lines(response, maximum_bytes):
-    """Decode non-empty response lines without buffering an unbounded body."""
-
-    body = bytearray()
-    received = 0
-    for chunk in response.iter_content(chunk_size=8192):
-        if not chunk:
-            continue
-        received += len(chunk)
-        if received > maximum_bytes:
-            raise AssessmentServiceError(
-                "The assessment service returned an invalid response.",
-                "ASSESSMENT_RESPONSE_INVALID",
-                502,
-            )
-        body.extend(chunk)
-    return [
-        raw_line.decode("utf-8", errors="replace")
-        for raw_line in bytes(body).splitlines()
-        if raw_line
-    ]
+    except AIServiceError as error:
+        detail, code, response_status = _ERROR_CONTRACTS[error.code]
+        raise AssessmentServiceError(detail, code, response_status) from None

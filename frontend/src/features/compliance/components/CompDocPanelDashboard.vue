@@ -1,5 +1,32 @@
 <template>
   <n-card title="Panel breakdown" class="dashboard-card">
+    <n-tabs
+      v-model:value="mode"
+      type="line"
+      size="small"
+      class="panel-tabs"
+      role="tablist"
+      aria-label="Panel breakdown mode"
+    >
+      <n-tab
+        name="panel"
+        role="tab"
+        tabindex="0"
+        :aria-selected="mode === 'panel'"
+        @keydown.enter.prevent="mode = 'panel'"
+        @keydown.space.prevent="mode = 'panel'"
+        >Panel based</n-tab
+      >
+      <n-tab
+        name="ata"
+        role="tab"
+        tabindex="0"
+        :aria-selected="mode === 'ata'"
+        @keydown.enter.prevent="mode = 'ata'"
+        @keydown.space.prevent="mode = 'ata'"
+        >ATA based</n-tab
+      >
+    </n-tabs>
     <n-data-table
       size="small"
       striped
@@ -33,6 +60,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ select: [panel: DashboardPanel] }>()
 
+const mode = defineModel<'ata' | 'panel'>('mode', { default: 'panel' })
+
 const columns = computed<DataTableColumns<DashboardPanel>>(() => {
   const statuses = new Map((props.statuses || []).map((item) => [item.value, item.label]))
   props.panels.forEach((panel) =>
@@ -42,7 +71,12 @@ const columns = computed<DataTableColumns<DashboardPanel>>(() => {
   )
   return [
     { title: 'Panel', key: 'panel', minWidth: 140, ellipsis: { tooltip: true } },
-    { title: 'ATA', key: 'ata', width: 80 },
+    {
+      title: 'ATA',
+      key: 'ata',
+      width: mode.value === 'ata' ? 80 : 160,
+      ellipsis: { tooltip: true }
+    },
     ...[...statuses].map(([value, label]) => statusColumn(label, value)),
     {
       title: 'Total',
@@ -104,7 +138,11 @@ function rowProps(panel: DashboardPanel) {
   font-size: 12px;
 }
 
-:deep(tbody tr) {
+.panel-tabs {
+  margin-bottom: 12px;
+}
+
+:deep(tbody tr[tabindex]) {
   cursor: pointer;
 }
 

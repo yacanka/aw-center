@@ -57,6 +57,7 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["panels"][0]["analytics"]["total"], 205)
         self.assertEqual(summary["risk"]["at_risk_count"], 205)
         self.assertEqual(len(summary["risk"]["priorities"]), 25)
+        self.assertEqual(summary["panel_groups"][0]["analytics"]["risk"], summary["risk"])
         # Missing workflow evidence must not be reported as an actual delivery.
         self.assertEqual(summary["performance"]["actual"]["filled"], 0)
 
@@ -112,10 +113,49 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["data_quality"]["unknown_status"], 1)
         self.assertEqual(summary["risk"]["priorities"], [])
 
+    def test_named_panel_groups_use_complete_analytics_across_ata_chapters(self):
+        self.document(
+            "Overdue", status="to_be_issued", ubm_target_date=date(2026, 7, 1),
+            next_action_due_date=date(2026, 7, 21),
+            events=[("to_be_issued", date(2026, 7, 1))],
+        )
+        self.document(
+            "Approved", panel=self.other_panel, status="authority_approved",
+            ubm_target_date=date(2026, 7, 2), ubm_delivery_date=date(2026, 7, 3),
+            events=[("authority_approved", date(2026, 7, 3))],
+        )
+        self.document("Archived", is_archived=True)
+        with self.assertNumQueries(4):
+            summary = build_dashboard(self.project, today=TODAY)
+
+        self.assertEqual(len(summary["panels"]), 2)
+        self.assertEqual(len(summary["panel_groups"]), 1)
+        group = summary["panel_groups"][0]
+        self.assertEqual(group["panel"], "Systems")
+        self.assertEqual(group["ata"], "27, 28")
+        self.assertEqual(group["analytics"], {
+            key: summary[key] for key in group["analytics"]
+        })
+        self.assertEqual(group["analytics"]["performance"]["approved"]["percentage"], 50)
+        self.assertEqual(group["analytics"]["timeline"]["today"], [{"x": "22.07.2026", "y": 1}])
+
+    def test_named_panel_groups_isolate_other_names_and_unassigned_documents(self):
+        self.document("Systems")
+        structures = Panel.objects.create(project=self.project, name="Structures", ata="53")
+        self.document("Structures", panel=structures)
+        self.document("Unassigned", panel=None)
+        summary = build_dashboard(self.project, today=TODAY)
+        groups = {group["panel"]: group for group in summary["panel_groups"]}
+        self.assertEqual(set(groups), {"Systems", "Structures", "Unassigned"})
+        self.assertEqual(groups["Unassigned"]["ata"], "")
+        for group in groups.values():
+            self.assertEqual(group["analytics"]["total"], 1)
+
     def test_empty_dashboard_is_zero_safe(self):
         summary = build_dashboard(self.project, today=TODAY)
         self.assertEqual(summary["total"], 0)
         self.assertEqual(summary["panels"], [])
+        self.assertEqual(summary["panel_groups"], [])
         self.assertEqual(summary["risk"]["counts"], {"high": 0, "medium": 0, "low": 0, "none": 0})
         for metric in summary["performance"].values():
             self.assertEqual(metric, {"filled": 0, "empty": 0, "percentage": 0})
