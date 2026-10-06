@@ -117,6 +117,13 @@ ve tool calling gerektirmez, düzeltme için ikinci provider çağrısı yapmaz.
 callable/import path, çalıştırılacak kod veya yetki kararı olarak yorumlamayın.
 `AIServiceError` yalnız güvenli detail, code ve önerilen HTTP status taşır.
 
+Asistan, modelin düz metin yanıtlarını da sohbet cevabı olarak kabul eder;
+bu yanıtlarda uygulama ve kaynak kartları boş kalır. Metin yanıtlarında da
+8000 karakter ve transport'un 64 KiB sınırı korunur. Geçerli yapılandırılmış
+yanıtlarda kartlar yalnız yetkili rehberlerden çözülür. JSON nesnesi veya dizisi
+olarak başlayan bozuk yanıtlar ve şemaya uymayan JSON yanıtları reddedilir.
+Bu uyumluluk yalnız asistana aittir; ortak `complete_json` sözleşmesi değişmez.
+
 Yeni tüketicinin testinde transport sınırını mock edin; mesaj/policy izolasyonu,
 başarılı sonuç, hatalı girdi, bozuk çıktı ve güvenli hata eşlemesini doğrulayın.
 Bağımsız tüketiciler ortak mutable history, HTTP session veya kullanıcı cache'i

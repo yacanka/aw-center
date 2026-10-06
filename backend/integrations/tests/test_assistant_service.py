@@ -70,8 +70,22 @@ class AssistantServiceTests(TestCase):
                 self.assertEqual(raised.exception.code, "AI_RESPONSE_INVALID")
                 self.assertEqual(raised.exception.response_status, 502)
 
+    def test_plain_text_is_returned_without_navigation_cards(self):
+        for content in ('Merhaba, nasıl yardımcı olabilirim?', 'broken', 'x' * 8000,
+                        '<a href="https://untrusted.test">Help</a> /users'):
+            with self.subTest(content=content[:40]):
+                self.post.return_value = provider_response(content=content)
+                self.assertEqual(self.call(), {"answer": content, "applications": [], "sources": []})
+
+    def test_plain_text_limits_are_preserved(self):
+        for content in (' ', 'x' * 8001):
+            self.post.return_value = provider_response(content=content)
+            with self.assertRaises(AIServiceError) as raised:
+                self.call()
+            self.assertEqual(raised.exception.code, "AI_RESPONSE_INVALID")
+
     def test_malformed_provider_json_is_rejected(self):
-        for content in ('broken', '{"answer":"one","answer":"two"}'):
+        for content in ('{"answer":', '{"answer":"one","answer":"two"}'):
             self.post.return_value = provider_response(content=content)
             with self.assertRaises(AIServiceError) as raised:
                 self.call()

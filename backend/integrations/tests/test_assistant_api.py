@@ -43,6 +43,14 @@ class AssistantAPITests(TestCase):
         self.assertIn(client.post(CHAT, {"message": "Help"}, format="json").status_code, (401, 403))
         self.post.assert_not_called()
 
+    def test_plain_text_provider_reply_returns_success(self):
+        self.post.return_value = provider_response(content="Merhaba, nasıl yardımcı olabilirim?")
+        response = self.send()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {
+            "answer": "Merhaba, nasıl yardımcı olabilirim?", "applications": [], "sources": [],
+        })
+
     def test_real_session_requires_csrf_for_chat(self):
         client = APIClient(enforce_csrf_checks=True)
         client.force_login(self.user)
