@@ -1,0 +1,559 @@
+[
+  {
+    "id": "home",
+    "title": "AW Center",
+    "path": "/home",
+    "purpose": "Find available application shortcuts.",
+    "inputs": [
+      "Application choice"
+    ],
+    "outputs": [
+      "Tool navigation"
+    ],
+    "steps": [
+      "Choose a tool from the home page or menu."
+    ],
+    "limitations": [
+      "Visibility follows current permissions."
+    ],
+    "keywords": [
+      "home",
+      "help",
+      "ana",
+      "sayfa",
+      "yardım"
+    ]
+  },
+  {
+    "id": "integrations",
+    "title": "Integration Hub",
+    "path": "/integrations",
+    "purpose": "Review integration configuration and reported status.",
+    "inputs": [
+      "None"
+    ],
+    "outputs": [
+      "Integration cards"
+    ],
+    "steps": [
+      "Open the hub and review each reported state."
+    ],
+    "limitations": [
+      "Configured status does not guarantee upstream health."
+    ],
+    "keywords": [
+      "integration",
+      "status",
+      "entegrasyon"
+    ]
+  },
+  {
+    "id": "jobs",
+    "title": "Job Center",
+    "path": "/jobs",
+    "purpose": "Track your durable jobs and private results.",
+    "inputs": [
+      "Job filters"
+    ],
+    "outputs": [
+      "Progress, terminal state and retained downloads"
+    ],
+    "steps": [
+      "Open your job; cancel active work or download completed output when available."
+    ],
+    "limitations": [
+      "Only authorized jobs and retained artifacts are available."
+    ],
+    "keywords": [
+      "job",
+      "progress",
+      "download",
+      "iş",
+      "indirme"
+    ]
+  },
+  {
+    "id": "accelerator",
+    "title": "Accelerator",
+    "path": "/accelerator",
+    "purpose": "Inspect a file for automation recipes and queue a chosen workflow.",
+    "inputs": [
+      "Source file, recipe and parameters"
+    ],
+    "outputs": [
+      "Suggested recipes and durable job"
+    ],
+    "steps": [
+      "Upload a file; select a suggested recipe or choose manually; review and queue."
+    ],
+    "limitations": [
+      "Recipes and workers depend on deployment configuration."
+    ],
+    "keywords": [
+      "automation",
+      "workflow",
+      "recipe",
+      "otomasyon"
+    ]
+  },
+  {
+    "id": "outlook",
+    "title": "Outlook Task",
+    "path": "/accelerator/outlook",
+    "purpose": "Parse Outlook MSG mail information and attachments.",
+    "inputs": [
+      "MSG file"
+    ],
+    "outputs": [
+      "Mail metadata, body and private attachments"
+    ],
+    "steps": [
+      "Upload MSG; review parsed information; use attachment/task controls."
+    ],
+    "limitations": [
+      "Private downloads require your session. The assistant cannot access your mailbox or send mail."
+    ],
+    "keywords": [
+      "outlook",
+      "msg",
+      "mail",
+      "attachment",
+      "posta"
+    ]
+  },
+  {
+    "id": "doors-poc-linker",
+    "title": "DOORS PoC Linker",
+    "path": "/doors/poclinker",
+    "purpose": "Queue PoC link inspection or creation.",
+    "inputs": [
+      "Module and link inputs"
+    ],
+    "outputs": [
+      "Durable job and complete JSON result"
+    ],
+    "steps": [
+      "Enter displayed inputs; choose inspection or creation; confirm writes and track the job."
+    ],
+    "limitations": [
+      "Requires Windows DOORS worker. Link creation writes to DOORS."
+    ],
+    "keywords": [
+      "doors",
+      "poc",
+      "link",
+      "bağlantı"
+    ]
+  },
+  {
+    "id": "doors-quality",
+    "title": "DOORS Agent",
+    "path": "/doors/agent",
+    "purpose": "Queue a module quality check and inspect findings.",
+    "inputs": [
+      "DOORS module path"
+    ],
+    "outputs": [
+      "Quality-check job, findings and result"
+    ],
+    "steps": [
+      "Enter the module path; queue the check; inspect or download completed results."
+    ],
+    "limitations": [
+      "Requires enabled DOORS and Windows worker. No arbitrary DXL execution."
+    ],
+    "keywords": [
+      "doors",
+      "quality",
+      "check",
+      "kalite"
+    ]
+  },
+  {
+    "id": "doors-script",
+    "title": "DOORS Script Generator",
+    "path": "/doors/scripter",
+    "purpose": "Generate DXL text from Excel column mappings.",
+    "inputs": [
+      "XLSX/XLSM file, DOORS mappings and search column"
+    ],
+    "outputs": [
+      "Generated script text"
+    ],
+    "steps": [
+      "Upload workbook; map columns and select search item; generate and copy script."
+    ],
+    "limitations": [
+      "Does not execute generated scripts. DXL Library delivery is disabled."
+    ],
+    "keywords": [
+      "doors",
+      "dxl",
+      "script",
+      "excel",
+      "betik"
+    ]
+  },
+  {
+    "id": "teamcenter",
+    "title": "Teamcenter",
+    "path": "/teamcenter/agent",
+    "purpose": "Inspect objects and queue idempotent property updates.",
+    "inputs": [
+      "Object UIDs and property values"
+    ],
+    "outputs": [
+      "Object information and update job"
+    ],
+    "steps": [
+      "Check configuration; inspect UIDs; review and queue property updates."
+    ],
+    "limitations": [
+      "Requires configured integration. Property updates are external writes."
+    ],
+    "keywords": [
+      "teamcenter",
+      "uid",
+      "property"
+    ]
+  },
+  {
+    "id": "compare",
+    "title": "Compare",
+    "path": "/compare",
+    "purpose": "Compare old/new Word, Excel or PDF content.",
+    "inputs": [
+      "Two supported files, matching preset and report format"
+    ],
+    "outputs": [
+      "Private DOCX or XLSX report"
+    ],
+    "steps": [
+      "Upload files; choose preset/report; inspect and select Excel tables/columns if applicable; compare and download."
+    ],
+    "limitations": [
+      "Word/PDF text only, no OCR/image/layout comparison. Excel formulas are not evaluated; one table per file."
+    ],
+    "keywords": [
+      "compare",
+      "difference",
+      "word",
+      "excel",
+      "pdf",
+      "karşılaştır",
+      "fark"
+    ]
+  },
+  {
+    "id": "pdf-split",
+    "title": "PDF Split",
+    "path": "/pdf/split",
+    "purpose": "Split one PDF into smaller PDFs.",
+    "inputs": [
+      "PDF and number of parts or pages per part"
+    ],
+    "outputs": [
+      "ZIP archive"
+    ],
+    "steps": [
+      "Upload PDF; select one splitting mode; split and download."
+    ],
+    "limitations": [
+      "Use only one splitting mode at a time."
+    ],
+    "keywords": [
+      "pdf",
+      "split",
+      "divide",
+      "böl"
+    ]
+  },
+  {
+    "id": "media-converter",
+    "title": "Media Converter",
+    "path": "/media-converter",
+    "purpose": "Estimate size and queue media format conversion.",
+    "inputs": [
+      "Media file, output extension, optional dimensions/bitrate"
+    ],
+    "outputs": [
+      "Size estimate and private converted output"
+    ],
+    "steps": [
+      "Select file/settings; preview estimated size if needed; queue and download result."
+    ],
+    "limitations": [
+      "Estimate is not guaranteed final size. Requires supported formats and conversion tools."
+    ],
+    "keywords": [
+      "media",
+      "convert",
+      "video",
+      "audio",
+      "dönüştür"
+    ]
+  },
+  {
+    "id": "translator",
+    "title": "Translator",
+    "path": "/translator",
+    "purpose": "Queue Word translation using local models.",
+    "inputs": [
+      "Word file and translation direction"
+    ],
+    "outputs": [
+      "Private translated Word output"
+    ],
+    "steps": [
+      "Upload file; choose direction; queue and download after completion."
+    ],
+    "limitations": [
+      "Requires local models and worker."
+    ],
+    "keywords": [
+      "translate",
+      "translation",
+      "word",
+      "çeviri"
+    ]
+  },
+  {
+    "id": "ddf",
+    "title": "DDF Assistant",
+    "path": "/ddfAssistant",
+    "purpose": "Browse DDF records and use permitted upload and analysis controls.",
+    "inputs": [
+      "DDF data and filters"
+    ],
+    "outputs": [
+      "Table, record details, graph and analysis"
+    ],
+    "steps": [
+      "Filter/open a record; use permitted upload/edit/analysis controls."
+    ],
+    "limitations": [
+      "DDF view or add permission required; individual actions need their own permissions."
+    ],
+    "keywords": [
+      "ddf",
+      "analysis",
+      "analiz"
+    ]
+  },
+  {
+    "id": "powerpoint",
+    "title": "Powerpoint Gallery",
+    "path": "/pptxGallery",
+    "purpose": "Process presentations and browse slides.",
+    "inputs": [
+      "PowerPoint file"
+    ],
+    "outputs": [
+      "Processing job and slide gallery"
+    ],
+    "steps": [
+      "Upload presentation; track processing; select the presentation and browse slides."
+    ],
+    "limitations": [
+      "Requires supported formats and worker. Assistant does not create/edit slides."
+    ],
+    "keywords": [
+      "powerpoint",
+      "pptx",
+      "presentation",
+      "slides",
+      "sunum"
+    ]
+  },
+  {
+    "id": "jira",
+    "title": "JIRA",
+    "path": "/jira",
+    "purpose": "Use Watcher and permitted DCC/subtask workflows.",
+    "inputs": [
+      "JIRA connection, authorized project and task inputs"
+    ],
+    "outputs": [
+      "Watcher information and permitted jobs"
+    ],
+    "steps": [
+      "Connect through the page; choose authorized project/tab; review inputs and follow its workflow."
+    ],
+    "limitations": [
+      "DCC role required; creation requires operator/publisher. Never put credentials in assistant chat."
+    ],
+    "keywords": [
+      "jira",
+      "dcc",
+      "subtask",
+      "watcher"
+    ]
+  },
+  {
+    "id": "organization",
+    "title": "Organization",
+    "path": "/organization",
+    "purpose": "Browse people, panels and responsibility assignments.",
+    "inputs": [
+      "Authorized project and filters"
+    ],
+    "outputs": [
+      "Directory, panels and responsibilities"
+    ],
+    "steps": [
+      "Select project; open People/Panels/Responsibles; use role-permitted controls."
+    ],
+    "limitations": [
+      "Organization role required; management requires manager. Global directory writes also require directory permission."
+    ],
+    "keywords": [
+      "organization",
+      "people",
+      "panel",
+      "responsibility",
+      "organizasyon"
+    ]
+  },
+  {
+    "id": "compliance-home",
+    "title": "Compliance Docs Home",
+    "path": "/compdocs/home",
+    "purpose": "Review the authorized compliance dashboard.",
+    "inputs": [
+      "Authorized project selection"
+    ],
+    "outputs": [
+      "Compliance dashboard"
+    ],
+    "steps": [
+      "Open dashboard and navigate to an authorized project register."
+    ],
+    "limitations": [
+      "Requires enabled compliance-capable project and domain role; assistant cannot read live records."
+    ],
+    "keywords": [
+      "compliance",
+      "dashboard",
+      "uyumluluk"
+    ]
+  },
+  {
+    "id": "doc-analyzer",
+    "title": "Doc Analyzer",
+    "path": "/compdocs/docAnalyzer",
+    "purpose": "Queue private document analysis with checks and custom questions.",
+    "inputs": [
+      "Document, selected checks and optional questions"
+    ],
+    "outputs": [
+      "Analysis job and downloadable result"
+    ],
+    "steps": [
+      "Upload supported document; choose checks/questions; queue and download result."
+    ],
+    "limitations": [
+      "Requires configured analysis services and worker; human review needed."
+    ],
+    "keywords": [
+      "document",
+      "analysis",
+      "question",
+      "belge",
+      "analiz"
+    ]
+  },
+  {
+    "id": "cover-pages",
+    "title": "Cover Page Creator",
+    "path": "/compdocs/coverpagecreator",
+    "purpose": "Validate Excel columns and create compliance cover pages.",
+    "inputs": [
+      "XLSX/XLSM workbook"
+    ],
+    "outputs": [
+      "Private cover-page output"
+    ],
+    "steps": [
+      "Upload workbook; resolve missing columns; queue and download result."
+    ],
+    "limitations": [
+      "Requires templates/worker; missing columns prevent queueing."
+    ],
+    "keywords": [
+      "cover",
+      "page",
+      "excel",
+      "kapak"
+    ]
+  },
+  {
+    "id": "developer-doors",
+    "title": "Developer DOORS",
+    "path": "/developer/doors",
+    "purpose": "Queue module checks and object create/update operations.",
+    "inputs": [
+      "Module path and object inputs"
+    ],
+    "outputs": [
+      "DOORS automation job and result"
+    ],
+    "steps": [
+      "Check availability; enter inputs; review and queue operation."
+    ],
+    "limitations": [
+      "Staff required. Operations run in Windows worker, without arbitrary DXL or browser COM."
+    ],
+    "keywords": [
+      "developer",
+      "doors",
+      "object"
+    ]
+  },
+  {
+    "id": "developer-test-data",
+    "title": "Developer Test Data",
+    "path": "/developer/test-data",
+    "purpose": "Preview and prepare development compliance/organization data reset.",
+    "inputs": [
+      "Preview, preparation state and exact confirmation phrase"
+    ],
+    "outputs": [
+      "Reset preview/completion state"
+    ],
+    "steps": [
+      "Preview counts; prepare cancellation or release; resolve blockers and follow explicit confirmation."
+    ],
+    "limitations": [
+      "Development mode and superuser only. Permanently removes compliance/organization data across projects. Assistant cannot reset data."
+    ],
+    "keywords": [
+      "developer",
+      "test",
+      "reset"
+    ]
+  },
+  {
+    "id": "users",
+    "title": "Users",
+    "path": "/users",
+    "purpose": "Browse accounts and permitted account/role controls.",
+    "inputs": [
+      "User filters and account inputs"
+    ],
+    "outputs": [
+      "User list and authorized details"
+    ],
+    "steps": [
+      "Find/open account; use available management controls."
+    ],
+    "limitations": [
+      "Staff plus auth.view_user or auth.add_user, or superuser. Writes require their own permissions."
+    ],
+    "keywords": [
+      "user",
+      "account",
+      "role",
+      "kullanıcı"
+    ]
+  }
+]

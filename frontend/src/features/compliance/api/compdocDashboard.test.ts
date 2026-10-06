@@ -10,6 +10,9 @@ describe('dashboard response validation', () => {
 
   it.each([
     (value: ReturnType<typeof dashboardSummary>) => {
+      value.panel_groups[0].analytics.total = -1
+    },
+    (value: ReturnType<typeof dashboardSummary>) => {
       Reflect.set(value.panels[0].analytics.timeline, 'actual', null)
     },
     (value: ReturnType<typeof dashboardSummary>) => {

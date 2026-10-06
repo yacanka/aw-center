@@ -29,7 +29,7 @@ export async function fetchDccRecords(query: PaginationQuery = {}): Promise<DccR
   })
   return {
     results: response.data.results,
-    pagination: getPaginationMeta<IDcc>(response) || { count: 0, next: null, previous: null }
+    pagination: getPaginationMeta<IDcc>(response.data) || { count: 0, next: null, previous: null }
   }
 }
 

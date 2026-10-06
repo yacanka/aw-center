@@ -153,26 +153,8 @@ def ddf_assessment(request):
         Görüşler aşağıdaki şekilde numara numara eklenmiştir:
         {authority_comments}"""
 
-        payload = {
-            "question": prompt,
-            "context_messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "strategy_type": 8,
-            "chat_purpose": 1,
-            "top_k": 3,
-            "num_rerank_candidates": 100,
-            "score_threshold": 0.25,
-            "max_tokens": 2048,
-            "stream": True
-        }
-
-        review_types = []
-        for text in request_assessment(payload):
-            review_types = [review_type.strip() for review_type in text.split(",")]
+        answer = request_assessment(prompt)
+        review_types = [review_type.strip() for review_type in answer.split(",")]
         if len(review_types) != len(comments):
             raise AssessmentServiceError(
                 "The assessment service returned an invalid response.",

@@ -34,11 +34,22 @@
     <CommandPalette :options="menuOptions" />
     <ReleaseNotesModal />
   </n-layout>
+  <n-button
+    class="assistant-trigger"
+    type="primary"
+    secondary
+    aria-label="Open AW Center Assistant"
+    :aria-expanded="assistantVisible"
+    @click="openAssistant"
+  >
+    Assistant
+  </n-button>
+  <AssistantPanel v-if="assistantLoaded" v-model:show="assistantVisible" />
   <Popup />
 </template>
 
 <script setup lang="ts">
-import { ref, computed, provide, watch } from 'vue'
+import { ref, computed, provide, watch, defineAsyncComponent } from 'vue'
 import { useThemeVars } from 'naive-ui'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import ParticleBackground from '@/shared/components/ParticleBackground.vue'
@@ -60,6 +71,16 @@ const projectCatalog = useProjectCatalogStore()
 const router = useRouter()
 const route = useRoute()
 const releaseNotes = useReleaseNotesStore()
+const AssistantPanel = defineAsyncComponent(
+  () => import('@/features/assistant/components/AssistantPanel.vue')
+)
+const assistantLoaded = ref(false)
+const assistantVisible = ref(false)
+
+function openAssistant(): void {
+  assistantLoaded.value = true
+  assistantVisible.value = true
+}
 
 function handleMenuSelect(key: string) {
   router.push(key)
@@ -99,6 +120,8 @@ watch(
   (userId, previousUserId) => {
     if (!userId || (previousUserId && previousUserId !== userId)) {
       authenticatedShellLoaded.value = false
+      assistantVisible.value = false
+      assistantLoaded.value = false
     }
     if (userId) void initializeAuthenticatedShell()
   },
@@ -165,6 +188,8 @@ async function loadProjectRegistry() {
 
 .protected-content :deep(.protected-scroll) {
   padding: var(--app-gutter);
+  padding-bottom: calc(var(--app-gutter) + 60px);
+  scroll-padding-bottom: 100px;
   overscroll-behavior: contain;
 }
 
@@ -183,5 +208,19 @@ async function loadProjectRegistry() {
   font-size: 11px;
   padding: 6px var(--app-gutter) max(6px, env(safe-area-inset-bottom));
   text-align: right;
+}
+
+.assistant-trigger {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(40px, calc(env(safe-area-inset-bottom) + 40px));
+  min-width: 44px;
+  min-height: 44px;
+  z-index: 20;
+}
+
+.assistant-trigger:focus-visible {
+  outline: 2px solid v-bind('themeVars.primaryColor');
+  outline-offset: 2px;
 }
 </style>

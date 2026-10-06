@@ -55,7 +55,7 @@ class DDFPermissionTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    @patch("ddf.views.request_assessment", return_value=["Teknik Görüş"])
+    @patch("ddf.views.request_assessment", return_value="Teknik Görüş")
     def test_assessment_uses_bounded_client_and_persists_result(self, assessment):
         """The endpoint delegates transport policy and stores only parsed classifications."""
 
@@ -74,8 +74,8 @@ class DDFPermissionTests(TestCase):
         self.assertEqual(response.data, ["[Teknik Görüş] Review the requirement"])
         self.assertEqual(self.ddf.comment_types, ["Teknik Görüş"])
         payload = assessment.call_args.args[0]
-        self.assertEqual(payload["chat_purpose"], 1)
-        self.assertNotIn("url", payload)
+        self.assertIsInstance(payload, str)
+        self.assertIn("Review the requirement", payload)
 
     @patch("ddf.views.request_assessment")
     def test_assessment_failure_uses_sanitized_contract(self, assessment):
@@ -104,3 +104,35 @@ class DDFPermissionTests(TestCase):
             response.data["detail"],
             "The assessment service rejected the request.",
         )
+
+    @patch("ddf.views.request_assessment")
+    def test_multiline_classifications_preserve_all_comments(self, assessment):
+        self.user.user_permissions.add(Permission.objects.get(codename="add_ddf"))
+        self.client.force_authenticate(user=self.user)
+        assessment.return_value = "Teknik Görüş,\n Bilgi Görüşü"
+        comments = [["1", "Authority", "First"], ["2", "Authority", "Second"]]
+        response = self.client.post(
+            "/api/tools/ddf/assessment/",
+            {"id": self.ddf.pk, "comments": comments},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, ["[Teknik Görüş] First", "[Bilgi Görüşü] Second"])
+        self.ddf.refresh_from_db()
+        self.assertEqual(self.ddf.comment_types, ["Teknik Görüş", "Bilgi Görüşü"])
+
+    @patch("ddf.views.request_assessment", return_value="Teknik Görüş")
+    def test_wrong_classification_count_does_not_overwrite_saved_result(self, assessment):
+        self.user.user_permissions.add(Permission.objects.get(codename="add_ddf"))
+        self.client.force_authenticate(user=self.user)
+        self.ddf.comment_types = ["Bilgi Görüşü"]
+        self.ddf.save(update_fields=["comment_types"])
+        response = self.client.post(
+            "/api/tools/ddf/assessment/",
+            {"id": self.ddf.pk, "comments": [["1", "Authority", "First"], ["2", "Authority", "Second"]]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.data["code"], "ASSESSMENT_RESPONSE_INVALID")
+        self.ddf.refresh_from_db()
+        self.assertEqual(self.ddf.comment_types, ["Bilgi Görüşü"])

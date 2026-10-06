@@ -27,8 +27,8 @@ QUALITY_KEYS = ("missing_panel", "unknown_status", "blank_cover_page", "out_of_o
 def build_dashboard(project, *, today=None):
     """Aggregate all active documents, independent of table pagination.
 
-    Panel analytics are returned in the same snapshot so every chart and risk
-    list can switch scope together without fetching document bodies in the browser.
+    ATA and named-panel analytics share one snapshot so every chart and risk list
+    can switch scope together without fetching document bodies in the browser.
     Related events are prefetched in bounded batches; priorities are capped at 25
     per scope. No workflow, history, tracking or document state is mutated.
     """
@@ -52,6 +52,7 @@ def build_dashboard(project, *, today=None):
     )
     overall = _empty_state()
     panels = {}
+    panel_groups = {}
     for document in active.iterator(chunk_size=500):
         panel_id = str(document.panel_id) if document.panel_id else "unassigned"
         if panel_id not in panels:
@@ -62,7 +63,13 @@ def build_dashboard(project, *, today=None):
                 "state": _empty_state(),
             }
         entries = [(event.status, event.effective_date) for event in document.dashboard_events]
-        for state in (overall, panels[panel_id]["state"]):
+        panel_name = panels[panel_id]["panel"]
+        if panel_name not in panel_groups:
+            panel_groups[panel_name] = {"chapters": set(), "state": _empty_state()}
+        group = panel_groups[panel_name]
+        if panels[panel_id]["ata"]:
+            group["chapters"].add(panels[panel_id]["ata"])
+        for state in (overall, panels[panel_id]["state"], group["state"]):
             _accumulate(state, document, entries, current_day)
     ordered_panels = sorted(
         panels.values(), key=lambda item: (item["panel"].casefold(), item["ata"])
@@ -82,6 +89,15 @@ def build_dashboard(project, *, today=None):
             for panel in ordered_panels
         ],
         "generated_at": timezone.now().isoformat(),
+        "panel_groups": [
+            {
+                "id": f"panel:{name}",
+                "panel": name,
+                "ata": ", ".join(sorted(group["chapters"])),
+                "analytics": _serialize(group["state"], current_day),
+            }
+            for name, group in sorted(panel_groups.items(), key=lambda item: item[0].casefold())
+        ],
     }
 
 

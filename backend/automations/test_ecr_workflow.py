@@ -18,7 +18,7 @@ from integrations.jira.sessions import (
     clear_jira_session,
     store_jira_session,
 )
-from jobs.contracts import JobExecutionFailure, JobExecutionUncertain
+from jobs.contracts import JobExecutionFailure, JobExecutionUncertain, JobLeaseLost
 from jobs.execution import bind_execution
 from jobs.models import Job, JobStatus
 from jobs.services import set_job_state
@@ -27,7 +27,7 @@ from orgs.models import Project, ProjectRoleAssignment
 
 from .ecr_publication_executor import execute_ecr_jira_publication
 from .ecr_parser import SNAPSHOT_KEYS
-from .ecr_publication_state import fail_ecr_publication
+from .ecr_publication_state import complete_ecr_publication, fail_ecr_publication
 from .models import EcrWorkflow, EcrWorkflowStatus
 
 TEST_FERNET_KEY = Fernet.generate_key().decode("ascii")
@@ -423,8 +423,81 @@ class EcrPublicationExecutorTests(JobTestCase):
         workflow.refresh_from_db()
         self.assertEqual(workflow.status, EcrWorkflowStatus.PUBLISHED)
         self.assertEqual(workflow.jira_issue_key, "CHN-101")
+        from dcc.models import DccRecord
+        tracked = DccRecord.objects.get(owner=self.user, issue="CHN-101")
+        self.assertEqual(tracked.title, workflow.snapshot["title"])
+        self.assertEqual(set(tracked.projects.all()), set(workflow.projects.all()))
         self.assertTrue(workflow.publication_state["attachment_confirmed"])
         self.assertEqual(len(workflow.publication_state["subtask_keys"]), 1)
+
+    def test_completed_publication_replay_keeps_one_watcher_and_event(self):
+        from dcc.models import DccRecord
+
+        workflow, job = self.queued_workflow("ecr-completed-replay-1")
+        connector = ready_connector(subtask_count=1)
+        with active_job(job), patch(
+            "automations.ecr_publication_executor.jira_connector_for",
+            return_value=connector,
+        ):
+            first = execute_ecr_jira_publication(job)
+            first.path.unlink(missing_ok=True)
+            replay = execute_ecr_jira_publication(job)
+            replay.path.unlink(missing_ok=True)
+
+        self.assertEqual(DccRecord.objects.filter(owner=self.user, issue="CHN-101").count(), 1)
+        self.assertEqual(workflow.events.filter(event_type="published").count(), 1)
+
+    def test_publication_tracking_failure_rolls_back_workflow_event_and_watcher(self):
+        from dcc.models import DccRecord
+        from dcc.record_services import track_published_issue
+
+        workflow, job = self.confirmed_workflow("ecr-tracking-failure-1")
+        original_version = workflow.version
+        original_event_count = workflow.events.count()
+
+        def fail_after_tracking(*args, **kwargs):
+            track_published_issue(*args, **kwargs)
+            raise RuntimeError("tracking failed")
+
+        with active_job(job), patch(
+            "dcc.record_services.track_published_issue", side_effect=fail_after_tracking
+        ):
+            with self.assertRaisesRegex(RuntimeError, "tracking failed"):
+                complete_ecr_publication(job)
+
+        workflow.refresh_from_db()
+        self.assertEqual(workflow.status, EcrWorkflowStatus.PUBLISHING)
+        self.assertEqual(workflow.version, original_version)
+        self.assertIsNone(workflow.published_at)
+        self.assertEqual(workflow.events.count(), original_event_count)
+        self.assertFalse(DccRecord.objects.filter(owner=self.user, issue="CHN-101").exists())
+
+    def test_stale_publication_lease_cannot_create_watcher_or_complete_workflow(self):
+        from dcc.models import DccRecord
+
+        workflow, job = self.confirmed_workflow("ecr-stale-tracking-1")
+        original_version = workflow.version
+        with active_job(job):
+            Job.objects.filter(pk=job.pk).update(execution_token=uuid.uuid4())
+            with self.assertRaises(JobLeaseLost):
+                complete_ecr_publication(job)
+
+        workflow.refresh_from_db()
+        self.assertEqual(workflow.status, EcrWorkflowStatus.PUBLISHING)
+        self.assertEqual(workflow.version, original_version)
+        self.assertFalse(workflow.events.filter(event_type="published").exists())
+        self.assertFalse(DccRecord.objects.filter(owner=self.user, issue="CHN-101").exists())
+
+    def confirmed_workflow(self, key):
+        workflow, job = self.queued_workflow(key)
+        workflow.jira_issue_key = "CHN-101"
+        workflow.publication_state = {
+            "parent_confirmed": True,
+            "attachment_confirmed": True,
+            "subtask_keys": {"0": "CHN-102"},
+        }
+        workflow.save()
+        return workflow, job
 
     def test_ambiguous_parent_write_uses_read_only_reconciliation_before_resume(self):
         workflow, job = self.queued_workflow("ecr-ambiguous-create-1")

@@ -14,6 +14,12 @@ DCC_PROJECT_SLUGS = tuple(
 )
 
 
+class DccRecordFilterSerializer(serializers.Serializer):
+    issue = serializers.CharField(required=False, max_length=64)
+    title = serializers.CharField(required=False, max_length=255)
+    active = serializers.BooleanField(required=False)
+
+
 class DccRecordSerializer(serializers.ModelSerializer):
     jira_issue_url = serializers.SerializerMethodField()
     project_slugs = serializers.SlugRelatedField(

@@ -67,19 +67,16 @@ onMounted(() => loadIntegrations())
 
 <template>
   <n-space vertical size="large">
-    <n-page-header title="Integration Hub" subtitle="One center for engineering bridges">
-      <template #extra>
-        <n-flex align="center">
-          <n-tag type="success">{{ readyCount }} / {{ integrations.length }} configured</n-tag>
-          <n-tag v-if="hasLiveResults" type="info">
-            {{ availableCount }} / {{ integrations.length }} live
-          </n-tag>
-          <n-button size="small" :loading="loading" @click="runLiveChecks(true)">
-            Run live checks
-          </n-button>
-        </n-flex>
-      </template>
-    </n-page-header>
+    <n-page-header title="Integration Hub" subtitle="One center for engineering bridges" />
+    <n-flex align="center">
+      <n-tag type="success">{{ readyCount }} / {{ integrations.length }} configured</n-tag>
+      <n-tag v-if="hasLiveResults" type="info">
+        {{ availableCount }} / {{ integrations.length }} live
+      </n-tag>
+      <n-button size="small" :loading="loading" @click="runLiveChecks(true)">
+        Run live checks
+      </n-button>
+    </n-flex>
 
     <n-alert v-if="errorMessage" type="error" title="Integration catalog unavailable">
       {{ errorMessage }}

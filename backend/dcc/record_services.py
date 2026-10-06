@@ -1,6 +1,7 @@
 """Transactional DCC record mutations with optimistic concurrency."""
 
 from django.db import transaction
+from django.contrib.auth import get_user_model
 from django.http import Http404
 from rest_framework.exceptions import APIException
 
@@ -23,6 +24,16 @@ def create_record(actor, values):
         record.projects.set(projects)
         record.assigned_users.set(assigned_users)
     return record
+
+
+def track_published_issue(actor, issue, title, projects):
+    """Track a confirmed publication once without overwriting an existing watch."""
+    with transaction.atomic():
+        get_user_model().objects.select_for_update().get(pk=actor.pk)
+        existing = DccRecord.objects.filter(owner=actor, issue=issue).first()
+        if existing is not None:
+            return existing
+        return create_record(actor, {"issue": issue, "title": title, "projects": projects})
 
 
 def update_record(record_id, actor, values):

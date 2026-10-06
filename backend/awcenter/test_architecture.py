@@ -37,6 +37,36 @@ LEGACY_RUNTIME_PACKAGES = frozenset({"common", "core", "doors", "docproof", "tea
 
 
 class ArchitectureFitnessTests(SimpleTestCase):
+    def test_ai_core_does_not_import_features_or_models(self):
+        modules = production_modules()
+        ai_modules = {
+            module: path for module, path in modules.items()
+            if module == "integrations.ai" or module.startswith("integrations.ai.")
+        }
+        self.assertTrue(ai_modules, "The central AI package must exist")
+        violations = []
+        for module, path in ai_modules.items():
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    base = resolve_from_module(module, path.name == "__init__.py", node)
+                    imports = [base, *(f"{base}.{alias.name}" for alias in node.names)]
+                else:
+                    continue
+                for imported in imports:
+                    root = imported.split(".", 1)[0]
+                    forbidden_feature = root in FEATURE_PACKAGES or root == "jobs"
+                    within_ai = imported == "integrations.ai" or imported.startswith("integrations.ai.")
+                    forbidden_django = imported.startswith("django.") and not (
+                        module == "integrations.ai.config"
+                        and (imported == "django.conf" or imported.startswith("django.conf."))
+                    )
+                    if (forbidden_feature and not within_ai) or forbidden_django or root == "awcenter":
+                        violations.append(f"{module}:{node.lineno} -> {imported}")
+        self.assertEqual(violations, [])
+
     def test_production_import_graph_is_acyclic(self):
         modules = production_modules()
         graph = import_graph(modules)

@@ -17,12 +17,18 @@ FAILURE_STATUSES = {"degraded", "unavailable"}
 def probe_catalog(catalog: list[dict], refresh: bool = False) -> list[dict]:
     """Attach parallel live-health observations to catalog entries."""
 
-    identifiers = [item["id"] for item in catalog]
+    identifiers = [item["id"] for item in catalog if item["id"] != "ai-chat"]
+    if not identifiers:
+        return list(catalog)
     worker_count = min(len(identifiers), settings.INTEGRATION_PROBE_MAX_WORKERS)
     with ThreadPoolExecutor(max_workers=max(1, worker_count)) as executor:
         results = executor.map(lambda identifier: _get_probe(identifier, refresh), identifiers)
     health_by_identifier = dict(zip(identifiers, results, strict=True))
-    return [{**item, "health": health_by_identifier[item["id"]]} for item in catalog]
+    return [
+        {**item, "health": health_by_identifier[item["id"]]}
+        if item["id"] in health_by_identifier else item
+        for item in catalog
+    ]
 
 
 def claim_refresh_slot(subject_identifier: object) -> bool:

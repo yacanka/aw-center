@@ -94,6 +94,27 @@ class IntegrationProbeOrchestrationTests(SimpleTestCase):
 
         cache.clear()
 
+    @patch("requests.post")
+    @patch("integrations.probes.probe_integration")
+    def test_ai_chat_probe_does_not_call_provider(self, probe_mock, post_mock):
+        probe_mock.return_value = ProbeOutcome("available", "Service is reachable.")
+        catalog = [{"id": "ai-chat", "status": "configured", "configured": True}]
+
+        self.assertEqual(probe_catalog(catalog, refresh=True), catalog)
+        self.assertIsNone(cache.get("aw:integration-probe:v1:ai-chat:result"))
+        self.assertIsNone(cache.get("aw:integration-probe:v1:ai-chat:lock"))
+        probe_mock.assert_not_called()
+        post_mock.assert_not_called()
+
+    @patch("integrations.probes.probe_integration")
+    def test_ai_chat_is_excluded_from_mixed_catalog_health(self, probe_mock):
+        probe_mock.return_value = ProbeOutcome("available", "Service is reachable.")
+        result = probe_catalog([{"id": "ai-chat"}, {"id": "jira"}], refresh=True)
+
+        self.assertNotIn("health", result[0])
+        self.assertEqual(result[1]["health"]["status"], "available")
+        probe_mock.assert_called_once_with("jira")
+
     @patch("integrations.probes.probe_integration")
     def test_cached_result_avoids_duplicate_probe(self, probe_mock):
         """Repeated catalog reads reuse the bounded-TTL observation."""

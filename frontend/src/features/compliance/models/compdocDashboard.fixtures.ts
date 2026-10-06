@@ -75,6 +75,9 @@ export function dashboardSummary(project = 'ozgur'): CompDocDashboardSummary {
     project,
     archived: 2,
     generated_at: '2026-07-22T12:00:00Z',
+    panel_groups: [
+      { id: 'panel:Systems', panel: 'Systems', ata: '27, 28', analytics: dashboardAnalytics() }
+    ],
     panels: [
       { id: 'panel-1', panel: 'Systems', ata: '27', analytics: dashboardAnalytics(1, 3) },
       { id: 'panel-2', panel: 'Systems', ata: '28', analytics: dashboardAnalytics(2, 17) }

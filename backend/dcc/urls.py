@@ -16,8 +16,13 @@ from .subtask_views import (
     resume_subtask_job,
 )
 from .views import DccRecordCollectionView, DccRecordDetailView
+from .watcher_views import import_watcher_issue, watcher_status
+from .watcher_assessment import assess_watcher_pdf
 
 urlpatterns = [
+    path("records/import/", import_watcher_issue, name="dcc-watcher-import"),
+    path("records/<uuid:record_id>/status/", watcher_status, name="dcc-watcher-status"),
+    path("assessments/", assess_watcher_pdf, name="dcc-watcher-assessment"),
     path("records/", DccRecordCollectionView.as_view(), name="dcc-records"),
     path(
         "records/<uuid:record_id>/",
