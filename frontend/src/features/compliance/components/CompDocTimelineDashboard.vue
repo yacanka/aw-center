@@ -26,10 +26,12 @@
           :height="10"
           :border-radius="8"
           :color="item.color"
-          rail-color="rgba(148, 163, 184, 0.16)"
+          :rail-color="themeVars.railColor"
         />
         <n-text depth="3" class="metric-caption">
           {{ item.value.filled }} of {{ documentCount }} documents
+          <template v-if="item.key === 'scheduled'"> · Current target due by today</template>
+          <template v-else-if="item.key === 'actual'"> · Delivery date recorded</template>
         </n-text>
       </div>
     </n-card>
@@ -50,6 +52,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useThemeVars } from 'naive-ui'
 import { Bar, Line } from 'vue-chartjs'
 import type {
   DashboardMetric,
@@ -76,24 +79,45 @@ const props = defineProps<{
 
 ensureCompdocChartsRegistered()
 const userStore = useSessionStore()
+const themeVars = useThemeVars()
 const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const hasTimeline = computed(
-  () => props.timeline.scheduled.length > 0 || props.timeline.last_actual !== null
+  () =>
+    props.timeline.scheduled.length > 0 ||
+    Boolean(props.timeline.revised_scheduled?.length) ||
+    props.timeline.actual.length > 1 ||
+    props.timeline.last_actual !== null
 )
-const chartData = computed(() => createTimelineChartData(props.timeline, props.documentCount))
+const chartData = computed(() =>
+  createTimelineChartData(props.timeline, props.documentCount, {
+    scheduled: themeVars.value.textColor3,
+    actual: themeVars.value.infoColor,
+    revised: themeVars.value.warningColor
+  })
+)
 const chartOptions = computed(() =>
   createTimelineChartOptions(theme.value, props.timeline.today[0]?.x, props.documentCount)
 )
 const pendingChartData = computed(() => createPendingChartData(props.pendingDays))
 const pendingChartOptions = computed(() => createPendingChartOptions(theme.value))
 const metrics = computed(() => [
-  { key: 'scheduled', label: 'Scheduled', value: props.performance.scheduled, color: '#64748b' },
-  { key: 'actual', label: 'Issued', value: props.performance.actual, color: '#2563eb' },
+  {
+    key: 'scheduled',
+    label: 'Scheduled',
+    value: props.performance.scheduled,
+    color: themeVars.value.textColor3
+  },
+  {
+    key: 'actual',
+    label: 'Issued',
+    value: props.performance.actual,
+    color: themeVars.value.infoColor
+  },
   {
     key: 'approved',
     label: 'Authority approved',
     value: props.performance.approved,
-    color: '#22c55e'
+    color: themeVars.value.successColor
   }
 ])
 </script>

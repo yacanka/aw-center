@@ -3,8 +3,8 @@
     <template #header>
       <n-flex align="center" justify="space-between">
         <div>
-          <div class="card-title">Document status</div>
-          <n-text depth="3" class="card-subtitle">Current workflow distribution</n-text>
+          <div class="card-title">{{ title }}</div>
+          <n-text depth="3" class="card-subtitle">{{ subtitle }}</n-text>
         </div>
         <n-tag v-if="selectedPanel" closable size="small" @close="$emit('clear-panel')">
           {{ selectedPanel }}
@@ -19,21 +19,33 @@
           :options="chartOptions"
           :plugins="[centerTextPlugin]"
         />
-        <n-empty v-else description="No status data" size="small" />
+        <n-empty v-else :description="emptyDescription" size="small" />
       </div>
       <div class="status-list">
-        <div v-for="item in statusRows" :key="item.value" class="status-row">
-          <span class="status-dot" :style="{ background: item.color }" />
-          <span class="status-label">{{ item.label }}</span>
-          <strong>{{ item.count }}</strong>
-          <n-text depth="3">{{ item.percentage }}%</n-text>
-          <span class="status-rail">
-            <span
-              class="status-fill"
-              :style="{ width: `${item.percentage}%`, background: item.color }"
-            />
-          </span>
-        </div>
+        <section
+          v-for="group in displayGroups"
+          :key="group.label"
+          :class="{ 'publication-group': Boolean(groups) }"
+        >
+          <h3 v-if="groups" class="group-heading">
+            <span>{{ group.label }}</span
+            ><strong>{{ group.total }}</strong>
+          </h3>
+          <div v-for="item in group.rows" :key="item.value" class="status-row">
+            <span class="status-dot" :style="{ background: item.color }" />
+            <span class="status-label">{{ item.label }}</span>
+            <strong>{{ item.count }}</strong>
+            <n-text depth="3">{{ item.percentage }}%</n-text>
+            <span class="status-rail">
+              <span
+                class="status-fill"
+                :style="{ width: `${item.percentage}%`, background: item.color }"
+              />
+            </span>
+          </div>
+          <n-text v-if="groups && !group.rows.length" depth="3">No documents</n-text>
+        </section>
+        <slot name="distribution-extra" />
       </div>
     </div>
   </n-card>
@@ -48,7 +60,8 @@ import { useSessionStore } from '@/features/session/stores/session'
 import { resolvePreferredTheme } from '@/app/services/theme'
 import {
   createStatusChartData,
-  createStatusChartRows
+  createStatusChartRows,
+  type StatusChartRow
 } from '@/features/compliance/api/compdocChartData'
 import {
   centerTextPlugin,
@@ -56,19 +69,39 @@ import {
   ensureCompdocChartsRegistered
 } from '@/features/compliance/api/compdocChartTheme'
 
-const props = defineProps<{
-  counts: Record<string, number>
-  statuses?: CompdocOption[]
-  selectedPanel?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    counts: Record<string, number>
+    statuses?: CompdocOption[]
+    selectedPanel?: string
+    rows?: StatusChartRow[]
+    groups?: Array<{ label: string; total: number; rows: StatusChartRow[] }>
+    title?: string
+    subtitle?: string
+    emptyDescription?: string
+  }>(),
+  {
+    title: 'Document status',
+    subtitle: 'Current workflow distribution',
+    emptyDescription: 'No status data'
+  }
+)
 defineEmits<{ 'clear-panel': [] }>()
 
 ensureCompdocChartsRegistered()
 const userStore = useSessionStore()
 const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const themeVars = useThemeVars()
-const statusRows = computed(() =>
-  createStatusChartRows(props.counts, props.statuses, themeVars.value.textColor3)
+const statusRows = computed(
+  () =>
+    props.groups?.flatMap((group) =>
+      group.rows.map((row) => ({ ...row, label: `${group.label}: ${row.label}` }))
+    ) ??
+    props.rows ??
+    createStatusChartRows(props.counts, props.statuses, themeVars.value.textColor3)
+)
+const displayGroups = computed(
+  () => props.groups ?? [{ label: '', total: 0, rows: statusRows.value }]
 )
 const total = computed(() => statusRows.value.reduce((sum, row) => sum + row.count, 0))
 const chartData = computed(() => createStatusChartData(statusRows.value))
@@ -108,6 +141,19 @@ const chartOptions = computed(() => createStatusChartOptions(theme.value))
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.group-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: v-bind('themeVars.textColor1');
+}
+
+.status-row + .status-row {
+  margin-top: 10px;
 }
 
 .status-row {

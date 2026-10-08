@@ -7,8 +7,15 @@ export function dashboardAnalytics(total = 3, pending = 20): DashboardAnalytics 
     overdue: 0,
     status_counts: { to_be_issued: total },
     chart_status_counts: { delayed: total },
+    cat_counts: { A: total },
+    publication: {
+      issued: { total: 0, status_counts: {} },
+      not_issued: { total, status_counts: { delayed: total } }
+    },
+    unissued_moc_counts: { '': total },
     pending_days: { authority: 0, ubm: pending, aw: 0 },
     timeline: {
+      revised_scheduled: [],
       scheduled: [{ x: '01.07.2026', y: 0 }],
       actual: [{ x: '22.07.2026', y: total }],
       today: [{ x: '22.07.2026', y: total }],

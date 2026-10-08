@@ -163,7 +163,7 @@ test('keeps delivery-only workflow projections out of the scheduled series', () 
   assert.equal(summary.timeline.actual[0].x, '21.07.2026')
 })
 
-test('revised target controls scheduled dates and delayed display', () => {
+test('separates original and revised schedule while preserving delayed display', () => {
   const row = {
     ...document('to_be_issued', []),
     ubm_target_date: '2026-07-01',
@@ -171,7 +171,8 @@ test('revised target controls scheduled dates and delayed display', () => {
     ubm_delivery_date: '2026-06-01'
   }
   const summary = buildClientCompdocSummary([row], new Date(2026, 6, 22))
-  assert.equal(summary.timeline.scheduled[0].x, '01.08.2026')
+  assert.equal(summary.timeline.scheduled[0].x, '01.07.2026')
+  assert.equal(summary.timeline.revised_scheduled[0].x, '01.08.2026')
   assert.equal(summary.timeline.actual[0].x, '01.06.2026')
   assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 22)).status, 'to_be_issued')
 })
@@ -207,7 +208,15 @@ test('creates zero-safe doughnut data and anchored stepped burndown lines', () =
 
   assert.deepEqual(statusData.datasets[0].data, [3, 1])
   assert.deepEqual(statusData.labels, ['To be Issued', 'Authority Approved'])
-  assert.equal(timelineData.datasets[0].stepped, 'after')
+  assert.equal(timelineData.datasets[0].stepped, 'before')
+  assert.deepEqual(
+    timelineData.datasets[0].data.map((point) => point.y),
+    [4, 3, 3, 3]
+  )
+  assert.deepEqual(
+    timelineData.datasets[1].data.map((point) => point.y),
+    [4, 4, 2, 2]
+  )
   assert.equal(timelineData.datasets[0].data[0].y, 4)
   assert.equal(typeof timelineData.datasets[0].data[0].x, 'number')
 })

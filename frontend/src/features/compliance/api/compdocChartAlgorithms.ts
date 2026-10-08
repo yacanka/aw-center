@@ -26,6 +26,8 @@ export function buildClientCompdocSummary(
   const pendingDays = { authority: 0, ubm: 0, aw: 0 }
   const scheduled = new Map<number, number>()
   const actual = new Map<number, number>()
+  const revised = new Map<number, number>()
+  let hasRevised = false
   rows.forEach((row) => {
     const status = normalizedStatus(row.status)
     statuses[status] = (statuses[status] || 0) + 1
@@ -34,18 +36,27 @@ export function buildClientCompdocSummary(
     if (!milestones.entries.length && status === 'delayed' && milestones.target) {
       pendingDays.ubm += Math.max(0, dayDifference(startOfDay(today), milestones.target.date))
     }
-    accumulateDate(scheduled, milestones.target, new Set(['to_be_issued', 'delayed']))
+    accumulateDate(scheduled, milestones.originalTarget)
+    accumulateDate(revised, milestones.target)
+    hasRevised ||= Boolean(parseDate(row.ubm_revised_target_date))
     accumulateDate(actual, milestones.delivery)
   })
   return {
     statuses,
     pendingDays,
-    timeline: buildTimeline(scheduled, actual, rows.length, startOfDay(today))
+    timeline: buildTimeline(
+      scheduled,
+      actual,
+      rows.length,
+      startOfDay(today),
+      hasRevised ? revised : new Map()
+    )
   }
 }
 
 function documentMilestones(row: ICompDoc) {
   const entries = normalizedFlow(row.status_flow)
+  const originalTarget = parseDate(row.ubm_target_date)
   const target = parseDate(row.ubm_revised_target_date || row.ubm_target_date)
   const delivery = parseDate(row.ubm_delivery_date)
   const targetEntry = target ? { status: 'to_be_issued', date: target } : undefined
@@ -54,6 +65,7 @@ function documentMilestones(row: ICompDoc) {
     : undefined
   return {
     entries,
+    originalTarget: originalTarget ? { status: 'to_be_issued', date: originalTarget } : undefined,
     target: targetEntry,
     delivery: deliveryEntry
   }
@@ -105,13 +117,15 @@ function buildTimeline(
   scheduled: Map<number, number>,
   actual: Map<number, number>,
   total: number,
-  today: Date
+  today: Date,
+  revised: Map<number, number>
 ): DashboardTimeline {
   const scheduledPoints = remainingSeries(scheduled, total)
   const actualPoints = remainingSeries(actual, total)
   const todayPoint = { x: formatDate(today), y: remainingOn(actual, total, today.getTime()) }
   return {
     scheduled: scheduledPoints,
+    revised_scheduled: remainingSeries(revised, total),
     actual: withToday(actualPoints, todayPoint),
     today: [todayPoint],
     last_scheduled: latestPoint(scheduledPoints, today),

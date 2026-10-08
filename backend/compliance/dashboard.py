@@ -38,7 +38,7 @@ def build_dashboard(project, *, today=None):
         documents.filter(is_archived=False)
         .select_related("panel", "cover_page")
         .only(
-            "id", "name", "status", "ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date",
+            "id", "name", "status", "cat", "moc", "ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date",
             "next_action_due_date", "tech_doc_no", "tech_doc_no_2",
             "panel__id", "panel__name", "panel__ata", "cover_page__number",
         )
@@ -107,6 +107,12 @@ def _empty_state():
         "overdue": 0,
         "statuses": Counter(),
         "chart_statuses": Counter(),
+        "cats": Counter(),
+        "issued_statuses": Counter(),
+        "unissued_statuses": Counter(),
+        "unissued_mocs": Counter(),
+        "revised_scheduled": Counter(),
+        "has_revised_target": False,
         "scheduled": Counter(),
         "actual": Counter(),
         "pending_days": Counter({"authority": 0, "ubm": 0, "aw": 0}),
@@ -118,13 +124,23 @@ def _empty_state():
 def _accumulate(state, document, entries, today):
     state["total"] += 1
     state["statuses"][document.status] += 1
+    state["cats"][(document.cat or "").strip()] += 1
     status = _chart_status(document, today)
-    state["chart_statuses"][status] += 1
+    publication_status = _publication_status(document, today)
+    state["chart_statuses"][publication_status] += 1
+    if document.ubm_delivery_date:
+        state["issued_statuses"][publication_status] += 1
+    else:
+        state["unissued_statuses"][publication_status] += 1
+        state["unissued_mocs"][(document.moc or "").strip()] += 1
     if document.next_action_due_date and document.next_action_due_date < today:
         state["overdue"] += 1
+    if document.ubm_target_date:
+        state["scheduled"][document.ubm_target_date] += 1
     if document.current_target_date:
-        state["scheduled"][document.current_target_date] += 1
-    if document.ubm_delivery_date and document.ubm_delivery_date <= today:
+        state["revised_scheduled"][document.current_target_date] += 1
+    state["has_revised_target"] |= bool(document.ubm_revised_target_date)
+    if document.ubm_delivery_date:
         state["actual"][document.ubm_delivery_date] += 1
     state["quality"]["missing_panel"] += not document.panel_id
     state["quality"]["blank_cover_page"] += not document.cover_page.number.strip()
@@ -146,6 +162,16 @@ def _accumulate(state, document, entries, today):
         },
         entries, status, today, DEFAULT_RISK_POLICY,
     )
+
+
+def _publication_status(document, today):
+    """Delivery is the publication evidence, independent of workflow status."""
+    if document.ubm_delivery_date:
+        return document.status or "unknown"
+    target = document.current_target_date
+    if not target:
+        return "missing_target"
+    return "delayed" if target < today else "expected"
 
 
 def _chart_status(document, today):
@@ -176,16 +202,25 @@ def _accumulate_pending(state, entries, today):
 def _serialize(state, today):
     total = state["total"]
     quality = {key: state["quality"][key] for key in QUALITY_KEYS}
-    scheduled = sum(count for day, count in state["scheduled"].items() if day <= today)
+    scheduled = sum(count for day, count in state["revised_scheduled"].items() if day <= today)
     return {
         "total": total,
         "overdue": state["overdue"],
-        # Keep the existing API's canonical status counts. Delay is a chart-only
-        # projection, never a new persisted workflow state.
+        # Publication/deadline buckets are dashboard projections. Preserve the
+        # canonical workflow counts and never persist the projected statuses.
         "status_counts": dict(state["statuses"]),
         "chart_status_counts": dict(state["chart_statuses"]),
+        "cat_counts": dict(state["cats"]),
+        "publication": {
+            "issued": _publication_group(state["issued_statuses"]),
+            "not_issued": _publication_group(state["unissued_statuses"]),
+        },
+        "unissued_moc_counts": dict(state["unissued_mocs"]),
         "pending_days": dict(state["pending_days"]),
-        "timeline": build_timeline(state["scheduled"], state["actual"], total, today),
+        "timeline": build_timeline(
+            state["scheduled"], state["actual"], total, today,
+            revised=state["revised_scheduled"] if state["has_revised_target"] else None,
+        ),
         "performance": {
             "scheduled": _metric(scheduled, total),
             "actual": _metric(sum(state["actual"].values()), total),
@@ -194,6 +229,10 @@ def _serialize(state, today):
         "risk": serialize_risk(state["risk"], total),
         "data_quality": {"issue_count": sum(quality.values()), **quality},
     }
+
+
+def _publication_group(counts):
+    return {"total": sum(counts.values()), "status_counts": dict(counts)}
 
 
 def _metric(filled, total):

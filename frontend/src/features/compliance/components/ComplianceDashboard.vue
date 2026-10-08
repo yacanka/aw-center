@@ -74,8 +74,28 @@
           <CompDocStatusDashboard
             :statuses="summary.statuses"
             :counts="focusedAnalytics.chart_status_counts"
+            :groups="publicationGroups"
+            subtitle="Delivery status · percentages of all documents"
           />
-          <CompDocRiskDashboard :project="activeProject" :risk="focusedAnalytics.risk" />
+          <CompDocStatusDashboard
+            title="Document CAT"
+            subtitle="Category distribution"
+            empty-description="No CAT data"
+            :counts="focusedAnalytics.cat_counts"
+            :rows="catRows"
+          >
+            <template #distribution-extra>
+              <section class="moc-distribution">
+                <h3 class="distribution-heading">Not issued by MoC</h3>
+                <div v-for="item in mocRows" :key="item.value" class="moc-row">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.count }}</strong>
+                  <n-text depth="3">{{ item.percentage }}%</n-text>
+                </div>
+                <n-text v-if="!mocRows.length" depth="3">No unissued documents</n-text>
+              </section>
+            </template>
+          </CompDocStatusDashboard>
         </div>
         <CompDocTimelineDashboard
           :document-count="focusedAnalytics.total"
@@ -84,12 +104,18 @@
           :pending-days="focusedAnalytics.pending_days"
         />
       </div>
+      <CompDocRiskDashboard :project="activeProject" :risk="focusedAnalytics.risk" />
     </template>
   </n-spin>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useThemeVars } from 'naive-ui'
+import {
+  createCatChartRows,
+  createStatusChartRows
+} from '@/features/compliance/api/compdocChartData'
 import { useCompdocDashboard } from '@/features/compliance/composables/dashboard'
 import { isoToTurkishDateTime } from '@/shared/utils/time'
 import CompDocPanelDashboard from './CompDocPanelDashboard.vue'
@@ -111,6 +137,53 @@ const {
   togglePanel,
   clearPanel
 } = useCompdocDashboard()
+const themeVars = useThemeVars()
+const catRows = computed(() => {
+  const colors = themeVars.value
+  return createCatChartRows(
+    focusedAnalytics.value?.cat_counts ?? {},
+    [
+      colors.primaryColor,
+      colors.infoColor,
+      colors.warningColor,
+      colors.successColor,
+      colors.errorColor
+    ],
+    colors.textColor3
+  )
+})
+const publicationGroups = computed(() => {
+  const analytics = focusedAnalytics.value
+  if (!analytics) return []
+  return (['issued', 'not_issued'] as const).map((key) => {
+    const group = analytics.publication[key]
+    const options =
+      key === 'issued'
+        ? summary.value?.statuses
+        : [
+            { value: 'delayed', label: 'Delayed' },
+            { value: 'expected', label: 'Expected' },
+            { value: 'missing_target', label: 'Target date missing' }
+          ]
+    return {
+      label: key === 'issued' ? 'Issued' : 'Not issued',
+      total: group.total,
+      rows: createStatusChartRows(group.status_counts, options, themeVars.value.textColor3).map(
+        (row) => ({
+          ...row,
+          percentage: analytics.total ? Math.round((row.count / analytics.total) * 100) : 0
+        })
+      )
+    }
+  })
+})
+const mocRows = computed(() =>
+  createCatChartRows(
+    focusedAnalytics.value?.unissued_moc_counts ?? {},
+    [],
+    themeVars.value.textColor3
+  ).map((row) => ({ ...row, label: row.value ? `MoC ${row.value}` : row.label }))
+)
 const formattedGeneratedAt = computed(() =>
   summary.value ? isoToTurkishDateTime(summary.value.generated_at) : ''
 )
@@ -129,6 +202,25 @@ const qualityMessage = computed(() => {
 </script>
 
 <style scoped>
+.moc-distribution {
+  border-top: 1px solid v-bind('themeVars.dividerColor');
+  padding-top: 12px;
+}
+
+.distribution-heading {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: v-bind('themeVars.textColor1');
+}
+
+.moc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px 42px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
 .summary-meta {
   margin: 8px 0 16px;
 }

@@ -131,6 +131,53 @@ describe('compliance dashboard scope', () => {
     expect(wrapper.findComponent(CompDocTimelineDashboard).props('documentCount')).toBe(1)
   })
 
+  it('groups issued workflow states separately from unissued deadlines and scopes MoC', async () => {
+    const summary = dashboardSummary()
+    Reflect.set(summary, 'publication', {
+      issued: { total: 1, status_counts: { authority_review: 1 } },
+      not_issued: { total: 2, status_counts: { expected: 1, missing_target: 1 } }
+    })
+    Reflect.set(summary, 'unissued_moc_counts', { '1': 1, '': 1 })
+    mocks.fetch.mockResolvedValueOnce(summary)
+    const wrapper = await dashboard()
+    const groups = wrapper.findAll('.publication-group')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].text()).toContain('Issued')
+    expect(groups[0].text()).toContain('Authority Review')
+    expect(groups[1].text()).toContain('Expected')
+    expect(groups[1].text()).toContain('Target date missing')
+    const moc = wrapper.find('.moc-distribution')
+    expect(moc.text()).toContain('Not issued by MoC')
+    expect(moc.text()).toContain('Unspecified')
+    expect(moc.findAll('.moc-row').map((row) => row.text())).toEqual([
+      'MoC 1150%',
+      'Unspecified150%'
+    ])
+    await wrapper.findAll('tr')[0].trigger('dblclick')
+    expect(moc.findAll('.moc-row').map((row) => row.text())).toEqual(['Unspecified1100%'])
+  })
+
+  it('shows CAT counts and percentages below status and keeps risks outside the charts', async () => {
+    const summary = dashboardSummary()
+    Reflect.set(summary, 'cat_counts', { A: 2, B: 1 })
+    Reflect.set(summary.panels[0].analytics, 'cat_counts', { A: 1 })
+    mocks.fetch.mockResolvedValueOnce(summary)
+    const wrapper = await dashboard()
+    const cards = wrapper.find('.dashboard-column').findAll('.dashboard-card')
+    expect(cards).toHaveLength(2)
+    expect(cards[1].text()).toContain('Document CAT')
+    expect(cards[1].findAll('.status-row').map((row) => row.text())).toEqual(['A267%', 'B133%'])
+    expect(wrapper.find('.dashboard-grid .risk-card').exists()).toBe(false)
+    expect(
+      wrapper.find('.dashboard-grid').element.nextElementSibling?.classList.contains('risk-card')
+    ).toBe(true)
+    await wrapper.findAll('tr')[0].trigger('dblclick')
+    expect(
+      wrapper.findAllComponents({ name: 'DoughnutChart' })[1].props('data').datasets[0].data
+    ).toEqual([1])
+    expect(cards[1].text()).toContain('100%')
+  })
+
   it('double-click updates doughnut, burndown, bars, performance and risk together', async () => {
     const wrapper = await dashboard()
     await wrapper.findAll('tr')[0].trigger('dblclick')
@@ -169,6 +216,27 @@ describe('compliance dashboard scope', () => {
       .find((button) => button.text() === 'Clear scope')!
       .trigger('click')
     expect(wrapper.findComponent(CompDocTimelineDashboard).props('documentCount')).toBe(3)
+  })
+
+  it('includes missing CAT in percentages and handles an empty distribution', async () => {
+    const summary = dashboardSummary()
+    summary.cat_counts = { '': 1, B: 2 }
+    mocks.fetch.mockResolvedValueOnce(summary)
+    const wrapper = await dashboard()
+    const catCard = () => wrapper.find('.dashboard-column').findAll('.dashboard-card')[1]
+    expect(
+      catCard()
+        .findAll('.status-row')
+        .map((row) => row.text())
+    ).toEqual(['B267%', 'Unspecified133%'])
+    mocks.fetch.mockResolvedValueOnce({ ...summary, cat_counts: {} })
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Refresh')!
+      .trigger('click')
+    await flushPromises()
+    expect(catCard().findAll('.status-row')).toHaveLength(0)
+    expect(catCard().findComponent({ name: 'DoughnutChart' }).exists()).toBe(false)
   })
 
   it('opens the exact risk document by identifier', async () => {

@@ -89,7 +89,11 @@ const statusOptions = computed(() => createStatusChartOptions(theme.value))
 const pendingData = computed(() => createPendingChartData(summary.value.pendingDays))
 const pendingOptions = computed(() => createPendingChartOptions(theme.value))
 const timelineData = computed(() =>
-  createTimelineChartData(summary.value.timeline, documents.value.length)
+  createTimelineChartData(summary.value.timeline, documents.value.length, {
+    scheduled: themeVars.value.textColor3,
+    actual: themeVars.value.infoColor,
+    revised: themeVars.value.warningColor
+  })
 )
 const timelineOptions = computed(() =>
   createTimelineChartOptions(
@@ -99,7 +103,11 @@ const timelineOptions = computed(() =>
   )
 )
 const hasTimeline = computed(
-  () => summary.value.timeline.scheduled.length > 0 || summary.value.timeline.actual.length > 1
+  () =>
+    summary.value.timeline.scheduled.length > 0 ||
+    Boolean(summary.value.timeline.revised_scheduled?.length) ||
+    summary.value.timeline.actual.length > 1 ||
+    summary.value.timeline.last_actual !== null
 )
 
 function openModal(rows: ICompDoc[]) {

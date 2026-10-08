@@ -3,7 +3,7 @@
 from datetime import datetime
 
 
-def build_timeline(scheduled, actual, total, today):
+def build_timeline(scheduled, actual, total, today, *, revised=None):
     """Return deterministic remaining-document series and reference points."""
 
     scheduled_points = _remaining_series(scheduled, total)
@@ -11,6 +11,7 @@ def build_timeline(scheduled, actual, total, today):
     today_point = {"x": _format_date(today), "y": _remaining_on(actual, total, today)}
     return {
         "scheduled": scheduled_points,
+        "revised_scheduled": _remaining_series(revised or {}, total),
         "actual": _with_today(actual_points, today_point),
         "today": [today_point],
         "last_scheduled": _latest_on_or_before(scheduled_points, today),

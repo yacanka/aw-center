@@ -15,7 +15,7 @@ export function createTimelineChartOptions(
     maintainAspectRatio: false,
     locale: 'tr-TR',
     color: colors.text,
-    interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+    interaction: { mode: 'index', intersect: false, axis: 'x' },
     animation: { duration: 450 },
     plugins: timelinePlugins(colors, today),
     scales: timelineScales(colors, documentCount)

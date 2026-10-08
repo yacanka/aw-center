@@ -7,6 +7,8 @@ import type {
 
 export const STATUS_PRESENTATION = [
   { value: 'to_be_issued', label: 'To be Issued', color: '#f59e0b' },
+  { value: 'expected', label: 'Expected', color: '#f59e0b' },
+  { value: 'missing_target', label: 'Target date missing', color: '#94a3b8' },
   { value: 'delayed', label: 'Delayed', color: '#ef4444' },
   { value: 'to_be_updated', label: 'To be Updated', color: '#06b6d4' },
   { value: 'airworthiness_review', label: 'Airworthiness Review', color: '#8b5cf6' },
@@ -22,6 +24,31 @@ export interface StatusChartRow {
   color: string
   count: number
   percentage: number
+}
+
+/** Preserve every CAT value, including missing CAT, with stable category ordering. */
+export function createCatChartRows(
+  counts: Record<string, number>,
+  colors: string[],
+  neutralColor: string
+): StatusChartRow[] {
+  const total = Object.values(counts).reduce((sum, count) => sum + safeNumber(count), 0)
+  return Object.keys(counts)
+    .sort((left, right) => {
+      if (!left) return 1
+      if (!right) return -1
+      return left.localeCompare(right, 'en', { numeric: true })
+    })
+    .map((value, index) => {
+      const count = safeNumber(counts[value])
+      return {
+        value,
+        label: value || 'Unspecified',
+        color: value ? colors[index % colors.length] || neutralColor : neutralColor,
+        count,
+        percentage: total ? Math.round((count / total) * 100) : 0
+      }
+    })
 }
 
 /** Build stable status rows while preserving zero-value categories in the legend. */
@@ -66,17 +93,22 @@ export function createStatusChartData(rows: StatusChartRow[]): ChartData<'doughn
   }
 }
 
-/** Build stepped burndown series with a visual start anchor. */
+/** Align all series to calendar days so tooltips compare the same date. */
 export function createTimelineChartData(
   timeline: DashboardTimeline,
-  total: number
+  total: number,
+  colors = { scheduled: '#64748b', actual: '#2563eb', revised: '#8b5cf6' }
 ): ChartData<'line'> {
-  return {
-    datasets: [
-      timelineDataset('Scheduled', timeline.scheduled, total, '#64748b', [7, 5], false),
-      timelineDataset('Actual', timeline.actual, total, '#2563eb', undefined, true)
-    ]
-  }
+  const source = [timeline.scheduled, timeline.actual]
+  if (timeline.revised_scheduled?.length) source.push(timeline.revised_scheduled)
+  const series = dailySeries(source, timeline.today, total)
+  const datasets = [
+    timelineDataset('Scheduled', series[0], colors.scheduled, [7, 5]),
+    timelineDataset('Actual', series[1], colors.actual)
+  ]
+  if (series[2])
+    datasets.push(timelineDataset('Revised scheduled', series[2], colors.revised, [2, 4]))
+  return { datasets }
 }
 
 /** Build the three unchanged pending-day categories as a horizontal bar dataset. */
@@ -100,34 +132,52 @@ export function createPendingChartData(
 
 function timelineDataset(
   label: string,
-  points: DashboardPoint[],
-  total: number,
+  points: Array<{ x: number; y: number }>,
   color: string,
-  borderDash: number[] | undefined,
-  fill: boolean
+  borderDash?: number[]
 ) {
   return {
     label,
-    data: withStartAnchor(points, total),
+    data: points,
     borderColor: color,
-    backgroundColor: fill ? 'rgba(37, 99, 235, 0.12)' : 'transparent',
+    backgroundColor: color,
     borderWidth: label === 'Actual' ? 3 : 2,
     borderDash,
-    stepped: 'after' as const,
+    // Hold the earlier value until the next event's x coordinate.
+    stepped: 'before' as const,
     tension: 0,
-    pointRadius: points.length <= 12 ? 3 : 0,
-    pointHoverRadius: 6,
+    pointRadius: 0,
+    pointHoverRadius: 5,
     pointHitRadius: 12,
-    fill
+    fill: false
   }
 }
 
-function withStartAnchor(points: DashboardPoint[], total: number) {
-  const normalized = points.flatMap(normalizePoint).sort((left, right) => left.x - right.x)
-  if (!normalized.length || normalized[0].y >= total) return normalized
-  const firstDate = new Date(normalized[0].x)
-  firstDate.setDate(firstDate.getDate() - 1)
-  return [{ x: firstDate.getTime(), y: total }, ...normalized]
+function dailySeries(source: DashboardPoint[][], today: DashboardPoint[], total: number) {
+  const normalized = source.map((points) =>
+    points.flatMap(normalizePoint).sort((a, b) => a.x - b.x)
+  )
+  const dates = [
+    ...normalized.flat().map((point) => point.x),
+    ...today.flatMap(normalizePoint).map((point) => point.x)
+  ]
+  if (!dates.length) return source.map(() => [])
+  const start = new Date(Math.min(...dates))
+  start.setDate(start.getDate() - 1)
+  const end = Math.max(...dates)
+  return normalized.map((points) => {
+    const daily: Array<{ x: number; y: number }> = []
+    let index = 0
+    let remaining = total
+    // Calendar increments preserve local midnights across daylight-saving changes.
+    for (const day = new Date(start); day.getTime() <= end; day.setDate(day.getDate() + 1)) {
+      while (index < points.length && points[index].x <= day.getTime()) {
+        remaining = points[index++].y
+      }
+      daily.push({ x: day.getTime(), y: remaining })
+    }
+    return daily
+  })
 }
 
 function normalizePoint(point: DashboardPoint) {
