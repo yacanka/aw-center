@@ -153,12 +153,36 @@ class DashboardTests(TestCase):
 
     def test_empty_dashboard_is_zero_safe(self):
         summary = build_dashboard(self.project, today=TODAY)
+        self.assertEqual(summary["cat_counts"], {})
         self.assertEqual(summary["total"], 0)
         self.assertEqual(summary["panels"], [])
         self.assertEqual(summary["panel_groups"], [])
         self.assertEqual(summary["risk"]["counts"], {"high": 0, "medium": 0, "low": 0, "none": 0})
         for metric in summary["performance"].values():
             self.assertEqual(metric, {"filled": 0, "empty": 0, "percentage": 0})
+
+    def test_cat_distribution_preserves_scope_and_counts_missing_values(self):
+        self.document("CAT A", cat="A")
+        self.document("CAT A second", cat="A", panel=self.other_panel)
+        self.document("CAT B", cat="B", panel=self.other_panel)
+        self.document("Missing CAT", cat=None)
+        self.document("Blank CAT", cat="  ", panel=None)
+        self.document("Archived CAT", cat="C", is_archived=True)
+        other_cover = CoverPage.objects.create(project=self.other_project, number="CP-CAT-OTHER")
+        ComplianceDocument.objects.create(
+            project=self.other_project, cover_page=other_cover, name="Other CAT", cat="C",
+        )
+
+        with self.assertNumQueries(4):
+            summary = build_dashboard(self.project, today=TODAY)
+
+        self.assertEqual(summary["cat_counts"], {"A": 2, "B": 1, "": 2})
+        panels = {panel["id"]: panel["analytics"] for panel in summary["panels"]}
+        self.assertEqual(panels[str(self.panel.pk)]["cat_counts"], {"A": 1, "": 1})
+        self.assertEqual(panels[str(self.other_panel.pk)]["cat_counts"], {"A": 1, "B": 1})
+        groups = {group["panel"]: group["analytics"] for group in summary["panel_groups"]}
+        self.assertEqual(groups["Systems"]["cat_counts"], {"A": 2, "B": 1, "": 1})
+        self.assertEqual(groups["Unassigned"]["cat_counts"], {"": 1})
 
     def test_future_targets_and_delivery_dates_do_not_add_elapsed_time(self):
         self.document(
@@ -171,7 +195,7 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["pending_days"]["ubm"], 0)
         self.assertEqual(summary["data_quality"]["out_of_order_dates"], 0)
         self.assertIsNone(summary["timeline"]["last_actual"])
-        self.assertEqual(summary["performance"]["actual"]["filled"], 0)
+        self.assertEqual(summary["performance"]["actual"]["filled"], 1)
 
     def test_revised_target_controls_delay_and_scheduled_timeline(self):
         self.document(
@@ -182,7 +206,7 @@ class DashboardTests(TestCase):
 
         summary = build_dashboard(self.project, today=TODAY)
 
-        self.assertEqual(summary["chart_status_counts"], {"to_be_issued": 1})
+        self.assertEqual(summary["chart_status_counts"], {"expected": 1})
         self.assertEqual(summary["performance"]["scheduled"]["filled"], 0)
 
     def test_invalid_event_order_is_reported_without_negative_pending_days(self):
@@ -196,6 +220,43 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["data_quality"]["out_of_order_dates"], 1)
         self.assertEqual(summary["pending_days"]["aw"], 0)
         self.assertEqual(summary["pending_days"]["authority"], 19)
+
+    def test_publication_depends_on_delivery_and_groups_unissued_by_current_target(self):
+        self.document("Late review", status="authority_review", ubm_target_date=date(2026, 7, 1), moc="1")
+        self.document("Due today", ubm_target_date=TODAY, moc="1")
+        self.document("Replanned", ubm_target_date=date(2026, 7, 1),
+                      ubm_revised_target_date=date(2026, 8, 1), moc="2")
+        self.document("No target", status="authority_approved", moc=None)
+        self.document("Delivered", status="custom_review", ubm_delivery_date=TODAY, moc="3")
+        self.document("Future delivery", status="to_be_issued", ubm_delivery_date=date(2026, 8, 2))
+        self.document("Archived", is_archived=True, moc="4")
+        with self.assertNumQueries(4):
+            summary = build_dashboard(self.project, today=TODAY)
+        self.assertEqual(summary["publication"], {
+            "issued": {"total": 2, "status_counts": {"custom_review": 1, "to_be_issued": 1}},
+            "not_issued": {"total": 4, "status_counts": {"delayed": 1, "expected": 2, "missing_target": 1}},
+        })
+        self.assertEqual(summary["unissued_moc_counts"], {"1": 2, "2": 1, "": 1})
+        self.assertEqual(summary["performance"]["actual"]["filled"], 2)
+        self.assertEqual(summary["performance"]["scheduled"]["filled"], 2)
+        self.assertEqual(summary["panels"][0]["analytics"]["publication"], summary["publication"])
+        self.assertEqual(summary["panel_groups"][0]["analytics"]["unissued_moc_counts"], summary["unissued_moc_counts"])
+        # Dashboard projections must not change canonical workflow status counts.
+        self.assertEqual(summary["status_counts"]["authority_review"], 1)
+
+    def test_burndown_separates_original_and_revised_plan_with_fallback(self):
+        self.document("Revised", ubm_target_date=date(2026, 7, 1),
+                      ubm_revised_target_date=date(2026, 8, 1), ubm_delivery_date=date(2026, 7, 5))
+        self.document("Original", ubm_target_date=date(2026, 7, 3))
+        summary = build_dashboard(self.project, today=TODAY)
+        self.assertEqual(summary["timeline"]["scheduled"], [
+            {"x": "01.07.2026", "y": 1}, {"x": "03.07.2026", "y": 0},
+        ])
+        self.assertEqual(summary["timeline"]["revised_scheduled"], [
+            {"x": "03.07.2026", "y": 1}, {"x": "01.08.2026", "y": 0},
+        ])
+        self.assertEqual(summary["performance"]["scheduled"]["filled"], 1)
+        self.assertEqual(summary["timeline"]["today"], [{"x": "22.07.2026", "y": 1}])
 
     def test_dashboard_preserves_project_authorization_and_response_privacy(self):
         self.document(tech_doc_no=None, notes="Internal notes", path="private/path")

@@ -18,6 +18,7 @@ export interface DashboardPanel {
 
 export interface DashboardTimeline {
   scheduled: DashboardPoint[]
+  revised_scheduled?: DashboardPoint[]
   actual: DashboardPoint[]
   today: DashboardPoint[]
   last_scheduled: DashboardPoint | null
@@ -93,11 +94,19 @@ export interface DashboardOperationalSummary {
   filters: Record<string, Record<string, string>>
 }
 
+export interface DashboardPublicationGroup {
+  total: number
+  status_counts: Record<string, number>
+}
+
 export interface DashboardAnalytics {
   total: number
   overdue: number
   status_counts: Record<string, number>
   chart_status_counts: Record<string, number>
+  cat_counts: Record<string, number>
+  publication: Record<'issued' | 'not_issued', DashboardPublicationGroup>
+  unissued_moc_counts: Record<string, number>
   timeline: DashboardTimeline
   performance: Record<'scheduled' | 'actual' | 'approved', DashboardMetric>
   pending_days: Record<'authority' | 'ubm' | 'aw', number>

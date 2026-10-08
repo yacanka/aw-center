@@ -10,6 +10,18 @@ describe('dashboard response validation', () => {
 
   it.each([
     (value: ReturnType<typeof dashboardSummary>) => {
+      value.publication.not_issued.total = -1
+    },
+    (value: ReturnType<typeof dashboardSummary>) => {
+      Reflect.set(value.panels[0].analytics.publication.issued, 'status_counts', null)
+    },
+    (value: ReturnType<typeof dashboardSummary>) => {
+      value.panel_groups[0].analytics.unissued_moc_counts['1'] = -1
+    },
+    (value: ReturnType<typeof dashboardSummary>) => {
+      Reflect.set(value.timeline, 'revised_scheduled', [{ x: '01.07.2026', y: -1 }])
+    },
+    (value: ReturnType<typeof dashboardSummary>) => {
       value.panel_groups[0].analytics.total = -1
     },
     (value: ReturnType<typeof dashboardSummary>) => {
@@ -29,6 +41,9 @@ describe('dashboard response validation', () => {
     },
     (value: ReturnType<typeof dashboardSummary>) => {
       value.chart_status_counts.delayed = -1
+    },
+    (value: ReturnType<typeof dashboardSummary>) => {
+      Reflect.set(value, 'cat_counts', { A: -1 })
     },
     (value: ReturnType<typeof dashboardSummary>) => {
       value.generated_at = 'yesterday'

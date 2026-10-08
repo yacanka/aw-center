@@ -48,6 +48,9 @@ function isAnalytics(value: unknown): value is DashboardAnalytics {
     isCount(value.overdue) &&
     isCounts(value.status_counts) &&
     isCounts(value.chart_status_counts) &&
+    isCounts(value.cat_counts) &&
+    isCounts(value.unissued_moc_counts) &&
+    hasValues(value.publication, ['issued', 'not_issued'], isPublicationGroup) &&
     hasValues(value.pending_days, ['authority', 'ubm', 'aw'], isCount) &&
     hasValues(value.performance, ['scheduled', 'actual', 'approved'], isMetric) &&
     isTimeline(value.timeline) &&
@@ -58,6 +61,10 @@ function isAnalytics(value: unknown): value is DashboardAnalytics {
       isCount
     )
   )
+}
+
+function isPublicationGroup(value: unknown) {
+  return isRecord(value) && isCount(value.total) && isCounts(value.status_counts)
 }
 
 function isPanel(value: unknown): value is CompDocDashboardSummary['panels'][number] {
@@ -84,6 +91,8 @@ function isTimeline(value: unknown) {
       ['scheduled', 'actual', 'today'],
       (points) => Array.isArray(points) && points.every(isPoint)
     ) &&
+    (value.revised_scheduled === undefined ||
+      (Array.isArray(value.revised_scheduled) && value.revised_scheduled.every(isPoint))) &&
     [value.last_scheduled, value.last_actual].every((point) => point === null || isPoint(point))
   )
 }
