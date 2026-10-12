@@ -1,16 +1,35 @@
 # Kullanıcı tercihleri ve kullanıcı içeriğinin ayrılması
 
-Durum: Uygulama öncesi kullanıcı incelemesine hazır.
+Durum: İlk tasarım onaylandı; JIRA'nın integrations sınırına taşınması yönündeki kullanıcı düzeltmesiyle güncellendi. Güncel kapsam uygulama öncesi incelemeye hazır.
 
 ## Kullanıcı tarafından belirlenen kararlar
 
 - AW Center ilk kez ürün olarak kullanılacak. Bu görevde eski API uyumu gerekmiyor; eski endpoint veya payload için alias, uyumluluk adapterı ve çift yazma eklenmeyecek.
 - Görünüm tercihleri ile kullanıcının oluşturduğu içerik ayrı sorumluluklar ve ayrı modeller olacak.
 - İsimlendirme “JIRA preference servisi” ve “JIRA kullanıcı içerik modeli” olacak; bu sorumluluklar DCC tercihi/içeriği olarak adlandırılmayacak.
+- DCC uygulama/feature kimliği JIRA olarak değişecek; mevcut backend işlevleri `integrations/jira/` altında yönetilecek. Bu karar önceki “DCC modülünde kalır” kararını geçersiz kılar.
 - Tercih sıfırlama kayıtlı JIRA listelerini veya özel doküman analiz sorularını silmeyecek.
 - API uyumluluğunun gerekmemesi mevcut veriyi silme izni değildir. Migration geçmişi korunacak ve mevcut içerik yeni migration'larla taşınacak.
 
 Bu kararlar bu görevin sonraki planlama ve uygulama aşamalarında esas alınır.
+
+## JIRA uygulama sınırı ve taşıma
+
+Backend'de tek canonical JIRA yüzeyi `backend/integrations/jira/` olur. Mevcut client/session/config ile taşınan Watcher, subtask, document preview ve issue draft işlevleri aynı feature sınırında, kendi sorumluluklarına göre ayrı modüllerde kalır. `IntegrationsConfig` mevcut Django app olarak kullanılmaya devam eder; yeni kök veya nested JIRA runtime Django app'i oluşturulmaz. JIRA model discovery `backend/integrations/models.py` içindeki explicit model export'larıyla yapılır; runtime model app label'ı `integrations` olur. Feature signal'ları mevcut IntegrationsConfig.ready üzerinden tek kez bağlanır. İsim “JIRA application” ürün/feature kimliğidir, ayrı Django app kurulması anlamına gelmez.
+
+Frontend `frontend/src/features/dcc/` işlevleri `frontend/src/features/integrations/jira/` altında toplanır. Session preference ekranı, app route/menu/command palette, ECR ve attention tüketicileri bu feature API/component sınırını kullanır. Eski runtime import paketine alias bırakılmaz.
+
+Canonical HTTP `/api/integrations/jira/` olur: mevcut `session/` endpoint'ine ek olarak Watcher preference, records, subtask ve issue-draft route'ları aynı prefix altında include edilir. Eski `/api/dcc/` kaldırılır; URL aliası eklenmez. Subtask içerik endpoint'i `/api/integrations/jira/subtasks/saved-lists/` olur.
+
+Project capability `dcc` → `jira`, `ProjectRoleAssignment.Domain.DCC` → `Domain.JIRA` (saklanan değer `jira`) ve frontend `roles.dcc` → `roles.jira` birlikte değişir. Viewer/operator/publisher seviyeleri, proje scope ve doğrudan/grup kaynaklı yetkilerin etkisi aynen korunur. Org data migration yalnız domain değerini dönüştürür; proje slug'larını ve atamaların sahiplerini değiştirmez. Registry, alignment/API testleri, access summary, frontend parser/store/guards ve release smoke aynı sözleşmeye geçirilir.
+
+`DccRecord` runtime adı `JiraTrackedIssue`, `DccReminderDelivery` adı `JiraReminderDelivery` olur; mevcut JiraIssueDraft/Event isimleri korunur. Mevcut tablo, otomatik M2M tablo, primary key, foreign key, constraint/index ve relation adları explicit database metadata ile korunur. Yeni kullanıcı içeriği `integrations.JiraUserContent` modelidir. Tablo adındaki historical `dcc` ifadesi ürün veya API kimliği değildir; gereksiz fiziksel tablo rename yapılmaz.
+
+Eski migration dosyalarının içerikleri ve `(app_label, migration_name)` kimlikleri değiştirilmez: `dcc` migration zinciri `backend/integrations/jira/legacy_dcc/migrations/` altına taşınır ve migration-only AppConfig (`name=integrations.jira.legacy_dcc`, `label=dcc`) ile discovery sağlanır. Bu paket runtime model, URL, signal, servis veya admin barındırmaz; yalnız forward migration graph'ını korur. `integrations` içinde state-only adoption migration'ı mevcut tabloları yeni runtime model kimliklerine bağlar; ardından legacy dcc zincirine state-only retirement migration'ı eklenir. SeparateDatabaseAndState kullanılarak tablo create/drop veya veri silme yapılmaz. Historical graph'taki ilişkiler ve M2M through table adları fresh install ve upgrade testleriyle doğrulanır.
+
+ContentType/Permission taşıması mevcut content type ID'lerini ve doğrudan/grup permission ilişkilerini korur; yeni model isimlerine uygun app label/model/codename dönüşümü yapar. Hedefte çakışan content type/permission varsa migration sessizce merge/overwrite etmez, açıklayıcı ve hassas veri içermeyen bir hata verir. Migration order, post_migrate'in çift permission üretmesini engeller.
+
+Job kernel'i feature import etmez. `automations.catalog` içindeki executor dotted_path'leri `integrations.jira.*` olarak değiştirilir. Persist edilmiş job kind değerleri bu taşımanın bağımsız işlem kimlikleridir ve değiştirilmez; böylece mevcut job/idempotency/history ile signed/frozen payload'lar korunur. DCC doküman formatını ifade eden controller/template adları ve hata/confirmation kodları da yalnız uygulama adı değişti diye topluca yeniden adlandırılmaz. Bu, eski browser API uyumluluğu katmanı değildir.
 
 ## Mevcut durum
 
@@ -24,7 +43,7 @@ Genel preferences serializer'ında yalnız gönderilen kolonları yazan mevcut �
 
 `users.UserPreferences` ortak tercih deposu olarak kalır. `jira_list` ve `document_analysis_checks` bu modelden kaldırılır. Kullanıcı oluşturulunca yalnız bu preference kaydının oluşturulması korunur; her User kaydında preferences kaydeden signal kaldırılır.
 
-JIRA preference servisi Watcher görünümünün doğrulaması, varsayılanları ve güncellenmesinden sorumludur. İlk aşamada `extra_settings.watcher` saklama biçimi korunur; ayrı JIRA preference tablosu eklenmez. Mevcut `backend/dcc/watcher_preferences.py` yüzeyi JIRA sorumluluğunu açıkça adlandıran servis ve HTTP doğrulamasıyla düzenlenir. Var olan Watcher route'unun değiştirilmesi bu ayrım için gerekli değildir.
+JIRA preference servisi Watcher görünümünün doğrulaması, varsayılanları ve güncellenmesinden sorumludur. İlk aşamada `extra_settings.watcher` saklama biçimi korunur; ayrı JIRA preference tablosu eklenmez. HTTP yüzeyi `backend/integrations/jira/watcher_preferences.py`, servis `backend/integrations/jira/preferences.py` altında olur; canonical URL `/api/integrations/jira/watcher/preferences/` olur.
 
 `extra_settings` genel API üzerinden feature tercihlerini değiştirmek için kullanılamaz: genel preferences serializer'ında salt okunur olur, generic extra-setting mutation endpoint'leri kaldırılır. Feature yazmaları açık şema ve feature erişim kontrolünden geçer. Kullanıcı içerikleri session bootstrap cevabına veya genel user administration serializer'ına eklenmez.
 
@@ -32,7 +51,7 @@ JIRA preference servisi Watcher görünümünün doğrulaması, varsayılanları
 
 `JiraUserContent`, `settings.AUTH_USER_MODEL` ile OneToOne ilişkili, `subtask_lists` JSONField(default=list), `version` ve timestamp alanları olan ayrı bir modeldir. Veri yalnız sahibi tarafından okunup değiştirilir. Mevcut liste sırası, başlıkları, alan metadata'sı ve satır değerleri korunur.
 
-JIRA adı mantıksal sahipliği belirtir. Mevcut subtask feature'ı `backend/dcc/` ve `frontend/src/features/dcc/` içinde olduğundan model, servis ve frontend API bu mevcut modül içinde JIRA isimleriyle yer alır. Bu görev yeni kök `jira` Django app'i oluşturmaz ve DCC klasörünün tamamını yeniden adlandırmaz.
+JIRA kullanıcı içerik modeli `backend/integrations/jira/user_content_models.py`, servis `backend/integrations/jira/user_content.py` içindedir. Frontend tüketicileri `frontend/src/features/integrations/jira/` sınırında yer alır. Genel users modülü JIRA implementation import etmez.
 
 ### Doküman analiz kullanıcı içeriği
 
@@ -43,7 +62,7 @@ Mevcut `backend/word/` paketi içinde `DocumentAnalysisUserContent` modeli oluş
 ## API ve frontend akışı
 
 - Genel `/api/users/preferences/` GET/PATCH yalnız tercihleri taşır; `jira_list` kaldırılır. Kaldırılan içerik alanları write request'lerinde açık doğrulama hatası verir; sessizce kabul edilmez.
-- Yeni `/api/dcc/subtasks/saved-lists/` GET cevabı `{ lists, version }`, PUT isteği `{ lists, version }` olur. Olmayan içerik kaydı için GET `{ lists: [], version: 0 }` döner. İlk PUT version 0 ile yaratır; başarılı yazma version'ı artırır. Aynı sürümle yarışan yazmalardan biri 409 ve `JIRA_CONTENT_VERSION_CONFLICT` alır.
+- Yeni `/api/integrations/jira/subtasks/saved-lists/` GET cevabı `{ lists, version }`, PUT isteği `{ lists, version }` olur. Olmayan içerik kaydı için GET `{ lists: [], version: 0 }` döner. İlk PUT version 0 ile yaratır; başarılı yazma version'ı artırır. Aynı sürümle yarışan yazmalardan biri 409 ve `JIRA_CONTENT_VERSION_CONFLICT` alır.
 - Frontend `SubtaskList.vue`, feature API'siyle yükler ve kaydeder; session store'dan JIRA içerik erişimi kaldırılır. Kaydedilmemiş düzenlemeler hata veya version conflict durumunda korunur. Yükleme başarısızsa boş veri olarak kabul edilip mevcut içerik üzerine kaydedilmez; tekrar yükleme sunulur.
 - Word analysis-check endpoint'leri zaten feature API'sidir; URL ve soru payload'ını sırf ayrım için değiştirmeye gerek yoktur. Backend saklama modeli değişir.
 - Session store yalnız genel tercihlerle ilgilenir. Bu görev ayrı bir genel preference framework'ü veya registry oluşturmaz.
@@ -92,7 +111,10 @@ Shared/production database resetlenmez. Uygulama sırasında migration önce dis
 - Frontend yükleme/kaydetme hatasında ve conflict'te taslak kaybolmaz; session store JIRA listesi içermez.
 - İlgili users, JIRA subtask/Watcher, Word/checklist ve job snapshot testleri; frontend unit, typecheck, format, build ve etkilenen E2E akışları çalıştırılır.
 - Model değişikliği için SQLite/PostgreSQL migration testleri, PostgreSQL üzerinde `makemigrations --check --dry-run` ve `migrate --check` çalıştırılır. Çevre nedeniyle çalışmayan kontroller açıkça raporlanır.
+- Fresh install ve existing-state upgrade, JIRA model adoption, M2M ilişkileri, content type/permission kimlikleri, role-domain dönüşümü ve model discovery birlikte doğrulanır.
+- Runtime production code'da kök `dcc` importu ve `/api/dcc/` surface yoktur. Historical migration kimliği, persisted job kind ve gerçek DCC document terimi izin verilen istisnalardır.
+- Mimari fitness testleri, registry/seed alignment, users access summary, JIRA workflow/job/notification testleri, release smoke ve frontend route/access testleri yeni integration sınırında çalışır.
 
 ## Kapsam dışı
 
-İçerik paylaşımı, liste/soru başına relational kayıt, versiyon geçmişi, genel preference plugin sistemi, DCC feature'ının toplu yeniden adlandırılması, Compliance localStorage taşıması ve kullanılmayan preference alanlarının toplu silinmesi bu göreve dahil değildir.
+İçerik paylaşımı, liste/soru başına relational kayıt, versiyon geçmişi, genel preference plugin sistemi, gerçek DCC document format/template adlarının toplu yeniden adlandırılması, Compliance localStorage taşıması ve kullanılmayan preference alanlarının toplu silinmesi bu göreve dahil değildir.
