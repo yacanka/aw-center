@@ -44,7 +44,7 @@ class DeveloperResetTests(TestCase):
         return {"confirmation_phrase": RESET_PHRASE, "confirmation_token": response.data["confirmation_token"]}
 
     def test_reset_clears_protected_relations_and_history_preserving_catalog_accounts_and_dcc_roles(self):
-        ProjectRoleAssignment.objects.create(project=self.project, user=self.user, domain="dcc", role="viewer")
+        ProjectRoleAssignment.objects.create(project=self.project, user=self.user, domain="jira", role="viewer")
         ProjectRoleAssignment.objects.create(project=self.project, user=self.user, domain="compliance", role="manager")
         response = self.client.post(self.url, self.payload(), format="json")
         self.assertEqual(response.status_code, 200, response.data)
@@ -54,7 +54,7 @@ class DeveloperResetTests(TestCase):
         self.assertFalse(CoverPage.history.exists())
         self.assertTrue(Project.objects.filter(pk=self.project.pk).exists())
         self.assertTrue(get_user_model().objects.filter(pk=self.user.pk).exists())
-        self.assertEqual(list(ProjectRoleAssignment.objects.values_list("domain", flat=True)), ["dcc"])
+        self.assertEqual(list(ProjectRoleAssignment.objects.values_list("domain", flat=True)), ["jira"])
 
     @override_settings(DEBUG=False)
     def test_production_is_disabled_for_superuser(self):

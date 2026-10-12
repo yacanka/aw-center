@@ -39,15 +39,6 @@ class UserAdministrationTests(TestCase):
             email="admin@example.com",
         )
 
-    def test_preferences_keep_list_defaults(self):
-        preferences = UserPreferences.objects.get(user=self.regular_user)
-        preferences.jira_list = {"invalid": "shape"}
-        preferences.save(update_fields=["jira_list"])
-
-        preferences.reset_to_defaults()
-
-        self.assertEqual(preferences.jira_list, [])
-
     def test_anonymous_user_cannot_list_or_create_users(self):
         listed = self.client.get("/api/users/")
         created = self.client.post(

@@ -118,8 +118,10 @@ class JiraConnector:
         if self.issue_key is None:
             raise ValueError("Set an issue key in JiraConnector.")
 
-    def get_issue(self, log=False):
+    def get_issue(self, log=False, *, include_field_names=False):
         self.check_issue_key()
+        if include_field_names:
+            return self.jira.issue(self.issue_key, expand="names")
         return self.jira.issue(self.issue_key)
 
     def create_issue(self, issue_dict):

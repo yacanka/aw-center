@@ -144,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { useJiraIssueDraft } from '@/features/dcc/composables/useJiraIssueDraft'
+import { useJiraIssueDraft } from '@/features/integrations/jira/composables/useJiraIssueDraft'
 import type { Job } from '@/features/jobs/api/jobs'
 import JiraDraftPreflightPanel from './JiraDraftPreflightPanel.vue'
 

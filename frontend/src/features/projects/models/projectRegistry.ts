@@ -3,12 +3,12 @@
  * Adding a capability is a backend/frontend contract change: update
  * backend/projects/constants.py, API/integrity tests, and consumers together.
  */
-export const PROJECT_CAPABILITIES = ['dcc', 'compliance', 'organization'] as const
+export const PROJECT_CAPABILITIES = ['jira', 'compliance', 'organization'] as const
 
 export type ProjectCapability = (typeof PROJECT_CAPABILITIES)[number]
 export type ProjectRole = 'viewer' | 'editor' | 'manager' | 'operator' | 'publisher'
 export type ProjectManagementRole = 'viewer' | 'editor' | 'manager'
-export type ProjectDccRole = 'viewer' | 'operator' | 'publisher'
+export type ProjectJiraRole = 'viewer' | 'operator' | 'publisher'
 
 export interface ProjectRegistryItem {
   slug: string
@@ -23,7 +23,7 @@ const MANAGEMENT_ROLE_RANK: Record<ProjectManagementRole, number> = {
   manager: 3
 }
 
-const DCC_ROLE_RANK: Record<ProjectDccRole, number> = {
+const JIRA_ROLE_RANK: Record<ProjectJiraRole, number> = {
   viewer: 1,
   operator: 2,
   publisher: 3
@@ -39,10 +39,10 @@ export function hasProjectManagementRole(
 }
 
 /** Compare roles only within the DCC authorization hierarchy. */
-export function hasProjectDccRole(
+export function hasProjectJiraRole(
   role: ProjectRole | null | undefined,
-  minimum: ProjectDccRole
+  minimum: ProjectJiraRole
 ): boolean {
-  if (!role || !(role in DCC_ROLE_RANK)) return false
-  return DCC_ROLE_RANK[role as ProjectDccRole] >= DCC_ROLE_RANK[minimum]
+  if (!role || !(role in JIRA_ROLE_RANK)) return false
+  return JIRA_ROLE_RANK[role as ProjectJiraRole] >= JIRA_ROLE_RANK[minimum]
 }

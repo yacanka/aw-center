@@ -1,4 +1,3 @@
-from django import forms
 from django.shortcuts import get_object_or_404
 
 import logging
@@ -12,12 +11,11 @@ from rest_framework.views import APIView
 from awcenter.api_errors import ErrorCodes, error_response
 from awcenter.pagination import paginated_response
 from ddf.models import DDF
+from ddf.imports import DDFImportError, read_ddf
 from ddf.permissions import DDFPermission, IsDDFOwner
 from ddf.serializers import DDFSerializer
 from integrations.assessment import AssessmentServiceError, request_assessment
 
-from docx import Document
-from collections import OrderedDict
 from awcenter.file_security import WORD_POLICY, validate_request_upload
 
 
@@ -80,39 +78,23 @@ class DDFObjView(APIView):
         return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
 
 
-class UploadForm(forms.Form):
-    file = forms.FileField()
-
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, DDFPermission])
 def upload_ddf(request):
     word_file = validate_request_upload(request, "file", WORD_POLICY)
-    form = UploadForm(request.POST, request.FILES)
-    if form.is_valid():
-        doc = Document(word_file)
-
-        ddf = {}
-        content = []
-
-        for i, table in enumerate(doc.tables):
-            for row in table.rows:
-                row_data = [cell.text.strip().replace("\n", " ") for cell in row.cells]
-                row_data = list(OrderedDict.fromkeys(row_data))
-                content.append(row_data)
-
-        ddf["project"] = content[0][1]
-        ddf["doc_name"] = content[1][1]
-        ddf["doc_no"] = content[2][1]
-        ddf["doc_issue"] = content[2][3]
-        ddf["date"] = content[2][5]
-        ddf["commentor"] = content[3][1]
-        ddf["comments"] = content[5:]
-
-        serializer = DDFSerializer(data=ddf, context={'request': request})
-        if serializer.is_valid():
-            serializer.save(created_by=request.user)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        ddf = read_ddf(word_file)
+    except DDFImportError:
+        return error_response(
+            "Upload a readable Word document with the supported DDF table layout.",
+            code="DDF_IMPORT_INVALID",
+            response_status=400,
+        )
+    serializer = DDFSerializer(data=ddf, context={"request": request})
+    if serializer.is_valid():
+        serializer.save(created_by=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, DDFPermission])

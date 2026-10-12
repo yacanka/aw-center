@@ -1,6 +1,6 @@
 # Kullanıcı tercihleri ve kullanıcı içeriğinin ayrılması
 
-Durum: İlk tasarım onaylandı; JIRA'nın integrations sınırına taşınması yönündeki kullanıcı düzeltmesiyle güncellendi. Güncel kapsam uygulama öncesi incelemeye hazır.
+Durum: Kullanıcı tarafından onaylandı ve uygulandı (2026-10-13). Doğrulama sonuçları uygulama planında kayıtlı.
 
 ## Kullanıcı tarafından belirlenen kararlar
 

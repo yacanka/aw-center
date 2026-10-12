@@ -226,7 +226,7 @@ class ComplianceNotificationTests(TestCase):
         self.assertEqual(log.status, NotificationLog.Status.CLAIMED)
 
     def test_worker_continues_other_queues_after_password_reset_timeout(self):
-        from dcc.models import DccReminderDelivery
+        from integrations.jira.workflow_models import JiraReminderDelivery
         from users.models import PasswordResetDelivery
         from users.password_reset_notifications import enqueue_password_reset
 
@@ -234,7 +234,7 @@ class ComplianceNotificationTests(TestCase):
             "timeout-worker-user", email="reset@example.invalid", password="pass",
         )
         reset, _ = enqueue_password_reset(user)
-        reminder = DccReminderDelivery.objects.create(
+        reminder = JiraReminderDelivery.objects.create(
             requested_by=user, idempotency_key="worker-timeout",
             message_id="<worker-timeout@awcenter>", subject="Reminder",
             context={}, recipients=["recipient@example.invalid"],
@@ -247,7 +247,7 @@ class ComplianceNotificationTests(TestCase):
         reset.refresh_from_db()
         reminder.refresh_from_db()
         self.assertEqual(reset.status, PasswordResetDelivery.Status.FAILED)
-        self.assertEqual(reminder.status, DccReminderDelivery.Status.SENT)
+        self.assertEqual(reminder.status, JiraReminderDelivery.Status.SENT)
         self.assertEqual(NotificationLog.objects.get().status, NotificationLog.Status.SENT)
         self.assertEqual(len(mail.outbox), 2)
 

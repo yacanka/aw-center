@@ -38,7 +38,7 @@ export const routes: RouteRecordRaw[] = [
     path: '/task/ecr',
     name: 'ecrTask',
     meta: { access: navigationAccessPolicy('/accelerator/outlook') },
-    component: lazyRoute(() => import('@/features/dcc/components/EcrTask.vue'))
+    component: lazyRoute(() => import('@/features/integrations/jira/components/EcrTask.vue'))
   },
   {
     path: '/doors/scripter',
@@ -114,7 +114,7 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/jira',
     name: 'jira',
-    component: lazyRoute(() => import('@/features/dcc/pages/Jira.vue'))
+    component: lazyRoute(() => import('@/features/integrations/jira/pages/Jira.vue'))
   },
   {
     path: '/ddfAssistant',

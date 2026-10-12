@@ -120,7 +120,7 @@ class ProjectRoleAssignment(models.Model):
     class Domain(models.TextChoices):
         COMPLIANCE = "compliance", "Compliance documents"
         ORGANIZATION = "organization", "Organization"
-        DCC = "dcc", "DCC"
+        JIRA = "jira", "JIRA"
 
     class Role(models.TextChoices):
         VIEWER = "viewer", "Viewer"
@@ -132,7 +132,7 @@ class ProjectRoleAssignment(models.Model):
     VALID_ROLES = {
         Domain.COMPLIANCE: {Role.VIEWER, Role.EDITOR, Role.MANAGER},
         Domain.ORGANIZATION: {Role.VIEWER, Role.MANAGER},
-        Domain.DCC: {Role.VIEWER, Role.OPERATOR, Role.PUBLISHER},
+        Domain.JIRA: {Role.VIEWER, Role.OPERATOR, Role.PUBLISHER},
     }
 
     project = models.ForeignKey(

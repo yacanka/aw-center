@@ -152,7 +152,7 @@ class JiraSessionTests(TestCase):
             {"JSESSIONID": "query-session-secret"},
         )
         legacy_response = self.client.post(
-            "/api/dcc/check_session/",
+            "/api/integrations/jira/check_session/",
             {"JSESSIONID": "legacy-session-secret"},
             format="json",
         )
@@ -182,9 +182,9 @@ class JiraSessionTests(TestCase):
         self.assertIsNone(get_jira_session(self.user))
         self.assertIsNotNone(get_jira_session(self.other_user))
 
-    @patch("dcc.job_views.prepare_dcc_preview")
-    @patch("dcc.job_views.capture_dcc_snapshot")
-    @patch("dcc.job_views.jira_connector_for")
+    @patch("integrations.jira.job_views.prepare_dcc_preview")
+    @patch("integrations.jira.job_views.capture_dcc_snapshot")
+    @patch("integrations.jira.job_views.jira_connector_for")
     def test_dcc_resolves_server_session_and_rejects_legacy_payload(
         self,
         connector_for,
@@ -195,7 +195,7 @@ class JiraSessionTests(TestCase):
         ProjectRoleAssignment.objects.create(
             user=self.user,
             project=project,
-            domain=ProjectRoleAssignment.Domain.DCC,
+            domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
         )
         capture_snapshot.return_value = {
@@ -220,13 +220,13 @@ class JiraSessionTests(TestCase):
         }
 
         response = self.client.post(
-            "/api/dcc/jobs/create-document/preview/",
+            "/api/integrations/jira/jobs/create-document/preview/",
             {"url": "CHN-42"},
             format="json",
             HTTP_IDEMPOTENCY_KEY="jira-session-preview-1",
         )
         legacy = self.client.post(
-            "/api/dcc/jobs/create-document/preview/",
+            "/api/integrations/jira/jobs/create-document/preview/",
             {"url": "CHN-42", "JSESSIONID": "legacy-session-value"},
             format="json",
             HTTP_IDEMPOTENCY_KEY="jira-session-preview-2",

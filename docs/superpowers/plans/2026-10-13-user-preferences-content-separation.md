@@ -1,6 +1,6 @@
 # User Preferences and User Content Separation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking. Execution starts after the user reviews this plan and chooses the execution method.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking. Execution authorized by the user on 2026-10-13; native execution in the existing codex branch preserves pre-existing uncommitted edits.
 
 **Goal:** Görünüm resetinin kullanıcı içeriğini silmesini önlemek ve JIRA listeleri ile analiz sorularını kendi feature modellerine taşımak.
 
@@ -149,3 +149,17 @@
 ## Uygulama önerisi
 
 Bu görev için native/aynı oturumda uygulama önerilir: migration graph, preference yazma yolları ve frontend cutover birbiriyle sıkı bağlıdır; mevcut çalışma ağacında aynı dosyalara ait kullanıcı değişiklikleri vardır. Bağımsız alt ajanlar kullanılacaksa önce açık dosya sahipliği ve mevcut değişikliklerin aktarımı netleştirilmelidir. Kullanıcı planı inceleyip execution method seçmeden implementation başlamaz.
+
+## Uygulama ve doğrulama kaydı — 2026-10-13
+
+- Görev 0–5 uygulandı: integrations sınırı, migration-only history, relation/permission/role taşıması, ayrı JIRA ve Word içerik modelleri, appearance reset/CAS, yeni feature API ve frontend akışı. Migration dosya adları Django tarafından üretildi; explicit M2M state migration nedeniyle integrations içerik migration'ı 0003 oldu.
+- Bağımsız incelemenin üç Important bulgusu regresyon testleriyle düzeltildi: hesap başlık taslağı, admin discovery/ilişki yetkileri ve tarihsel JSON null.
+- CPython 3.11: etkilenen 254 backend testi, son inceleme regresyonları, SQLite gerçek bağlantı yarışları ve PostgreSQL migration/owner/CSRF/CAS/permission testleri geçti.
+- Bütün backend paketi: 1110 test, 1 kapsam dışı mevcut tarih/timezone test hatası, 2 mevcut skip. Hata: compliance.tests.ComplianceApiTests.test_table_filters_and_ordering_are_applied_by_the_server; fixture UTC date kullanırken filtre Europe/Istanbul local date kullanıyor. Assertion kaldırılmadı veya skip eklenmedi.
+- Frontend: 323 unit test ve test:ci script'leri, format:check, typecheck, build geçti. Etkilenen 15 Chromium E2E testi geçti; Watcher light/dark ve 375/1440px doğrulandı. Eski login/Excel selector'ları (.heading-dot / Enter Url) HEAD'de de ilgili elementlerle eşleşmiyor; kapsam dışı bırakıldı ve başarısız koşu raporlandı.
+- launcher check, 41 launcher/release metadata testi, prod --help, collectstatic, verify_frontend_artifact ve PostgreSQL registry/migration drift/pending kontrolleri geçti.
+- Shared/production DB migrate/reset, push/merge veya uygulama source commit'i yapılmadı. Mevcut kullanıcı değişiklikleri korundu; görev kodu çalışma ağacında duruyor.
+
+- Son ek regresyon: admin M2M assignment inline'ları parent change permission ile eski personel erişimini koruyor (SQLite ve PostgreSQL testi geçti). JSON null migration/import preservation ve reactive account-title fence testleri geçti.
+- Compliance tarih hatası aynı test UTC timezone diagnostic koşusunda geçti; production yerel tarih davranışı değiştirilmedi.
+- Migration şema/model metadata'sı korunurken explicit through modeller ve integration app template/admin discovery kullanıldı. Testlerin oluşturduğu root private_media git dışında tutulur.

@@ -9,7 +9,6 @@ const featureNames = [
   'assistant',
   'attention',
   'compliance',
-  'dcc',
   'integrations',
   'jobs',
   'organization',
@@ -55,7 +54,7 @@ test('components and pages never bypass feature APIs with an HTTP client', () =>
 
 test('keeps feature stores out of the global window namespace', () => {
   const offenders = sourceFiles(sourceRoot).filter((file) =>
-    /window\.\$(?:compdocStore|dccStore|ddfStore|orgsStore|outlookStore)/.test(read(file))
+    /window\.\$(?:compdocStore|jiraStore|ddfStore|orgsStore|outlookStore)/.test(read(file))
   )
   const declarations = read(join(sourceRoot, 'shared/types/global.d.ts'))
 
@@ -63,7 +62,7 @@ test('keeps feature stores out of the global window namespace', () => {
     offenders.map((file) => relative(sourceRoot, file)),
     []
   )
-  assert.doesNotMatch(declarations, /\$(?:compdocStore|dccStore|ddfStore|orgsStore|outlookStore)/)
+  assert.doesNotMatch(declarations, /\$(?:compdocStore|jiraStore|ddfStore|orgsStore|outlookStore)/)
 })
 
 test('limits Pinia to application-lifetime state', () => {
@@ -76,7 +75,7 @@ test('limits Pinia to application-lifetime state', () => {
     'app/stores/popupStore.js',
     'app/stores/releaseNotes.ts',
     'features/assistant/stores/assistant.ts',
-    'features/dcc/stores/dcc.ts',
+    'features/integrations/jira/stores/jira.ts',
     'features/projects/stores/projectCatalog.ts',
     'features/session/stores/session.ts'
   ])

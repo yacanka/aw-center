@@ -6,8 +6,8 @@ const user = { id: 1, is_active: true, is_staff: true }
 const project: ProjectRegistryItem = {
   slug: 'ozgur',
   name: 'Özgür',
-  capabilities: ['compliance', 'organization', 'dcc'],
-  roles: { compliance: 'viewer', organization: 'viewer', dcc: 'viewer' }
+  capabilities: ['compliance', 'organization', 'jira'],
+  roles: { compliance: 'viewer', organization: 'viewer', jira: 'viewer' }
 }
 
 describe('project-aware main navigation', () => {

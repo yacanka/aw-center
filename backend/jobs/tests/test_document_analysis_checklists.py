@@ -61,15 +61,15 @@ class DocumentAnalysisChecklistApiTests(JobTestCase):
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(len(self.checklist()), 1)
 
-    def test_reset_preferences_clears_saved_questions(self):
+    def test_reset_preferences_preserves_saved_questions(self):
         """A profile reset restores the custom checklist default."""
 
-        self.save_question("Is the source identified?")
+        saved = self.save_question("Is the source identified?")
 
         response = self.client.post("/api/users/preferences/reset/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.checklist(), [])
+        self.assertEqual(self.checklist(), [saved])
 
     def test_question_length_and_saved_count_are_bounded(self):
         """Profile checklist limits bound storage and analyzer work."""

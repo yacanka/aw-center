@@ -21,7 +21,6 @@ export interface IPreferences {
   items_per_page?: number
   compact_view?: boolean
   extra_settings?: Record<string, unknown>
-  jira_list?: unknown[]
 }
 
 export interface IGroup {

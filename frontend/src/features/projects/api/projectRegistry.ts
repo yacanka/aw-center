@@ -71,6 +71,6 @@ function isProjectRoles(item: unknown): item is ProjectRegistryItem['roles'] {
   return (
     [null, 'viewer', 'editor', 'manager'].includes(item.compliance as string | null) &&
     [null, 'viewer', 'manager'].includes(item.organization as string | null) &&
-    [null, 'viewer', 'operator', 'publisher'].includes(item.dcc as string | null)
+    [null, 'viewer', 'operator', 'publisher'].includes(item.jira as string | null)
   )
 }

@@ -221,6 +221,15 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         if self.context.get("numbering_draft", False):
             return
         name = attributes.get("name", self.instance.name if self.instance is not None else "")
+        identity_ids = self.context.get("import_identity_ids")
+        if identity_ids is not None:
+            matching_ids = identity_ids.get((number, name), set())
+            own_id = self.instance.pk if self.instance is not None else None
+            if matching_ids - {own_id}:
+                raise serializers.ValidationError({
+                    "name": "A document with this cover page number and name already exists in this project.",
+                })
+            return
         duplicate = ComplianceDocument.objects.filter(
             project=project, cover_page__number=number, name=name,
         )

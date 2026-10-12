@@ -380,7 +380,7 @@
       "Connect through the page; choose authorized project/tab; review inputs and follow its workflow."
     ],
     "limitations": [
-      "DCC role required; creation requires operator/publisher. Never put credentials in assistant chat."
+      "JIRA role required; creation requires operator/publisher. Never put credentials in assistant chat."
     ],
     "keywords": [
       "jira",

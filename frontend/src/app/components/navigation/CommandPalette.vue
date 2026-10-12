@@ -1,6 +1,14 @@
 <template>
-  <n-button class="command-trigger" secondary type="primary" @click="openPalette">
-    Quick command <n-tag size="small">{{ shortcutLabel }}</n-tag>
+  <n-button
+    class="command-trigger"
+    secondary
+    type="primary"
+    aria-label="Quick command"
+    aria-haspopup="dialog"
+    :aria-expanded="visible"
+    @click="openPalette"
+  >
+    Quick command <n-tag class="command-shortcut" size="small">{{ shortcutLabel }}</n-tag>
   </n-button>
   <n-modal v-model:show="visible" preset="card" title="Quick command" class="command-modal">
     <n-input
@@ -8,7 +16,7 @@
       v-model:value="query"
       clearable
       autofocus
-      aria-label="Search application commands"
+      :input-props="{ 'aria-label': 'Search application commands' }"
       placeholder="Search a tool, process, or integration…"
       @keydown="handleSearchKeydown"
     />
@@ -39,7 +47,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { InputInst } from 'naive-ui'
+import { useThemeVars, type InputInst } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { quickCommandStorageKey, readJson, writeJson } from '@/shared/services/storage'
 import { useSessionStore } from '@/features/session/stores/session'
@@ -53,6 +61,7 @@ import {
 } from '@/app/services/commandSearch'
 
 const props = defineProps<{ options: CommandSource[] }>()
+const themeVars = useThemeVars()
 const router = useRouter()
 const route = useRoute()
 const userStore = useSessionStore()
@@ -131,10 +140,12 @@ function rememberVisitedCommand(path: string): void {
 
 <style scoped>
 .command-trigger {
-  position: fixed;
-  top: 12px;
-  right: 24px;
-  z-index: 20;
+  min-height: 44px;
+  max-width: 100%;
+}
+
+.command-shortcut {
+  margin-left: 8px;
 }
 
 :global(.command-modal) {
@@ -165,7 +176,7 @@ function rememberVisitedCommand(path: string): void {
 
 .command-row:hover,
 .command-row.active {
-  background: rgba(24, 160, 88, 0.13);
+  background: v-bind('themeVars.hoverColor');
 }
 
 .command-copy {

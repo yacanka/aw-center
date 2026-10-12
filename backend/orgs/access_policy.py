@@ -11,7 +11,7 @@ from .models import Project, ProjectRoleAssignment
 ROLE_ORDER = {
     ProjectRoleAssignment.Domain.COMPLIANCE: ("viewer", "editor", "manager"),
     ProjectRoleAssignment.Domain.ORGANIZATION: ("viewer", "manager"),
-    ProjectRoleAssignment.Domain.DCC: ("viewer", "operator", "publisher"),
+    ProjectRoleAssignment.Domain.JIRA: ("viewer", "operator", "publisher"),
 }
 
 

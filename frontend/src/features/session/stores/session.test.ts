@@ -22,7 +22,7 @@ vi.mock('@/shared/services/notify', () => ({
 import * as sessionApi from '@/features/session/api/sessionApi'
 import { notifySuccess } from '@/shared/services/notify'
 import { useSessionStore } from '@/features/session/stores/session'
-import { useDccStore } from '@/features/dcc/stores/dcc'
+import { useJiraStore } from '@/features/integrations/jira/stores/jira'
 import { registerSessionScopedStore } from '@/features/session/stores/sessionScope'
 
 const currentUser = { id: 7, username: 'operator', is_active: true }
@@ -112,7 +112,7 @@ describe('session store', () => {
 
   it('clears account-scoped feature state when the session becomes anonymous', () => {
     const session = useSessionStore()
-    const dcc = useDccStore()
+    const dcc = useJiraStore()
     dcc.jiraConnection = {
       state: 'connected',
       expires_at: '2099-01-01T00:00:00Z'
@@ -125,7 +125,7 @@ describe('session store', () => {
 
   it('clears account-scoped feature state before switching identities', () => {
     const session = useSessionStore()
-    const dcc = useDccStore()
+    const dcc = useJiraStore()
     session.setAuthenticatedUser(currentUser)
     dcc.jiraConnection = {
       state: 'connected',

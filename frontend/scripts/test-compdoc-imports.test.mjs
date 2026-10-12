@@ -500,7 +500,7 @@ test('loads project-scoped compliance selector options', async () => {
   assert.deepEqual(options, [{ id: 7, label: 'Reviewer' }])
 })
 
-test('dashboard requests complete project analytics with cancellation support', async () => {
+test('dashboard releases cancellation ownership after complete project analytics', async () => {
   const controller = new AbortController()
   let summary
   const captured = await captureRequest(async () => {
@@ -511,8 +511,45 @@ test('dashboard requests complete project analytics with cancellation support', 
   assert.notEqual(captured.signal, controller.signal)
   assert.equal(captured.signal.aborted, false)
   controller.abort()
-  assert.equal(captured.signal.aborted, true)
+  assert.equal(controller.signal.aborted, true)
+  assert.equal(captured.signal.aborted, false)
   assert.deepEqual(summary, dashboardResponse())
+})
+
+test('dashboard cancels a pending analytics request before its response completes', async () => {
+  const originalAdapter = axios.defaults.adapter
+  const controller = new AbortController()
+  let captured
+  let started
+  let finishResponse
+  let responseCompleted = false
+  const requestStarted = new Promise((resolve) => (started = resolve))
+  axios.defaults.adapter = (config) =>
+    new Promise((resolve, reject) => {
+      captured = config
+      finishResponse = () => {
+        responseCompleted = true
+        resolve({ data: dashboardResponse(), status: 200, statusText: 'OK', headers: {}, config })
+      }
+      config.signal.addEventListener('abort', () => reject(new Error('Transport aborted.')), {
+        once: true
+      })
+      started()
+    })
+  try {
+    const request = fetchCompdocDashboard('project name', controller.signal)
+    await requestStarted
+    assert.equal(captured.url, 'projects/project%20name/compliance-documents/dashboard/')
+    assert.equal(captured.signal.aborted, false)
+    controller.abort()
+    assert.equal(captured.signal.aborted, true)
+    await assert.rejects(request, { code: 'ERR_CANCELED' })
+    assert.equal(responseCompleted, false)
+    finishResponse()
+  } finally {
+    controller.abort()
+    axios.defaults.adapter = originalAdapter
+  }
 })
 
 test('dashboard isolates paginated table state and stale project responses', async () => {

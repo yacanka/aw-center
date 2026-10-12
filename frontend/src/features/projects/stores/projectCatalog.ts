@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia'
 import type {
   ProjectCapability,
-  ProjectDccRole,
+  ProjectJiraRole,
   ProjectManagementRole,
   ProjectRegistryItem
 } from '@/features/projects/models/projectRegistry'
 import {
-  hasProjectDccRole,
+  hasProjectJiraRole,
   hasProjectManagementRole
 } from '@/features/projects/models/projectRegistry'
 import { fetchProjectRegistry } from '@/features/projects/api/projectRegistry'
@@ -30,9 +30,9 @@ export const useProjectCatalogStore = defineStore('projectCatalog', {
         (project) =>
           project.capabilities.includes('compliance') && project.roles.compliance !== null
       ),
-    dccProjects: (state) =>
+    jiraProjects: (state) =>
       state.projects.filter(
-        (project) => project.capabilities.includes('dcc') && project.roles.dcc !== null
+        (project) => project.capabilities.includes('jira') && project.roles.jira !== null
       ),
     hasAnyRole:
       (state) =>
@@ -50,8 +50,11 @@ export const useProjectCatalogStore = defineStore('projectCatalog', {
           state.projects.find((project) => project.slug === slug)?.roles[capability],
           minimum
         ),
-    hasDccRole: (state) => (slug: string, minimum: ProjectDccRole) =>
-      hasProjectDccRole(state.projects.find((project) => project.slug === slug)?.roles.dcc, minimum)
+    hasJiraRole: (state) => (slug: string, minimum: ProjectJiraRole) =>
+      hasProjectJiraRole(
+        state.projects.find((project) => project.slug === slug)?.roles.jira,
+        minimum
+      )
   },
   actions: {
     async load(force = false): Promise<ProjectRegistryItem[]> {

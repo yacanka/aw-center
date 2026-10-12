@@ -9,7 +9,7 @@ const project = {
   slug: 'ozgur',
   name: 'Özgür',
   capabilities: ['compliance', 'organization'],
-  roles: { compliance: 'editor', organization: 'viewer', dcc: null }
+  roles: { compliance: 'editor', organization: 'viewer', jira: null }
 }
 
 describe('project registry fail-closed parsing', () => {
@@ -29,7 +29,7 @@ describe('project registry fail-closed parsing', () => {
   )
 
   it('rejects roles for unsupported capabilities', () => {
-    expect(() => parseProjectRegistryItems([{ ...project, capabilities: ['dcc'] }])).toThrow(
+    expect(() => parseProjectRegistryItems([{ ...project, capabilities: ['jira'] }])).toThrow(
       /invalid item/
     )
   })
@@ -45,9 +45,9 @@ describe('project registry fail-closed parsing', () => {
           project,
           {
             ...project,
-            slug: 'dcc',
-            capabilities: ['dcc'],
-            roles: { compliance: null, organization: null, dcc: 'viewer' }
+            slug: 'jira',
+            capabilities: ['jira'],
+            roles: { compliance: null, organization: null, jira: 'viewer' }
           }
         ],
         'compliance'

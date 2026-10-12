@@ -63,7 +63,8 @@ class CopyUsersTests(TestCase):
             call_command("copy_users", stdout=StringIO())
         user = User.objects.get(username="imported")
         self.assertEqual(user.preferences.theme, "dark")
-        self.assertEqual(user.preferences.document_analysis_checks, [])
+        from word.custom_checks import get_custom_checks
+        self.assertEqual(get_custom_checks(user), [])
         self.assertFalse(user.has_usable_password())
 
     def test_existing_account_changes_require_explicit_option(self):

@@ -24,6 +24,9 @@
     </n-layout-sider>
 
     <div class="protected-main">
+      <header class="protected-toolbar" aria-label="Application tools">
+        <CommandPalette :options="menuOptions" />
+      </header>
       <n-layout-content class="transparent protected-content" content-class="protected-scroll">
         <main class="protected-page">
           <RouterView />
@@ -31,7 +34,6 @@
       </n-layout-content>
       <footer class="protected-footer">AW Center · v{{ appVersion }} · © 2026</footer>
     </div>
-    <CommandPalette :options="menuOptions" />
     <ReleaseNotesModal />
   </n-layout>
   <n-button
@@ -90,7 +92,7 @@ const menuOptions = computed(() =>
   createMainMenuOptions(
     projectCatalog.complianceProjects,
     userStore.getUser,
-    projectCatalog.hasAnyRole('dcc'),
+    projectCatalog.hasAnyRole('jira'),
     projectCatalog.hasAnyRole('organization')
   )
 )
@@ -184,6 +186,16 @@ async function loadProjectRegistry() {
   flex: 1;
   min-height: 0;
   min-width: 0;
+}
+
+.protected-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  padding: 8px var(--app-gutter);
+  padding-top: max(8px, env(safe-area-inset-top));
+  background: v-bind('themeVars.bodyColor');
+  border-bottom: 1px solid v-bind('themeVars.borderColor');
 }
 
 .protected-content :deep(.protected-scroll) {

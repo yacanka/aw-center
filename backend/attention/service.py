@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from compliance.attention import compliance_attention_items
 from compliance.models import ImportAudit
-from dcc.issue_draft_models import JiraIssueDraft, JiraIssueDraftStatus
+from integrations.jira.issue_draft_models import JiraIssueDraft, JiraIssueDraftStatus
 from jobs.models import Job, JobStatus
 from jobs.recovery import recovery_hint
 from orgs.access_policy import authorized_project_ids
@@ -83,7 +83,7 @@ def jira_draft_items(user):
 
     project_ids = authorized_project_ids(
         user,
-        ProjectRoleAssignment.Domain.DCC,
+        ProjectRoleAssignment.Domain.JIRA,
         ProjectRoleAssignment.Role.VIEWER,
     )
     drafts = (

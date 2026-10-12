@@ -2,11 +2,18 @@
 
 from importlib import import_module
 
+from .process_tree import establish_executor_session
 
-def bootstrap_executor_process(job_id, kind, resolver_path, connection):
+
+def bootstrap_executor_process(job_id, kind, resolver_path, connection, start_gate=None):
     """Initialize Django before importing model-backed worker code."""
 
     try:
+        establish_executor_session()
+        # Windows must assign this process to its parent-owned Job Object before
+        # any Django/feature imports or executor code can spawn descendants.
+        if start_gate is not None and not start_gate.wait(timeout=10):
+            raise RuntimeError("Executor containment was not established.")
         import django
 
         django.setup()

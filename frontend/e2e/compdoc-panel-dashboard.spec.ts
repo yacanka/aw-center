@@ -31,7 +31,7 @@ for (const theme of ['light', 'dark'] as const) {
               slug: 'ozgur',
               name: 'OZGUR',
               capabilities: ['compliance'],
-              roles: { compliance: 'manager', dcc: null, organization: null }
+              roles: { compliance: 'manager', jira: null, organization: null }
             }
           ]
         else if (path.endsWith('/compliance-documents/dashboard/')) {

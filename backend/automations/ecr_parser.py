@@ -105,6 +105,9 @@ def normalize_cell(value) -> str:
 def parse_table_layout_one(table) -> dict[str, str]:
     """Parse the current nineteen-row ECR table layout."""
 
+    # Both layouts share the identity cells; identity alone cannot select one.
+    if len(table) != 19:
+        raise EcrPdfParseError("The ECR table does not match the current layout.")
     ata, subata = split_ata(cell(table, 14, 1))
     number = "-".join(cell(table, 4, 0).split("-")[:2]).strip()
     return {
@@ -130,6 +133,8 @@ def parse_table_layout_one(table) -> dict[str, str]:
 def parse_table_layout_two(table) -> dict[str, str]:
     """Parse the alternate layout with one extra originator row."""
 
+    if len(table) != 20:
+        raise EcrPdfParseError("The ECR table does not match the alternate layout.")
     title = cell(table, 2, 0)
     raw_number = cell(table, 4, 0)
     number = raw_number.split(title, 1)[0].rstrip(" -") if title in raw_number else raw_number

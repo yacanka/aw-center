@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
-import type { ISubtaskListItem } from '../src/features/dcc/models/jira'
+import type { ISubtaskListItem } from '../src/features/integrations/jira/models/jira'
 
 const fields = [
   { id: 'description', name: 'Description', schema: { type: 'string' } },
@@ -51,12 +51,12 @@ test('original named lists retain rename, bulk values, dynamic columns, Save and
 
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
-  expect(state.preferences.jira_list[0].title).toBe('Renamed checklist')
-  expect(state.preferences.jira_list[0].fields?.map((field) => field.id)).toEqual([
+  expect(state.content.lists[0].title).toBe('Renamed checklist')
+  expect(state.content.lists[0].fields?.map((field) => field.id)).toEqual([
     'description',
     'priority'
   ])
-  expect(state.preferences.jira_list[1].list[0].summary).toBe('Release')
+  expect(state.content.lists[1].list[0].summary).toBe('Release')
 
   await page.reload()
   await page.getByText('Subtask Generator (List)', { exact: true }).click()
@@ -94,7 +94,7 @@ test('original named lists retain rename, bulk values, dynamic columns, Save and
   await expect(page.getByRole('button', { name: 'Create subtasks', exact: true })).toHaveCount(0)
 })
 
-test('failed preference saves retain unsaved edits and can be retried', async ({ page }) => {
+test('failed content saves retain unsaved edits and can be retried', async ({ page }) => {
   const state = await jiraShell(page)
   state.failSave = true
   await page.goto('/app/jira')
@@ -102,13 +102,13 @@ test('failed preference saves retain unsaved edits and can be retried', async ({
   await page.getByPlaceholder('Summary').nth(1).fill('Unsaved review')
   await page.getByPlaceholder('Enter Url').click()
   await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByText('Preferences could not be saved.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('Saved lists could not be saved.')
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
-  expect(state.preferences.jira_list[0].list[0].summary).toBe('Review one')
+  expect(state.content.lists[0].list[0].summary).toBe('Review one')
   state.failSave = false
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
-  expect(state.preferences.jira_list[0].list[0].summary).toBe('Unsaved review')
+  expect(state.content.lists[0].list[0].summary).toBe('Unsaved review')
 })
 
 test('saved list tabs and subtask rows can be added and removed without changing other lists', async ({
@@ -129,8 +129,8 @@ test('saved list tabs and subtask rows can be added and removed without changing
   await expect(page.getByPlaceholder('Summary').nth(1)).toHaveValue('Second review')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
-  expect(state.preferences.jira_list).toHaveLength(3)
-  expect(state.preferences.jira_list[2].list).toEqual([{ summary: 'Second review', fields: {} }])
+  expect(state.content.lists).toHaveLength(3)
+  expect(state.content.lists[2].list).toEqual([{ summary: 'Second review', fields: {} }])
   await page
     .locator('.n-tabs-tab')
     .filter({ hasText: /^New List$/ })
@@ -139,7 +139,7 @@ test('saved list tabs and subtask rows can be added and removed without changing
   await expect(page.getByText('New List', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
-  expect(state.preferences.jira_list.map((list) => list.title)).toEqual([
+  expect(state.content.lists.map((list) => list.title)).toEqual([
     'Review checklist',
     'Release checklist'
   ])
@@ -202,8 +202,9 @@ async function jiraShell(page: Page) {
     if (message.text().includes('Failed to resolve component')) errors.push(message.text())
   })
   const state = {
-    preferences: {
-      jira_list: [
+    content: {
+      version: 0,
+      lists: [
         {
           title: 'Review checklist',
           fields: [fields[0]],
@@ -225,13 +226,15 @@ async function jiraShell(page: Page) {
       user: { id: 7, username: 'operator', permissions: [], is_superuser: false }
     })
   )
-  await page.route('**/api/users/preferences/', async (route) => {
-    if (route.request().method() === 'PATCH') {
+  await page.route('**/api/users/preferences/', (route) => json(route, { theme: 'system' }))
+  await page.route('**/api/integrations/jira/subtasks/saved-lists/', async (route) => {
+    if (route.request().method() === 'PUT') {
       if (state.failSave)
-        return json(route, { detail: 'Preferences could not be saved.', code: 'SAVE_FAILED' }, 503)
-      state.preferences = route.request().postDataJSON()
+        return json(route, { detail: 'Saved lists could not be saved.', code: 'SAVE_FAILED' }, 503)
+      const payload = route.request().postDataJSON()
+      state.content = { lists: payload.lists, version: state.content.version + 1 }
     }
-    return json(route, state.preferences)
+    return json(route, state.content)
   })
   await page.route('**/api/releases/**', (route) => route.fulfill({ status: 204 }))
   await page.route('**/api/projects/', (route) =>
@@ -239,25 +242,25 @@ async function jiraShell(page: Page) {
       {
         slug: 'hys',
         name: 'HYS',
-        capabilities: ['dcc'],
-        roles: { dcc: 'operator', compliance: null, organization: null }
+        capabilities: ['jira'],
+        roles: { jira: 'operator', compliance: null, organization: null }
       }
     ])
   )
   await page.route('**/api/integrations/jira/session/', (route) =>
     json(route, { state: 'connected', expires_at: '2027-01-01T00:00:00Z' })
   )
-  await page.route('**/api/dcc/records/**', (route) =>
+  await page.route('**/api/integrations/jira/records/**', (route) =>
     json(route, { count: 0, next: null, previous: null, results: [] })
   )
-  await page.route('**/api/dcc/subtasks/fields/', (route) => {
+  await page.route('**/api/integrations/jira/subtasks/fields/', (route) => {
     expect(route.request().postDataJSON()).toEqual({ issue: 'CHN-42' })
     return json(route, { issue: 'CHN-42', fields })
   })
-  await page.route('**/api/dcc/subtasks/workbook/', (route) =>
+  await page.route('**/api/integrations/jira/subtasks/workbook/', (route) =>
     json(route, { columns: ['Title', 'Details', 'Owner', 'Due'] })
   )
-  await page.route('**/api/dcc/subtasks/jobs/', (route) => {
+  await page.route('**/api/integrations/jira/subtasks/jobs/', (route) => {
     expect(route.request().headers()['idempotency-key']).toBeTruthy()
     if (route.request().headers()['content-type']?.includes('multipart')) {
       state.workbookBody = route.request().postData() || ''

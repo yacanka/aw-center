@@ -46,7 +46,7 @@ class ProjectRegistryTests(TestCase):
         with self.assertRaises(UnknownProjectDefinitionError):
             get_project_definition("unknown")
         self.assertEqual(
-            {item.slug for item in get_project_definitions_by_capability(" DCC ")},
+            {item.slug for item in get_project_definitions_by_capability(" JIRA ")},
             set(PROJECT_DEFINITIONS),
         )
         self.assertEqual(find_project_by_jira_component(" aesa ").slug, "aesa")

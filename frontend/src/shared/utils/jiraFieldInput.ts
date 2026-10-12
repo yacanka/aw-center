@@ -1,5 +1,5 @@
-import { jiraCustomFieldInputTypes } from '@/features/dcc/models/jiraCustomFieldInputTypes'
-import { IJiraField, JiraFieldInputType } from '@/features/dcc/models/jira'
+import { jiraCustomFieldInputTypes } from '@/features/integrations/jira/models/jiraCustomFieldInputTypes'
+import { IJiraField, JiraFieldInputType } from '@/features/integrations/jira/models/jira'
 
 /** Resolve the editor type for a JIRA field using custom mappings before metadata heuristics. */
 export function resolveJiraFieldInputType(field: IJiraField): JiraFieldInputType {

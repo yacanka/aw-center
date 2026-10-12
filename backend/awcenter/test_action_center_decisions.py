@@ -90,7 +90,7 @@ class ActionCenterDecisionTests(TestCase):
         grant_project_role(
             self.user,
             draft.projects.get(),
-            ProjectRoleAssignment.Domain.DCC,
+            ProjectRoleAssignment.Domain.JIRA,
             ProjectRoleAssignment.Role.VIEWER,
         )
 

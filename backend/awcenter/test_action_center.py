@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from compliance.models import ImportAudit
-from dcc.issue_draft_models import JiraIssueDraft, JiraIssueDraftStatus
+from integrations.jira.issue_draft_models import JiraIssueDraft, JiraIssueDraftStatus
 from jobs.models import Job, JobStatus
 from orgs.models import Project, ProjectRoleAssignment
 from users.models import UserInvitation
@@ -85,7 +85,7 @@ class ActionCenterTests(TestCase):
         grant_project_role(
             self.user,
             draft.projects.get(),
-            ProjectRoleAssignment.Domain.DCC,
+            ProjectRoleAssignment.Domain.JIRA,
             ProjectRoleAssignment.Role.VIEWER,
         )
         other_source = create_job(self.other, "Private analysis", JobStatus.SUCCEEDED)

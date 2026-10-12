@@ -32,7 +32,6 @@ urlpatterns = [
     path("api/integrations/doors/", include("integrations.doors.urls")),
     path("api/integrations/teamcenter/", include("integrations.teamcenter.urls")),
     path("api/integrations/docproof/", include("integrations.docproof_urls")),
-    path("api/dcc/", include("dcc.urls")),
     path("api/users/", include("users.urls")),
     path("api/jobs/", include("jobs.urls")),
     path("api/workflows/", include("automations.workflow_urls")),

@@ -133,7 +133,8 @@ def choose_header_row(excel_file, pandas_module, model_fields: set[str]) -> Head
         result = HeaderMappingResult(header_index, mapping, missing)
         if best_result is None or len(result.missing_fields) < len(best_result.missing_fields):
             best_result = result
-        excel_file.seek(0)
+        if hasattr(excel_file, "seek"):
+            excel_file.seek(0)
     return best_result or HeaderMappingResult(0, {}, list(REQUIRED_IMPORT_FIELDS))
 
 
@@ -141,9 +142,10 @@ def try_read_excel_header(excel_file, pandas_module, header_index: int):
     """Read one candidate Excel header row and tolerate missing rows."""
 
     try:
-        return pandas_module.read_excel(excel_file, header=header_index)
+        return pandas_module.read_excel(excel_file, header=header_index, nrows=0)
     except ValueError:
-        excel_file.seek(0)
+        if hasattr(excel_file, "seek"):
+            excel_file.seek(0)
         return None
 
 
