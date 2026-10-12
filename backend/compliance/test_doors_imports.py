@@ -85,6 +85,28 @@ class ComplianceDoorsImportTests(TestCase):
         self.assertEqual(source.status_code, 200)
         self.assertEqual(source.data["default_mapping"], mapping)
 
+    def test_doors_multiple_mocs_are_normalized_and_invalid_mocs_rejected(self):
+        job = self.export_job([
+            {"Title": "Multiple MOCs", "Cover": "CP-M", "MOC": "1\n2 / 3"},
+            {"Title": "Invalid MOC", "Cover": "CP-M", "MOC": "1,A"},
+        ])
+        values = {
+            "job_id": job.pk,
+            "mapping": {"Title": "name", "Cover": "cover_page_no", "MOC": "moc"},
+        }
+        preview = self.client.post(self.preview_url(), values, format="json")
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["created_count"], 1, preview.data)
+        self.assertEqual(preview.data["rejected_count"], 1)
+        self.assertIn("moc", preview.data["invalid_documents"][0]["fields"])
+        confirmed = self.client.post(self.confirm_url(), {
+            **values, "confirmation_token": preview.data["confirmation_token"],
+        }, format="json")
+        self.assertEqual(confirmed.status_code, 201)
+        document = ComplianceDocument.objects.get()
+        self.assertEqual(document.name, "Multiple MOCs")
+        self.assertEqual(document.moc, "M")
+
     def test_iso_export_dates_survive_preview_confirmation_independently(self):
         job = self.export_job([
             {"Title": "Dated", "Cover": "CP-D", "Target": "2028-02-29", "Revised": "2028-03-15", "Delivery": "2028-02-01", "Effective": "", "Status": ""},

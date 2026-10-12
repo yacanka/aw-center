@@ -28,7 +28,6 @@ import { ref } from 'vue'
 import { NModal, NUpload, UploadCustomRequestOptions } from 'naive-ui'
 import { useOrganizationController } from '@/features/organization/composables/organizationController'
 import { popupStore } from '@/app/stores/popupStore'
-import { isPlainObject } from '@/shared/utils/general'
 
 const showModal = ref(false)
 const store = useOrganizationController()
@@ -55,23 +54,21 @@ async function handleUploadReq({ file }: UploadCustomRequestOptions) {
   window.$loadingBar.start()
   try {
     const res = await store.uploadPeople(formData)
-    if (res.error_list) {
-      let result = ''
-      const error_list = res.error_list
-      error_list.forEach((person) => {
-        let errorText = ''
-        if (isPlainObject(person.error)) {
-          errorText = Object.entries(person.error)
-            .map(([key, value]) => `${key}: ${value}`)
+    if (res.rejected.length) {
+      const result = res.rejected
+        .map((person) => {
+          const errors = Object.entries(person.errors)
+            .map(
+              ([field, value]) =>
+                `${field}: ${Array.isArray(value) ? value.join(', ') : String(value)}`
+            )
             .join('\n')
-        } else {
-          errorText = String(person.error)
-        }
-        result += `[Name] ${person.name}\n[Error] ${errorText}\n\n`
-      })
-      popup.open('Some person cannot be imported', result)
+          return `[Row] ${person.row}\n[Error] ${errors}`
+        })
+        .join('\n\n')
+      popup.open('Some people could not be imported', result)
     }
-    store.fetchPeople()
+    await store.fetchPeople(true)
     window.$loadingBar.finish()
   } catch (e) {
     window.$loadingBar.error()

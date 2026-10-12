@@ -13,7 +13,7 @@ from orgs.models import Project, ProjectRoleAssignment
 
 from .test_dcc_jobs import snapshot_contract
 
-PREVIEW_URL = "/api/dcc/jobs/create-document/preview/"
+PREVIEW_URL = "/api/integrations/jira/jobs/create-document/preview/"
 
 
 class DccPreviewApiTests(JobTestCase):
@@ -23,12 +23,12 @@ class DccPreviewApiTests(JobTestCase):
         self.assignment = ProjectRoleAssignment.objects.create(
             user=self.user,
             project=self.project,
-            domain=ProjectRoleAssignment.Domain.DCC,
+            domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
         )
-        self.capture_patcher = patch("dcc.job_views.capture_dcc_snapshot")
-        self.prepare_patcher = patch("dcc.job_views.prepare_dcc_preview")
-        self.connector_patcher = patch("dcc.job_views.jira_connector_for")
+        self.capture_patcher = patch("integrations.jira.job_views.capture_dcc_snapshot")
+        self.prepare_patcher = patch("integrations.jira.job_views.prepare_dcc_preview")
+        self.connector_patcher = patch("integrations.jira.job_views.jira_connector_for")
         self.capture = self.capture_patcher.start()
         self.prepare = self.prepare_patcher.start()
         self.connector_for = self.connector_patcher.start()
@@ -65,7 +65,7 @@ class DccPreviewApiTests(JobTestCase):
 
     def test_confirmation_rechecks_operator_role(self):
         preview = self.preview("dcc-preview-request-2")
-        url = f"/api/dcc/jobs/create-document/{preview.data['id']}/confirm/"
+        url = f"/api/integrations/jira/jobs/create-document/{preview.data['id']}/confirm/"
         self.assignment.role = ProjectRoleAssignment.Role.VIEWER
         self.assignment.save()
 
@@ -101,13 +101,13 @@ class DccPreviewApiTests(JobTestCase):
         ProjectRoleAssignment.objects.create(
             user=self.other_user,
             project=self.project,
-            domain=ProjectRoleAssignment.Domain.DCC,
+            domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
         )
         self.client.force_authenticate(self.other_user)
 
         response = self.client.post(
-            f"/api/dcc/jobs/create-document/{preview.data['id']}/confirm/",
+            f"/api/integrations/jira/jobs/create-document/{preview.data['id']}/confirm/",
             {},
             format="json",
         )

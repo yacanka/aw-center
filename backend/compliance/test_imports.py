@@ -1,15 +1,22 @@
 """Preview/confirm import matching and concurrency acceptance tests."""
 
 import json
+import re
 
 from datetime import date
 from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import patch
+from zipfile import ZipFile
 
 import pandas as pd
+from openpyxl import Workbook
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.db import connection
+from django.db.models.signals import post_init
+from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.exceptions import ValidationError
@@ -17,6 +24,7 @@ from rest_framework.exceptions import ValidationError
 from orgs.models import Panel, Person, Project, ProjectRoleAssignment, ResponsibleAssignment
 
 from .models import ComplianceDocument, CoverPage, ImportAudit, TrackingProfile, WorkflowEvent
+from .imports import execute_plan, plan_fingerprint, prepare_plan, prepare_tabular_plan
 
 
 class ComplianceImportTests(TestCase):
@@ -50,6 +58,7 @@ class ComplianceImportTests(TestCase):
         delivery_date=None,
         panel=None,
         ata=None,
+        moc=None,
     ):
         output = BytesIO()
         row = {
@@ -71,6 +80,8 @@ class ComplianceImportTests(TestCase):
             row["Panel"] = panel
         if ata is not None:
             row["ATA Chapter"] = ata
+        if moc is not None:
+            row["MOC"] = moc
         pd.DataFrame([row]).to_excel(output, index=False)
         return output.getvalue()
 
@@ -106,6 +117,339 @@ class ComplianceImportTests(TestCase):
             data,
             format="multipart",
         )
+
+    def test_terminal_audit_save_failure_rolls_back_all_import_mutations(self):
+        for partial in (False, True):
+            with self.subTest(partial=partial):
+                output = BytesIO()
+                rows = [{"name": f"Atomic document {partial}", "cover_page_no": f"CP-ATOMIC-{partial}",
+                         "panel": "New panel", "ata": 29, "status": "Reviewed"}]
+                if partial:
+                    rows.append({"name": "Rejected document", "cover_page_no": None})
+                pd.DataFrame(rows).to_excel(output, index=False)
+                uploaded = self.upload(output.getvalue())
+                request = SimpleNamespace(user=self.user)
+                fingerprint = plan_fingerprint(prepare_plan(uploaded, self.project, request))
+                original_save = ImportAudit.save
+
+                def fail_terminal_save(audit, *args, **kwargs):
+                    if audit.status in (ImportAudit.Status.SUCCESS, ImportAudit.Status.PARTIAL):
+                        raise RuntimeError("Synthetic audit storage failure")
+                    return original_save(audit, *args, **kwargs)
+
+                with patch.object(ImportAudit, "save", fail_terminal_save):
+                    with self.assertRaises(RuntimeError):
+                        execute_plan(uploaded, self.project, request, fingerprint)
+
+                self.assertFalse(ComplianceDocument.objects.exists())
+                self.assertFalse(CoverPage.objects.filter(number=f"CP-ATOMIC-{partial}").exists())
+                self.assertFalse(Panel.objects.filter(project=self.project, ata="29-00").exists())
+                self.assertFalse(WorkflowEvent.objects.exists())
+                audit = ImportAudit.objects.latest("started_at")
+                self.assertEqual(audit.status, ImportAudit.Status.FAILED)
+                self.assertIsNotNone(audit.completed_at)
+
+    @override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=2)
+    def test_workbook_row_limit_bounds_reads_before_dataframe_allocation(self):
+        output = BytesIO()
+        pd.DataFrame([{"name": f"Document {index}", "cover_page_no": f"CP-{index}"}
+                      for index in range(50)]).to_excel(output, index=False)
+        original_read = pd.read_excel
+        read_sizes = []
+
+        def bounded_read(*args, **kwargs):
+            frame = original_read(*args, **kwargs)
+            read_sizes.append(len(frame))
+            return frame
+
+        with patch.object(pd, "read_excel", bounded_read):
+            with self.assertRaises(ValidationError) as raised:
+                prepare_plan(self.upload(output.getvalue()), self.project,
+                             SimpleNamespace(user=self.user))
+        self.assertEqual(raised.exception.get_codes()["file"], "IMPORT_ROW_LIMIT")
+        self.assertLessEqual(max(read_sizes, default=0), 3)
+
+    def test_sparse_wide_workbook_is_rejected_before_data_allocation(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "cover_page_no"])
+        for index in range(10):
+            sheet.append([f"Document {index}", f"CP-{index}"])
+        sheet["XFD2"] = "Sparse distant column"
+        output = BytesIO()
+        workbook.save(output)
+        workbook.close()
+        for forged_dimension in (False, True):
+            with self.subTest(forged_dimension=forged_dimension):
+                content = output.getvalue()
+                if forged_dimension:
+                    rewritten = BytesIO()
+                    with ZipFile(BytesIO(content)) as source:
+                        with ZipFile(rewritten, "w") as target:
+                            for entry in source.infolist():
+                                data = source.read(entry.filename)
+                                if entry.filename == "xl/worksheets/sheet1.xml":
+                                    data = re.sub(rb'<dimension ref="[^"]+"',
+                                                  b'<dimension ref="A1:B11"', data)
+                                target.writestr(entry, data)
+                    content = rewritten.getvalue()
+                original_read = pd.read_excel
+                body_reads = []
+
+                def record_data_reads(*args, **kwargs):
+                    if kwargs.get("nrows") != 0:
+                        body_reads.append(True)
+                    return original_read(*args, **kwargs)
+
+                with patch.object(pd, "read_excel", record_data_reads):
+                    with self.assertRaises(ValidationError) as raised:
+                        prepare_plan(self.upload(content), self.project, SimpleNamespace(user=self.user))
+                self.assertEqual(raised.exception.get_codes()["file"], "IMPORT_COLUMN_LIMIT")
+                self.assertEqual(body_reads, [])
+
+    def test_workbook_column_limit_accepts_boundary_with_unmapped_columns(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "cover_page_no"] + [f"Extra {index}" for index in range(98)])
+        sheet.append(["Boundary document", "CP-BOUNDARY"] + [None] * 97 + ["Extra value"])
+        output = BytesIO()
+        workbook.save(output)
+        workbook.close()
+        plan = prepare_plan(self.upload(output.getvalue()), self.project, SimpleNamespace(user=self.user))
+        self.assertEqual(plan.counts["created_count"], 1)
+        self.assertEqual(plan.errors, ())
+        self.assertEqual(len(plan.mapping["source_columns"]), 100)
+        self.assertEqual(len(plan.mapping["unmapped_columns"]), 98)
+
+    @override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=2)
+    def test_sparse_far_row_is_rejected_instead_of_silently_truncated(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "cover_page_no"])
+        sheet["A24"] = "Distant document"
+        sheet["B24"] = "CP-DISTANT"
+        output = BytesIO()
+        workbook.save(output)
+        workbook.close()
+        for forged_dimension in (False, True):
+            with self.subTest(forged_dimension=forged_dimension):
+                content = output.getvalue()
+                if forged_dimension:
+                    rewritten = BytesIO()
+                    with ZipFile(BytesIO(content)) as source:
+                        with ZipFile(rewritten, "w") as target:
+                            for entry in source.infolist():
+                                data = source.read(entry.filename)
+                                if entry.filename == "xl/worksheets/sheet1.xml":
+                                    data = re.sub(rb'<dimension ref="[^"]+"',
+                                                  b'<dimension ref="A1:B1"', data)
+                                target.writestr(entry, data)
+                    content = rewritten.getvalue()
+                original_read = pd.read_excel
+                body_reads = []
+
+                def record_data_reads(*args, **kwargs):
+                    if kwargs.get("nrows") != 0:
+                        body_reads.append(True)
+                    return original_read(*args, **kwargs)
+
+                with patch.object(pd, "read_excel", record_data_reads):
+                    with self.assertRaises(ValidationError) as raised:
+                        prepare_plan(self.upload(content), self.project, SimpleNamespace(user=self.user))
+                self.assertEqual(raised.exception.get_codes()["file"], "IMPORT_ROW_LIMIT")
+                self.assertEqual(body_reads, [])
+
+    @override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=2)
+    def test_row_limit_accepts_full_boundary_with_both_supported_header_offsets(self):
+        for preamble in (False, True):
+            with self.subTest(preamble=preamble):
+                workbook = Workbook()
+                sheet = workbook.active
+                if preamble:
+                    sheet.append(["AW Center export"])
+                sheet.append(["name", "cover_page_no"])
+                sheet.append(["First", "CP-1"])
+                sheet.append(["Second", "CP-2"])
+                output = BytesIO()
+                workbook.save(output)
+                workbook.close()
+                plan = prepare_plan(self.upload(output.getvalue()), self.project,
+                                    SimpleNamespace(user=self.user))
+                self.assertEqual(plan.counts["created_count"], 2)
+                self.assertEqual(plan.errors, ())
+                self.assertEqual(plan.mapping["header_row"], 2 if preamble else 1)
+
+    def test_preview_identity_validation_queries_do_not_grow_per_row(self):
+        request = SimpleNamespace(user=self.user)
+
+        def plan_rows(count):
+            return tuple((index + 2, {"name": f"Doc {index}", "cover_page_no": f"CP-{index}"})
+                         for index in range(count))
+
+        with CaptureQueriesContext(connection) as one:
+            first = prepare_tabular_plan(plan_rows(1), self.project, request, mapping={})
+        with CaptureQueriesContext(connection) as many:
+            second = prepare_tabular_plan(plan_rows(20), self.project, request, mapping={})
+        self.assertEqual(first.counts["created_count"], 1)
+        self.assertEqual(second.counts["created_count"], 20)
+        self.assertLessEqual(len(many), len(one) + 1)
+
+    def test_preview_does_not_hydrate_unrelated_document_payloads(self):
+        cover = CoverPage.objects.create(project=self.project, number="UNRELATED")
+        for index in range(15):
+            ComplianceDocument.objects.create(project=self.project, cover_page=cover,
+                                              name=f"Unrelated {index}", notes="Long payload " * 100)
+        hydrated = []
+
+        def record_document(sender, instance, **kwargs):
+            hydrated.append(instance.pk)
+
+        post_init.connect(record_document, sender=ComplianceDocument)
+        try:
+            plan = prepare_tabular_plan(((2, {"name": "New document", "cover_page_no": "NEW"}),),
+                                       self.project, SimpleNamespace(user=self.user), mapping={})
+        finally:
+            post_init.disconnect(record_document, sender=ComplianceDocument)
+        self.assertEqual(plan.counts["created_count"], 1)
+        self.assertEqual(hydrated, [])
+
+    def test_confirmation_parses_once_before_lock_and_rechecks_changed_target(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-I")
+        document = ComplianceDocument.objects.create(project=self.project, cover_page=cover,
+                                                      name="Imported Document")
+        content = self.workbook(tech="New technical document")
+        preview = self.preview(content)
+        original_read = pd.read_excel
+        locked = False
+        data_reads = []
+
+        def observe_project_lock(execute, sql, params, many, context):
+            nonlocal locked
+            if sql.lstrip().upper().startswith('UPDATE "ORGS_PROJECT"'):
+                locked = True
+            return execute(sql, params, many, context)
+
+        def read_then_change_target(*args, **kwargs):
+            frame = original_read(*args, **kwargs)
+            if kwargs.get("nrows") != 0:
+                data_reads.append(locked)
+                # Simulate an edit completing after source parsing and before
+                # confirmation obtains the project fence.
+                ComplianceDocument.objects.filter(pk=document.pk).update(
+                    name="Concurrent edit", version=document.version + 1,
+                )
+            return frame
+
+        with connection.execute_wrapper(observe_project_lock):
+            with patch.object(pd, "read_excel", read_then_change_target):
+                response = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(data_reads, [False])
+        self.assertTrue(locked)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "VERSION_CONFLICT")
+        document.refresh_from_db()
+        self.assertEqual(document.name, "Concurrent edit")
+        self.assertIsNone(document.tech_doc_no)
+        self.assertEqual(ImportAudit.objects.get().status, ImportAudit.Status.FAILED)
+
+    def test_confirmation_source_rejection_still_records_failed_audit(self):
+        output = BytesIO()
+        pd.DataFrame([{"name": "First", "cover_page_no": "CP-1"},
+                      {"name": "Second", "cover_page_no": "CP-2"}]).to_excel(output, index=False)
+        uploaded = self.upload(output.getvalue())
+        request = SimpleNamespace(user=self.user)
+        fingerprint = plan_fingerprint(prepare_plan(uploaded, self.project, request))
+        with override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=1):
+            with self.assertRaises(ValidationError):
+                execute_plan(uploaded, self.project, request, fingerprint)
+        self.assertEqual(ImportAudit.objects.count(), 1)
+        audit = ImportAudit.objects.get()
+        self.assertEqual(audit.status, ImportAudit.Status.FAILED)
+        self.assertIsNotNone(audit.completed_at)
+        self.assertFalse(ComplianceDocument.objects.exists())
+
+    def test_candidate_selection_preserves_unicode_casefold_and_project_scope(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-STRASSE")
+        document = ComplianceDocument.objects.create(project=self.project, cover_page=cover,
+                                                      name="Straße")
+        other_project = Project.objects.exclude(pk=self.project.pk).first()
+        other_cover = CoverPage.objects.create(project=other_project, number="CP-STRASSE")
+        other_document = ComplianceDocument.objects.create(project=other_project,
+                                                           cover_page=other_cover, name="STRASSE")
+        plan = prepare_tabular_plan(((2, {"name": "STRASSE", "cover_page_no": "cp-straße"}),),
+                                   self.project, SimpleNamespace(user=self.user), mapping={})
+        self.assertEqual(plan.errors, ())
+        self.assertEqual(plan.rows[0].target.pk, document.pk)
+        self.assertNotEqual(plan.rows[0].target.pk, other_document.pk)
+        foreign_id_plan = prepare_tabular_plan(
+            ((2, {"id": str(other_document.pk), "name": "STRASSE", "cover_page_no": "cp-straße"}),),
+            self.project, SimpleNamespace(user=self.user), mapping={},
+        )
+        self.assertEqual(foreign_id_plan.rows, ())
+        self.assertEqual(foreign_id_plan.errors[0]["code"], "IMPORT_DOCUMENT_NOT_FOUND")
+
+    def test_import_normalizes_single_and_multiple_mocs(self):
+        cases = [
+            ("0", "0"), ("9", "9"), (" M ", "M"), (0, "0"), (9, "9"),
+            (2.0, "2"), (" 2 ", "2"),
+            ("1,2", "M"), ("1;2", "M"), ("1 2", "M"),
+            ("1\t2", "M"), ("1\n2", "M"), ("1\r\n2", "M"),
+            ("1/2", "M"), ("1|2", "M"), ("1-2", "M"),
+            (" 1 / 2;\n3 ", "M"), ("1,,  2", "M"), ("1,1", "M"),
+        ]
+        for value, expected in cases:
+            with self.subTest(moc=value):
+                plan = prepare_tabular_plan(
+                    ((2, {"name": "MOC document", "cover_page_no": "CP-M", "moc": value}),),
+                    self.project, SimpleNamespace(user=self.user), mapping={},
+                )
+                self.assertEqual(plan.errors, ())
+                self.assertEqual(plan.rows[0].payload["moc"], expected)
+
+    def test_import_rejects_invalid_mocs_with_field_errors(self):
+        for value in ("12", "1.2", "2.0", "A", "1,A", "m", "1,", ",1", "1:M", "1:2", "M,1", 12, 1.2, True):
+            with self.subTest(moc=value):
+                plan = prepare_tabular_plan(
+                    ((2, {"name": "Invalid MOC", "cover_page_no": "CP-M", "moc": value}),),
+                    self.project, SimpleNamespace(user=self.user), mapping={},
+                )
+                self.assertEqual(plan.counts["rejected_count"], 1)
+                self.assertIn("moc", plan.errors[0]["fields"])
+                self.assertEqual(plan.rows, ())
+
+    def test_excel_moc_preview_confirm_and_reimport(self):
+        initial = self.workbook(moc=2.0)
+        preview = self.preview(initial)
+        self.assertEqual(preview.data["rejected_count"], 0, preview.data)
+        self.assertEqual(self.confirm(initial, preview.data["confirmation_token"]).status_code, 201)
+        document = ComplianceDocument.objects.get()
+        self.assertEqual(document.moc, "2")
+
+        multiple = self.workbook(moc="1,2\n3")
+        preview = self.preview(multiple)
+        self.assertEqual(preview.data["updated_count"], 1, preview.data)
+        self.assertEqual(self.confirm(multiple, preview.data["confirmation_token"]).status_code, 201)
+        document.refresh_from_db()
+        self.assertEqual(document.moc, "M")
+        version = document.version
+        history_count = document.history.count()
+
+        for content in (multiple, self.workbook(moc=""), self.workbook()):
+            with self.subTest(content_size=len(content)):
+                preview = self.preview(content)
+                self.assertEqual(preview.data["unchanged_count"], 1, preview.data)
+                self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+                document.refresh_from_db()
+                self.assertEqual(document.moc, "M")
+                self.assertEqual(document.version, version)
+                self.assertEqual(document.history.count(), history_count)
+
+    def test_excel_multiple_mocs_are_saved_on_creation(self):
+        content = self.workbook(moc="0 / 9")
+        preview = self.preview(content)
+        self.assertEqual(preview.data["created_count"], 1, preview.data)
+        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        self.assertEqual(ComplianceDocument.objects.get().moc, "M")
 
     def test_manual_mapping_recovers_unrecognized_headers_and_audits_links(self):
         output = BytesIO()

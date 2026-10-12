@@ -14,8 +14,8 @@ from .models import EcrWorkflow, EcrWorkflowEvent, EcrWorkflowStatus
 
 MAX_ECR_PROJECTS = 9
 MAX_ECR_SUBTASKS = 20
-DCC_PROJECT_SLUGS = frozenset(
-    definition.slug for definition in get_project_definitions_by_capability("dcc")
+JIRA_PROJECT_SLUGS = frozenset(
+    definition.slug for definition in get_project_definitions_by_capability("jira")
 )
 
 
@@ -29,7 +29,7 @@ class EcrCreateSerializer(serializers.Serializer):
     def validate_project_slugs(self, values):
         if len(set(values)) != len(values):
             raise serializers.ValidationError("Project slugs must be unique.")
-        if any(value not in DCC_PROJECT_SLUGS for value in values):
+        if any(value not in JIRA_PROJECT_SLUGS for value in values):
             raise serializers.ValidationError("Select only projects with DCC capability.")
         projects = list(
             Project.objects.filter(enabled=True, slug__in=values).order_by("slug")

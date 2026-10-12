@@ -64,6 +64,17 @@ class GroupSerializer(ModelSerializer):
 
 
 class UserPreferencesSerializer(ModelSerializer):
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            forbidden = set(data) & {"jira_list", "document_analysis_checks", "extra_settings", "version"}
+            if forbidden:
+                raise serializers.ValidationError({name: "This field is not writable on user preferences." for name in sorted(forbidden)})
+        return super().to_internal_value(data)
+
+    def update(self, instance, validated_data):
+        from .preference_service import update_user_preferences
+        return update_user_preferences(instance.user, validated_data)
+
     class Meta:
         model = UserPreferences
         fields = [
@@ -82,9 +93,8 @@ class UserPreferencesSerializer(ModelSerializer):
             "compact_view",
             "extra_settings",
             "updated_at",
-            "jira_list",
         ]
-        read_only_fields = ["updated_at"]
+        read_only_fields = ["updated_at", "extra_settings"]
 
 
 class UserSerializer(ModelSerializer):
@@ -181,10 +191,8 @@ class UserSerializer(ModelSerializer):
                 user.user_permissions.set(permissions)
 
         if preferences_data:
-            preferences, _ = UserPreferences.objects.get_or_create(user=user)
-            for attr, value in preferences_data.items():
-                setattr(preferences, attr, value)
-            preferences.save()
+            from .preference_service import update_user_preferences
+            update_user_preferences(user, preferences_data)
 
         return user
 
@@ -209,10 +217,8 @@ class UserSerializer(ModelSerializer):
                 instance.user_permissions.set(permissions)
 
         if preferences_data:
-            preferences, _ = UserPreferences.objects.get_or_create(user=instance)
-            for attr, value in preferences_data.items():
-                setattr(preferences, attr, value)
-            preferences.save()
+            from .preference_service import update_user_preferences
+            update_user_preferences(instance, preferences_data)
 
         return instance
 

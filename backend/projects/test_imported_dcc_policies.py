@@ -2,8 +2,8 @@
 
 from copy import deepcopy
 from django.test import SimpleTestCase, override_settings
-from dcc.document_job import build_render_context
-from dcc.document_fields import main_issue_fields, panel_fields
+from integrations.jira.document_job import build_render_context
+from integrations.jira.document_fields import main_issue_fields, panel_fields
 from projects.registry import find_project_by_jira_component, get_project_definition
 from unittest.mock import patch
 from datetime import date
@@ -51,7 +51,7 @@ class ImportedDccPolicyTests(SimpleTestCase):
     def test_hurkus_placeholder_keeps_all_panels(self):
         panels = [{"Panel_Name": "Flight Panel", "Affected_Requirements": "REQ-1"}]
         self.assertEqual(self.context("hurkus", panels)["Panels"], panels)
-        self.assertEqual(get_project_definition("hurkus").capabilities, ("dcc",))
+        self.assertEqual(get_project_definition("hurkus").capabilities, ("jira",))
 
     def test_jira_component_names_accept_existing_and_corrected_spelling(self):
         for component in ("OZGUR", "Özgür", "ÖZGÜR"):
@@ -60,7 +60,7 @@ class ImportedDccPolicyTests(SimpleTestCase):
         self.assertEqual(find_project_by_jira_component("HÜRKUŞ 2").slug, "hurkus")
         self.assertEqual(find_project_by_jira_component("PIKU").slug, "piku")
 
-    @patch("dcc.document_fields.timezone.localdate", return_value=date(2026, 9, 22))
+    @patch("integrations.jira.document_fields.timezone.localdate", return_value=date(2026, 9, 22))
     def test_document_date_does_not_replace_the_source_update_date(self, _today):
         fields = main_issue_fields({"updated": "2026-09-01T12:00:00+03:00"})
         self.assertEqual(fields["Update_Time"], "22.09.2026")
@@ -71,7 +71,7 @@ class ImportedDccPolicyTests(SimpleTestCase):
         from tempfile import TemporaryDirectory
         from docx import Document
         from docxtpl import DocxTemplate
-        from dcc.document_job import render_document
+        from integrations.jira.document_job import render_document
 
         with TemporaryDirectory() as directory:
             template = Path(directory) / "template.docx"

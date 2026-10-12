@@ -257,7 +257,7 @@ for (const theme of ['light', 'dark'] as const) {
             slug: 'aesa',
             name: 'AESA',
             capabilities: ['compliance'],
-            roles: { compliance: 'editor', organization: null, dcc: null }
+            roles: { compliance: 'editor', organization: null, jira: null }
           }
         ])
       )
@@ -324,8 +324,8 @@ test('reconciled ECR publication resumes with a new idempotent durable attempt',
       {
         slug: 'aesa',
         name: 'AESA',
-        capabilities: ['dcc'],
-        roles: { compliance: null, organization: null, dcc: 'publisher' }
+        capabilities: ['jira'],
+        roles: { compliance: null, organization: null, jira: 'publisher' }
       }
     ])
   )

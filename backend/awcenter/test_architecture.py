@@ -17,7 +17,7 @@ FEATURE_PACKAGES = frozenset(
         "automations",
         "compliance",
         "comparison",
-        "dcc",
+        "jira",
         "ddf",
         "excel",
         "integrations",
@@ -137,7 +137,7 @@ class ArchitectureFitnessTests(SimpleTestCase):
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
-                if imported_root(node) == "dcc":
+                if imported_root(node) == "jira":
                     violations.append(f"{module}:{getattr(node, 'lineno', 0)}")
         self.assertEqual(violations, [])
 

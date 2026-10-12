@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .permissions import GroupPermission, UserPermission
+from .models import get_user_preferences
 from .password_reset_notifications import pad_password_reset_response
 from .throttles import (
     PasswordResetAccountThrottle,
@@ -183,7 +184,7 @@ class UserPreferencesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        serializer = UserPreferencesSerializer(request.user.preferences)
+        serializer = UserPreferencesSerializer(get_user_preferences(request.user))
         return Response(serializer.data)
 
     def put(self, request):
@@ -203,52 +204,12 @@ class ResetPreferencesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        request.user.preferences.reset_to_defaults()
-        serializer = UserPreferencesSerializer(request.user.preferences)
+        from .preference_service import reset_appearance
+        serializer = UserPreferencesSerializer(reset_appearance(request.user))
         return Response({
             "message": "Preferences reset to defaults",
             "preferences": serializer.data,
         })
-
-
-class ExtraSettingView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, key):
-        value = request.user.preferences.get_extra_setting(key)
-        if value is None:
-            return Response(
-                {"error": f"Setting '{key}' not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        return Response({key: value})
-
-    def post(self, request):
-        key = request.data.get("key")
-        value = request.data.get("value")
-
-        if not key:
-            return Response(
-                {"error": "Key is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        request.user.preferences.set_extra_setting(key, value)
-        return Response({
-            "message": "Setting saved successfully",
-            key: value,
-        })
-
-    def delete(self, request, key):
-        preferences = request.user.preferences
-        if key in preferences.extra_settings:
-            del preferences.extra_settings[key]
-            preferences.save(update_fields=["extra_settings", "updated_at"])
-            return Response({"message": f"Setting '{key}' deleted"})
-        return Response(
-            {"error": f"Setting '{key}' not found"},
-            status=status.HTTP_404_NOT_FOUND,
-        )
 
 
 class PasswordResetRequestAPIView(APIView):

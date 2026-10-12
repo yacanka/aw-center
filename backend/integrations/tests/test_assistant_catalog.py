@@ -54,7 +54,7 @@ class AssistantAccessTests(TestCase):
         self.assertEqual(authorized_guides(self.user), ())
 
     def test_project_guides_require_enabled_capability_and_domain_role(self):
-        self.grant("dcc")
+        self.grant("jira")
         self.assertIn("/jira", self.paths())
         self.assertNotIn("/compdocs/aesa", self.paths())
         self.assertNotIn("/organization", self.paths())

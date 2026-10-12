@@ -6,13 +6,13 @@ consumer documentation in the same change so unsupported capabilities cannot
 silently reach clients.
 """
 
-PROJECT_CAPABILITY_DCC = "dcc"
+PROJECT_CAPABILITY_JIRA = "jira"
 PROJECT_CAPABILITY_COMPLIANCE = "compliance"
 PROJECT_CAPABILITY_ORGANIZATION = "organization"
 
 ALLOWED_PROJECT_CAPABILITIES = frozenset(
     (
-        PROJECT_CAPABILITY_DCC,
+        PROJECT_CAPABILITY_JIRA,
         PROJECT_CAPABILITY_COMPLIANCE,
         PROJECT_CAPABILITY_ORGANIZATION,
     )

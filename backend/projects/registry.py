@@ -15,7 +15,7 @@ def _definition(
     dcc_controller: str | None = None,
     dcc_label: str | None = None,
     template: str | None = None,
-    capabilities: tuple[str, ...] = ("dcc", "compliance", "organization"),
+    capabilities: tuple[str, ...] = ("jira", "compliance", "organization"),
 ):
     return ProjectDefinition(
         slug=slug,
@@ -52,7 +52,7 @@ PROJECT_DEFINITIONS = MappingProxyType(
         ),
         "hurkus": _definition(
             "hurkus", "HÜRKUŞ 2", dcc_label="HK", template="hk_dcc_template.docx",
-            capabilities=("dcc",), dcc_controller="hurkus_dcc",
+            capabilities=("jira",), dcc_controller="hurkus_dcc",
         ),
         "hurjet": _definition("hurjet", "HURJET"),
     }

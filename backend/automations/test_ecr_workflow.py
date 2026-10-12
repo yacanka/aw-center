@@ -247,7 +247,7 @@ class EcrWorkflowApiTests(JobTestCase):
         second_assignment = ProjectRoleAssignment.objects.create(
             user=self.user,
             project=second_project,
-            domain=ProjectRoleAssignment.Domain.DCC,
+            domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
         )
         created = self.client.post(
@@ -423,15 +423,15 @@ class EcrPublicationExecutorTests(JobTestCase):
         workflow.refresh_from_db()
         self.assertEqual(workflow.status, EcrWorkflowStatus.PUBLISHED)
         self.assertEqual(workflow.jira_issue_key, "CHN-101")
-        from dcc.models import DccRecord
-        tracked = DccRecord.objects.get(owner=self.user, issue="CHN-101")
+        from integrations.jira.workflow_models import JiraTrackedIssue
+        tracked = JiraTrackedIssue.objects.get(owner=self.user, issue="CHN-101")
         self.assertEqual(tracked.title, workflow.snapshot["title"])
         self.assertEqual(set(tracked.projects.all()), set(workflow.projects.all()))
         self.assertTrue(workflow.publication_state["attachment_confirmed"])
         self.assertEqual(len(workflow.publication_state["subtask_keys"]), 1)
 
     def test_completed_publication_replay_keeps_one_watcher_and_event(self):
-        from dcc.models import DccRecord
+        from integrations.jira.workflow_models import JiraTrackedIssue
 
         workflow, job = self.queued_workflow("ecr-completed-replay-1")
         connector = ready_connector(subtask_count=1)
@@ -444,12 +444,12 @@ class EcrPublicationExecutorTests(JobTestCase):
             replay = execute_ecr_jira_publication(job)
             replay.path.unlink(missing_ok=True)
 
-        self.assertEqual(DccRecord.objects.filter(owner=self.user, issue="CHN-101").count(), 1)
+        self.assertEqual(JiraTrackedIssue.objects.filter(owner=self.user, issue="CHN-101").count(), 1)
         self.assertEqual(workflow.events.filter(event_type="published").count(), 1)
 
     def test_publication_tracking_failure_rolls_back_workflow_event_and_watcher(self):
-        from dcc.models import DccRecord
-        from dcc.record_services import track_published_issue
+        from integrations.jira.workflow_models import JiraTrackedIssue
+        from integrations.jira.record_services import track_published_issue
 
         workflow, job = self.confirmed_workflow("ecr-tracking-failure-1")
         original_version = workflow.version
@@ -460,7 +460,7 @@ class EcrPublicationExecutorTests(JobTestCase):
             raise RuntimeError("tracking failed")
 
         with active_job(job), patch(
-            "dcc.record_services.track_published_issue", side_effect=fail_after_tracking
+            "integrations.jira.record_services.track_published_issue", side_effect=fail_after_tracking
         ):
             with self.assertRaisesRegex(RuntimeError, "tracking failed"):
                 complete_ecr_publication(job)
@@ -470,10 +470,10 @@ class EcrPublicationExecutorTests(JobTestCase):
         self.assertEqual(workflow.version, original_version)
         self.assertIsNone(workflow.published_at)
         self.assertEqual(workflow.events.count(), original_event_count)
-        self.assertFalse(DccRecord.objects.filter(owner=self.user, issue="CHN-101").exists())
+        self.assertFalse(JiraTrackedIssue.objects.filter(owner=self.user, issue="CHN-101").exists())
 
     def test_stale_publication_lease_cannot_create_watcher_or_complete_workflow(self):
-        from dcc.models import DccRecord
+        from integrations.jira.workflow_models import JiraTrackedIssue
 
         workflow, job = self.confirmed_workflow("ecr-stale-tracking-1")
         original_version = workflow.version
@@ -486,7 +486,7 @@ class EcrPublicationExecutorTests(JobTestCase):
         self.assertEqual(workflow.status, EcrWorkflowStatus.PUBLISHING)
         self.assertEqual(workflow.version, original_version)
         self.assertFalse(workflow.events.filter(event_type="published").exists())
-        self.assertFalse(DccRecord.objects.filter(owner=self.user, issue="CHN-101").exists())
+        self.assertFalse(JiraTrackedIssue.objects.filter(owner=self.user, issue="CHN-101").exists())
 
     def confirmed_workflow(self, key):
         workflow, job = self.queued_workflow(key)
@@ -662,7 +662,7 @@ def grant_publisher(user, project):
     return ProjectRoleAssignment.objects.create(
         user=user,
         project=project,
-        domain=ProjectRoleAssignment.Domain.DCC,
+        domain=ProjectRoleAssignment.Domain.JIRA,
         role=ProjectRoleAssignment.Role.PUBLISHER,
     )
 
@@ -774,13 +774,14 @@ def ecr_pdf(title):
     return pdf_document(table_commands(cells))
 
 
-def table_commands(cells):
+def table_commands(cells, *, row_count=19):
     columns, top, row_height = [30, 180, 310, 440, 570], 740, 35
+    bottom = top - row_count * row_height
     commands = ["0.5 w"]
-    commands.extend(f"{x} 75 m {x} {top} l S" for x in columns)
+    commands.extend(f"{x} {bottom} m {x} {top} l S" for x in columns)
     commands.extend(
         f"30 {top - row * row_height} m 570 {top - row * row_height} l S"
-        for row in range(20)
+        for row in range(row_count + 1)
     )
     for (row, column), value in cells.items():
         x, y = columns[column] + 3, top - (row + 1) * row_height + 12

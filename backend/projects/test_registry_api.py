@@ -43,7 +43,7 @@ class ProjectRegistryApiTests(TestCase):
         self.assertEqual(set(project), SAFE_KEYS)
         self.assertEqual(project["slug"], "ozgur")
         self.assertEqual(project["roles"]["compliance"], "editor")
-        self.assertIsNone(project["roles"]["dcc"])
+        self.assertIsNone(project["roles"]["jira"])
         self.assertNotIn("jira_component", project)
 
     def test_disabled_or_unknown_projects_are_hidden(self):
@@ -82,20 +82,20 @@ class ProjectRegistryApiTests(TestCase):
         self.assertEqual(response.data[0]["name"], "Hürjet")
         self.assertEqual(
             set(response.data[0]["capabilities"]),
-            {"dcc", "compliance", "organization"},
+            {"jira", "compliance", "organization"},
         )
 
     def test_hurkus_exposes_only_dcc_and_requires_its_own_role(self):
         ProjectRoleAssignment.objects.create(
             project=Project.objects.get(slug="hurkus"),
-            domain=ProjectRoleAssignment.Domain.DCC,
+            domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
             user=self.user,
         )
         self.client.force_authenticate(self.user)
         response = self.client.get("/api/projects/")
         self.assertEqual([item["slug"] for item in response.data], ["hurkus"])
-        self.assertEqual(response.data[0]["capabilities"], ["dcc"])
+        self.assertEqual(response.data[0]["capabilities"], ["jira"])
         self.assertEqual(set(response.data[0]), SAFE_KEYS)
 
     def test_superuser_catalog_roles_match_supported_capabilities(self):
@@ -111,11 +111,11 @@ class ProjectRegistryApiTests(TestCase):
         self.assertIn("gokbey_sivil", projects)
         self.assertEqual(
             projects["hurkus"]["roles"],
-            {"compliance": None, "organization": None, "dcc": "publisher"},
+            {"compliance": None, "organization": None, "jira": "publisher"},
         )
         self.assertEqual(
             projects["ozgur"]["roles"],
-            {"compliance": "manager", "organization": "manager", "dcc": "publisher"},
+            {"compliance": "manager", "organization": "manager", "jira": "publisher"},
         )
         for project in projects.values():
             for domain, role in project["roles"].items():

@@ -18,7 +18,7 @@ from rest_framework.test import APIClient
 from automations.models import EcrWorkflow
 from compliance.models import ComplianceDocument, CoverPage, DocumentStatus, ImportAudit
 from compliance.status_catalog import delete_status
-from dcc.models import DccRecord, JiraIssueDraft
+from integrations.jira.workflow_models import JiraTrackedIssue, JiraIssueDraft
 from jobs.models import Job, JobStatus, WorkerHeartbeat
 from jobs.services import create_job
 from jobs.worker import claim_next_job, execute_claimed_job
@@ -42,7 +42,7 @@ def assert_fresh_install() -> None:
     occupied = {
         "compliance_documents": ComplianceDocument.objects.exists(),
         "compliance_import_audits": ImportAudit.objects.exists(),
-        "dcc_records": DccRecord.objects.exists(),
+        "dcc_records": JiraTrackedIssue.objects.exists(),
         "jira_issue_drafts": JiraIssueDraft.objects.exists(),
         "ecr_workflows": EcrWorkflow.objects.exists(),
         "jobs": Job.objects.exists(),
@@ -140,7 +140,7 @@ def run_core_smoke(*, operator_username: str, project_slug: str) -> dict:
         _expect(project_payload is not None, "The authorized smoke project was not visible.")
         _expect(
             project_payload.get("roles", {}).get("compliance") == "editor"
-            and project_payload.get("roles", {}).get("dcc") == "operator",
+            and project_payload.get("roles", {}).get("jira") == "operator",
             "Project roles were not projected correctly.",
         )
 
@@ -295,7 +295,7 @@ def _grant_smoke_roles(user, project) -> None:
     for domain, role in (
         (ProjectRoleAssignment.Domain.COMPLIANCE, ProjectRoleAssignment.Role.EDITOR),
         (ProjectRoleAssignment.Domain.ORGANIZATION, ProjectRoleAssignment.Role.VIEWER),
-        (ProjectRoleAssignment.Domain.DCC, ProjectRoleAssignment.Role.OPERATOR),
+        (ProjectRoleAssignment.Domain.JIRA, ProjectRoleAssignment.Role.OPERATOR),
     ):
         ProjectRoleAssignment.objects.create(
             user=user,

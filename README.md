@@ -121,7 +121,7 @@ Canonical yüzey:
 - `/api/projects/`: erişilebilir proje kataloğu
 - `/api/projects/<slug>/organization/`: project-scoped organizasyon
 - `/api/projects/<slug>/compliance-documents/`: canonical compliance aggregate
-- `/api/dcc/`, `/api/jobs/`, `/api/workflows/` ve owner-scoped `/api/workflows/ecr/`
+- `/api/integrations/jira/`, `/api/jobs/`, `/api/workflows/` ve owner-scoped `/api/workflows/ecr/`
 - `/api/integrations/` ve `/api/tools/...`
 
 Canonical `/api/` dışında root-level feature alias'ları ve unauthenticated file/download route'ları desteklenmez.
@@ -149,9 +149,9 @@ ECR akışı frontend'deki `/app/task/ecr` ekranından yönetilir. `GET/POST /ap
 
 JIRA, orijinal `Subtask Generator (List)` ve `Subtask Generator (Excel)` sekmelerini korur. List sekmesinde isimlendirilmiş listeler, çift tıklayarak yeniden adlandırma, dinamik JIRA sütunları, toplu `Set Values` ve `Save` bulunur; mevcut `jira_list` kullanıcı tercihleri aynı veri biçimiyle okunup kaydedilir. Excel sekmesi ilk sheet'in sütunlarını Summary, Description, Assignee ve Due Date alanlarıyla eşler; Summary ve Description seçilmelidir. Gün/ay/yıl tarih biçimleri desteklenir.
 
-İki ekran da `/api/dcc/subtasks/...` sözleşmesini kullanır. Tarayıcı yalnız canonical JIRA session endpoint'ine tek seferlik credential gönderir; subtask payload'ı credential içermez. Oluşturma server-owned durable job'dır; ilerleme eski ekranın progress bar'ında gösterilir. Belirsiz dış write otomatik tekrarlanmaz. Başarısız/belirsiz bir işlemden sonra Generate, aynı marker'larla orijinal listeyi sürdürme veya mevcut formdan yeni batch oluşturma seçimini açıkça sorar; yeni batch mevcut subtasks'ları çoğaltabilir. Job Center üzerinden iptal ve özel sonuç indirme kullanılabilir.
+İki ekran da `/api/integrations/jira/subtasks/...` sözleşmesini kullanır. Tarayıcı yalnız canonical JIRA session endpoint'ine tek seferlik credential gönderir; subtask payload'ı credential içermez. Oluşturma server-owned durable job'dır; ilerleme eski ekranın progress bar'ında gösterilir. Belirsiz dış write otomatik tekrarlanmaz. Başarısız/belirsiz bir işlemden sonra Generate, aynı marker'larla orijinal listeyi sürdürme veya mevcut formdan yeni batch oluşturma seçimini açıkça sorar; yeni batch mevcut subtasks'ları çoğaltabilir. Job Center üzerinden iptal ve özel sonuç indirme kullanılabilir.
 
-Watcher reminder akışı `/api/dcc/records/<uuid>/reminders/` üzerinden güncel record `version`, DCC operator rolü ve saatlik kayıt bazlı cooldown doğrular. Alıcılar açık JIRA subtasks assignee adreslerinden server tarafında alınır; browser'a dönmez. Web process'i yalnız durable outbox kaydı üretir, SMTP gönderimi lease-fenced notification worker'da stable `Message-ID` ile yapılır.
+Watcher reminder akışı `/api/integrations/jira/records/<uuid>/reminders/` üzerinden güncel record `version`, JIRA operator rolü ve saatlik kayıt bazlı cooldown doğrular. Alıcılar açık JIRA subtasks assignee adreslerinden server tarafında alınır; browser'a dönmez. Web process'i yalnız durable outbox kaydı üretir, SMTP gönderimi lease-fenced notification worker'da stable `Message-ID` ile yapılır.
 
 Windows hattı için [doors-worker.md](docs/doors-worker.md) belgesine bakın.
 

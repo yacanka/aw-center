@@ -13,13 +13,14 @@ import { runOrganizationRequest } from '@/features/organization/api/organization
 import type { OrganizationState } from '@/features/organization/composables/organizationState'
 
 export type PeopleImportError = {
-  name: string
-  error: string | Record<string, unknown>
+  row: number
+  errors: Record<string, unknown>
 }
 
 export type PeopleImportResult = {
-  message: string
-  error_list?: PeopleImportError[]
+  detail: string
+  code: 'PEOPLE_IMPORT_COMPLETED'
+  rejected: PeopleImportError[]
 }
 
 export type PeopleSearchPage = {
@@ -111,11 +112,16 @@ export async function uploadPeople(
   state: OrganizationState,
   file: FormData
 ): Promise<PeopleImportResult> {
-  return runOrganizationRequest<PeopleImportResult>(
+  const result = await runOrganizationRequest<PeopleImportResult>(
     state,
     axios.post(organizationPath(state.project, 'people', 'import'), file),
-    (data) => notifySuccess(data.message)
+    (data) => notifySuccess(data.detail)
   )
+  // Directory imports can change any cached page, including a request already in flight.
+  state.peopleFetched = false
+  state.peopleRequest = null
+  state.peopleRequestId++
+  return result
 }
 
 function canReuseRequest(

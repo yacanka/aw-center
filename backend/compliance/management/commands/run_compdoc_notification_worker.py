@@ -9,7 +9,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from compliance.notifications import scan_notifications
-from dcc.reminder_notifications import process_dcc_reminder_deliveries
+from integrations.jira.reminder_notifications import process_dcc_reminder_deliveries
 from users.password_reset_notifications import process_password_reset_deliveries
 
 LOGGER = logging.getLogger(__name__)

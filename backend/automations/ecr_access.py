@@ -6,14 +6,14 @@ from rest_framework.exceptions import PermissionDenied
 from orgs.access_policy import has_role_for_all_projects
 from orgs.models import ProjectRoleAssignment
 
-DCC_DOMAIN = ProjectRoleAssignment.Domain.DCC
+JIRA_DOMAIN = ProjectRoleAssignment.Domain.JIRA
 VIEWER = ProjectRoleAssignment.Role.VIEWER
 OPERATOR = ProjectRoleAssignment.Role.OPERATOR
 PUBLISHER = ProjectRoleAssignment.Role.PUBLISHER
 
 
 def has_ecr_role(user, workflow, minimum_role) -> bool:
-    """Require ownership plus the DCC role on every enabled project."""
+    """Require ownership plus the JIRA role on every enabled project."""
 
     if not user or not user.is_authenticated:
         return False
@@ -25,7 +25,7 @@ def has_ecr_role(user, workflow, minimum_role) -> bool:
     return workflow.owner_id == user.pk and has_role_for_all_projects(
         user,
         projects,
-        DCC_DOMAIN,
+        JIRA_DOMAIN,
         minimum_role,
     )
 
@@ -36,7 +36,7 @@ def require_ecr_role(user, workflow, minimum_role) -> None:
     if not has_ecr_role(user, workflow, minimum_role):
         raise PermissionDenied(
             detail={
-                "detail": "You do not have the required DCC project role.",
+                "detail": "You do not have the required JIRA project role.",
                 "code": "DCC_PROJECT_ROLE_REQUIRED",
             }
         )
@@ -51,14 +51,14 @@ def require_ecr_projects_role(user, projects, minimum_role) -> None:
         or has_role_for_all_projects(
             user,
             project_list,
-            DCC_DOMAIN,
+            JIRA_DOMAIN,
             minimum_role,
         )
     )
     if not allowed:
         raise PermissionDenied(
             detail={
-                "detail": "You do not have the required DCC project role.",
+                "detail": "You do not have the required JIRA project role.",
                 "code": "DCC_PROJECT_ROLE_REQUIRED",
             }
         )
@@ -72,8 +72,8 @@ def readable_ecr_workflows(user, queryset):
         return owned
     allowed_projects = ProjectRoleAssignment.objects.filter(
         Q(user=user) | Q(group__user=user),
-        domain=DCC_DOMAIN,
-        role__in=ProjectRoleAssignment.VALID_ROLES[DCC_DOMAIN],
+        domain=JIRA_DOMAIN,
+        role__in=ProjectRoleAssignment.VALID_ROLES[JIRA_DOMAIN],
         project__enabled=True,
     ).values("project_id")
     return (

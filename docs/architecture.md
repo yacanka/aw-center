@@ -77,7 +77,7 @@ capability'leri process başına daha dar biçimde ayrılmaya devam edecektir.
 | `automations` | Executor metadata catalog ve workflow use-case'leri | Generic workflow/event framework değildir |
 | `attention` | Kullanıcının action/decision görünümü | Domain aggregate'lerini sahiplenmez |
 | `integrations` | Vendor transport/session adapterları ile DOORS, Teamcenter ve DocProof HTTP/use-case yüzeyleri | Credential response/log üretmez; vendor başına kök Django app oluşturmaz |
-| `dcc`, tools | Domain HTTP adapterı, validation ve executor | Kernel'e ters bağımlılık oluşturmaz |
+| `integrations.jira`, tools | Domain HTTP adapterı, validation ve executor | Kernel'e ters bağımlılık oluşturmaz |
 | `users` | Browser session, users, invitations, preferences ve password-reset outbox | SMTP web process'ine verilmez |
 
 `backend/awcenter/test_architecture.py`, production import graph'ini, jobs kernel bağımsızlığını, kaldırılmış runtime package'larını, browser auth sınırını ve canonical URL yüzeyini fitness function olarak kilitler.
@@ -111,6 +111,19 @@ Compliance Excel ve DOORS importları ortak önizleme/onay akışında organizas
 
 Önizleme salt okunurdur; `panel_changes` alanı ATA, eski/yeni ad ve işlemi gösterir. Panel durumu confirmation fingerprint'e dahildir ve onayda panel/belge değişiklikleri tek transaction'da uygulanır. Bu sınırlı katalog güncellemesi mevcut compliance editor import yetkisinin parçasıdır; doğrudan organizasyon düzenleme ve bağımsız panel importu için organization manager gerekliliği değişmez.
 
+Excel import gerçek worksheet koordinatlarını dataframe tahsisinden önce kontrol
+eder; 100 sütun ve yapılandırılmış satır sınırı uygulanır. Başlık adayları yalnız
+başlık olarak, veri ise tek workbook üzerinden en fazla `limit + 1` satırla okunur.
+Koordinat kontrolü iki desteklenen başlık konumunu hesaba katar; uzak satırlardaki
+veri ve sahte worksheet dimension bilgisi sessizce kesilmez, erken reddedilir.
+Parsing write lock öncesindedir. Confirm sırasında project/version/fingerprint
+kontrolleri ve mevcut document/cover lock kapsamı korunur; yalnız dar identity
+metadata stream edilir, eşleşen payload'lar hydrate edilir. Preview duplicate
+doğrulaması satır başına sorgu yerine project-scoped snapshot kullanır. Başarılı
+ve partial audit tamamlanması business değişiklikleriyle aynı transaction'dadır;
+başarısızlık audit'i rollback sonrasında yazılır. Ani process kapanması hâlâ
+`processing` audit bırakabilir; yeni bir recovery framework eklenmemiştir.
+
 Project URL scope'u açıktır:
 
 ```text
@@ -134,6 +147,15 @@ Authorization her request'te URL project'i, object project'i ve `ProjectRoleAssi
 - expired lease recovery ve yeni token;
 - private output + yetkili download + retention.
 
+Disposable executor feature kodu başlamadan önce bir process ağacı sınırına alınır.
+POSIX'te ayrı session/process group; Windows'ta parent-owned, non-inheritable
+[kill-on-close Job Object](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+kullanılır. Startup gate Windows assignment tamamlanmadan feature import/execution
+çalıştırmaz. Timeout, cancellation, crash ve normal completion sırasında kalan
+descendant'lar sonlandırılır; artifact digest/publication öncesinde ağacın çıkışı
+sınırlı süreyle doğrulanır. Çıkış doğrulanamazsa output yayımlanmaz; dış write işi
+otomatik retry yerine reconciliation gerektirir. Lease/token fencing korunur.
+
 Executor metadata'sının tek kaynağı `automations.catalog.EXECUTOR_CATALOG`'dur.
 Her kayıt `kind`, dotted callable path, `queue`, upload policy ve timeout içerir.
 Normal worker `local` allowlist'ini; development ve Windows production'da DOORS
@@ -151,7 +173,7 @@ ECR feature sözleşmesi owner-scoped `GET/POST /api/workflows/ecr/` collection 
 
 ### JIRA subtask ve Watcher reminder
 
-Subtask Creator'ın manual ve Excel girişleri `/api/dcc/subtasks/` altında birleşir. HTTP katmanı parent issue, project capability, DCC operator rolü ve canlı/sanitize edilmiş JIRA create metadata'sını doğrular; Excel yalnız bounded ilk sheet'ten credential-free JSON plana normalize edilir. `dcc.create_jira_subtasks` local durable job'ı her satır için owner/idempotency tabanlı marker arar, yalnız eksik kaydı oluşturur. Provider sonucu belirsizse job `reconciliation_required` olur ve aynı marker planını koruyan explicit resume gerekir.
+Subtask Creator'ın manual ve Excel girişleri `/api/integrations/jira/subtasks/` altında birleşir. HTTP katmanı parent issue, project capability, DCC operator rolü ve canlı/sanitize edilmiş JIRA create metadata'sını doğrular; Excel yalnız bounded ilk sheet'ten credential-free JSON plana normalize edilir. `dcc.create_jira_subtasks` local durable job'ı her satır için owner/idempotency tabanlı marker arar, yalnız eksik kaydı oluşturur. Provider sonucu belirsizse job `reconciliation_required` olur ve aynı marker planını koruyan explicit resume gerekir.
 
 Watcher reminder endpoint'i owner/assignee scope'undaki DCC kaydını, optimistic `version` değerini ve operator rolünü doğrular. Açık JIRA subtasks'tan bounded ve doğrulanmış e-posta listesi çıkarılır; adresler API response'una yazılmaz. Web process'i SMTP çağrısı yapmaz. `DccReminderDelivery` outbox'ı notification worker tarafından row lease, retry ve stable `Message-ID` ile teslim edilir; aynı kayıt için yeni gönderim bir saatlik cooldown'a tabidir.
 
@@ -176,6 +198,14 @@ private artifact dizinini kullanır; browser request process'i COM çalıştırm
 
 ## API ve hata yüzeyi
 
+Personel import frontend'i canonical `detail/code/rejected` yanıtını tüketir;
+reddedilen satır/alan hataları gösterildikten sonra directory cache/in-flight
+request geçersizleştirilir ve forced refresh beklenir. Ortak HTTP client caller ve
+session abort sinyallerinin listener'larını success/error/cancellation ve serialization
+hatalarında temizler. JIRA DCC/ECR ekranlarında disposal ve request/selection
+revision kontrolleri geç kalan cevapların state veya polling timer'ını yeniden
+oluşturmasını engeller.
+
 Beklenmeyen API hatasının JSON log'u `api.unhandled_exception`, request ID ve exception türüne ek olarak yalnız en iç frame'in modül, fonksiyon ve satırını `exception_location` içinde taşır. Worker'ın `error_type`/`failure_stage` ve bildirim kimlikleri allowlist üzerinden korunur; ham exception mesajı, traceback kaynak metni, local değişkenler, payload ve filesystem yolu eklenmez. Browser'a dönen `INTERNAL_ERROR` yanıtı genel kalır.
 
 Release note `bulk-seen` girdisi en fazla 1.000 pozitif signed64 integer ID kabul eder; boyut kontrolü child doğrulamasından önce yapılır. Oluşturma ve ön okuma aynı transaction içindedir; sıralı `get_or_create` sayesinde aynı kullanıcı/not çifti eşzamanlı çağrılarda tek kayıt oluşturur. `created`, yalnız o isteğin gerçekten eklediği kayıt sayısıdır; boş liste, tekrarlar ve aktif olmayan/bulunmayan ID'ler sayıyı artırmaz. İstemci uzun okunmamış listelerini 1.000'lik gruplar halinde gönderir.
@@ -184,7 +214,7 @@ Canonical root surface:
 
 - `/api/session/`, `/api/users/`
 - `/api/projects/` ve project-scoped organization/compliance
-- `/api/attention/`, `/api/dcc/`, `/api/jobs/`, `/api/workflows/` ve `/api/workflows/ecr/`
+- `/api/attention/`, `/api/integrations/jira/`, `/api/jobs/`, `/api/workflows/` ve `/api/workflows/ecr/`
 - `/api/integrations/...`, `/api/tools/...`, `/api/releases/`
 - `/app/`, `/health/live/`, `/health/ready/`, `/admin/`
 
@@ -289,3 +319,9 @@ bu kontroller bugünkü Windows env dosyasının yerine geçmez. Ayrıntılı g�
 - Unauthenticated artifact server
 - Güncel Windows SQLite production'ını yatay ölçeklemek
 - Agent'ın PostgreSQL veya Redis'e doğrudan bağlanması
+
+## JIRA application ve kullanıcı içeriği
+
+JIRA client/session ve business akışları `integrations/jira/` içindedir; model discovery `integrations/models.py`, signal wiring `IntegrationsConfig.ready` üzerinden yapılır. Proje capability ve erişim domain'i `jira` değeridir. Eski dcc migration'ları migration-only legacy_dcc paketinde korunur; mevcut tablolar state-only migration ile integrations modellerine bağlanır. DCC doküman formatı ve persist edilmiş job-kind kimlikleri bu uygulama adından bağımsızdır.
+
+Görünüm tercihleri UserPreferences, kullanıcı tarafından oluşturulan JIRA listeleri JiraUserContent ve özel analiz soruları DocumentAnalysisUserContent sorumluluğundadır. Görünüm reseti kullanıcı içeriğini silmez. JIRA listeleri session store yerine feature API'siyle yüklenir; stale writes version CAS ile reddedilir, başarısız yükleme boş içerik olarak persist edilmez.

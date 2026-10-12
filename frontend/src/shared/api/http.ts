@@ -1,5 +1,10 @@
 import axios from 'axios'
-import type { AxiosError, GenericAbortSignal, InternalAxiosRequestConfig } from 'axios'
+import type {
+  AxiosError,
+  AxiosRequestTransformer,
+  GenericAbortSignal,
+  InternalAxiosRequestConfig
+} from 'axios'
 import { normalizeApiBaseUrl, normalizeApiRequestPath } from '@/shared/api/apiUrl'
 
 export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL)
@@ -19,6 +24,7 @@ export const apiClient = axios.create({
 const UNSAFE_HTTP_METHODS = new Set(['post', 'put', 'patch', 'delete'])
 let authenticationFailureHandler: (() => void) | null = null
 let sessionRequestController = new AbortController()
+const abortCleanups = new WeakMap<InternalAxiosRequestConfig, () => void>()
 
 /**
  * Ensures browser cookie-token requests include Django's CSRF header.
@@ -26,18 +32,62 @@ let sessionRequestController = new AbortController()
 apiClient.interceptors.request.use((config) => {
   config.url = normalizeApiRequestPath(config.url || '')
   config.withCredentials = true
-  config.signal = combineAbortSignals(config.signal, sessionRequestController.signal)
   attachCsrfToken(config)
+  const combined = combineAbortSignals(config.signal, sessionRequestController.signal)
+  config.signal = combined.signal
+  if (combined.cleanup) {
+    abortCleanups.set(config, combined.cleanup)
+    cleanupRequestOnCompletion(config)
+  }
   return config
 })
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    cleanupAbortListeners(response.config)
+    return response
+  },
   (error: AxiosError) => {
+    cleanupAbortListeners(error.config)
     if (isAuthenticationFailure(error)) authenticationFailureHandler?.()
     return Promise.reject(error)
   }
 )
+
+function cleanupAbortListeners(config: InternalAxiosRequestConfig | undefined): void {
+  if (!config) return
+  abortCleanups.get(config)?.()
+  abortCleanups.delete(config)
+}
+
+function cleanupRequestOnCompletion(config: InternalAxiosRequestConfig): void {
+  // Axios may reject serialization or an adapter with an error that has no request config.
+  const transforms: AxiosRequestTransformer[] = config.transformRequest
+    ? Array.isArray(config.transformRequest)
+      ? config.transformRequest
+      : [config.transformRequest]
+    : []
+  config.transformRequest = transforms.map(
+    (transform) =>
+      function (data, headers) {
+        try {
+          return transform.call(this, data, headers)
+        } catch (error) {
+          cleanupAbortListeners(this)
+          throw error
+        }
+      }
+  )
+  const adapter = config.adapter
+  if (typeof adapter !== 'function') return
+  config.adapter = async (requestConfig) => {
+    try {
+      return await adapter(requestConfig)
+    } finally {
+      cleanupAbortListeners(requestConfig)
+    }
+  }
+}
 
 /** Distinguish an expired session from an ordinary permission-denied response. */
 export function isAuthenticationFailure(error: Pick<AxiosError, 'response'>): boolean {
@@ -86,16 +136,19 @@ export function cancelSessionScopedRequests(): void {
 function combineAbortSignals(
   requestSignal: GenericAbortSignal | undefined,
   sessionSignal: AbortSignal
-): GenericAbortSignal {
-  if (!requestSignal) return sessionSignal
+): { signal: GenericAbortSignal; cleanup?: () => void } {
+  if (!requestSignal) return { signal: sessionSignal }
   const addEventListener = requestSignal.addEventListener?.bind(requestSignal)
   const removeEventListener = requestSignal.removeEventListener?.bind(requestSignal)
-  if (!addEventListener || !removeEventListener) return sessionSignal
+  if (!addEventListener || !removeEventListener) return { signal: sessionSignal }
 
   const controller = new AbortController()
-  const abort = () => {
+  const cleanup = () => {
     removeEventListener('abort', abort)
     sessionSignal.removeEventListener('abort', abort)
+  }
+  const abort = () => {
+    cleanup()
     controller.abort()
   }
   if (requestSignal.aborted || sessionSignal.aborted) abort()
@@ -103,5 +156,5 @@ function combineAbortSignals(
     addEventListener('abort', abort, { once: true })
     sessionSignal.addEventListener('abort', abort, { once: true })
   }
-  return controller.signal
+  return { signal: controller.signal, cleanup }
 }

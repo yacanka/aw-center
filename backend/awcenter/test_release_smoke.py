@@ -13,7 +13,7 @@ from django.test import TestCase, override_settings
 from docx import Document
 
 from compliance.models import ComplianceDocument, DocumentStatus, ImportAudit
-from dcc.models import DccRecord
+from integrations.jira.workflow_models import JiraTrackedIssue
 from jobs.models import Job, WorkerHeartbeat
 from orgs.models import Project
 from users.models import PasswordResetDelivery
@@ -46,7 +46,7 @@ class ReleaseSmokeTests(TestCase):
             document.save(template)
             output = StringIO()
             with patch(
-                "dcc.document_job.resolve_dcc_template_path",
+                "integrations.jira.document_job.resolve_dcc_template_path",
                 return_value=template,
             ):
                 call_command(
@@ -102,7 +102,7 @@ class ReleaseSmokeTests(TestCase):
 
     def test_refuses_to_run_against_existing_business_state(self):
         project = Project.objects.get(slug="hys")
-        DccRecord.objects.create(
+        JiraTrackedIssue.objects.create(
             issue="AW-EXISTING",
             title="Existing production state",
             owner=self.operator,

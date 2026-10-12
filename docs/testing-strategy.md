@@ -134,6 +134,12 @@ Değişen yüzeyle orantılı olarak en az şunları değerlendirin:
 - Release bulk-seen'de erken liste sınırı, strict integer ID, duplicate/inactive/user scope, session+CSRF ve gerçek iki bağlantılı eşzamanlı POST'ların doğru `created` toplamı; frontend'de uzun listelerin bounded gruplar halinde gönderilmesi;
 - API/worker JSON log'larında hata konumu ve allowlisted aşama bilgisi; ham hata mesajı, payload, credential, local değerler ve filesystem yolu redaction regresyonları;
 - unsafe filename, traversal, yanlış signature, oversized upload, archive expansion;
+- Personel import'ta canonical partial-result satır raporu ve warm/in-flight cache sonrası awaited forced refresh; refresh hatasında raporun korunması;
+- HTTP signal listener'larında success/network/timeout/cancellation, malformed cookie, serialization ve config taşımayan adapter hatalarında cleanup; mounted DCC/ECR deferred cevaplarında unmount/selection/action revision ve superseded loading flag'ları;
+- Compliance import'ta SUCCESS/PARTIAL audit save hatasında business rollback, erken satır/sütun bütçesi, spoofed dimension/XFD sütunu, uzak sparse satırın sessizce kesilmeden reddi, her iki başlık konumunda tam satır sınırı, 100-column boundary, query scaling, candidate hydration ve parse sonrası concurrent edit fingerprint'i;
+- DDF'de eksik tablo/kısa satır ve eşit metinli bağımsız hücreler; legacy Word/Excel'de JSON/threshold/shape, aggregate character-work ve combined cell bütçeleri, malformed Office ve unexpected 500;
+- Worksheet XML preflight'ta completed node detach ile satır sayısından bağımsız memory; parent-remove mutation aynı peak-allocation regresyonunu tetikler;
+- Gerçek executor/child/grandchild ağacında timeout/cancel/crash/success, startup containment failure, publication öncesi çıkış ve dış write için containment exit timeout'ta reconciliation;
 - PDF bölmede `parts` için sayfa sayısı ve 1.000 parça sınırı, `pages_per_parts` ile türetilen parça sayısında aynı üst sınır, ondalıklı/geçersiz parametre reddi ve her iki modda ZIP içindeki sayfa sırasının korunması;
 - Outlook attachment capability'sinde cross-user kullanım, query/URL sızıntısı, replay ve cached SHA-256 mismatch; production file cache üzerinde aynı payload'ı okuyan thread/process'ler için tek başarılı tüketim, expiry ve kilit hatasında payload reddi;
 - idempotency key replay: aynı input ve farklı input;

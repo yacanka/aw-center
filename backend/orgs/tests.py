@@ -71,7 +71,7 @@ class ProjectRolePolicyTests(TestCase):
         second = Project.objects.get(slug="piku")
         ProjectRoleAssignment.objects.create(
             project=self.project,
-            domain=ProjectRoleAssignment.Domain.DCC,
+            domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
             user=self.user,
         )
@@ -80,7 +80,7 @@ class ProjectRolePolicyTests(TestCase):
             has_role_for_all_projects(
                 self.user,
                 [self.project, second],
-                ProjectRoleAssignment.Domain.DCC,
+                ProjectRoleAssignment.Domain.JIRA,
                 ProjectRoleAssignment.Role.OPERATOR,
             )
         )

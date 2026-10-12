@@ -228,11 +228,16 @@ jobs:
           awcenter.test_architecture
           awcenter.test_database_settings
           awcenter.test_runner_lifecycle
+          awcenter.test_spreadsheet_security
           jobs.tests.test_isolated_worker
           jobs.tests.test_artifact_deletion
           compliance.test_imports
           compliance.test_import_concurrency
           compliance.test_doors_imports
+          compliance.tests_compdoc_import
+          ddf.test_upload
+          word.test_compare_api
+          excel.test_compare_limits
           integrations.tests.test_doors_worker_tasks
           integrations.tests.test_probes
           integrations.tests.test_jira_sessions
@@ -240,7 +245,7 @@ jobs:
           integrations.tests.test_mail
           awcenter.test_mail_settings
           users.test_password_reset_delivery
-          dcc.test_reminder_notifications
+          integrations.jira.test_reminder_notifications
           compliance.test_notifications
           releases.tests
           awcenter.test_safe_logging

@@ -130,8 +130,8 @@ async function routeResponsiveApi(
         {
           slug: 'aesa',
           name: 'AESA',
-          capabilities: ['compliance', 'organization', 'dcc'],
-          roles: { compliance: 'manager', organization: 'manager', dcc: 'publisher' }
+          capabilities: ['compliance', 'organization', 'jira'],
+          roles: { compliance: 'manager', organization: 'manager', jira: 'publisher' }
         }
       ])
     }

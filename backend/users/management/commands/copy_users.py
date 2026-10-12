@@ -2,12 +2,16 @@ from pathlib import Path
 
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand, CommandError
-from django.db import IntegrityError, connections, transaction
+from django.db import IntegrityError, connections, transaction, models
+from django.db.models import F
+from integrations.jira.user_content_models import JiraUserContent
+from word.models import DocumentAnalysisUserContent
 
 from users.models import UserPreferences
 
 
 SOURCE_DATABASE = "db_old"
+MISSING_CONTENT = object()
 TARGET_DATABASE = "default"
 USER_COPY_FIELDS = (
     "email",
@@ -48,6 +52,11 @@ def get_legacy_preference_values(user_id):
         and field.column in legacy_columns
         and field.name not in {"created_at", "updated_at"}
     ]
+    for name in ("jira_list", "document_analysis_checks"):
+        if name in legacy_columns:
+            field = models.JSONField()
+            field.set_attributes_from_name(name)
+            fields.append(field)
     if not fields:
         return None
 
@@ -120,10 +129,19 @@ class Command(BaseCommand):
 
                     preference_values = get_legacy_preference_values(legacy_user.pk)
                     if preference_values is not None:
-                        UserPreferences.objects.using(TARGET_DATABASE).update_or_create(
+                        lists = preference_values.pop("jira_list", MISSING_CONTENT)
+                        checks = preference_values.pop("document_analysis_checks", MISSING_CONTENT)
+                        for model, field, content in ((JiraUserContent, "subtask_lists", lists),
+                                                      (DocumentAnalysisUserContent, "checks", checks)):
+                            if content is not MISSING_CONTENT:
+                                row, _ = model.objects.using(TARGET_DATABASE).get_or_create(user=target_user)
+                                model.objects.using(TARGET_DATABASE).filter(pk=row.pk).update(**{field: models.Value(content, output_field=models.JSONField()), "version": F("version") + 1})
+                        preference_values.pop("version", None)
+                        preferences, _ = UserPreferences.objects.using(TARGET_DATABASE).update_or_create(
                             user=target_user,
                             defaults=preference_values,
                         )
+                        UserPreferences.objects.using(TARGET_DATABASE).filter(pk=preferences.pk).update(version=F("version") + 1)
                 copied_count += outcome == "copied"
                 updated_count += outcome == "updated"
                 skipped_count += outcome == "skipped"

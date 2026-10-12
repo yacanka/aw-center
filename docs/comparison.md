@@ -46,6 +46,17 @@ Keep the idempotency key across an uncertain retry of an unchanged request. A ne
 
 ## Reports and bounds
 
+Legacy synchronous Word/Excel endpoints validate their existing multipart JSON
+parameters (at most 4,096 characters) and return safe validation errors. Word
+retains `null` automatic thresholds and its current matching algorithm, with an
+additional pre-alignment budget of 25,000,000 character pairs
+(`sum(first paragraph lengths) × sum(second paragraph lengths)`). Excel accepts
+at most 25,000 data cells across both tables; actual OOXML cell coordinates are
+streamed before pandas allocation, so forged dimension hints cannot bypass the
+row/column limits. Expected malformed inputs are 400; unexpected failures use the
+standard sanitized 500 contract. Larger comparisons use the existing durable job
+tool. These conservative synchronous bounds can reject large unchanged files.
+
 DOCX and XLSX are available for every supported input family. DOCX contains marked changes; XLSX contains Summary, Differences and Possible matches sheets. Both come from the same result model. Excel counts use cells and column headers; document counts use text blocks. XLSX neutralizes untrusted formula-leading strings. All actual changes remain visible.
 
 Default bounds: 50 MiB per file through the existing upload policy; 101 MiB internal package (`COMPARE_MAX_PACKAGE_BYTES`); 100 worksheets; 100 columns and 10,000 rows in the selected table; 20 header candidates; 1,000 PDF pages; 10,000 document blocks; 2,000,000 extracted characters; 2,000 characters per changed fuzzy candidate; 250,000 candidate pairs; 100,000 report entries (10,000 for DOCX). Excel report cell text is limited to 32,760 characters. Exceeding limits fails explicitly or requests a safer Excel matching method; report data is not silently truncated. Worksheet previews are sampled and header labels in selectors may be shortened.

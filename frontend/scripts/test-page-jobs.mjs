@@ -40,8 +40,14 @@ test('page job monitor restores, polls, cancels, downloads, and opens Job Center
 test('inline status surfaces progress, cancellation, and explicit Job Center navigation', async () => {
   const [statusCard, dccStatus, dccCreator] = await Promise.all([
     readFile(new URL('../src/features/jobs/components/PageJobStatus.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/features/dcc/components/DccJobStatus.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/features/dcc/pages/DCCCreator.vue', import.meta.url), 'utf8')
+    readFile(
+      new URL('../src/features/integrations/jira/components/DccJobStatus.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/features/integrations/jira/pages/DCCCreator.vue', import.meta.url),
+      'utf8'
+    )
   ])
 
   assert.match(statusCard, /job\.progress/)

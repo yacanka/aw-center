@@ -27,8 +27,8 @@ describe('assistant canonical navigation', () => {
           {
             slug: 'aesa',
             name: 'AESA',
-            capabilities: ['compliance', 'dcc', 'organization'],
-            roles: { compliance: 'viewer', dcc: 'viewer', organization: 'viewer' }
+            capabilities: ['compliance', 'jira', 'organization'],
+            roles: { compliance: 'viewer', jira: 'viewer', organization: 'viewer' }
           }
         ],
         { id: 1, is_superuser: true },

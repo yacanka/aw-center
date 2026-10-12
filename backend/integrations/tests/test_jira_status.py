@@ -19,3 +19,12 @@ class JiraOpenSubtaskTests(SimpleTestCase):
         connector.jira = Mock()
         connector.jira.issue.side_effect = lambda key: parent if key == "CHN-1" else tasks[key]
         self.assertEqual(connector.get_open_subtask(), [tasks["CHN-2"]])
+
+    def test_field_names_are_expanded_only_for_watcher_details(self):
+        connector = JiraConnector.__new__(JiraConnector)
+        connector.issue_key = "CHN-1"
+        connector.jira = Mock()
+        connector.get_issue()
+        connector.jira.issue.assert_called_with("CHN-1")
+        connector.get_issue(include_field_names=True)
+        connector.jira.issue.assert_called_with("CHN-1", expand="names")

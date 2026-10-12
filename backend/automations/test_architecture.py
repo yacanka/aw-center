@@ -51,7 +51,7 @@ class AutomationArchitectureTests(SimpleTestCase):
     def test_kernel_and_doors_tasks_keep_dependency_direction(self):
         root = Path(__file__).resolve().parents[1]
         kernel_files = tuple((root / "jobs").glob("*.py"))
-        feature_roots = {"dcc", "excel", "integrations", "media_tools", "outlook", "word"}
+        feature_roots = {"jira", "excel", "integrations", "media_tools", "outlook", "word"}
         for path in kernel_files:
             imports = imported_roots(path)
             self.assertTrue(feature_roots.isdisjoint(imports), path.name)
@@ -63,7 +63,7 @@ class AutomationArchitectureTests(SimpleTestCase):
         self.assertNotIn("django.db", worker_imports)
 
         composition_source = (root / "awcenter" / "job_executors.py").read_text()
-        self.assertNotIn("from dcc", composition_source)
+        self.assertNotIn("from integrations.jira", composition_source)
         self.assertNotIn("from integrations", composition_source)
         self.assertNotIn("from word", composition_source)
 

@@ -10,10 +10,10 @@ from unittest.mock import Mock, patch
 from django.core.files.base import ContentFile
 from docx import Document
 from awcenter.job_executors import resolve_job_executor
-from dcc.document_job import build_render_context
-from dcc.document_snapshot import DccSnapshotError, build_snapshot, capture_dcc_snapshot
-from dcc.document_preview import prepare_dcc_preview
-from dcc.services.template_resolver import DccTemplateNotFoundError
+from integrations.jira.document_job import build_render_context
+from integrations.jira.document_snapshot import DccSnapshotError, build_snapshot, capture_dcc_snapshot
+from integrations.jira.document_preview import prepare_dcc_preview
+from integrations.jira.services.template_resolver import DccTemplateNotFoundError
 from jobs.models import Job, JobStatus
 from jobs.services import create_job
 from jobs.worker import claim_next_job, execute_claimed_job
@@ -25,17 +25,17 @@ from .base import JobTestCase
 class DccSnapshotTests(JobTestCase):
     """Verify DCC snapshot boundary cases independently of JIRA transport."""
 
-    @patch("dcc.job_views.jira_connector_for")
+    @patch("integrations.jira.job_views.jira_connector_for")
     def test_preview_and_confirmation_reject_query_string_credentials(self, connector_for):
         """JIRA credentials cannot be smuggled through durable DCC job URLs."""
 
         preview = self.client.post(
-            "/api/dcc/jobs/create-document/preview/?JSESSIONID=never-in-a-url",
+            "/api/integrations/jira/jobs/create-document/preview/?JSESSIONID=never-in-a-url",
             {"url": "DCC-1"},
             format="json",
         )
         confirmation = self.client.post(
-            "/api/dcc/jobs/create-document/00000000-0000-0000-0000-000000000001/confirm/"
+            "/api/integrations/jira/jobs/create-document/00000000-0000-0000-0000-000000000001/confirm/"
             "?JSESSIONID=never-in-a-url",
             {},
             format="json",
@@ -121,7 +121,7 @@ class DccSnapshotTests(JobTestCase):
         ProjectRoleAssignment.objects.create(
             user=self.user,
             project=hys,
-            domain=ProjectRoleAssignment.Domain.DCC,
+            domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
         )
         issue = parent_issue([])
@@ -196,26 +196,26 @@ class DccDocumentExecutorTests(JobTestCase):
         ProjectRoleAssignment.objects.create(
             user=self.user,
             project=project,
-            domain=ProjectRoleAssignment.Domain.DCC,
+            domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
         )
         with (
             patch(
-                "dcc.job_views.capture_dcc_snapshot",
+                "integrations.jira.job_views.capture_dcc_snapshot",
                 return_value=snapshot_contract([project.pk]),
             ),
-            patch("dcc.job_views.jira_connector_for"),
-            patch("dcc.document_job.get_project_definition", return_value=project_definition()),
-            patch("dcc.document_job.resolve_dcc_template_path", return_value=template_path),
+            patch("integrations.jira.job_views.jira_connector_for"),
+            patch("integrations.jira.document_job.get_project_definition", return_value=project_definition()),
+            patch("integrations.jira.document_job.resolve_dcc_template_path", return_value=template_path),
         ):
             preview = self.client.post(
-                "/api/dcc/jobs/create-document/preview/",
+                "/api/integrations/jira/jobs/create-document/preview/",
                 {"url": "DCC-1"}, format="json",
                 HTTP_IDEMPOTENCY_KEY="dcc-complete-flow",
             )
             warning_codes = preview.data["result_summary"]["readiness_warning_codes"]
             confirmation = self.client.post(
-                f"/api/dcc/jobs/create-document/{preview.data['id']}/confirm/",
+                f"/api/integrations/jira/jobs/create-document/{preview.data['id']}/confirm/",
                 {"acknowledged_warning_codes": warning_codes}, format="json",
             )
             execute_claimed_job(
@@ -233,8 +233,8 @@ class DccDocumentExecutorTests(JobTestCase):
             self.user, "dcc.create_document", "Create DCC", {"issue_key": "DCC-1"}, upload
         )
 
-        with patch("dcc.document_job.get_project_definition", return_value=project_definition()):
-            with patch("dcc.document_job.resolve_dcc_template_path", return_value=template_path):
+        with patch("integrations.jira.document_job.get_project_definition", return_value=project_definition()):
+            with patch("integrations.jira.document_job.resolve_dcc_template_path", return_value=template_path):
                 execute_claimed_job(claim_next_job("dcc-worker"), resolve_job_executor)
 
         job.refresh_from_db()
@@ -271,8 +271,8 @@ class DccDocumentExecutorTests(JobTestCase):
         create_template(template_path)
         snapshot = snapshot_contract()
 
-        with patch("dcc.document_job.get_project_definition", return_value=project_definition()):
-            with patch("dcc.document_job.resolve_dcc_template_path", return_value=template_path):
+        with patch("integrations.jira.document_job.get_project_definition", return_value=project_definition()):
+            with patch("integrations.jira.document_job.resolve_dcc_template_path", return_value=template_path):
                 summary = prepare_dcc_preview(snapshot)
 
         self.assertTrue(summary["template_ready"])
@@ -289,7 +289,7 @@ class DccDocumentExecutorTests(JobTestCase):
         job, _created = create_job(
             self.user, "dcc.create_document", "Create DCC", {"issue_key": "DCC-1"}, upload
         )
-        with patch("dcc.document_job.resolve_dcc_template_path") as resolver:
+        with patch("integrations.jira.document_job.resolve_dcc_template_path") as resolver:
             resolver.side_effect = DccTemplateNotFoundError("private/path/template.docx")
             execute_claimed_job(claim_next_job("dcc-worker"), resolve_job_executor)
 

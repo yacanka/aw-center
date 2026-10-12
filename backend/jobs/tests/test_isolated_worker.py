@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from jobs.models import JobStatus
 from jobs.services import create_job, request_cancellation
 from jobs.process_bootstrap import bootstrap_executor_process
 from jobs.worker import claim_next_job, execute_claimed_job, start_executor_process
+from jobs.worker import persist_result as real_persist_result
 
 
 def isolated_success_executor(_job):
@@ -37,9 +39,48 @@ def isolated_slow_executor(_job):
     return isolated_success_executor(_job)
 
 
+def isolated_nested_executor(job):
+    """Create a real child/grandchild tree that outlives a killed executor."""
+
+    marker = str(job.parameters["tree_marker"])
+    code = """
+import json, os, signal, subprocess, sys, time
+if os.name != "nt":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+leaf_code = "import os, signal, time; " + (
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN); " if os.name != "nt" else ""
+) + "time.sleep(60)"
+leaf = subprocess.Popen([sys.executable, "-c", leaf_code],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+with open(sys.argv[1], "w") as output:
+    json.dump([os.getpid(), leaf.pid], output)
+time.sleep(60)
+"""
+    subprocess.Popen(
+        [sys.executable, "-c", code, marker],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    deadline = time.monotonic() + 5
+    while not Path(marker).exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if not Path(marker).exists():
+        raise RuntimeError("Nested fixture did not start")
+    mode = job.parameters["tree_mode"]
+    if mode == "crash":
+        os._exit(12)
+    if mode == "success":
+        return isolated_success_executor(job)
+    if mode == "cancel":
+        request_cancellation(job)
+    time.sleep(30)
+    return isolated_success_executor(job)
+
+
 def isolated_resolver(kind):
     """Resolve only test kinds without accepting a dotted path from job data."""
 
+    if kind.endswith(".nested"):
+        return isolated_nested_executor
     if kind.endswith(".slow"):
         return isolated_slow_executor
     return isolated_success_executor
@@ -152,6 +193,131 @@ class IsolatedWorkerTests(TransactionTestCase):
         self.assertEqual(job.error_code, "RECONCILIATION_REQUIRED")
         self.assertFalse(job.retryable)
 
+    def test_containment_exit_timeout_never_publishes_or_retries_external_write(self):
+        for external_write in (False, True):
+            with self.subTest(external_write=external_write):
+                job = self.create_job("test.success", external_write=external_write)
+                with patch("jobs.process_tree.ExecutorProcessTree.wait_for_exit", return_value=False):
+                    execute_claimed_job(
+                        claim_next_job("worker-tree-exit-timeout"), isolated_resolver,
+                        timeout_seconds=5, isolate=True,
+                    )
+                job.refresh_from_db()
+                if external_write:
+                    self.assertEqual(job.status, JobStatus.RECONCILIATION_REQUIRED)
+                    self.assertFalse(job.retryable)
+                else:
+                    self.assertEqual(job.status, JobStatus.FAILED)
+                    self.assertEqual(job.error_code, "JOB_EXECUTOR_STOP_FAILED")
+                self.assertFalse(job.output_file)
+
+    def test_nested_processes_stop_on_timeout_cancellation_crash_and_success(self):
+        for mode in ("timeout", "cancel", "crash", "success"):
+            with self.subTest(mode=mode):
+                marker = self.private_root / f"tree-{mode}.json"
+                job = self.create_job("test.nested")
+                job.parameters = {"tree_marker": str(marker), "tree_mode": mode}
+                job.save(update_fields=["parameters"])
+                pids = []
+                try:
+                    execute_claimed_job(
+                        claim_next_job(f"worker-tree-{mode}"), isolated_resolver,
+                        timeout_seconds=2 if mode == "timeout" else 5, isolate=True,
+                    )
+                    self.assertTrue(marker.exists(), "Nested fixture must start before stop")
+                    pids = json.loads(marker.read_text())
+                    deadline = time.monotonic() + 3
+                    while any(self.process_is_running(pid) for pid in pids) and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                    self.assertFalse(any(self.process_is_running(pid) for pid in pids))
+                    job.refresh_from_db()
+                    self.assertEqual(job.status, {
+                        "timeout": JobStatus.FAILED, "cancel": JobStatus.CANCELLED,
+                        "crash": JobStatus.FAILED, "success": JobStatus.SUCCEEDED,
+                    }[mode])
+                finally:
+                    if marker.exists():
+                        pids = json.loads(marker.read_text())
+                    for pid in pids:
+                        if self.process_is_running(pid):
+                            try:
+                                os.kill(pid, 9)
+                            except ProcessLookupError:
+                                pass
+
+    def process_is_running(self, pid):
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel.OpenProcess.restype = wintypes.HANDLE
+            handle = kernel.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            try:
+                code = wintypes.DWORD()
+                kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+                kernel.GetExitCodeProcess(handle, ctypes.byref(code))
+                return code.value == 259
+            finally:
+                kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+                kernel.CloseHandle(handle)
+        state = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        return bool(state) and not state.startswith("Z")
+
+    def test_containment_failure_stops_executor_before_it_can_spawn_children(self):
+        marker = self.private_root / "tree-start-failed.json"
+        job = self.create_job("test.nested")
+        job.parameters = {"tree_marker": str(marker), "tree_mode": "success"}
+        job.save(update_fields=["parameters"])
+        started = []
+
+        def fail_containment(process):
+            started.append(process.pid)
+            raise PermissionError("containment fixture")
+
+        with patch("jobs.worker.ExecutorProcessTree", side_effect=fail_containment):
+            with self.assertRaises(PermissionError):
+                start_executor_process(job, isolated_resolver)
+
+        self.assertEqual(len(started), 1)
+        self.assertFalse(self.process_is_running(started[0]))
+        self.assertFalse(marker.exists())
+
+    def test_executor_descendants_stop_before_artifact_publication(self):
+        marker = self.private_root / "tree-publication.json"
+        job = self.create_job("test.nested")
+        job.parameters = {"tree_marker": str(marker), "tree_mode": "success"}
+        job.save(update_fields=["parameters"])
+        pids = []
+
+        def publish_after_tree_stopped(*args, **kwargs):
+            pids.extend(json.loads(marker.read_text()))
+            self.assertFalse(any(self.process_is_running(pid) for pid in pids))
+            return real_persist_result(*args, **kwargs)
+
+        try:
+            with patch("jobs.worker.persist_result", side_effect=publish_after_tree_stopped):
+                execute_claimed_job(
+                    claim_next_job("worker-publication-tree"), isolated_resolver,
+                    timeout_seconds=5, isolate=True,
+                )
+            job.refresh_from_db()
+            self.assertEqual(job.status, JobStatus.SUCCEEDED)
+        finally:
+            if marker.exists():
+                for pid in json.loads(marker.read_text()):
+                    if self.process_is_running(pid):
+                        try:
+                            os.kill(pid, 9)
+                        except ProcessLookupError:
+                            pass
+
     def create_job(self, kind, *, external_write=False):
         job, _created = create_job(
             self.user,
@@ -167,9 +333,12 @@ class IsolatedWorkerTests(TransactionTestCase):
 class WorkerCompositionTests(SimpleTestCase):
     """Lock catalog timeout and process isolation into the production worker loop."""
 
+    @patch("jobs.worker.ExecutorProcessTree")
     @patch("jobs.worker.connections.close_all")
     @patch("jobs.worker.multiprocessing.get_context")
-    def test_macos_and_windows_use_spawn_while_linux_keeps_fork(self, get_context, _close):
+    def test_macos_and_windows_use_spawn_while_linux_keeps_fork(
+        self, get_context, _close, _tree
+    ):
         job = SimpleNamespace(id="12345678-job", kind="test.success")
         get_context.return_value.Pipe.return_value = (Mock(), Mock())
         for platform, method in (("darwin", "spawn"), ("win32", "spawn"), ("linux", "fork")):
@@ -244,11 +413,12 @@ class WorkerCompositionTests(SimpleTestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    @patch("jobs.worker.ExecutorProcessTree")
     @patch("jobs.worker.connections.close_all")
     @patch("jobs.worker.multiprocessing.get_context")
     @patch("jobs.worker.sys.platform", "win32")
     def test_windows_process_defers_resolver_import_until_after_bootstrap(
-        self, get_context, _close_connections
+        self, get_context, _close_connections, _tree
     ):
         """Spawn receives import-safe strings instead of importing a resolver early."""
 

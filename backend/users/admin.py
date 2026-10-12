@@ -31,6 +31,7 @@ class UserPreferencesInline(admin.StackedInline):
     can_delete = False
     verbose_name = 'Preferences'
     verbose_name_plural = 'Preferences'
+    readonly_fields = ('extra_settings', 'version')
 
     fieldsets = (
         ('Appearance', {
@@ -66,6 +67,16 @@ class CustomUserAdmin(UserAdmin):
     add_form = ConstrainedUserCreationForm
     form = ConstrainedUserChangeForm
     inlines = (UserPreferencesInline,)
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model is not UserPreferences:
+            return super().save_formset(request, form, formset, change)
+        from .preference_service import update_user_preferences
+        for inline_form in formset.forms:
+            if inline_form.has_changed():
+                values = {name: inline_form.cleaned_data[name] for name in inline_form.changed_data
+                          if name not in {'user', 'extra_settings', 'version', 'DELETE', 'id'}}
+                update_user_preferences(form.instance, values)
     list_display = (
         'username',
         'email',
@@ -104,7 +115,14 @@ class UserPreferencesAdmin(admin.ModelAdmin):
     list_display = ('user', 'theme', 'language', 'email_notifications', 'updated_at')
     list_filter = ('theme', 'language', 'email_notifications')
     search_fields = ('user__username', 'user__email')
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = ('user', 'created_at', 'updated_at', 'extra_settings', 'version')
+
+    def has_add_permission(self, request):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        from .preference_service import update_user_preferences
+        update_user_preferences(obj.user, {name: getattr(obj, name) for name in form.changed_data})
 
 
 @admin.register(UserInvitation)

@@ -108,15 +108,9 @@ class UserPreferences(models.Model):
         help_text='Additional custom settings'
     )
 
-    jira_list = models.JSONField(
-        default=list,
-        blank=True,
-        help_text='JIRA subtask list'
-    )
-    document_analysis_checks = models.JSONField(default=list, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    version = models.PositiveIntegerField(default=0)
 
     class Meta:
         verbose_name = 'User Preference'
@@ -130,27 +124,6 @@ class UserPreferences(models.Model):
     def get_extra_setting(self, key, default=None):
         return self.extra_settings.get(key, default)
 
-    def set_extra_setting(self, key, value):
-        self.extra_settings[key] = value
-        self.save(update_fields=['extra_settings', 'updated_at'])
-
-    def reset_to_defaults(self):
-        self.theme = 'system'
-        self.language = 'en'
-        self.timezone = 'UTC'
-        self.email_notifications = True
-        self.push_notifications = True
-        self.sms_notifications = False
-        self.newsletter_subscribed = False
-        self.profile_visible = True
-        self.show_online_status = True
-        self.show_activity = True
-        self.items_per_page = 25
-        self.compact_view = False
-        self.extra_settings = {}
-        self.jira_list = []
-        self.document_analysis_checks = []
-        self.save()
 
 
 # Signal for NEW users only
@@ -158,12 +131,6 @@ class UserPreferences(models.Model):
 def create_user_preferences(sender, instance, created, **kwargs):
     if created:
         UserPreferences.objects.get_or_create(user=instance)
-
-@receiver(post_save, sender=User)
-def save_user_preferences(sender, instance, **kwargs):
-    # Save UserPreferences when User is saved
-    if hasattr(instance, 'preferences'):
-        instance.preferences.save()
 
 def get_user_preferences(user):
     preferences, created = UserPreferences.objects.get_or_create(user=user)

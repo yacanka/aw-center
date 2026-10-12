@@ -48,12 +48,12 @@
 </template>
 
 <script setup lang="ts">
-import JiraFieldInput from '@/features/dcc/components/JiraFieldInput.vue'
-import type { JiraFieldValue } from '@/features/dcc/models/jira'
+import JiraFieldInput from '@/features/integrations/jira/components/JiraFieldInput.vue'
+import type { JiraFieldValue } from '@/features/integrations/jira/models/jira'
 import type {
   JiraIssueDraftPreflight,
   JiraPreflightIdentity
-} from '@/features/dcc/api/jiraIssueDrafts'
+} from '@/features/integrations/jira/api/jiraIssueDrafts'
 
 defineProps<{
   connected: boolean

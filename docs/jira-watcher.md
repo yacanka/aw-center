@@ -9,19 +9,27 @@ outbox contracts instead of restoring retired routes.
   The server resolves the title and every project, requires DCC operator access,
   rejects subtasks, and prevents duplicate watches for the same owner.
 - **Check status / Sync:** fetch live task and subtask states. Sync processes
-  active records on the displayed page sequentially. Failed checks show an error
+  all records on the displayed page sequentially and updates the stored title from JIRA.
+  Parent issue status and subtask completion have separate columns. Failed checks show an error
   instead of retaining a stale completion badge. Open Details for
-  subtask links and ECD/DCC numbers; an unchecked issue is loaded automatically. Jira's done category determines completion;
+  subtask links and selected JIRA details; an unchecked issue is loaded automatically. Jira's done category determines completion;
   workflows without categories fall back to Closed/Done/Resolved.
-- **Filter / Edit / Remove:** filter before pagination, change title/activeness,
-  or remove the local watch with optimistic version checks. Removing a watch
+- **Filter / Remove:** column filters update while typing before server pagination;
+  Clear restores the unfiltered list. Double-click a desktop row to open details.
+  Titles are read-only and refreshed from JIRA; active/passive tracking is retired.
+  Remove the local watch with optimistic version checks. Removing a watch
   does not delete the JIRA issue.
 - **Send reminder:** enter CCB number and due date. Open subtask assignees are
   resolved automatically. The existing durable notification outbox handles
   delivery, retry, lease fencing, idempotency and the per-record cooldown.
   As in the historical implementation, enqueueing is user-triggered; there is
   no recurring automatic mail scheduler.
-- **Assessment:** choose governed projects and an ECR PDF. The bounded canonical
+- **Display settings:** Settings → JIRA Watcher loads available field names from
+  an authorized tracked issue. Field IDs are saved per user/project in the existing
+  preferences store. Empty selections hide the detail fields; multi-project issues
+  combine selections. Missing fields are omitted; unknown object data is never rendered.
+  Outstanding only is saved for the current user and survives reloads.
+- **Assessment:** choose governed projects and select or drag an ECR PDF. The bounded canonical
   ECR parser supplies document data to the configured AI service for the nine
   historical panels. Results are plain-text draft advice for specialist review.
   The browser allows up to 390 seconds for parsing, connecting and assessment.
@@ -48,7 +56,7 @@ Changed backend modules also passed CPython 3.11 syntax compilation.
 
 UI refinement: desktop rows and compact-screen cards share the same actions.
 Details opens a drawer with refresh, document metadata and an outstanding-only
-subtask filter. Reminder is a direct action; status checks, edit and removal
+subtask filter. Reminder is a direct action; status checks and removal
 are grouped in the accessible More actions menu. Filter reset, empty-result
 guidance and retry actions are available without leaving the page. Assessment
 results can be copied and are cleared when the selected input changes.
@@ -57,3 +65,23 @@ UI verification: seven Chromium scenarios passed, covering light/dark themes at
 375px and 1440px, landscape with reduced motion, keyboard interaction, retry,
 viewer permissions and in-flight dialog protection. Frontend tests, typecheck,
 format check and production build passed.
+
+Issue refinements (2026-10-12): supported ECR table layouts validate their row
+structure before parsing; both ECR upload screens support drag/drop and selection.
+JIRA menu uses a vector icon. Quick command resides in a normal-flow toolbar
+above content, preserving its keyboard shortcut. The retired `active` database
+column remains only for schema/history compatibility and is not exposed or used
+for filtering, syncing or reminders. No data migration is required.
+
+Issue validation (2026-10-12): 200 backend tests across DCC, automations, users
+and the JIRA status adapter passed. Frontend `test:ci` passed (314 source tests,
+28 import tests and all script suites), alongside 23 Chromium Watcher/settings/
+command-navigation scenarios. Typecheck, formatting, production build, Django
+system checks, migration drift check, static collection and artifact verification
+passed. Python 3.11 syntax compatibility was checked; runtime tests used the
+existing Python 3.14 virtualenv. The reported PDF and live external services were
+unavailable; parser regressions use generated PDFs for both supported layouts.
+
+## Preference ve kullanıcı içeriği sınırı
+
+Watcher görünüm tercihleri JIRA preference servisi ile yönetilir. Kayıtlı JIRA listeleri ayrı JiraUserContent modelinde ve `/api/integrations/jira/subtasks/saved-lists/` GET/PUT yüzeyinde saklanır. PUT `{lists, version}` gerektirir; stale version 409 verir. Görünüm reseti kayıtlı listeleri ve analiz sorularını silmez.

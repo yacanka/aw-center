@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from integrations.jira.contracts import validate_extra_fields
 from integrations.jira.create_contract import inspect_create_contract, value_supported
 from integrations.jira.field_values import encode_value
-from dcc.subtask_contracts import sanitize_subtask_fields, validate_item_field_contract
+from integrations.jira.subtask_contracts import sanitize_subtask_fields, validate_item_field_contract
 
 
 def metadata(kind, **kwargs):
@@ -99,7 +99,7 @@ class JiraFieldValuesTests(TestCase):
         self.assertEqual(result["invalid_fields"][0]["id"], "customfield_123")
 
     def test_array_numbers_are_encoded_and_assignee_uses_live_reference(self):
-        from dcc.subtask_executor import prepare_extra_fields
+        from integrations.jira.subtask_executor import prepare_extra_fields
 
         field = metadata("array")
         field["schema"]["items"] = "number"

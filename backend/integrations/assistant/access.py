@@ -20,7 +20,7 @@ def authorized_guides(user) -> tuple[GuideEntry, ...]:
     if not user or not user.is_authenticated or not user.is_active:
         return ()
     compliance_projects = _domain_projects(user, "compliance")
-    has_dcc = bool(_domain_projects(user, "dcc"))
+    has_dcc = bool(_domain_projects(user, "jira"))
     has_organization = bool(_domain_projects(user, "organization"))
     entries = []
     for entry in load_guides():

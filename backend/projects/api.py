@@ -34,7 +34,7 @@ def serialize_project(project, user) -> dict:
             for domain in (
                 ProjectRoleAssignment.Domain.COMPLIANCE,
                 ProjectRoleAssignment.Domain.ORGANIZATION,
-                ProjectRoleAssignment.Domain.DCC,
+                ProjectRoleAssignment.Domain.JIRA,
             )
         },
     }

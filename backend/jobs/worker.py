@@ -37,6 +37,7 @@ from .execution import (
 )
 from .models import Job, JobStatus
 from .process_bootstrap import bootstrap_executor_process
+from .process_tree import ExecutorProcessTree
 from .services import record_event, set_job_state
 
 logger = logging.getLogger(__name__)
@@ -116,6 +117,16 @@ def execute_claimed_job(
                     child,
                     execution_timeout(timeout_seconds),
                 )
+                # No descendant may keep writing an artifact while the parent
+                # verifies its digest and publishes it under the execution fence.
+                stop_executor_process(child)
+                if not child.tree.wait_for_exit():
+                    if job.reconcile_on_lease_loss:
+                        raise JobExecutionUncertain()
+                    raise JobExecutionFailure(
+                        "The executor processes could not stop safely.",
+                        "JOB_EXECUTOR_STOP_FAILED", True,
+                    )
             else:
                 heartbeat.start()
                 executor = resolve_executor(job.kind)
@@ -204,22 +215,35 @@ def start_executor_process(job, resolve_executor):
         ) from error
     serialized_resolver = resolver_path(resolve_executor)
     parent_connection, child_connection = context.Pipe(duplex=False)
+    start_gate = context.Event()
     connections.close_all()
     process = context.Process(
         target=bootstrap_executor_process,
-        args=(job.id, job.kind, serialized_resolver, child_connection),
+        args=(job.id, job.kind, serialized_resolver, child_connection, start_gate),
         name=f"job-executor-{str(job.id)[:8]}",
         daemon=False,
     )
+    tree = None
     try:
         process.start()
+        tree = ExecutorProcessTree(process)
+        start_gate.set()
     except Exception:
+        if tree is not None:
+            tree.close()
+        if process.pid is not None:
+            process.terminate()
+            process.join(timeout=5)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=5)
+            process.close()
         parent_connection.close()
         child_connection.close()
         raise
     child_connection.close()
     connections.close_all()
-    return ExecutorProcess(process, parent_connection)
+    return ExecutorProcess(process, parent_connection, tree, start_gate)
 
 
 def resolver_path(resolve_executor):
@@ -239,9 +263,12 @@ def resolver_path(resolve_executor):
 class ExecutorProcess:
     """Hold the isolated executor process and its one-way result channel."""
 
-    def __init__(self, process, connection):
+    def __init__(self, process, connection, tree=None, start_gate=None):
         self.process = process
         self.connection = connection
+        self.tree = tree
+        # Keep spawn's named semaphore alive until the child has unpickled it.
+        self.start_gate = start_gate
 
 
 def await_executor_ready(job, lease, child):
@@ -356,10 +383,16 @@ def decode_child_outcome(job, lease, envelope):
 def stop_executor_process(child):
     """Terminate and reap an executor without leaving an orphan process."""
 
-    if child is None or not child.process.is_alive():
+    if child is None:
         return
-    child.process.terminate()
+    tree = getattr(child, "tree", None)
+    signalled = tree.terminate() if tree is not None else False
+    if not signalled and child.process.is_alive():
+        child.process.terminate()
     child.process.join(timeout=5)
+    # Descendants may ignore SIGTERM or outlive an already-exited executor.
+    if tree is not None:
+        tree.kill()
     if child.process.is_alive() and hasattr(child.process, "kill"):
         child.process.kill()
         child.process.join(timeout=5)
@@ -371,6 +404,8 @@ def close_executor_process(child):
     if child is None:
         return
     stop_executor_process(child)
+    if getattr(child, "tree", None) is not None:
+        child.tree.close()
     child.connection.close()
     try:
         child.process.close()

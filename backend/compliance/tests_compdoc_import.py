@@ -54,7 +54,7 @@ class FakePandas:
     }
 
     @classmethod
-    def read_excel(cls, excel_file, header=0):
+    def read_excel(cls, excel_file, header=0, nrows=None):
         """Return a fake dataframe for the requested header row."""
 
         return FakeDataFrame(cls.columns_by_header[header])

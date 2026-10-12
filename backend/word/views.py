@@ -5,7 +5,10 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 import json
+from math import isfinite
 from io import BytesIO
+from xml.etree.ElementTree import ParseError
+from zipfile import BadZipFile
 
 from word.service.compare import (
     align_paragraphs_indexed,
@@ -19,6 +22,51 @@ from word.service.compare_rendering import (
 )
 from awcenter.file_security import WORD_POLICY, validate_request_upload
 from awcenter.spreadsheet_security import spreadsheet_safe_dataframe
+from awcenter.api_errors import error_response
+from comparison.contracts import MAX_BLOCKS, MAX_CANDIDATES, MAX_CHARACTERS, MAX_FUZZY_LENGTH
+
+MAX_SYNCHRONOUS_CHARACTER_WORK = 25000000
+
+
+class WordCompareInputError(Exception):
+    def __init__(self, detail, code="WORD_COMPARE_INVALID"):
+        super().__init__(detail)
+        self.detail = detail
+        self.code = code
+
+
+def parse_compare_parameters(request):
+    try:
+        raw = request.data.get("json")
+        if not isinstance(raw, str) or len(raw) > 4096:
+            raise ValueError()
+        parameters = json.loads(raw)
+    except (TypeError, ValueError) as error:
+        raise WordCompareInputError("Select valid Word comparison parameters.") from error
+    fields = {"equal_ratio", "weak_equal_ratio", "output_type"}
+    if not isinstance(parameters, dict) or not fields <= parameters.keys():
+        raise WordCompareInputError("Select valid Word comparison parameters.")
+    equal, weak = parameters["equal_ratio"], parameters["weak_equal_ratio"]
+    if any(value is not None and (type(value) not in (int, float) or not 0 < value <= 1 or not isfinite(value))
+           for value in (equal, weak)):
+        raise WordCompareInputError("Comparison thresholds must be finite numbers between zero and one.")
+    if equal is not None and weak is not None and weak > equal:
+        raise WordCompareInputError("The possible-match threshold cannot exceed the strong-match threshold.")
+    if parameters["output_type"] not in ("word", "excel"):
+        raise WordCompareInputError("Select a Word or Excel report.")
+    return equal, weak, parameters["output_type"]
+
+
+def bounded_document_lines(upload):
+    try:
+        lines = read_docx_lines_with_index(upload)
+    except (BadZipFile, ParseError, KeyError) as error:
+        raise WordCompareInputError("Upload readable Word documents.") from error
+    if (len(lines) > MAX_BLOCKS or sum(len(text) for _, text in lines) > MAX_CHARACTERS
+            or any(len(text) > MAX_FUZZY_LENGTH for _, text in lines)):
+        raise WordCompareInputError("The document exceeds synchronous comparison limits. Use the comparison job tool.",
+                                    "WORD_COMPARE_LIMIT_EXCEEDED")
+    return lines
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -28,20 +76,24 @@ def compare(request):
 
     file1 = validate_request_upload(request, "first", WORD_POLICY)
     file2 = validate_request_upload(request, "second", WORD_POLICY)
-    parameters = json.loads(request.data["json"])
-
-    equal_ratio = parameters["equal_ratio"]
-    weak_equal_ratio = parameters["weak_equal_ratio"]
-    output_type = parameters["output_type"]
-    
-    lines1 = read_docx_lines_with_index(file1)
-    lines2 = read_docx_lines_with_index(file2)
-
-    # Auto Ratio
-    if equal_ratio is None or weak_equal_ratio is None:
-        ar, wr = auto_thresholds(lines1, lines2)
-        equal_ratio = ar if equal_ratio is None else equal_ratio
-        weak_equal_ratio = wr if weak_equal_ratio is None else weak_equal_ratio
+    try:
+        equal_ratio, weak_equal_ratio, output_type = parse_compare_parameters(request)
+        lines1 = bounded_document_lines(file1)
+        lines2 = bounded_document_lines(file2)
+        # Legacy SequenceMatcher runs on every candidate with autojunk disabled;
+        # pair count alone does not bound the quadratic character work.
+        character_work = sum(len(text) for _, text in lines1) * sum(len(text) for _, text in lines2)
+        if len(lines1) * len(lines2) > MAX_CANDIDATES or character_work > MAX_SYNCHRONOUS_CHARACTER_WORK:
+            raise WordCompareInputError("Too many text pairs for synchronous comparison. Use the comparison job tool.",
+                                        "WORD_COMPARE_LIMIT_EXCEEDED")
+        if equal_ratio is None or weak_equal_ratio is None:
+            ar, wr = auto_thresholds(lines1, lines2)
+            equal_ratio = ar if equal_ratio is None else equal_ratio
+            weak_equal_ratio = wr if weak_equal_ratio is None else weak_equal_ratio
+        if weak_equal_ratio > equal_ratio:
+            raise WordCompareInputError("The possible-match threshold cannot exceed the strong-match threshold.")
+    except WordCompareInputError as error:
+        return error_response(error.detail, error.code, response_status=400)
 
     aligned = align_paragraphs_indexed(lines1, lines2, equal_ratio, weak_equal_ratio)
 

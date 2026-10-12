@@ -34,8 +34,12 @@ describe('API URL normalization', () => {
   })
 
   it('normalizes server paths without allowing an absolute-host escape', () => {
-    expect(normalizeApiRequestPath('/dcc/records/')).toBe('dcc/records/')
-    expect(normalizeApiRequestPath('/api/dcc/records/')).toBe('dcc/records/')
+    expect(normalizeApiRequestPath('/integrations/jira/records/')).toBe(
+      'integrations/jira/records/'
+    )
+    expect(normalizeApiRequestPath('/api/integrations/jira/records/')).toBe(
+      'integrations/jira/records/'
+    )
     expect(() => normalizeApiRequestPath('//attacker.test/dcc')).toThrow(/relative path/)
     expect(() => normalizeApiRequestPath('\\\\attacker.test/dcc')).toThrow(/relative path/)
     expect(() => normalizeApiRequestPath('https://attacker.test/dcc')).toThrow(/relative path/)
@@ -55,12 +59,12 @@ describe('shared API client', () => {
       statusText: 'OK'
     }))
 
-    await apiClient.get('/api/dcc/records/', { adapter })
+    await apiClient.get('/api/integrations/jira/records/', { adapter })
 
     expect(adapter).toHaveBeenCalledOnce()
     expect(adapter.mock.calls[0][0].baseURL).toBe(API_BASE_URL)
     expect(API_BASE_URL).toMatch(/\/api\/$/)
-    expect(adapter.mock.calls[0][0].url).toBe('dcc/records/')
+    expect(adapter.mock.calls[0][0].url).toBe('integrations/jira/records/')
   })
 
   it('blocks a protocol-relative request before network dispatch', async () => {

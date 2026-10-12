@@ -20,6 +20,7 @@ import {
   PeopleAudience24Regular
 } from '@vicons/fluent'
 import { Pdf } from '@/app/stores/iconStore'
+import JiraIcon from '@/app/components/icons/JiraIcon.vue'
 import type { ProjectRegistryItem } from '@/features/projects/models/projectRegistry'
 import type { IUser } from '@/features/session/models/auth'
 import { filterNavigationByAccess } from '@/features/session/services/accessPolicy'
@@ -91,7 +92,7 @@ function workflowOptions(
   }
   const jiraPosition = projects.length ? 3 : 2
   if (dccAvailable) {
-    options.splice(jiraPosition, 0, menuItem('JIRA', '/jira', 'jira', EyeTracking24Regular))
+    options.splice(jiraPosition, 0, menuItem('JIRA', '/jira', 'jira', JiraIcon))
   }
   if (organizationAvailable) {
     options.push(menuItem('Organization', '/organization', 'organization', PeopleAudience24Regular))

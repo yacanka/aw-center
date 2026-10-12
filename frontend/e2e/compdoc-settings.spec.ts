@@ -32,7 +32,7 @@ for (const theme of ['light', 'dark'] as const) {
               slug: 'aesa',
               name: 'AESA',
               capabilities: ['compliance'],
-              roles: { compliance: complianceRole, dcc: null, organization: null }
+              roles: { compliance: complianceRole, jira: null, organization: null }
             }
           ]
         else if (path.endsWith('/compliance-documents/statuses/')) {
