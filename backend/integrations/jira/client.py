@@ -3,6 +3,7 @@
 import logging
 import re
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -37,13 +38,15 @@ def tls_verification():
 
 
 def ISO_time_to_string(date_str):
-    """Format a JIRA timestamp using the existing DCC display contract."""
+    """Display the Istanbul calendar date of a JIRA timestamp."""
 
     try:
         value = datetime.fromisoformat(date_str)
     except ValueError:
         value = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S.%f")
-    return f"{value.day:02}.{value.month:02}.{value.year}"
+    if value.tzinfo is not None:
+        value = value.astimezone(ZoneInfo("Europe/Istanbul"))
+    return value.strftime("%d.%m.%Y")
 
 
 def split_text_by_chracter(text, character):

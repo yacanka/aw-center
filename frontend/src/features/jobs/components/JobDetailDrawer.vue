@@ -95,6 +95,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import JiraIssueDraftPanel from '@/features/jobs/components/JiraIssueDraftPanel.vue'
 import { isFailedJobStatus, type Job, type JobStatus } from '@/features/jobs/api/jobs'
 import { useMediaQuery } from '@/shared/composables/mediaQuery'
@@ -115,8 +116,6 @@ function eventType(status: JobStatus): 'default' | 'success' | 'error' | 'warnin
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(
-    new Date(value)
-  )
+  return formatTurkishDateTime(value, true)
 }
 </script>

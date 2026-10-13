@@ -1,14 +1,78 @@
-export function isoToTurkishDateTime(isoDate: string) {
-  const date = new Date(isoDate)
+type DateValue = string | Date | number | null | undefined
 
-  return date.toLocaleString('tr-TR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
+const dateOptions: Intl.DateTimeFormatOptions = {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  timeZone: 'Europe/Istanbul'
+}
+
+function calendarDate(value: string): Date | null {
+  const iso = /^(\d{4})[-/](\d{2})[-/](\d{2})$/.exec(value)
+  const turkish = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value)
+  if (!iso && !turkish) return null
+  const [year, month, day] = iso
+    ? [Number(iso[1]), Number(iso[2]), Number(iso[3])]
+    : [Number(turkish![3]), Number(turkish![2]), Number(turkish![1])]
+  const date = new Date(0)
+  date.setUTCFullYear(year, month - 1, day)
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? date
+    : new Date(NaN)
+}
+
+function instant(value: DateValue): Date {
+  if (value == null || value === '') return new Date(NaN)
+  // Legacy timezone-less timestamps represent Turkish time, not the browser's zone.
+  if (
+    typeof value === 'string' &&
+    /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value)
+  ) {
+    return new Date(`${value.replace(' ', 'T')}+03:00`)
+  }
+  return value instanceof Date ? value : new Date(value)
+}
+
+/** Display calendar dates unchanged; display timestamp dates in Europe/Istanbul. */
+export function formatTurkishDate(value: DateValue): string {
+  const calendar = typeof value === 'string' ? calendarDate(value) : null
+  const date = calendar ?? instant(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat('tr-TR', {
+    ...dateOptions,
+    ...(calendar ? { timeZone: 'UTC' } : {})
+  }).format(date)
+}
+
+/** Display an instant using the project's Turkish 24-hour clock. */
+export function formatTurkishDateTime(value: DateValue, includeSeconds = false): string {
+  const date = instant(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat('tr-TR', {
+    ...dateOptions,
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
-  })
+    ...(includeSeconds ? { second: '2-digit' } : {}),
+    hourCycle: 'h23'
+  }).format(date)
+}
+
+export function formatTurkishTime(value: DateValue, includeSeconds = true): string {
+  const date = instant(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(includeSeconds ? { second: '2-digit' } : {}),
+    hourCycle: 'h23'
+  }).format(date)
+}
+
+export function isoToTurkishDateTime(isoDate: string) {
+  return formatTurkishDateTime(isoDate, true)
 }
 
 export function getDaysDifference(dateStr1: string, dateStr2: string) {
@@ -45,14 +109,7 @@ export function parseDateFlex(strDate: string) {
 }
 
 export function getTodayEUFormat() {
-  const today = new Date()
-  const euFormat = new Intl.DateTimeFormat('tr-TR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  }).format(today)
-
-  return euFormat
+  return formatTurkishDate(new Date())
 }
 
 export function sortedDates(dates: any[]) {
@@ -85,19 +142,10 @@ export function findPreviousDate(datesArray: string[], targetDateStr: string) {
   return closestIndex
 }
 
+/** Offset calendar days in Turkey without browser timezone or DST shifts. */
 export function dateDaysOffset(offset: number, dateInput?: string) {
-  let date: Date
-  if (dateInput) {
-    date = parseDateFlex(dateInput)
-  } else {
-    date = new Date()
-  }
-
-  date.setDate(date.getDate() + offset)
-
-  return date.toLocaleString('tr-TR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  })
+  const date = calendarDate(dateInput ? formatTurkishDate(dateInput) : getTodayEUFormat())
+  if (!date || Number.isNaN(date.getTime())) throw new Error('Invalid Date Format: ' + dateInput)
+  date.setUTCDate(date.getUTCDate() + offset)
+  return new Intl.DateTimeFormat('tr-TR', { ...dateOptions, timeZone: 'UTC' }).format(date)
 }

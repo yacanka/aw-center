@@ -29,18 +29,6 @@
         >
       </n-button>
     </div>
-    <div v-if="sources.length" class="message-links" aria-label="Application guide sources">
-      <span class="source-label">Application guides</span>
-      <n-button
-        v-for="source in sources"
-        :key="source.id"
-        class="guide-button"
-        block
-        :aria-label="`Open guide: ${source.title}`"
-        @click="navigate(source.path)"
-        >{{ source.title }}</n-button
-      >
-    </div>
   </article>
 </template>
 
@@ -56,9 +44,6 @@ const router = useRouter()
 const themeVars = useThemeVars()
 const applications = computed(() =>
   (props.message.applications || []).filter((item) => resolveAssistantPath(item.path, router))
-)
-const sources = computed(() =>
-  (props.message.sources || []).filter((item) => resolveAssistantPath(item.path, router))
 )
 function navigate(path: string): void {
   const target = resolveAssistantPath(path, router)
@@ -78,8 +63,7 @@ function navigate(path: string): void {
 .user-message {
   background: v-bind('themeVars.actionColor');
 }
-.message-role,
-.source-label {
+.message-role {
   color: v-bind('themeVars.textColor2');
 }
 .message-content {

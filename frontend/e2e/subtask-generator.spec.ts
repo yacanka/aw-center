@@ -152,7 +152,9 @@ test('original Excel tab keeps the four field mappings and clears them on file r
   await page.goto('/app/jira')
   await page.getByText('Subtask Generator (Excel)', { exact: true }).click()
   await expect(page.getByText('JIRA Subtask Generator from Excel', { exact: true })).toBeVisible()
-  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await page.getByPlaceholder('Enter Jira task URL or key').fill('CHN-42')
+  await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+  await expect(page.getByText('CHN-42: 4 subtask fields loaded.', { exact: false })).toBeVisible()
   const upload = {
     name: 'subtasks.xlsx',
     mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -167,12 +169,12 @@ test('original Excel tab keeps the four field mappings and clears them on file r
     await mappings.nth(index).click()
     if (index === 1) {
       await expect(
-        page.locator('.n-base-select-option:visible').filter({ hasText: /^Summary$/ })
+        page.locator('.n-base-select-option:visible').filter({ hasText: /^Summary \*$/ })
       ).toHaveClass(/n-base-select-option--disabled/)
     }
     await page
       .locator('.n-base-select-option:visible')
-      .filter({ hasText: new RegExp(`^${name}$`) })
+      .filter({ hasText: new RegExp(`^${name}( \\*)?$`) })
       .click()
     await expect(page.locator('.n-base-select-option:visible')).toHaveCount(0)
   }
@@ -190,7 +192,7 @@ test('original Excel tab keeps the four field mappings and clears them on file r
   await expect(mappings).toHaveCount(4)
   await mappings.first().click()
   await expect(
-    page.locator('.n-base-select-option:visible').filter({ hasText: /^Summary$/ })
+    page.locator('.n-base-select-option:visible').filter({ hasText: /^Summary \*$/ })
   ).not.toHaveAttribute('aria-disabled', 'true')
   await expect(page.locator('.n-base-select-option:visible')).toHaveCount(4)
 })
@@ -254,6 +256,18 @@ async function jiraShell(page: Page) {
     json(route, { count: 0, next: null, previous: null, results: [] })
   )
   await page.route('**/api/integrations/jira/subtasks/fields/', (route) => {
+    if (route.request().postDataJSON().include_summary) {
+      expect(route.request().postDataJSON()).toEqual({ issue: 'CHN-42', include_summary: true })
+      return json(route, {
+        issue: 'CHN-42',
+        fields: [
+          { id: 'summary', name: 'Summary', required: true, schema: { type: 'string' } },
+          fields[0],
+          { id: 'assignee', name: 'Assignee', schema: { type: 'user' } },
+          fields[1]
+        ]
+      })
+    }
     expect(route.request().postDataJSON()).toEqual({ issue: 'CHN-42' })
     return json(route, { issue: 'CHN-42', fields })
   })

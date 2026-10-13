@@ -42,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { computed, h, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { NButton, NTag, type DataTableColumns, type PaginationInfo } from 'naive-ui'
@@ -198,9 +199,7 @@ async function performRevoke(invitationId: number): Promise<void> {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(value)
-  )
+  return formatTurkishDateTime(value)
 }
 
 function titleCase(value: string): string {

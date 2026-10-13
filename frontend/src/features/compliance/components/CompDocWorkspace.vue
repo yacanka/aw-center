@@ -9,6 +9,7 @@ import CompDocReviewPanel from '@/features/compliance/components/CompDocReviewPa
 import CompDocTrackingPanel from '@/features/compliance/components/CompDocTrackingPanel.vue'
 import CompDocTransitionPanel from '@/features/compliance/components/CompDocTransitionPanel.vue'
 import CompDocWorkPanel from '@/features/compliance/components/CompDocWorkPanel.vue'
+import { withCompdocDisplayStatus } from '@/features/compliance/api/compdocStatus'
 import { statusColors } from '@/features/compliance/api/compdocCatalog'
 import {
   getCompdocReference,
@@ -36,11 +37,21 @@ const emit = defineEmits<{
   changed: []
 }>()
 
+const displayDocument = computed(() =>
+  props.document ? withCompdocDisplayStatus(props.document) : null
+)
 const statusLabel = computed(
-  () => props.document?.status_label || humanizeCompdocStatus(props.document?.status)
+  () => displayDocument.value?.status_label || humanizeCompdocStatus(displayDocument.value?.status)
 )
 const reference = computed(() => (props.document ? getCompdocReference(props.document) : ''))
-const statusColor = computed(() => statusColors[String(props.document?.status || '')])
+const statusColor = computed(
+  () =>
+    statusColors[
+      statusLabel.value === 'In Design (date missing)'
+        ? 'missing_target'
+        : String(displayDocument.value?.status || '')
+    ]
+)
 const activeTab = ref<WorkspaceTab>('overview')
 
 watch(

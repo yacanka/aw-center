@@ -61,6 +61,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { formatApiError } from '@/shared/api/apiError'
@@ -140,9 +141,7 @@ function kindLabel(kind: AttentionKind): string {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
-    new Date(value)
-  )
+  return formatTurkishDateTime(value)
 }
 </script>
 

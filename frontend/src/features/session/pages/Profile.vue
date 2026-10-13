@@ -48,8 +48,10 @@ const initials = computed(() =>
   flex-shrink: 0;
   width: 100%;
   height: auto;
+  box-sizing: border-box;
+  min-height: var(--shell-footer-height, 80px);
   border-radius: 0;
-  padding: 16px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   border: 0;
   border-top: 1px solid v-bind('themeVars.borderColor');
   text-align: left;
@@ -66,7 +68,7 @@ const initials = computed(() =>
   outline-offset: -3px;
 }
 .profile-trigger.collapsed {
-  padding: 16px 12px;
+  padding-inline: 12px;
 }
 .profile-avatar {
   display: grid;

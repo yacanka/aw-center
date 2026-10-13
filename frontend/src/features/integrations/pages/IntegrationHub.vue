@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -49,9 +50,7 @@ function healthLabel(item: IntegrationItem) {
 
 function checkedAt(item: IntegrationItem) {
   if (!item.health?.checked_at) return ''
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'medium' }).format(
-    new Date(item.health.checked_at)
-  )
+  return formatTurkishDateTime(item.health.checked_at, true)
 }
 
 function runLiveChecks(refresh = false) {

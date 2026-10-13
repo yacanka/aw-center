@@ -3,6 +3,7 @@ import type { ICompDoc } from '@/features/compliance/models/compdocs'
 export interface CompDocWritePayload {
   version?: number
   panel: number | null
+  ata: string | null
   cover_page: { number: string; issue: string; version?: number }
   name: string
   signature_panel: string[]
@@ -47,6 +48,7 @@ function buildWritePayload(document: ICompDoc): CompDocWritePayload {
   return compact({
     version: document.version,
     panel: document.panel,
+    ata: document.ata,
     cover_page: compact({
       number: document.cover_page_no,
       issue: document.cover_page_issue,

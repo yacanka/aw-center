@@ -87,6 +87,8 @@ npm --prefix frontend run build
 
 ## Kullanıcı tercihleri ve içerik
 
+- Kullanıcıya gösterilen tüm tarihleri `dd.MM.yyyy`, saatleri 24 saat biçiminde ve `Europe/Istanbul` (UTC+3) saat diliminde sun. Takvim tarihlerini saat dilimi dönüşümüyle kaydırma. API, storage, vendor payload ve date-picker value formatlarında ISO sözleşmesini koru; yalnız sunum biçimini TR standardına çevir. Frontend ortak biçimleyicileri `shared/utils/time.ts` içindedir.
+
 - AW Center ilk kez ürün olarak kullanılacak; bu ayrım/taşıma kapsamında eski API uyumu ve alias gerekmez. Mevcut veriler ve migration geçmişi korunur.
 - UserPreferences yalnız tercihlerdir. JIRA kayıtlı listeleri integrations.JiraUserContent, özel analiz soruları word.DocumentAnalysisUserContent içinde owner-scoped saklanır; session/user administration response'una içerik ekleme.
 - Görünüm reseti theme, has_particles, items_per_page, compact_view ve Watcher görünümünü sıfırlar; kayıtlı içerikleri, dil/timezone, bildirim/abonelik/gizlilik değerlerini ve diğer extra_settings anahtarlarını korur.

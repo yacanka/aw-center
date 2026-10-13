@@ -24,28 +24,31 @@
     </n-layout-sider>
 
     <div class="protected-main">
-      <header class="protected-toolbar" aria-label="Application tools">
-        <CommandPalette :options="menuOptions" />
-      </header>
       <n-layout-content class="transparent protected-content" content-class="protected-scroll">
         <main class="protected-page">
           <RouterView />
         </main>
       </n-layout-content>
-      <footer class="protected-footer">AW Center · v{{ appVersion }} · © 2026</footer>
+      <footer class="protected-footer">
+        <nav class="protected-tools" aria-label="Application tools">
+          <CommandPalette :options="menuOptions" />
+          <n-button
+            class="assistant-trigger"
+            type="primary"
+            secondary
+            aria-label="Open AW Center Assistant"
+            aria-haspopup="dialog"
+            :aria-expanded="assistantVisible"
+            @click="openAssistant"
+          >
+            Assistant
+          </n-button>
+        </nav>
+        <span class="footer-copy">AW Center · v{{ appVersion }} · © 2026</span>
+      </footer>
     </div>
     <ReleaseNotesModal />
   </n-layout>
-  <n-button
-    class="assistant-trigger"
-    type="primary"
-    secondary
-    aria-label="Open AW Center Assistant"
-    :aria-expanded="assistantVisible"
-    @click="openAssistant"
-  >
-    Assistant
-  </n-button>
   <AssistantPanel v-if="assistantLoaded" v-model:show="assistantVisible" />
   <Popup />
 </template>
@@ -146,6 +149,7 @@ async function loadProjectRegistry() {
 
 /* Bound the shell so only the navigation and page scroll containers can scroll. */
 .protected-shell {
+  --shell-footer-height: calc(80px + env(safe-area-inset-bottom));
   height: 100dvh;
   min-width: 0;
   overflow: hidden;
@@ -188,20 +192,16 @@ async function loadProjectRegistry() {
   min-width: 0;
 }
 
-.protected-toolbar {
+.protected-tools {
   display: flex;
-  flex-shrink: 0;
   justify-content: flex-end;
-  padding: 8px var(--app-gutter);
-  padding-top: max(8px, env(safe-area-inset-top));
-  background: v-bind('themeVars.bodyColor');
-  border-bottom: 1px solid v-bind('themeVars.borderColor');
+  gap: 8px;
+  min-width: 0;
 }
 
 .protected-content :deep(.protected-scroll) {
   padding: var(--app-gutter);
-  padding-bottom: calc(var(--app-gutter) + 60px);
-  scroll-padding-bottom: 100px;
+  scroll-padding-bottom: var(--app-gutter);
   overscroll-behavior: contain;
 }
 
@@ -213,26 +213,38 @@ async function loadProjectRegistry() {
 }
 
 .protected-footer {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  min-height: var(--shell-footer-height);
   flex-shrink: 0;
   background: v-bind('themeVars.bodyColor');
   border-top: 1px solid v-bind('themeVars.borderColor');
   color: v-bind('themeVars.textColor3');
   font-size: 11px;
-  padding: 6px var(--app-gutter) max(6px, env(safe-area-inset-bottom));
+  padding: 5px var(--app-gutter) calc(5px + env(safe-area-inset-bottom));
   text-align: right;
 }
 
+.footer-copy {
+  line-height: 16px;
+}
+
 .assistant-trigger {
-  position: fixed;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(40px, calc(env(safe-area-inset-bottom) + 40px));
   min-width: 44px;
   min-height: 44px;
-  z-index: 20;
 }
 
 .assistant-trigger:focus-visible {
   outline: 2px solid v-bind('themeVars.primaryColor');
   outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .assistant-trigger {
+    padding-inline: 10px;
+  }
 }
 </style>

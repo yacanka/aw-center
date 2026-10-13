@@ -129,7 +129,7 @@
             </n-card>
             <n-text v-if="job.events?.length" depth="3">Worker işlem geçmişi</n-text>
             <n-text v-for="event in job.events" :key="event.id" depth="3">
-              {{ new Date(event.created_at).toLocaleTimeString() }} · {{ event.message }}
+              {{ formatTurkishTime(event.created_at) }} · {{ event.message }}
             </n-text>
           </template>
         </template>
@@ -139,6 +139,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishTime } from '@/shared/utils/time'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { formatApiError } from '@/shared/api/apiError'
 import { fetchDoorsStatus, type DoorsStatus } from '@/features/integrations/api/doorsAutomation'

@@ -36,6 +36,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { computed, ref } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
 import type { IGroup } from '@/features/session/models/auth'
@@ -104,8 +105,6 @@ async function copyLink(): Promise<void> {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(value)
-  )
+  return formatTurkishDateTime(value)
 }
 </script>

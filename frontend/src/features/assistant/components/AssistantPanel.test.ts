@@ -90,9 +90,9 @@ describe('assistant panel interactions', () => {
     expect(document.querySelector('img')).toBeNull()
     expect(document.querySelector('a[href^="https:"]')).toBeNull()
     expect(document.body.textContent).not.toContain('Unsafe')
-    expect(document.body.textContent).toContain(
-      'Application guides are references, not a guarantee of answer accuracy.'
-    )
+    expect(document.body.textContent).not.toContain('Application guides')
+    expect(document.querySelector('[aria-label="Application guide sources"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Open guide: Compare guide"]')).toBeNull()
     expect(router.currentRoute.value.path).toBe('/home')
     button('Open Compare').click()
     await flushPromises()

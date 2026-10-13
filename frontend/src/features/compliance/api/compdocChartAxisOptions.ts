@@ -58,8 +58,8 @@ function timeScale(colors: ChartColors) {
     type: 'time' as const,
     time: {
       unit: 'day' as const,
-      tooltipFormat: 'dd MMMM yyyy',
-      displayFormats: { day: 'dd MMM' }
+      tooltipFormat: 'dd.MM.yyyy',
+      displayFormats: { day: 'dd.MM.yyyy' }
     },
     grid: { display: false },
     ticks: { color: colors.muted, maxTicksLimit: 8, maxRotation: 0 },

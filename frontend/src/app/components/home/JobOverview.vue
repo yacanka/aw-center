@@ -75,6 +75,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { formatApiError } from '@/shared/api/apiError'
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { buildWorkMetrics, recentSuccessfulJobs } from '@/app/services/homeDashboard'
 import {
   downloadJob,
@@ -131,10 +132,7 @@ function openJob(job: Job): void {
 
 function completedLabel(job: Job): string {
   const date = job.completed_at || job.updated_at
-  return `${job.output_name || 'Workflow completed'} · ${new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'short',
-    timeStyle: 'short'
-  }).format(new Date(date))}`
+  return `${job.output_name || 'Workflow completed'} · ${formatTurkishDateTime(date)}`
 }
 </script>
 

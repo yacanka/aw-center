@@ -151,6 +151,8 @@ function includeCurrentOption(
           <n-date-picker
             v-model:formatted-value="work.next_action_due_date"
             type="date"
+            format="dd.MM.yyyy"
+            value-format="yyyy-MM-dd"
             :disabled="!canEdit"
             clearable
           />

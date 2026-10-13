@@ -78,7 +78,11 @@ function getTechDocumentNumbers(row: ICompDoc) {
 
 function serializeFilter(key: string, value: unknown): [string, string | boolean | unknown[]][] {
   if (value === null || value === undefined || value === '') return []
-  if (Array.isArray(value)) return value.length ? [[key, value]] : []
+  if (Array.isArray(value)) {
+    const queryKey =
+      key === 'panel' && value.every((item) => typeof item === 'string') ? 'panel_name' : key
+    return value.length ? [[queryKey, value]] : []
+  }
   if (isDateFilter(value)) {
     const lookup = DATE_OPERATOR_LOOKUPS[value.type]
     const date = toIsoDate(value.date)

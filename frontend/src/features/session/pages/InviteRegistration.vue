@@ -69,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { FormInst, FormRules } from 'naive-ui'
@@ -123,9 +124,7 @@ const rules: FormRules = {
 }
 const formattedExpiry = computed(() => {
   if (!context.value) return ''
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(context.value.expires_at)
-  )
+  return formatTurkishDateTime(context.value.expires_at)
 })
 
 onMounted(async () => {

@@ -84,9 +84,6 @@
           />
           <p v-if="store.pending" role="status">Assistant is thinking…</p>
         </div>
-        <p class="source-disclosure">
-          Application guides are references, not a guarantee of answer accuracy.
-        </p>
         <n-alert v-if="store.error" type="warning" class="panel-alert" role="alert"
           ><span class="plain-error">{{ store.error }}</span>
           <p v-if="store.errorCode === 'THROTTLED'">Wait a minute before trying again.</p>
@@ -222,14 +219,10 @@ function onKeydown(event: KeyboardEvent): void {
   justify-content: flex-end;
 }
 .service-disclosure,
-.source-disclosure,
 .empty-copy {
   color: v-bind('themeVars.textColor2');
   margin: 0;
   line-height: 1.5;
-}
-.source-disclosure {
-  font-size: 12px;
 }
 .conversation {
   display: flex;

@@ -43,6 +43,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { isFailedJobStatus, type JobStatus } from '@/features/jobs/api/jobs'
 import type { WorkflowRun } from '@/features/jobs/api/workflows'
 
@@ -50,9 +51,7 @@ defineProps<{ workflow: WorkflowRun; cancelling: boolean }>()
 defineEmits<{ cancel: [workflow: WorkflowRun]; 'open-job': [jobId: string] }>()
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
-    new Date(value)
-  )
+  return formatTurkishDateTime(value)
 }
 
 function statusLabel(status: JobStatus): string {

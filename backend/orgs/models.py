@@ -3,15 +3,11 @@
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
-from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
 
 
-ATA_VALIDATOR = RegexValidator(
-    r"^[0-9]{2}-[0-9]{2}$",
-    message="ATA chapter must consist of four digits (XX-XX).",
-)
+from .ata import validate_ata_chapter
 
 
 class Project(models.Model):
@@ -47,7 +43,7 @@ class Panel(models.Model):
     name = models.CharField(max_length=255)
     discipline = models.CharField(max_length=255, blank=True)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="panels")
-    ata = models.CharField(max_length=5, validators=[ATA_VALIDATOR])
+    ata = models.CharField(max_length=128, validators=[validate_ata_chapter])
 
     class Meta:
         ordering = ["project__name", "ata", "name", "id"]

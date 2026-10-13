@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { h, ref } from 'vue'
 import { NUpload, NUploadDragger, NButton, NCard, NDataTable } from 'naive-ui'
 import type { NotificationType } from 'naive-ui'
@@ -168,7 +169,7 @@ function handleItemHeaderClick() {}
           <b>CC:</b>
           <div class="mail-address app-long-content">{{ msg.mail.cc }}</div>
         </n-flex>
-        <div><b>Date:</b> {{ msg.mail.date }}</div>
+        <div><b>Date:</b> {{ formatTurkishDateTime(msg.mail.date, true) }}</div>
       </div>
       <div v-if="msg.mail.body_plain">
         <n-collapse @item-header-click="handleItemHeaderClick" arrow-placement="right">

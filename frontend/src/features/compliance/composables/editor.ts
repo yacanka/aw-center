@@ -72,6 +72,14 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     return allocation.value.job?.message || 'Cover page number allocation queued.'
   })
   const rules = computed<FormRules>(() => ({
+    ata: [
+      {
+        validator: () =>
+          !compdoc.value.panel_name || Boolean(compdoc.value.panel && compdoc.value.ata),
+        message: 'Select an ATA assigned to the selected panel.',
+        trigger: ['change', 'blur']
+      }
+    ],
     name: [
       { required: true, whitespace: true, message: 'Name is required.', trigger: ['blur', 'input'] }
     ],
