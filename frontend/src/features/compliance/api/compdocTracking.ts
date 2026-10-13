@@ -1,3 +1,4 @@
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { apiClient as axios } from '@/shared/api/http'
 import { compdocDocumentPath } from '@/shared/api/apiPaths'
 
@@ -44,10 +45,7 @@ export function docproofTagType(status: string): 'success' | 'warning' | 'defaul
 /** Format persisted UTC timestamps for compact operator-facing display. */
 export function formatTrackingTimestamp(value: string | null) {
   if (!value) return 'never'
-  return new Intl.DateTimeFormat('tr-TR', {
-    dateStyle: 'short',
-    timeStyle: 'short'
-  }).format(new Date(value))
+  return formatTurkishDateTime(value)
 }
 
 /** Load one document's tracking workspace. */

@@ -66,6 +66,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { isFailedJobStatus, type Job, type JobStatus } from '@/features/jobs/api/jobs'
 
 defineProps<{ job: Job; active: boolean }>()
@@ -76,9 +77,7 @@ defineEmits<{
 }>()
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'medium' }).format(
-    new Date(value)
-  )
+  return formatTurkishDateTime(value, true)
 }
 
 function statusLabel(status: JobStatus): string {

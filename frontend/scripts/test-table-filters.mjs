@@ -47,7 +47,7 @@ test('serializes remote date operators and multi-select filters', () => {
       empty: []
     }),
     {
-      panel: ['Systems', 'Structures'],
+      panel_name: ['Systems', 'Structures'],
       ubm_target_date__gte: '2026-07-19'
     }
   )
@@ -207,7 +207,7 @@ test('creates zero-safe doughnut data and anchored stepped burndown lines', () =
   )
 
   assert.deepEqual(statusData.datasets[0].data, [3, 1])
-  assert.deepEqual(statusData.labels, ['To be Issued', 'Authority Approved'])
+  assert.deepEqual(statusData.labels, ['In Design', 'Authority Approved'])
   assert.equal(timelineData.datasets[0].stepped, 'before')
   assert.deepEqual(
     timelineData.datasets[0].data.map((point) => point.y),

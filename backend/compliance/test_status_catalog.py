@@ -184,3 +184,26 @@ class StatusCatalogTests(TestCase):
         document = ComplianceDocument.objects.get()
         self.assertEqual(document.status, "unknown")
         self.assertEqual(document.workflow_events.count(), 2)
+
+    def test_default_status_display_labels_preserve_codes_and_project_vocabulary(self):
+        from .models import DocumentStatus
+        for code, old_label, expected in (("to_be_issued", "To be Issued", "In Design"), ("airworthiness_review", "Airworthiness Review", "Aw Review")):
+            DocumentStatus.objects.create(project=self.project, value=code, label=old_label)
+            item = next(option for option in self.client.get(self.base + "statuses/").data if option["value"] == code)
+            self.assertEqual(item["label"], expected)
+            self.assertEqual(DocumentStatus.objects.get(project=self.project, value=code).label, old_label)
+        document = self.document("to_be_issued")
+        url = self.base + f"{document.pk}/"
+        self.assertEqual(self.client.get(url).data["status_label"], "In Design (date missing)")
+        document.ubm_target_date = date(2099, 1, 1)
+        document.save()
+        self.assertEqual(self.client.get(url).data["status_label"], "In Design")
+        self.assertEqual(self.client.get(url).data["status"], "to_be_issued")
+
+    def test_custom_label_for_default_code_is_not_renamed(self):
+        from .models import DocumentStatus
+        DocumentStatus.objects.create(project=self.project, value="airworthiness_review", label="Project engineering gate")
+        item = next(option for option in self.client.get(self.base + "statuses/").data if option["value"] == "airworthiness_review")
+        self.assertEqual(item["label"], "Project engineering gate")
+        document = self.document("airworthiness_review")
+        self.assertEqual(self.client.get(self.base + f"{document.pk}/").data["status_label"], "Project engineering gate")

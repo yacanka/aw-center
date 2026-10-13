@@ -476,6 +476,7 @@ class ComplianceApiTests(TestCase):
             ("ubm_delivery_date", date(2026, 9, 10)),
         ):
             self.assertEqual(worksheet.cell(row=2, column=headers[field]).value.date(), expected)
+            self.assertEqual(worksheet.cell(row=2, column=headers[field]).number_format, "DD.MM.YYYY")
 
     @override_settings(AWCENTER_MAX_COMPDOC_EXPORT_ROWS=1)
     def test_export_fails_closed_above_configured_row_limit(self):

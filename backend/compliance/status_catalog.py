@@ -11,6 +11,15 @@ from orgs.models import Project
 from .models import ComplianceDocument, DocumentStatus
 
 
+DEFAULT_STATUS_LABELS = {"to_be_issued": "In Design", "airworthiness_review": "Aw Review"}
+
+
+def display_status_label(value, label):
+    """Present renamed defaults while retaining persisted codes and catalog data."""
+    legacy = {"to_be_issued": "to be issued", "airworthiness_review": "airworthiness review"}
+    return DEFAULT_STATUS_LABELS.get(value, label) if label.casefold() == legacy.get(value) else label
+
+
 class StatusConflict(APIException):
     status_code = 409
     default_code = "COMPLIANCE_STATUS_CONFLICT"
@@ -59,7 +68,7 @@ def status_options(project):
 
 
 def status_payload(item, count=0):
-    return {"id": str(item.pk), "value": item.value, "label": item.label,
+    return {"id": str(item.pk), "value": item.value, "label": display_status_label(item.value, item.label),
             "usage_count": count, "can_delete": item.value != "unknown" and count == 0}
 
 

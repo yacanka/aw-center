@@ -41,7 +41,11 @@
           {{ summary.panel_count ?? 0 }}
         </n-descriptions-item>
         <n-descriptions-item label="Source updated">
-          {{ summary.source_updated_at || 'Unavailable' }}
+          {{
+            summary.source_updated_at
+              ? formatTurkishDateTime(summary.source_updated_at, true)
+              : 'Unavailable'
+          }}
         </n-descriptions-item>
         <n-descriptions-item label="Confirmation expires">
           {{ expirationLabel }}
@@ -68,6 +72,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { computed, ref, watch } from 'vue'
 import type { Job } from '@/features/jobs/api/jobs'
 import type { DccReadinessCheck } from '@/features/jobs/api/jobSummaries'
@@ -96,10 +101,7 @@ const readinessProgressStatus = computed(() =>
 )
 const expirationLabel = computed(() => {
   if (!props.job.confirmation_expires_at) return 'Unavailable'
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'medium'
-  }).format(new Date(props.job.confirmation_expires_at))
+  return formatTurkishDateTime(props.job.confirmation_expires_at, true)
 })
 
 watch(

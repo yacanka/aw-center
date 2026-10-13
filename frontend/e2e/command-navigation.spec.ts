@@ -13,9 +13,26 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(trigger).toBeVisible()
       const triggerBounds = await trigger.boundingBox()
       const contentBounds = await page.locator('.protected-content').boundingBox()
+      const assistantBounds = await page
+        .getByRole('button', { name: 'Open AW Center Assistant' })
+        .boundingBox()
+      const footerBounds = await page.locator('.protected-footer').boundingBox()
+      const accountBounds = await page
+        .getByRole('button', { name: /^Account and settings:/ })
+        .boundingBox()
       expect(triggerBounds).not.toBeNull()
       expect(contentBounds).not.toBeNull()
-      expect(triggerBounds!.y + triggerBounds!.height).toBeLessThanOrEqual(contentBounds!.y)
+      expect(assistantBounds).not.toBeNull()
+      expect(footerBounds).not.toBeNull()
+      expect(accountBounds).not.toBeNull()
+      expect(contentBounds!.y + contentBounds!.height).toBeLessThanOrEqual(triggerBounds!.y)
+      expect(triggerBounds!.y + triggerBounds!.height).toBeLessThanOrEqual(
+        footerBounds!.y + footerBounds!.height
+      )
+      expect(Math.abs(triggerBounds!.y - assistantBounds!.y)).toBeLessThanOrEqual(1)
+      expect(triggerBounds!.x + triggerBounds!.width + 8).toBeLessThanOrEqual(assistantBounds!.x)
+      expect(Math.abs(footerBounds!.y - accountBounds!.y)).toBeLessThanOrEqual(1)
+      expect(Math.abs(footerBounds!.height - accountBounds!.height)).toBeLessThanOrEqual(1)
       expect(triggerBounds!.x).toBeGreaterThanOrEqual(64)
       expect(triggerBounds!.x + triggerBounds!.width).toBeLessThanOrEqual(width)
       expect(triggerBounds!.height).toBeGreaterThanOrEqual(44)

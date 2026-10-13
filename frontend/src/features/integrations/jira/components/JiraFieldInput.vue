@@ -49,11 +49,16 @@
     :placeholder="field.name"
     @update:value="updateBoolean"
   />
-  <n-input
+  <n-date-picker
     v-else-if="inputType === 'datetime'"
-    :value="modelValueAsString"
-    placeholder="YYYY-MM-DDTHH:mm:ss+03:00"
-    @update:value="updateValue"
+    :formatted-value="modelValueAsDateTime"
+    type="datetime"
+    value-format="dd.MM.yyyy HH:mm:ss"
+    format="dd.MM.yyyy HH:mm:ss"
+    clearable
+    style="width: 100%"
+    :placeholder="field.name"
+    @update:formatted-value="updateDateTimeValue"
   />
   <n-search
     v-else-if="inputType == 'person'"
@@ -66,6 +71,7 @@
     v-else-if="inputType == 'date'"
     :formatted-value="modelValueAsDate"
     value-format="yyyy-MM-dd"
+    format="dd.MM.yyyy"
     type="date"
     clearable
     style="width: 100%"
@@ -91,6 +97,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import NSearch from '@/shared/components/NSearch.vue'
 import { IJiraField, JiraFieldValue } from '@/features/integrations/jira/models/jira'
 import { jiraInputToken, resolveJiraFieldInputType } from '@/shared/utils/jiraFieldInput'
@@ -149,6 +156,10 @@ const modelValueAsString = computed(() => String(jiraInputToken(props.modelValue
 const modelValueAsNumber = computed(() =>
   typeof props.modelValue == 'number' ? props.modelValue : null
 )
+const modelValueAsDateTime = computed(() => {
+  const formatted = formatTurkishDateTime(modelValueAsString.value, true)
+  return formatted === '-' ? null : formatted
+})
 const modelValueAsDate = computed(() => normalizeDateValue(props.modelValue))
 const modelValueAsArray = computed(() =>
   Array.isArray(props.modelValue)
@@ -184,6 +195,13 @@ function updateChild(value: string | number | null) {
 function updateValue(value: JiraFieldValue | undefined) {
   emits('update:modelValue', value ?? null)
   emits('change')
+}
+
+function updateDateTimeValue(value: string | null) {
+  if (!value) return updateValue(null)
+  const [date, time] = value.split(' ')
+  const [day, month, year] = date.split('.')
+  updateValue(`${year}-${month}-${day}T${time}+03:00`)
 }
 
 function updateDateValue(value: string | null) {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { computed } from 'vue'
 import { useThemeVars } from 'naive-ui'
 import type { WatcherStatus, WatcherPreferences } from '../api/watcher'
@@ -35,7 +36,7 @@ const style = computed(() => ({
       ><n-tag :bordered="false" :type="status.issue_completed ? 'success' : 'warning'">{{
         status.status || 'Unknown status'
       }}</n-tag
-      ><n-text>Checked {{ new Date(status.checked_at).toLocaleString() }}</n-text></n-flex
+      ><n-text>Checked {{ formatTurkishDateTime(status.checked_at, true) }}</n-text></n-flex
     >
     <dl v-if="detailFields.length" class="document-fields">
       <div v-for="field in detailFields" :key="field.id">

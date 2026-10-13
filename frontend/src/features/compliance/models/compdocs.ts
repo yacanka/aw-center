@@ -40,6 +40,8 @@ export interface ICompDoc {
   notes: string
   authority_sharing_number: string
   created_time: string
+  created_at?: string | null
+  updated_at?: string | null
   history?: IHistory[] | null
   [key: string]: unknown
 }

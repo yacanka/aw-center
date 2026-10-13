@@ -1,6 +1,7 @@
 from typing import List, Union
 import html
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import sys
 import os
 from io import BytesIO
@@ -303,7 +304,7 @@ class HTMLReportGenerator:
                 <div class="header">
                     <h1>PDF Comparison Report</h1>
                     <p>📄 <strong>{self.escape(file1_name)}</strong> ↔ <strong>{self.escape(file2_name)}</strong></p>
-                    <p>📅 {datetime.now().strftime("%d.%m.%Y %H:%M:%S")}</p>
+                    <p>📅 {datetime.now(ZoneInfo("Europe/Istanbul")).strftime("%d.%m.%Y %H:%M:%S")}</p>
                 </div>
 
                 <div class="summary">

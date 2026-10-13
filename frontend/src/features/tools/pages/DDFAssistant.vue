@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatTurkishDate } from '@/shared/utils/time'
 import { computed, h, ref, onMounted, onUnmounted } from 'vue'
 import { NButton, NDataTable, NSpace, NIcon, DataTableColumns, PaginationInfo } from 'naive-ui'
 import { provideDdfController } from '@/features/tools/composables/ddfController'
@@ -107,6 +108,7 @@ const columns: DataTableColumns<IDdf> = [
   {
     title: 'Doc Date',
     key: 'date',
+    render: (row) => formatTurkishDate(row.date),
     filter: getDateFilterFunc('date'),
     renderFilterMenu: getDateFilterMenuFunc('date', onFilter, onClean),
     width: 100

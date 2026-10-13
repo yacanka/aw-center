@@ -107,11 +107,16 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
     def get_status_label(self, document):
         if not hasattr(self, "_status_labels"):
             self._status_labels = dict(DocumentStatus.objects.filter(project=document.project_id).values_list("value", "label"))
-        return self._status_labels.get(document.status, document.status.replace("_", " ").capitalize())
+        from .status_catalog import display_status_label
+        label = self._status_labels.get(document.status, document.status.replace("_", " ").capitalize())
+        label = display_status_label(document.status, label)
+        if document.status == "to_be_issued" and label == "In Design" and not (document.ubm_revised_target_date or document.ubm_target_date):
+            return "In Design (date missing)"
+        return label
 
     project_slug = serializers.CharField(source="project.slug", read_only=True)
     panel_name = serializers.CharField(source="panel.name", read_only=True, allow_null=True)
-    ata = serializers.CharField(source="panel.ata", read_only=True, allow_null=True)
+    ata = serializers.CharField(source="selected_ata", required=False, allow_null=True, max_length=128)
     cover_page = CoverPageSerializer()
     panel = serializers.PrimaryKeyRelatedField(
         queryset=Panel.objects.none(),
@@ -186,6 +191,11 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         if project is not None:
             self.fields["panel"].queryset = Panel.objects.filter(project=project)
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["ata"] = instance.panel.ata if instance.panel else None
+        return data
+
     def validate_panel(self, panel):
         project = self.context.get("project")
         if panel is not None and (project is None or panel.project_id != project.pk):
@@ -196,6 +206,11 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         project = self.context.get("project")
         if project is None:
             raise serializers.ValidationError("Project context is required.")
+        # ATA asserts the selected catalog entry; it is never independent storage.
+        if "selected_ata" in attributes:
+            panel = attributes.get("panel", self.instance.panel if self.instance else None)
+            if attributes.pop("selected_ata") != (panel.ata if panel else None):
+                raise serializers.ValidationError({"ata": "Select an ATA assigned to the selected panel."})
         cover_page = attributes.get("cover_page")
         if cover_page is not None and "number" not in cover_page:
             raise serializers.ValidationError(

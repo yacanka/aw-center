@@ -148,6 +148,15 @@ function rememberVisitedCommand(path: string): void {
   margin-left: 8px;
 }
 
+@media (max-width: 600px) {
+  .command-trigger {
+    padding-inline: 10px;
+  }
+  .command-shortcut {
+    display: none;
+  }
+}
+
 :global(.command-modal) {
   width: min(680px, calc(100vw - 32px));
 }

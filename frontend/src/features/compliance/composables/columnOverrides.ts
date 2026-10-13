@@ -1,3 +1,4 @@
+import { formatTurkishDate, formatTurkishDateTime } from '@/shared/utils/time'
 import { h, ref } from 'vue'
 import { NTag, type DataTableColumns } from 'naive-ui'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
@@ -11,6 +12,21 @@ export function useCompdocColumnOverrides(store: CompdocController) {
   const issueColumns = useCompdocIssueColumns()
   const columns = ref<DataTableColumns<ICompDoc>>([
     ...issueColumns.columns,
+    ...(
+      [
+        'ubm_target_date',
+        'ubm_revised_target_date',
+        'ubm_delivery_date',
+        'next_action_due_date'
+      ] as const
+    ).map((key) => ({
+      key,
+      render: (row: ICompDoc) => (row[key] ? formatTurkishDate(row[key]) : '—')
+    })),
+    ...(['created_at', 'updated_at'] as const).map((key) => ({
+      key,
+      render: (row: ICompDoc) => (row[key] ? formatTurkishDateTime(row[key]) : '—')
+    })),
     {
       key: 'panel',
       render: (row) =>
@@ -23,7 +39,8 @@ export function useCompdocColumnOverrides(store: CompdocController) {
 
 function renderStatus(row: ICompDoc) {
   const status = String(row.status || 'unknown')
-  const colors = statusColors[status]
+  const colors =
+    statusColors[row.status_label === 'In Design (date missing)' ? 'missing_target' : status]
   return h(
     NTag,
     {

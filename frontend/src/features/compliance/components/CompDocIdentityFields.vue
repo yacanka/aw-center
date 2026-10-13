@@ -19,17 +19,25 @@
       </n-form-item-gi>
       <n-form-item-gi span="0:48 700:12" path="panel" label="Panel">
         <n-select
-          v-model:value="compdoc.panel"
+          :value="selectedPanelName"
           placeholder="Select Panel"
           :options="panelOptions"
           :disabled="readonly"
           clearable
           :status="changed('panel')"
-          @update:value="syncAtaFromPanel"
+          @update:value="selectPanel"
         />
       </n-form-item-gi>
       <n-form-item-gi span="0:48 700:8" path="ata" label="ATA">
-        <n-input :value="compdoc.ata || ''" placeholder="—" readonly />
+        <n-select
+          :value="compdoc.ata"
+          placeholder="Select ATA"
+          :options="ataOptions"
+          :disabled="readonly || !selectedPanelName"
+          clearable
+          :status="changed('ata')"
+          @update:value="selectAta"
+        />
       </n-form-item-gi>
       <n-form-item-gi span="0:48 700:28" path="name" label="Name">
         <n-input
@@ -91,16 +99,25 @@ const emit = defineEmits<{
   'update:numberSource': [value: 'manual' | 'numarator']
 }>()
 const store = useCompdocController()
+const selectedPanelName = computed(
+  () =>
+    props.compdoc.panel_name ||
+    store.getPanels.find((panel) => panel.id === props.compdoc.panel)?.name ||
+    null
+)
 const panelOptions = computed(() => {
-  const options = store.getPanelOptions
-  const selectedPanel = props.compdoc.panel
-  if (selectedPanel === null || options.some((option) => option.value === selectedPanel)) {
-    return options
-  }
-  if (!props.compdoc.panel_name) return options
-  const ata = props.compdoc.ata ? ` · ATA ${props.compdoc.ata}` : ''
-  return [...options, { label: `${props.compdoc.panel_name}${ata}`, value: selectedPanel }]
+  const names = new Set(store.getPanels.map((panel) => panel.name))
+  if (selectedPanelName.value) names.add(selectedPanelName.value)
+  return [...names]
+    .sort((left, right) => left.localeCompare(right))
+    .map((name) => ({ label: name, value: name }))
 })
+const ataOptions = computed(() =>
+  store.getPanels
+    .filter((panel) => panel.name === selectedPanelName.value)
+    .sort((left, right) => left.ata.localeCompare(right.ata))
+    .map((panel) => ({ label: panel.ata, value: panel.ata }))
+)
 const arrayChanged = computed(
   () => !checkArrayEquals(props.original.signature_panel, props.compdoc.signature_panel)
 )
@@ -108,17 +125,18 @@ function changed(field: keyof ICompDoc): '' | 'warning' {
   return props.original[field] === props.compdoc[field] ? '' : 'warning'
 }
 
-function syncAtaFromPanel(panelId: number | null): void {
-  const options = optionsForPanel(panelId)
-  props.compdoc.ata = options.length === 1 ? String(options[0].value) : null
+function selectPanel(name: string | null): void {
+  props.compdoc.panel_name = name || ''
+  props.compdoc.panel = null
+  props.compdoc.ata = null
 }
 
-function optionsForPanel(panelId: number | null) {
-  if (!panelId) return []
-  return store.getPanels
-    .filter((panel) => panel.id === panelId)
-    .sort((left, right) => left.ata.localeCompare(right.ata))
-    .map((panel) => ({ label: panel.ata, value: panel.ata }))
+function selectAta(ata: string | null): void {
+  const selected = store.getPanels.find(
+    (panel) => panel.name === selectedPanelName.value && panel.ata === ata
+  )
+  props.compdoc.panel = selected?.id ?? null
+  props.compdoc.ata = selected?.ata ?? null
 }
 
 function updateNumberSource(value: 'manual' | 'numarator'): void {

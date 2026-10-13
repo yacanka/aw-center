@@ -13,11 +13,12 @@ export interface StatusColorSet {
 }
 
 export const statusColors: Record<string, StatusColorSet> = {
-  to_be_issued: colorSet('#FFC7CE'),
-  airworthiness_review: colorSet('#FFEB9C'),
-  'to_be_re-submitted': colorSet('#ED7D31'),
-  to_be_updated: colorSet('#FFF2CC'),
-  authority_review: colorSet('#00B0F0'),
+  to_be_issued: colorSet('#94a3b8'),
+  missing_target: colorSet('#64748b'),
+  airworthiness_review: colorSet('#f97316'),
+  'to_be_re-submitted': colorSet('#3b82f6'),
+  to_be_updated: colorSet('#3b82f6'),
+  authority_review: colorSet('#eab308'),
   authority_approved: colorSet('#C6EFCE'),
   delayed: colorSet('#FFC7CE')
 }

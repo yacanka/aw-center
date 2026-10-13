@@ -114,10 +114,11 @@ test('lazy shell keeps chat across close, reopen and navigation; logout clears i
     history: [],
     current_path: '/settings'
   })
-  await page.getByRole('button', { name: 'Open guide: PDF Splitter' }).click()
-  await expect(page).toHaveURL(/\/app\/pdf\/split$/)
+  await expect(page.getByLabel('Application guide sources')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Open guide: PDF Splitter' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: 'Your message' })).toHaveCount(1)
   await page.getByRole('button', { name: 'Open PDF Splitter', exact: true }).click()
+  await expect(page).toHaveURL(/\/app\/pdf\/split$/)
   await page.getByRole('button', { name: 'Close assistant' }).click()
   await expect(panel(page)).toHaveCount(0)
   await open(page)

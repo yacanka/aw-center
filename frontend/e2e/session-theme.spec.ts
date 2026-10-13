@@ -38,7 +38,7 @@ for (const theme of ['light', 'dark'] as const) {
       const accent = theme === 'dark' ? 'rgb(99, 226, 183)' : 'rgb(24, 160, 88)'
       await page.goto('/app/login')
       await expect(page.locator('.login-panel')).toHaveCSS('background-color', surface)
-      await expect(page.locator('.heading-dot')).toHaveCSS('color', accent)
+      await expect(page.locator('.brand-dot')).toHaveCSS('background-color', accent)
       await page.evaluate(() =>
         window.dispatchEvent(new Event('beforeinstallprompt', { cancelable: true }))
       )

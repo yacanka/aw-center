@@ -102,12 +102,19 @@ async function submitTransition(): Promise<void> {
           />
         </n-form-item-gi>
         <n-form-item-gi label="Effective date">
-          <n-date-picker v-model:formatted-value="transition.effective_date" type="date" />
+          <n-date-picker
+            v-model:formatted-value="transition.effective_date"
+            type="date"
+            format="dd.MM.yyyy"
+            value-format="yyyy-MM-dd"
+          />
         </n-form-item-gi>
         <n-form-item-gi label="Next action due">
           <n-date-picker
             v-model:formatted-value="transition.next_action_due_date"
             type="date"
+            format="dd.MM.yyyy"
+            value-format="yyyy-MM-dd"
             clearable
           />
         </n-form-item-gi>

@@ -173,17 +173,11 @@ test('consolidates tab and section guidance into one contextual help control', a
   assert.match(contextHelp, /Timeline/)
 })
 
-test('CompDoc panel names remain visible and ATA is derived from the selected panel', () => {
+test('CompDoc Panel and ATA controls remain separate from organization administration', () => {
   assert.match(identityFieldsSource, /:options="panelOptions"/)
-  assert.match(identityFieldsSource, /const options = store\.getPanelOptions/)
-  assert.match(identityFieldsSource, /props\.compdoc\.panel_name/)
-  assert.match(identityFieldsSource, /:value="compdoc\.ata \|\| ''"/)
-  assert.match(identityFieldsSource, /placeholder="—" readonly/)
-  assert.match(identityFieldsSource, /\.filter\(\(panel\) => panel\.id === panelId\)/)
-  assert.match(
-    identityFieldsSource,
-    /options\.length === 1 \? String\(options\[0\]\.value\) : null/
-  )
+  assert.match(identityFieldsSource, /:options="ataOptions"/)
+  assert.match(identityFieldsSource, /@update:value="selectPanel"/)
+  assert.match(identityFieldsSource, /@update:value="selectAta"/)
   assert.doesNotMatch(identityFieldsSource, /useOrganizationController/)
 })
 

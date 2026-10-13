@@ -54,7 +54,9 @@ export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
     ordering,
     filterValue: filters,
     optionSources: () => ({
-      panels: store.getPanelOptions,
+      panels: [...new Set(store.getPanels.map((panel) => panel.name))]
+        .sort((left, right) => left.localeCompare(right))
+        .map((name) => ({ label: name, value: name })),
       atas: store.getAtaOptions
     }),
     onFilter,

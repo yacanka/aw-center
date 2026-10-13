@@ -215,10 +215,12 @@
                     <n-input v-model:value="subtask.priority" maxlength="50" />
                   </n-form-item-gi>
                   <n-form-item-gi label="Due date">
-                    <n-input
-                      v-model:value="subtask.due_date"
-                      maxlength="10"
-                      placeholder="YYYY-MM-DD"
+                    <n-date-picker
+                      v-model:formatted-value="subtask.due_date"
+                      type="date"
+                      value-format="yyyy-MM-dd"
+                      format="dd.MM.yyyy"
+                      clearable
                     />
                   </n-form-item-gi>
                 </n-grid>
@@ -369,6 +371,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { UploadFileInfo } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
@@ -817,9 +820,7 @@ function openJobCenter(jobId: string): void {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
-    new Date(value)
-  )
+  return formatTurkishDateTime(value)
 }
 
 function statusLabel(status: EcrWorkflowStatus): string {

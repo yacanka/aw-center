@@ -134,7 +134,7 @@
               :key="event.id"
               :title="event.event_type.replaceAll('_', ' ')"
               :content="`Version ${event.version}`"
-              :time="new Date(event.created_at).toLocaleString()"
+              :time="formatTurkishDateTime(event.created_at, true)"
             />
           </n-timeline>
         </n-collapse-item>
@@ -144,6 +144,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTurkishDateTime } from '@/shared/utils/time'
 import { useJiraIssueDraft } from '@/features/integrations/jira/composables/useJiraIssueDraft'
 import type { Job } from '@/features/jobs/api/jobs'
 import JiraDraftPreflightPanel from './JiraDraftPreflightPanel.vue'

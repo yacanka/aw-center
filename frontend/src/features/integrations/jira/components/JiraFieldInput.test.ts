@@ -5,6 +5,12 @@ import { describe, expect, it } from 'vitest'
 import type { IJiraField, JiraFieldValue } from '@/features/integrations/jira/models/jira'
 import JiraFieldInput from './JiraFieldInput.vue'
 
+const DatePicker = defineComponent({
+  props: ['formattedValue', 'format', 'valueFormat', 'type'],
+  emits: ['update:formatted-value'],
+  template: '<div />'
+})
+
 const Select = defineComponent({
   props: ['value', 'options'],
   emits: ['update:value'],
@@ -13,7 +19,13 @@ const Select = defineComponent({
 function editor(modelValue: JiraFieldValue, field: Partial<IJiraField>) {
   return mount(JiraFieldInput, {
     props: { modelValue, field: { id: 'customfield_123', name: 'Review', ...field } },
-    global: { stubs: { NSelect: Select, NFlex: { template: '<div><slot /></div>' } } }
+    global: {
+      stubs: {
+        NSelect: Select,
+        NDatePicker: DatePicker,
+        NFlex: { template: '<div><slot /></div>' }
+      }
+    }
   })
 }
 
@@ -47,4 +59,21 @@ describe('JIRA field editor', () => {
     wrapper.findComponent(Select).vm.$emit('update:value', 'false')
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false])
   })
+})
+
+it('displays date fields in Turkish while preserving the ISO calendar wire value', () => {
+  const wrapper = editor('2026-10-13', { schema: { type: 'date' } })
+  const picker = wrapper.findComponent(DatePicker)
+  expect(picker.props('format')).toBe('dd.MM.yyyy')
+  expect(picker.props('formattedValue')).toBe('2026-10-13')
+  picker.vm.$emit('update:formatted-value', '2026-10-14')
+  expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['2026-10-14'])
+})
+
+it('displays datetime fields in Istanbul and submits the selected time with UTC+3', () => {
+  const wrapper = editor('2026-10-13T22:05:06Z', { schema: { type: 'datetime' } })
+  const picker = wrapper.findComponent(DatePicker)
+  expect(picker.props('formattedValue')).toBe('14.10.2026 01:05:06')
+  picker.vm.$emit('update:formatted-value', '15.10.2026 16:30:00')
+  expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['2026-10-15T16:30:00+03:00'])
 })

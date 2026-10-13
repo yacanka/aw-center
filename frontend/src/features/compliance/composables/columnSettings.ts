@@ -1,4 +1,5 @@
-import { reactive, type Ref } from 'vue'
+import { h, reactive, type Ref } from 'vue'
+import { Filter24Regular } from '@vicons/fluent'
 import type { DataTableColumn, DataTableColumns, SelectOption } from 'naive-ui'
 import type {
   IColumnSetting,
@@ -86,6 +87,19 @@ function buildColumn(setting: IColumnSetting, dependencies: ColumnSettingsDepend
     sorter: setting.sorter ? 'default' : false,
     sortOrder: resolveSortOrder(metadata.key, dependencies.ordering.value),
     ...filterProperties(setting, metadata, dependencies),
+    renderFilterIcon: setting.filter
+      ? () => {
+          const value = dependencies.filterValue.value[metadata.key]
+          const active = Array.isArray(value)
+            ? value.length > 0
+            : value !== undefined && value !== null && value !== ''
+          return h(Filter24Regular, {
+            'aria-label': `Filter ${metadata.key}`,
+            class: ['compdoc-filter-icon', { 'compdoc-filter-icon--active': active }],
+            style: active ? { color: 'var(--n-th-icon-color-active)' } : undefined
+          })
+        }
+      : undefined,
     ellipsis: setting.ellipsis ? { tooltip: true } : false
   } as ConfigurableColumn
 }

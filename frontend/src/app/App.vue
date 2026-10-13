@@ -1,5 +1,5 @@
 <template>
-  <n-config-provider :theme="activeTheme" :theme-overrides="themeOverrides">
+  <n-config-provider :theme="activeTheme" :theme-overrides="themeOverrides" :date-locale="dateTrTR">
     <n-dialog-provider>
       <n-message-provider>
         <n-notification-provider>
@@ -23,7 +23,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, watchEffect } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
-import { darkTheme, lightTheme, type GlobalThemeOverrides } from 'naive-ui'
+import { darkTheme, lightTheme, dateTrTR, type GlobalThemeOverrides } from 'naive-ui'
 import UiFeedbackBridge from '@/app/components/UiFeedbackBridge.vue'
 import PwaInstallPrompt from '@/app/components/PwaInstallPrompt.vue'
 import { useSessionStore } from '@/features/session/stores/session'

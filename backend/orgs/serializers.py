@@ -3,9 +3,18 @@
 from rest_framework import serializers
 
 from .models import Panel, Person, ResponsibleAssignment
+from .ata import normalize_ata_chapter
 
 
 class PanelSerializer(serializers.ModelSerializer):
+    ata = serializers.CharField(max_length=128)
+
+    def validate_ata(self, value):
+        try:
+            return normalize_ata_chapter(value)
+        except ValueError as error:
+            raise serializers.ValidationError("Use an ATA chapter such as 27-00 or digit-free text.") from error
+
     project_slug = serializers.CharField(source="project.slug", read_only=True)
 
     class Meta:

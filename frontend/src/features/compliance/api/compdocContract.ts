@@ -8,6 +8,7 @@ import type {
 
 const TABLE_FIELDS = new Set([
   'panel',
+  'ata',
   'name',
   'cover_page',
   'tech_doc_no',
@@ -33,6 +34,7 @@ const TABLE_FIELDS = new Set([
 
 const DEFAULT_FIELDS = new Set([
   'panel',
+  'ata',
   'name',
   'cover_page_no',
   'cover_page_issue',

@@ -109,6 +109,10 @@ Compliance kayıtları tek `compliance.ComplianceDocument` tablosundadır ve `pr
 
 Compliance Excel ve DOORS importları ortak önizleme/onay akışında organizasyon panel kataloğunu da günceller. Anahtar proje + normalize ATA chapter'dır: mevcut ATA'nın panel adı güncellenir, yeni ATA için panel adı ve ATA birlikte gerekir. Aynı ATA için kabul edilen belge satırları arasındaki son dolu panel adı kazanır; reddedilen satırlar kataloğa etki etmez. Mevcut kayıt tek alanla kesin eşleşiyorsa kullanılabilir. Panel kimliği, discipline ve sorumlu atamaları korunur; ad değişikliği aynı paneli kullanan diğer belgelere de yansır.
 
+ATA içinde rakam bulunduğunda mevcut sayısal normalizasyon ve `XX-XX` doğrulaması uygulanır; rakam içermeyen metin dış boşlukları temizlenerek korunur (en fazla 128 karakter). Compliance tam detay formu Panel adını ve o ada bağlı ATA'yı ayrı seçtirir; kaydedilen kimlik yine tek `orgs.Panel` foreign key'idir. Yazma API'sindeki isteğe bağlı `ata` alanı bu kimliğin ATA'sıyla eşleşmek zorundadır. Tablo `panel_name` ile aynı adlı Panel kayıtlarının tamamını, `ata` ile ATA kayıtlarını bağımsız filtreler; eski sayısal `panel` filtresinin kimlik anlamı korunur.
+
+Varsayılan `to_be_issued` ve `airworthiness_review` kodları değiştirilmeden `In Design` ve `Aw Review` olarak gösterilir. Hedef tarihi bulunmayan varsayılan In Design kaydı `In Design (date missing)` etiketi alır; gecikme hesaplaması revize hedefi önceleyerek Türkiye takvim gününü kullanır. Kullanıcıların özel durum etiketleri, kayıtlı katalog verisi ve audit geçmişi değiştirilmez. Compliance tarih görünümleri ve Excel tarih hücreleri `dd.MM.yyyy` kullanır; API ve date-picker kayıt değerleri ISO kalır.
+
 Önizleme salt okunurdur; `panel_changes` alanı ATA, eski/yeni ad ve işlemi gösterir. Panel durumu confirmation fingerprint'e dahildir ve onayda panel/belge değişiklikleri tek transaction'da uygulanır. Bu sınırlı katalog güncellemesi mevcut compliance editor import yetkisinin parçasıdır; doğrudan organizasyon düzenleme ve bağımsız panel importu için organization manager gerekliliği değişmez.
 
 Excel import gerçek worksheet koordinatlarını dataframe tahsisinden önce kontrol

@@ -451,6 +451,9 @@ USE_TZ = True
 DATE_INPUT_FORMATS = ['%d.%m.%Y', '%d/%m/%Y', '%Y-%m-%d']
 DATETIME_INPUT_FORMATS = ['%d.%m.%Y %H:%M']
 DATE_FORMAT = 'd.m.Y'
+DATETIME_FORMAT = 'd.m.Y H:i:s'
+TIME_FORMAT = 'H:i:s'
+FORMAT_MODULE_PATH = 'awcenter.formats'
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/

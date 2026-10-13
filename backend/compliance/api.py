@@ -101,13 +101,15 @@ TEXT_FILTER_FIELDS = frozenset(
         "path",
     }
 )
-SELECT_FILTER_FIELDS = frozenset({"panel", "status"})
+SELECT_FILTER_FIELDS = frozenset({"panel", "panel_name", "ata", "status"})
 DATE_FILTER_FIELDS = frozenset(
     {"ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date", "next_action_due_date", "created_at", "updated_at"}
 )
 FILTER_FIELD_LOOKUPS = {
     "cover_page_no": "cover_page__number",
     "cover_page_issue": "cover_page__issue",
+    "ata": "panel__ata",
+    "panel_name": "panel__name",
 }
 DATE_FILTER_FIELD_LOOKUPS = {
     "created_at": "created_at__date",
@@ -115,7 +117,7 @@ DATE_FILTER_FIELD_LOOKUPS = {
 }
 ORDERING_FIELDS = {
     **{field: FILTER_FIELD_LOOKUPS.get(field, field) for field in TEXT_FILTER_FIELDS},
-    **{field: field for field in SELECT_FILTER_FIELDS | DATE_FILTER_FIELDS},
+    **{field: FILTER_FIELD_LOOKUPS.get(field, field) for field in SELECT_FILTER_FIELDS | DATE_FILTER_FIELDS},
     "ata": "panel__ata",
     "is_archived": "is_archived",
 }
@@ -424,6 +426,7 @@ class DocumentFieldsView(ProjectComplianceMixin, APIView):
             for field in ComplianceDocument._meta.fields
             if field.name not in excluded
         ]
+        fields.insert(1, {"key": "ata", "label": "ATA", "required": False, "read_only": False, **_field_capabilities("ata", options)})
         return Response(
             {"schema_version": 3, "project": self.project.slug, "fields": fields}
         )
@@ -1082,6 +1085,12 @@ class ExportView(ProjectComplianceMixin, APIView):
         )
         with pd.ExcelWriter(response, engine="openpyxl") as writer:
             pd.DataFrame(rows).to_excel(writer, index=False, sheet_name="Compliance Documents")
+            # The openpyxl pandas writer ignores its date_format argument. Keep
+            # native Excel dates sortable while applying the visible date contract.
+            for row in writer.sheets["Compliance Documents"].iter_rows(min_row=2):
+                for cell in row:
+                    if cell.is_date:
+                        cell.number_format = "DD.MM.YYYY"
         return response
 
 
@@ -1141,10 +1150,10 @@ def _apply_document_filters(queryset, query_params):
             validator = (
                 serializers.IntegerField(min_value=1)
                 if field == "panel"
-                else serializers.CharField(max_length=128)
+                else serializers.CharField(max_length=255 if field == "panel_name" else 128)
             )
             validated = [validator.run_validation(value) for value in values[:100]]
-            queryset = queryset.filter(**{f"{field}__in": validated})
+            queryset = queryset.filter(**{f"{FILTER_FIELD_LOOKUPS.get(field, field)}__in": validated})
     archived_filter = query_params.get("is_archived")
     if archived_filter is not None:
         queryset = queryset.filter(is_archived=_parse_query_boolean(archived_filter, "is_archived"))
@@ -1213,7 +1222,7 @@ def _field_capabilities(field, statuses=()):
     else:
         filter_kind = "none"
     choices = []
-    option_source = "panels" if field == "panel" else None
+    option_source = {"panel": "panels", "ata": "atas"}.get(field)
     if field == "status":
         choices = [{"value": item["value"], "label": item["label"]} for item in statuses]
     return {

@@ -145,7 +145,13 @@ async function decide(task: CompdocReview, status: 'approved' | 'changes_request
           />
         </n-form-item-gi>
         <n-form-item-gi label="Due date">
-          <n-date-picker v-model:formatted-value="request.due_date" type="date" clearable />
+          <n-date-picker
+            v-model:formatted-value="request.due_date"
+            type="date"
+            format="dd.MM.yyyy"
+            value-format="yyyy-MM-dd"
+            clearable
+          />
         </n-form-item-gi>
         <n-form-item-gi label="Request note">
           <n-input v-model:value="request.request_note" maxlength="500" show-count />

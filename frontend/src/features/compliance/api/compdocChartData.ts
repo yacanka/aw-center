@@ -6,14 +6,14 @@ import type {
 } from '@/features/compliance/models/compdocDashboard'
 
 export const STATUS_PRESENTATION = [
-  { value: 'to_be_issued', label: 'To be Issued', color: '#f59e0b' },
-  { value: 'expected', label: 'Expected', color: '#f59e0b' },
-  { value: 'missing_target', label: 'Target date missing', color: '#94a3b8' },
+  { value: 'to_be_issued', label: 'In Design', color: '#94a3b8' },
+  { value: 'expected', label: 'In Design', color: '#94a3b8' },
+  { value: 'missing_target', label: 'In Design (date missing)', color: '#64748b' },
   { value: 'delayed', label: 'Delayed', color: '#ef4444' },
-  { value: 'to_be_updated', label: 'To be Updated', color: '#06b6d4' },
-  { value: 'airworthiness_review', label: 'Airworthiness Review', color: '#8b5cf6' },
-  { value: 'to_be_re-submitted', label: 'To be Re-Submitted', color: '#f97316' },
-  { value: 'authority_review', label: 'Authority Review', color: '#3b82f6' },
+  { value: 'to_be_updated', label: 'To be Updated', color: '#3b82f6' },
+  { value: 'airworthiness_review', label: 'Aw Review', color: '#f97316' },
+  { value: 'to_be_re-submitted', label: 'To be Re-Submitted', color: '#3b82f6' },
+  { value: 'authority_review', label: 'Authority Review', color: '#eab308' },
   { value: 'authority_approved', label: 'Authority Approved', color: '#22c55e' },
   { value: 'unknown', label: 'Unknown', color: '#94a3b8' }
 ] as const
@@ -69,7 +69,16 @@ export function createStatusChartRows(
   })
   return [...vocabulary].map(([value, label]) => {
     const color = STATUS_PRESENTATION.find((item) => item.value === value)?.color || neutralColor
-    const status = { value, label, color }
+    const defaultLabels: Record<string, string[]> = {
+      to_be_issued: ['to be issued', 'in design'],
+      airworthiness_review: ['airworthiness review', 'aw review'],
+      expected: ['expected', 'in design'],
+      missing_target: ['target date missing', 'in design (date missing)']
+    }
+    const displayLabel = defaultLabels[value]?.includes(label.toLowerCase())
+      ? STATUS_PRESENTATION.find((item) => item.value === value)!.label
+      : label
+    const status = { value, label: displayLabel, color }
     const count = safeNumber(counts[status.value])
     return { ...status, count, percentage: total ? Math.round((count / total) * 100) : 0 }
   })
