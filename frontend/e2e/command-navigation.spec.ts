@@ -35,11 +35,14 @@ for (const theme of ['light', 'dark'] as const) {
       expect(Math.abs(footerBounds!.height - accountBounds!.height)).toBeLessThanOrEqual(1)
       expect(triggerBounds!.x).toBeGreaterThanOrEqual(64)
       expect(triggerBounds!.x + triggerBounds!.width).toBeLessThanOrEqual(width)
-      expect(triggerBounds!.height).toBeGreaterThanOrEqual(44)
+      expect(triggerBounds!.height).toBeGreaterThanOrEqual(width < 600 ? 44 : 32)
+      expect(footerBounds!.height).toBeLessThanOrEqual(width < 600 ? 70 : 60)
+      await expect(trigger).toHaveText('Quick command')
 
       await trigger.click()
       const search = page.getByRole('textbox', { name: 'Search application commands' })
       await expect(search).toBeFocused()
+      await expect(page.locator('.command-shortcut')).toBeVisible()
       await page.screenshot({
         path: testInfo.outputPath('command-dialog.png'),
         animations: 'disabled'

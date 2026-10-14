@@ -46,6 +46,8 @@ def update_record(record_id, actor, values):
         projects = list(values.pop("projects", record.projects.all()))
         require_projects_role(actor, projects, OPERATOR)
         assigned_users = values.pop("assigned_users", None)
+        if "issue" in values and values["issue"] != record.issue:
+            record.components = None
         for field, value in values.items():
             setattr(record, field, value)
         record.version += 1

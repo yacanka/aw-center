@@ -7,7 +7,7 @@ def build_timeline(scheduled, actual, total, today, *, revised=None):
     """Return deterministic remaining-document series and reference points."""
 
     scheduled_points = _remaining_series(scheduled, total)
-    actual_points = _remaining_series(actual, total)
+    actual_points = _remaining_series({day: count for day, count in actual.items() if day <= today}, total)
     today_point = {"x": _format_date(today), "y": _remaining_on(actual, total, today)}
     return {
         "scheduled": scheduled_points,

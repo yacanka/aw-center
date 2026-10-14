@@ -100,6 +100,11 @@ export async function confirmCompdocImport(
   return response.data
 }
 
+/** Restore the latest successful module path within the authorized project. */
+export async function fetchDoorsImportSettings(collectionPath: string) {
+  return (await axios.get<{ module_path: string }>(`${collectionPath}imports/doors/settings/`)).data
+}
+
 /** Load verified DOORS source metadata without exposing its private job artifact. */
 export async function fetchDoorsImportSource(collectionPath: string, jobId: string) {
   const response = await axios.get<DoorsImportSource>(

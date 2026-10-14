@@ -28,10 +28,10 @@ describe('daily burndown comparison', () => {
     ])
     const points = data.datasets.map((row) => row.data as Array<{ x: number; y: number }>)
     expect(points[0].map((point) => point.y)).toEqual([160, 156, 156, 156, 156, 152, 152])
-    expect(points[1].map((point) => point.y)).toEqual([160, 160, 160, 158, 158, 158, 158])
+    expect(points[1].map((point) => point.y)).toEqual([160, 160, 160, 158, 158])
     expect(points[2].map((point) => point.y)).toEqual([160, 160, 156, 156, 156, 156, 152])
     expect(points[0][4]).toEqual({ x: stamp('2026-07-04'), y: 156 })
-    expect(points[1].map((point) => point.x)).toEqual(points[0].map((point) => point.x))
+    expect(points[1].map((point) => point.x)).toEqual(points[0].slice(0, 5).map((point) => point.x))
     expect(data.datasets.every((row) => row.stepped === 'before')).toBe(true)
     expect(createTimelineChartOptions('light', '04.07.2026', 160).interaction).toMatchObject({
       mode: 'index',

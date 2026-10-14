@@ -1,13 +1,13 @@
 <template>
-  <n-tabs :value="activeProject" @update:value="loadProject">
-    <n-tab-pane
-      v-for="project in projectOptions"
-      :key="project.value"
-      :name="project.value"
-      :tab="project.label"
-      :disabled="project.disabled"
+  <n-form-item label="Project" class="dashboard-project">
+    <n-select
+      :value="activeProject"
+      :options="projectOptions"
+      filterable
+      aria-label="Compliance dashboard project"
+      @update:value="loadProject"
     />
-  </n-tabs>
+  </n-form-item>
 
   <n-alert v-if="error" type="error" title="Dashboard could not be loaded" class="dashboard-alert">
     {{ error }}
@@ -202,6 +202,10 @@ const qualityMessage = computed(() => {
 </script>
 
 <style scoped>
+.dashboard-project {
+  width: min(100%, 360px);
+}
+
 .moc-distribution {
   border-top: 1px solid v-bind('themeVars.dividerColor');
   padding-top: 12px;

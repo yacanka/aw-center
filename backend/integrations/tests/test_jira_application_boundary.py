@@ -37,5 +37,5 @@ class JiraApplicationBoundaryTests(TestCase):
         client.force_authenticate(user)
         response = client.get("/api/integrations/jira/watcher/preferences/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, {"outstanding_only": False, "detail_fields": {}})
+        self.assertEqual(response.data, {"outstanding_only": False, "detail_fields": {}, "component_fields": {}})
         self.assertEqual(client.get("/api/dcc/watcher/preferences/").status_code, 404)

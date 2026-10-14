@@ -16,7 +16,9 @@ const detailFields = computed(() =>
   selectWatcherDetailFields(
     props.status.detail_fields,
     props.status.project_slugs,
-    props.preferences.detail_fields
+    props.preferences.detail_fields,
+    props.status.components,
+    props.preferences.component_fields
   )
 )
 const completedCount = computed(() => props.status.subtasks.filter((task) => task.completed).length)

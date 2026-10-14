@@ -429,3 +429,27 @@ test('Jira sync updates the title while parent and subtask status stay independe
   await expect(row.getByText('Progressing', { exact: true })).toBeVisible()
   await expect(row.getByText('1 of 2 subtasks complete', { exact: true })).toBeVisible()
 })
+
+test('a delayed list cannot undo metadata synchronized through settings', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 900 })
+  const state = await shell(page, 'light')
+  state.records = [{ ...state.seed }]
+  await page.goto('/app/jira')
+  await expect(page.getByRole('button', { name: 'More actions for CHN-42' })).toBeVisible()
+  let releaseList!: () => void
+  state.listGate = new Promise<void>((resolve) => {
+    releaseList = resolve
+  })
+  await page.getByRole('button', { name: 'Filters', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Filter by issue key' }).fill('CHN')
+  await expect.poll(() => Boolean(state.listGate)).toBe(false)
+  await page.getByRole('button', { name: 'Watcher settings', exact: true }).click()
+  await expect(page.locator('.n-select[aria-label="Watcher detail fields"]')).toBeVisible()
+  await page.keyboard.press('Escape')
+  releaseList()
+  await expect(page.getByText(/^Total: 1\./)).toBeVisible()
+  await page.getByRole('button', { name: 'More actions for CHN-42' }).click()
+  await page.getByRole('menuitem', { name: 'Remove', exact: true }).click()
+  await page.getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect.poll(() => state.records).toEqual([])
+})

@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from jobs.models import Job, JobStatus
@@ -84,6 +85,20 @@ class ComplianceDoorsImportTests(TestCase):
         source = self.client.get(self.source_url(job))
         self.assertEqual(source.status_code, 200)
         self.assertEqual(source.data["default_mapping"], mapping)
+        remembered = self.client.get("/api/projects/ozgur/compliance-documents/imports/doors/settings/")
+        self.assertEqual(remembered.status_code, 200)
+        self.assertEqual(remembered.data["module_path"], "/Project/Compliance")
+
+    def test_remembered_source_is_project_scoped_and_editor_only(self):
+        url = "/api/projects/ozgur/compliance-documents/imports/doors/settings/"
+        self.assertEqual(self.client.get(url).data, {"module_path": ""})
+        DoorsImportMapping.objects.create(
+            project=Project.objects.get(slug="aesa"), module_path="/Other/Module",
+            successful_at=timezone.now(), mapping={}, source_columns=[],
+        )
+        self.assertEqual(self.client.get(url).data, {"module_path": ""})
+        ProjectRoleAssignment.objects.filter(user=self.user).update(role="viewer")
+        self.assertEqual(self.client.get(url).status_code, 403)
 
     def test_doors_multiple_mocs_are_normalized_and_invalid_mocs_rejected(self):
         job = self.export_job([

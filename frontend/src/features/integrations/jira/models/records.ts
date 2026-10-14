@@ -3,6 +3,7 @@ export interface IJiraTrackedIssue {
   issue: string
   jira_issue_url?: string
   title: string
+  components?: string[] | null
   owner: number | null
   assigned_users: number[]
   project_slugs: string[]

@@ -16,16 +16,20 @@ export interface WatcherDetailField {
 export interface WatcherPreferences {
   outstanding_only: boolean
   detail_fields: Record<string, string[]>
+  component_fields?: Record<string, string[]>
 }
 export interface WatcherPreferencesPatch {
   outstanding_only?: boolean
   project_slug?: string
+  component_name?: string | null
+  record_id?: string
   detail_field_ids?: string[]
 }
 export interface WatcherStatus extends WatcherIssueStatus {
   issue_completed: boolean
   record_version: number
   project_slugs: string[]
+  components?: string[]
   detail_fields: WatcherDetailField[]
   subtasks: WatcherIssueStatus[]
   ecd_number: string

@@ -49,6 +49,7 @@ from .models import (
     ComplianceDocument,
     CoverPageNumberAllocation,
     ImportAudit,
+    DoorsImportMapping,
     NotificationPolicy,
     ReviewTask,
     TrackingProfile,
@@ -922,6 +923,16 @@ class DoorsImportInputSerializer(serializers.Serializer):
         allow_empty=False,
     )
     confirmation_token = serializers.CharField(required=False, allow_blank=True)
+
+
+class DoorsImportSettingsView(ProjectComplianceMixin, APIView):
+    """Restore the module used in the latest successful import for this project."""
+
+    minimum_role = ProjectRoleAssignment.Role.EDITOR
+
+    def get(self, request, project_slug):
+        saved = DoorsImportMapping.objects.filter(project=self.project).first()
+        return Response({"module_path": saved.module_path if saved else ""})
 
 
 class DoorsImportSourceView(ProjectComplianceMixin, APIView):

@@ -111,9 +111,14 @@ export function createTimelineChartData(
   const source = [timeline.scheduled, timeline.actual]
   if (timeline.revised_scheduled?.length) source.push(timeline.revised_scheduled)
   const series = dailySeries(source, timeline.today, total)
+  const today = timeline.today.flatMap(normalizePoint)[0]?.x
   const datasets = [
     timelineDataset('Scheduled', series[0], colors.scheduled, [7, 5]),
-    timelineDataset('Actual', series[1], colors.actual)
+    timelineDataset(
+      'Actual',
+      series[1].filter((point) => today !== undefined && point.x <= today),
+      colors.actual
+    )
   ]
   if (series[2])
     datasets.push(timelineDataset('Revised scheduled', series[2], colors.revised, [2, 4]))

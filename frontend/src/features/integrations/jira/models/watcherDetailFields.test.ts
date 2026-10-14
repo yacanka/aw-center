@@ -31,3 +31,12 @@ describe('Watcher detail field selection', () => {
     ).toEqual(['customfield_45000', 'customfield_45001', 'customfield_45002'])
   })
 })
+
+it('uses component selections ahead of legacy projects and treats None as a separate scope', () => {
+  expect(
+    selectWatcherDetailFields(fields, ['hys'], { hys: ['customfield_45000'] }, ['Safety'], {
+      'component:Safety': ['customfield_1']
+    }).map((field) => field.id)
+  ).toEqual(['customfield_1'])
+  expect(selectWatcherDetailFields(fields, ['hys'], {}, [], { none: [] })).toEqual([])
+})

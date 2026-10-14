@@ -34,6 +34,7 @@
           <CommandPalette :options="menuOptions" />
           <n-button
             class="assistant-trigger"
+            size="small"
             type="primary"
             secondary
             aria-label="Open AW Center Assistant"
@@ -149,7 +150,7 @@ async function loadProjectRegistry() {
 
 /* Bound the shell so only the navigation and page scroll containers can scroll. */
 .protected-shell {
-  --shell-footer-height: calc(80px + env(safe-area-inset-bottom));
+  --shell-footer-height: calc(58px + env(safe-area-inset-bottom));
   height: 100dvh;
   min-width: 0;
   overflow: hidden;
@@ -216,7 +217,7 @@ async function loadProjectRegistry() {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 4px;
+  gap: 2px;
   box-sizing: border-box;
   min-height: var(--shell-footer-height);
   flex-shrink: 0;
@@ -224,7 +225,7 @@ async function loadProjectRegistry() {
   border-top: 1px solid v-bind('themeVars.borderColor');
   color: v-bind('themeVars.textColor3');
   font-size: 11px;
-  padding: 5px var(--app-gutter) calc(5px + env(safe-area-inset-bottom));
+  padding: 2px var(--app-gutter) calc(2px + env(safe-area-inset-bottom));
   text-align: right;
 }
 
@@ -234,7 +235,7 @@ async function loadProjectRegistry() {
 
 .assistant-trigger {
   min-width: 44px;
-  min-height: 44px;
+  min-height: 32px;
 }
 
 .assistant-trigger:focus-visible {
@@ -243,7 +244,11 @@ async function loadProjectRegistry() {
 }
 
 @media (max-width: 600px) {
+  .protected-shell {
+    --shell-footer-height: calc(68px + env(safe-area-inset-bottom));
+  }
   .assistant-trigger {
+    min-height: 44px;
     padding-inline: 10px;
   }
 }
