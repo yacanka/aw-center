@@ -18,6 +18,7 @@ import type { PaginationMeta } from '@/shared/services/pagination'
 import { formatApiError } from '@/shared/api/apiError'
 import DccReminderDialog from '../components/DccReminderDialog.vue'
 import WatcherDetails from '../components/WatcherDetails.vue'
+import WatcherSettings from '../components/WatcherSettings.vue'
 import WatcherRecordActions from '../components/WatcherRecordActions.vue'
 import WatcherStatusSummary from '../components/WatcherStatusSummary.vue'
 import WatcherAssessmentDialog from '../components/WatcherAssessmentDialog.vue'
@@ -79,6 +80,7 @@ const preferencesLoading = ref(true)
 let preferenceSequence = 0
 let filterTimer: ReturnType<typeof setTimeout> | undefined
 const listError = ref('')
+const settingsVisible = ref(false)
 const importVisible = ref(false)
 const issueReference = ref('')
 const mutationBusy = ref(false)
@@ -224,6 +226,15 @@ async function fetchDcc(): Promise<void> {
       title: titleFilter.value.trim()
     })
     if (sequence !== requestSequence) return
+    // Settings/status requests can finish after this list was read on the server.
+    // Keep their newer metadata so subsequent mutations use the current version.
+    for (const record of result.results) {
+      const status = statuses.value[record.id]
+      if (!status || status.record_version <= record.version) continue
+      record.title = status.title
+      record.version = status.record_version
+      record.components = status.components
+    }
     records.value = result.results
     pageMeta.value = result.pagination
   } catch (error) {
@@ -249,6 +260,31 @@ function handlePageSizeUpdate(value: number): void {
   pageSize.value = value
   applyFilters()
 }
+function applyStatus(id: string, status: WatcherStatus): void {
+  if (disposed) return
+  const current = records.value.find((record) => record.id === id)
+  const selected = selectedRecord.value?.id === id ? selectedRecord.value : null
+  // A newer table mutation takes precedence over an older discovery response.
+  if (
+    Math.max(
+      current?.version ?? 0,
+      selected?.version ?? 0,
+      statuses.value[id]?.record_version ?? 0
+    ) > status.record_version
+  )
+    return
+  statuses.value[id] = status
+  delete statusErrors.value[id]
+  for (const record of [current, selected]) {
+    if (!record) continue
+    record.title = status.title
+    record.version = status.record_version
+    record.components = status.components
+  }
+}
+function applyPreferences(value: WatcherPreferences): void {
+  if (!disposed) preferences.value = value
+}
 async function syncRow(row: IJiraTrackedIssue): Promise<void> {
   if (syncingIds.value.includes(row.id)) return
   syncingIds.value.push(row.id)
@@ -257,16 +293,7 @@ async function syncRow(row: IJiraTrackedIssue): Promise<void> {
   try {
     const status = await fetchWatcherStatus(row.id)
     if (disposed) return
-    statuses.value[row.id] = status
-    const current = records.value.find((record) => record.id === row.id)
-    if (current) {
-      current.title = status.title
-      current.version = status.record_version
-    }
-    if (selectedRecord.value?.id === row.id) {
-      selectedRecord.value.title = status.title
-      selectedRecord.value.version = status.record_version
-    }
+    applyStatus(row.id, status)
   } catch (error) {
     statusErrors.value[row.id] = formatApiError(error)
   } finally {
@@ -395,10 +422,25 @@ onMounted(() => {
         <h2>JIRA Watcher</h2>
         <p>Track JIRA issues and follow up on open subtasks.</p>
       </div>
-      <n-button type="primary" size="large" :disabled="!canOperate" @click="openImport"
-        >Add JIRA issue</n-button
-      >
+      <n-flex :size="8">
+        <n-button type="primary" size="large" :disabled="!canOperate" @click="openImport"
+          >Add JIRA issue</n-button
+        >
+        <n-button size="large" @click="settingsVisible = true">Watcher settings</n-button>
+      </n-flex>
     </header>
+    <n-modal
+      v-model:show="settingsVisible"
+      preset="card"
+      title="Watcher settings"
+      class="app-modal app-modal--large"
+    >
+      <WatcherSettings
+        v-if="settingsVisible"
+        :on-record-synced="applyStatus"
+        :on-preferences-saved="applyPreferences"
+      />
+    </n-modal>
     <div class="watcher-toolbar">
       <n-flex :size="8">
         <n-button :loading="syncing" :disabled="loading || !records.length" @click="syncPage"

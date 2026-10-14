@@ -19,8 +19,5 @@ it('keeps table burndown dates consistent with the dashboard including future de
     { x: '03.07.2026', y: 1 },
     { x: '01.08.2026', y: 0 }
   ])
-  expect(timeline.actual).toEqual([
-    { x: '22.07.2026', y: 2 },
-    { x: '02.08.2026', y: 1 }
-  ])
+  expect(timeline.actual).toEqual([{ x: '22.07.2026', y: 2 }])
 })

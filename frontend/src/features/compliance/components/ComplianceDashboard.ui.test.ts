@@ -77,7 +77,12 @@ const stubs = {
     template: '<span><slot /><button @click="$emit(\'close\')">Clear scope</button></span>'
   },
   NButton: { template: '<button><slot /></button>' },
-  NSelect: true,
+  NSelect: {
+    name: 'NSelect',
+    props: ['value', 'options'],
+    emits: ['update:value'],
+    template: '<select />'
+  },
   NCollapse: Slot,
   NCollapseItem: Slot
 }
@@ -262,7 +267,7 @@ describe('compliance dashboard scope', () => {
           resolveOld = resolve
         })
     )
-    const tabs = wrapper.findComponent(stubs.NTabs)
+    const tabs = wrapper.findComponent(stubs.NSelect)
     tabs.vm.$emit('update:value', 'aesa')
     await flushPromises()
     expect(wrapper.findComponent(CompDocTimelineDashboard).exists()).toBe(false)

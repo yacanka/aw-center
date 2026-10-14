@@ -13,6 +13,8 @@ class JiraTrackedIssue(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     issue = models.CharField(max_length=64, db_index=True)
     title = models.CharField(max_length=255)
+    # null means metadata has not been read yet; [] means the issue has no component.
+    components = models.JSONField(null=True, default=None, blank=True)
     active = models.BooleanField(default=True)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,

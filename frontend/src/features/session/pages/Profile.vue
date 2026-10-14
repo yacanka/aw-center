@@ -49,9 +49,9 @@ const initials = computed(() =>
   width: 100%;
   height: auto;
   box-sizing: border-box;
-  min-height: var(--shell-footer-height, 80px);
+  min-height: var(--shell-footer-height, 58px);
   border-radius: 0;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
   border: 0;
   border-top: 1px solid v-bind('themeVars.borderColor');
   text-align: left;
@@ -74,8 +74,8 @@ const initials = computed(() =>
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: v-bind('themeVars.primaryColor');
   color: v-bind('themeVars.baseColor');

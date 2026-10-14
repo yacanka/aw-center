@@ -80,22 +80,12 @@
             Reject: {{ preview.rejected_count }}
           </n-tag>
         </n-space>
-        <n-alert v-if="preview.status_changes?.length" type="info" title="New project statuses">
-          {{ preview.status_changes.map((item) => item.label).join(', ') }}
-        </n-alert>
+        <ImportPreviewNotices :preview="preview" />
         <n-alert v-if="preview.unknown_status_rows?.length" type="info" title="Unknown status">
           Rows {{ preview.unknown_status_rows.join(', ') }} will use Unknown, including existing
           documents.
         </n-alert>
-        <n-alert v-if="preview.panel_changes?.length" type="info" title="Project panel changes">
-          These changes also apply to other documents using the same ATA chapter.
-          <ul>
-            <li v-for="change in preview.panel_changes" :key="change.ata">
-              {{ change.action === 'create' ? 'Create' : 'Update' }} {{ change.ata }}:
-              {{ change.old_name ? `${change.old_name} → ` : '' }}{{ change.new_name }}
-            </li>
-          </ul>
-        </n-alert>
+
         <n-data-table
           v-if="preview.invalid_documents.length"
           :columns="validationColumns"
@@ -115,7 +105,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import ImportPreviewNotices from './ImportPreviewNotices.vue'
+import { computed, h, ref, onBeforeUnmount } from 'vue'
 import { NSelect, type DataTableColumns } from 'naive-ui'
 import { formatApiError, getApiErrorCode } from '@/shared/api/apiError'
 import { enqueueDoorsModuleExport } from '@/features/integrations/api/doorsAutomation'
@@ -123,6 +114,7 @@ import { fetchJob, isActiveJobStatus, type Job } from '@/features/jobs/api/jobs'
 import {
   confirmDoorsImport,
   fetchDoorsImportSource,
+  fetchDoorsImportSettings,
   previewDoorsImport,
   type DoorsImportPreview,
   type DoorsImportSource,
@@ -229,9 +221,27 @@ const validationColumns: DataTableColumns<ImportInvalidDocument> = [
   }
 ]
 
-function setActive(active: boolean) {
+let settingsSequence = 0
+onBeforeUnmount(() => settingsSequence++)
+
+async function setActive(active: boolean) {
+  const sequence = ++settingsSequence
   show.value = active
-  if (!active && !busy.value) reset()
+  if (!active) {
+    if (!busy.value) reset()
+    return
+  }
+  try {
+    const settings = await fetchDoorsImportSettings(props.collectionPath)
+    if (sequence === settingsSequence && !modulePath.value && !busy.value)
+      modulePath.value = settings.module_path
+  } catch (error) {
+    if (sequence === settingsSequence)
+      window.$notification.error({
+        title: 'DOORS import settings could not be loaded',
+        description: formatApiError(error)
+      })
+  }
 }
 
 function clearLoadedSource() {

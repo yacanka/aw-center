@@ -3,7 +3,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ source: vi.fn(), preview: vi.fn(), enqueue: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  source: vi.fn(),
+  preview: vi.fn(),
+  enqueue: vi.fn(),
+  settings: vi.fn()
+}))
 vi.mock('@/features/integrations/api/doorsAutomation', () => ({
   enqueueDoorsModuleExport: mocks.enqueue
 }))
@@ -16,10 +21,12 @@ vi.mock('@/features/compliance/composables/compdocController', () => ({
 }))
 vi.mock('@/features/compliance/api/compdocImports', () => ({
   fetchDoorsImportSource: mocks.source,
+  fetchDoorsImportSettings: mocks.settings,
   previewDoorsImport: mocks.preview,
   confirmDoorsImport: vi.fn()
 }))
-vi.mock('naive-ui', () => ({
+vi.mock('naive-ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('naive-ui')>()),
   NSelect: defineComponent({
     name: 'NSelect',
     props: ['value', 'options', 'disabled'],
@@ -61,6 +68,7 @@ const Table = defineComponent({
 
 describe('DOORS import field linking', () => {
   it('shows actual source coverage, sends exact names, and invalidates a changed preview', async () => {
+    mocks.settings.mockResolvedValue({ module_path: '/Project/Remembered' })
     mocks.enqueue.mockResolvedValue({ id: 'job-1', status: 'succeeded', progress: 100 })
     mocks.source.mockResolvedValue({
       module_path: '/Project/Module',
@@ -120,6 +128,9 @@ describe('DOORS import field linking', () => {
       }
     })
     try {
+      await wrapper.vm.setActive(true)
+      await flushPromises()
+      expect((wrapper.find('input').element as HTMLInputElement).value).toBe('/Project/Remembered')
       await wrapper.find('input').setValue('/Project/Module')
       await wrapper
         .findAll('button')
@@ -140,6 +151,9 @@ describe('DOORS import field linking', () => {
         ' Başlık ': 'name'
       })
       expect(wrapper.text()).toContain('REQ-42')
+      expect(wrapper.text()).not.toContain('Hydraulics')
+      await wrapper.find('.n-collapse-item__header-main').trigger('click')
+      await flushPromises()
       expect(wrapper.text()).toContain('Hydraulics')
       expect(wrapper.text()).toContain('29-00')
       expect(wrapper.text()).toContain('Old name')

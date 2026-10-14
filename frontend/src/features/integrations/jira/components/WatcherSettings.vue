@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NAlert, NButton, NFormItem, NSelect, NSpace, NText } from 'naive-ui'
-import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import { formatApiError } from '@/shared/api/apiError'
 import { fetchJiraTrackedIssues } from '../api/jiraRecords'
 import {
@@ -9,14 +8,23 @@ import {
   fetchWatcherStatus,
   updateWatcherPreferences,
   type WatcherDetailField,
-  type WatcherPreferences
+  type WatcherPreferences,
+  type WatcherStatus
 } from '../api/watcher'
 import type { IJiraTrackedIssue } from '../models/records'
+import { selectWatcherDetailFields, watcherComponentKey } from '../models/watcherDetailFields'
 
-const catalog = useProjectCatalogStore()
-const preferences = ref<WatcherPreferences>({ outstanding_only: false, detail_fields: {} })
-const project = ref<string | null>(null)
-const recordId = ref<string | null>(null)
+const props = defineProps<{
+  onRecordSynced?: (id: string, status: WatcherStatus) => void
+  onPreferencesSaved?: (preferences: WatcherPreferences) => void
+}>()
+const preferences = ref<WatcherPreferences>({
+  outstanding_only: false,
+  detail_fields: {},
+  component_fields: {}
+})
+const component = ref<string | null>(null)
+const sourceRecord = ref<IJiraTrackedIssue | null>(null)
 const records = ref<IJiraTrackedIssue[]>([])
 const fields = ref<WatcherDetailField[]>([])
 const selected = ref<string[]>([])
@@ -25,117 +33,172 @@ const saving = ref(false)
 const initialized = ref(false)
 const error = ref('')
 const success = ref('')
-const hasMore = ref(false)
-const currentPage = ref(1)
-const failedPage = ref<number | null>(null)
+const discoveryNotice = ref('')
+const knownStatuses = new Map<string, WatcherStatus>()
 let sequence = 0
-onBeforeUnmount(() => sequence++)
-const projectOptions = computed(() =>
-  catalog.jiraProjects.map((item) => ({ label: item.name, value: item.slug }))
-)
-const recordOptions = computed(() =>
-  records.value.map((item) => ({ label: `${item.issue} — ${item.title}`, value: item.id }))
-)
-const fieldOptions = computed(() =>
-  fields.value.map((item) => ({ label: item.label, value: item.id }))
-)
+let disposed = false
+onBeforeUnmount(() => {
+  disposed = true
+  sequence++
+})
 
-async function selectProject(slug: string) {
-  project.value = slug
-  hasMore.value = false
-  recordId.value = null
-  records.value = []
-  fields.value = []
-  selected.value = [
-    ...(preferences.value.detail_fields[slug] ?? [
-      'customfield_45000',
-      'customfield_45001',
-      'customfield_45002'
-    ])
-  ]
-  currentPage.value = 1
-  failedPage.value = null
-  await loadRecords()
+const componentOptions = computed(() => {
+  const names = new Set(records.value.flatMap((record) => record.components ?? []))
+  const options = [...names]
+    .sort((left, right) => left.localeCompare(right))
+    .map((name) => ({ label: name, value: watcherComponentKey(name) }))
+  if (records.value.some((record) => record.components?.length === 0))
+    options.push({ label: 'None', value: 'none' })
+  return options
+})
+const fieldOptions = computed(() =>
+  fields.value.map((field) => ({ label: field.label, value: field.id }))
+)
+function belongsToComponent(record: IJiraTrackedIssue, key: string) {
+  return (
+    record.components !== null &&
+    record.components !== undefined &&
+    (record.components.length ? record.components.map(watcherComponentKey) : ['none']).includes(key)
+  )
 }
-async function loadRecords(targetPage = failedPage.value ?? currentPage.value) {
-  if (!project.value) return
+
+async function readStatus(id: string) {
+  const status = await fetchWatcherStatus(id)
+  // The server may update the title/version even after selection changes or this modal closes.
+  // Refresh the parent record before fencing this component's local UI response.
+  props.onRecordSynced?.(id, status)
+  return status
+}
+
+async function initialize() {
   const request = ++sequence
   loading.value = true
+  initialized.value = false
   error.value = ''
   success.value = ''
+  discoveryNotice.value = ''
+  fields.value = []
+  sourceRecord.value = null
+  knownStatuses.clear()
   try {
-    const result = await fetchJiraTrackedIssues({
-      project_slug: project.value,
-      page: targetPage,
-      page_size: 100
-    })
+    const settings = await fetchWatcherPreferences()
     if (request !== sequence) return
-    records.value = targetPage === 1 ? result.results : [...records.value, ...result.results]
-    currentPage.value = targetPage
-    failedPage.value = null
-    hasMore.value = Boolean(result.pagination.next)
-  } catch (reason) {
-    if (request === sequence) {
-      failedPage.value = targetPage
-      error.value = formatApiError(reason)
+    preferences.value = settings
+    const loaded = new Map<string, IJiraTrackedIssue>()
+    let page = 1
+    let hasMore = true
+    // Read every authorized page so component choices never depend on the current table page.
+    while (hasMore) {
+      const result = await fetchJiraTrackedIssues({ page, page_size: 100 })
+      if (request !== sequence) return
+      for (const record of result.results) loaded.set(record.id, record)
+      hasMore = Boolean(result.pagination.next)
+      page++
     }
-  } finally {
-    if (request === sequence) loading.value = false
-  }
-}
-async function loadMore() {
-  await loadRecords(currentPage.value + 1)
-}
-async function selectRecord(id: string) {
-  recordId.value = id
-  failedPage.value = null
-  fields.value = []
-  const request = ++sequence
-  loading.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    const status = await fetchWatcherStatus(id)
-    if (request !== sequence) return
-    fields.value = status.detail_fields
+    let unresolved = 0
+    for (const record of loaded.values()) {
+      if (record.components != null) continue
+      try {
+        const status = await readStatus(record.id)
+        if (request !== sequence) return
+        record.components = status.components ?? []
+        knownStatuses.set(record.id, status)
+      } catch {
+        if (request !== sequence) return
+        unresolved++
+      }
+    }
+    if (unresolved)
+      discoveryNotice.value = `${unresolved} tracked issue(s) could not be loaded. Their components remain unknown. Reload components to retry.`
+    records.value = [...loaded.values()]
+    initialized.value = true
+    const next = componentOptions.value.some((option) => option.value === component.value)
+      ? component.value
+      : componentOptions.value[0]?.value
+    if (next) await selectComponent(next)
+    else component.value = null
   } catch (reason) {
     if (request === sequence) error.value = formatApiError(reason)
   } finally {
     if (request === sequence) loading.value = false
   }
 }
+
+async function selectComponent(key: string) {
+  component.value = key
+  sourceRecord.value = null
+  fields.value = []
+  selected.value = []
+  const request = ++sequence
+  loading.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const candidates = records.value.filter((record) => belongsToComponent(record, key))
+    let lastError = ''
+    for (const record of candidates) {
+      let status: WatcherStatus
+      try {
+        status = knownStatuses.get(record.id) ?? (await readStatus(record.id))
+      } catch (reason) {
+        if (request !== sequence) return
+        lastError = formatApiError(reason)
+        continue
+      }
+      if (request !== sequence) return
+      knownStatuses.delete(record.id)
+      record.components = status.components ?? []
+      if (!belongsToComponent(record, key)) continue
+      sourceRecord.value = record
+      fields.value = status.detail_fields
+      selected.value =
+        preferences.value.component_fields?.[key] ??
+        selectWatcherDetailFields(
+          status.detail_fields,
+          status.project_slugs,
+          preferences.value.detail_fields,
+          key === 'none' ? [] : [key.slice(10)],
+          preferences.value.component_fields
+        ).map((field) => field.id)
+      return
+    }
+    error.value =
+      lastError ||
+      'No tracked issue has this component anymore. Reload components to refresh the list.'
+  } catch (reason) {
+    if (request === sequence) error.value = formatApiError(reason)
+  } finally {
+    if (request === sequence) loading.value = false
+  }
+}
+
 async function save() {
-  if (!project.value || !fields.value.length || !initialized.value || saving.value || loading.value)
+  if (
+    !component.value ||
+    !sourceRecord.value ||
+    !initialized.value ||
+    saving.value ||
+    loading.value
+  )
     return
+  const request = sequence
   saving.value = true
   error.value = ''
   success.value = ''
   try {
-    preferences.value = await updateWatcherPreferences({
-      project_slug: project.value,
+    const settings = await updateWatcherPreferences({
+      record_id: sourceRecord.value.id,
+      component_name: component.value === 'none' ? null : component.value.slice(10),
       detail_field_ids: selected.value
     })
-    success.value = 'Detail fields saved. They will be used when you open Watcher.'
+    props.onPreferencesSaved?.(settings)
+    if (disposed || request !== sequence) return
+    preferences.value = settings
+    success.value = 'Detail fields saved for this component.'
   } catch (reason) {
-    error.value = formatApiError(reason)
+    if (!disposed && request === sequence) error.value = formatApiError(reason)
   } finally {
-    saving.value = false
-  }
-}
-async function initialize() {
-  loading.value = true
-  error.value = ''
-  const request = ++sequence
-  try {
-    const result = await fetchWatcherPreferences()
-    if (request !== sequence) return
-    preferences.value = result
-    initialized.value = true
-    if (projectOptions.value[0]) await selectProject(projectOptions.value[0].value)
-  } catch (reason) {
-    if (request === sequence) error.value = formatApiError(reason)
-  } finally {
-    if (request === sequence) loading.value = false
+    if (!disposed && request === sequence) saving.value = false
   }
 }
 onMounted(initialize)
@@ -144,35 +207,26 @@ onMounted(initialize)
 <template>
   <n-space vertical :size="16">
     <n-text depth="2"
-      >Choose the JIRA fields shown above the subtasks in Watcher details. Selections are saved for
-      your account and each project.</n-text
+      >Choose the JIRA fields shown in Watcher details for each tracked component. None groups
+      issues without components.</n-text
     >
-    <n-form-item label="Project">
+    <n-form-item label="Component">
       <n-select
-        :value="project"
-        :options="projectOptions"
+        :value="component"
+        :options="componentOptions"
         :disabled="!initialized || saving"
-        aria-label="Watcher settings project"
-        @update:value="selectProject"
-      />
-    </n-form-item>
-    <n-form-item label="Load available fields from a tracked issue">
-      <n-select
-        :value="recordId"
-        :options="recordOptions"
         :loading="loading"
-        :disabled="!initialized || loading || saving || !records.length"
         filterable
-        :input-props="{ 'aria-label': 'Tracked issue for detail fields' }"
-        aria-label="Tracked issue for detail fields"
-        @update:value="selectRecord"
+        aria-label="Watcher settings component"
+        :input-props="{ 'aria-label': 'Watcher settings component' }"
+        @update:value="selectComponent"
       />
     </n-form-item>
-    <n-button v-if="hasMore" :disabled="loading || saving" @click="loadMore"
-      >Load more tracked issues</n-button
+    <n-text v-if="initialized && !records.length" depth="2"
+      >No tracked issues. Add a JIRA issue to discover its components and available fields.</n-text
     >
-    <n-text v-if="initialized && !loading && !records.length && !error" depth="2"
-      >Add a JIRA issue to Watcher for this project to discover its available fields.</n-text
+    <n-text v-if="sourceRecord" depth="3"
+      >Available fields loaded from {{ sourceRecord.issue }}.</n-text
     >
     <n-form-item v-if="fields.length" label="Detail fields">
       <n-select
@@ -189,27 +243,29 @@ onMounted(initialize)
     </n-form-item>
     <n-text v-if="fields.length" depth="2"
       >Clear the selection to hide all detail fields. Fields absent from an issue are omitted. For
-      issues spanning projects, the selected fields are combined.</n-text
+      issues with multiple components, the selected fields are combined.</n-text
     >
+    <n-alert v-if="discoveryNotice" type="warning">{{ discoveryNotice }}</n-alert>
     <n-alert v-if="error" type="error" role="alert">{{ error }}</n-alert>
     <n-alert v-if="success" type="success" role="status">{{ success }}</n-alert>
-    <n-button v-if="error && !initialized" :loading="loading" @click="initialize"
-      >Retry settings</n-button
-    >
-    <n-button
-      v-if="error && initialized && (failedPage !== null || !fields.length)"
-      :loading="loading"
-      @click="
-        failedPage !== null ? loadRecords() : recordId ? selectRecord(recordId) : loadRecords()
-      "
-      >Retry loading fields</n-button
-    >
-    <n-button
-      type="primary"
-      :loading="saving"
-      :disabled="!initialized || !fields.length || loading || saving"
-      @click="save"
-      >Save detail fields</n-button
-    >
+    <n-space>
+      <n-button :disabled="loading || saving" @click="initialize">{{
+        initialized ? 'Reload components' : 'Retry loading components'
+      }}</n-button>
+      <n-button
+        v-if="error && initialized && component"
+        :loading="loading"
+        :disabled="saving"
+        @click="selectComponent(component)"
+        >Retry loading fields</n-button
+      >
+      <n-button
+        type="primary"
+        :loading="saving"
+        :disabled="!initialized || !sourceRecord || !fields.length || loading || saving"
+        @click="save"
+        >Save detail fields</n-button
+      >
+    </n-space>
   </n-space>
 </template>

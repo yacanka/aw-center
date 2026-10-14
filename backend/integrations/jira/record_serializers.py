@@ -36,6 +36,7 @@ class JiraTrackedIssueSerializer(serializers.ModelSerializer):
             "issue",
             "jira_issue_url",
             "title",
+            "components",
             "owner",
             "assigned_users",
             "project_slugs",

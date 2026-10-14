@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 
@@ -46,11 +47,15 @@ def watcher_issue_key(reference):
     return value.upper()
 
 
-def read_issue(actor, key, *, include_field_names=False):
+def read_issue(actor, key, *, include_field_names=False, fallback_projects=None):
     connector = jira_connector_for(actor)
     connector.set_issue(key)
     issue = connector.get_issue(include_field_names=True) if include_field_names else connector.get_issue()
     validate_parent_issue(issue)
+    # A tracked issue retains its authorized project scope when JIRA removes all components.
+    # Import still requires trusted project resolution; it cannot choose a fallback scope.
+    if not component_names(issue) and fallback_projects is not None:
+        return issue, list(fallback_projects)
     try:
         definitions = resolve_projects_from_jira_components(field(issue.fields, "components") or [])
     except DccProjectResolutionError as error:
@@ -73,12 +78,15 @@ def import_watcher_record(actor, reference):
         get_user_model().objects.select_for_update().get(pk=actor.pk)
         if JiraTrackedIssue.objects.filter(owner=actor, issue=key).exists():
             raise WatcherDuplicate()
-        return create_record(actor, {"issue": key, "title": title, "projects": projects})
+        return create_record(actor, {"issue": key, "title": title, "projects": projects,
+                                     "components": component_names(issue)})
 
 
 def live_watcher_status(actor, record):
     require_resource_role(actor, record, VIEWER)
-    issue, projects = read_issue(actor, record.issue, include_field_names=True)
+    issue, projects = read_issue(actor, record.issue, include_field_names=True,
+                                fallback_projects=record.projects.all())
+    components = component_names(issue)
     require_projects_role(actor, projects, VIEWER)
     if {project.pk for project in projects} != set(record.projects.values_list("pk", flat=True)):
         raise DccSnapshotError("The record projects no longer match the JIRA task.",
@@ -94,16 +102,19 @@ def live_watcher_status(actor, record):
         require_resource_role(actor, current, VIEWER)
         if current.version != record.version:
             raise JiraTrackedIssueVersionConflict()
-        if current.title != title:
-            current.title = title
+        if current.title != title or current.components != components:
+            changed = JiraTrackedIssue.objects.filter(pk=current.pk, version=record.version).update(
+                title=title, components=components, version=F("version") + 1, updated_at=timezone.now())
+            if not changed:
+                raise JiraTrackedIssueVersionConflict()
             current.version += 1
-            current.save(update_fields=["title", "version", "updated_at"])
     return {
         **status,
         "title": title,
         "issue_completed": status["completed"],
         "record_version": current.version,
         "project_slugs": [project.slug for project in projects],
+        "components": components,
         "detail_fields": issue_detail_fields(issue),
         "subtasks": subtasks,
         "completed": all(task["completed"] for task in subtasks) if subtasks else status["completed"],
@@ -112,6 +123,21 @@ def live_watcher_status(actor, record):
         "dcc_number": text_field(issue.fields, "customfield_45002"),
         "checked_at": timezone.now().isoformat(),
     }
+
+
+def component_names(issue):
+    """Return bounded display names without leaking raw JIRA metadata."""
+    components = field(issue.fields, "components") or []
+    if not isinstance(components, (list, tuple)) or len(components) > 100:
+        raise DccSnapshotError("The JIRA task has invalid components.", "DCC_ISSUE_INVALID")
+    names = []
+    for component in components:
+        name = (component if isinstance(component, str) else str(field(component, "name") or "")).strip()
+        if len(name) > 255:
+            raise DccSnapshotError("The JIRA task has invalid components.", "DCC_ISSUE_INVALID")
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def status_item(issue):

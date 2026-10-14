@@ -73,22 +73,12 @@
           Reject: {{ preview?.rejected_count || 0 }}
         </n-tag>
       </n-space>
-      <n-alert v-if="preview.status_changes?.length" type="info" title="New project statuses">
-        {{ preview.status_changes.map((item) => item.label).join(', ') }}
-      </n-alert>
+      <ImportPreviewNotices :preview="preview" />
       <n-alert v-if="preview.unknown_status_rows?.length" type="info" title="Unknown status">
         Rows {{ preview.unknown_status_rows.join(', ') }} will use Unknown, including existing
         documents.
       </n-alert>
-      <n-alert v-if="preview.panel_changes?.length" type="info" title="Project panel changes">
-        These changes also apply to other documents using the same ATA chapter.
-        <ul>
-          <li v-for="change in preview.panel_changes" :key="change.ata">
-            {{ change.action === 'create' ? 'Create' : 'Update' }} {{ change.ata }}:
-            {{ change.old_name ? `${change.old_name} → ` : '' }}{{ change.new_name }}
-          </li>
-        </ul>
-      </n-alert>
+
       <n-data-table
         :columns="mappingColumns"
         :data="preview?.mapped_columns || []"
@@ -98,9 +88,7 @@
       <n-alert v-if="preview?.missing_columns.length" type="error" style="margin-top: 12px">
         Missing required columns: {{ preview.missing_columns.join(', ') }}
       </n-alert>
-      <n-alert v-if="preview?.unmapped_columns.length" type="warning" style="margin-top: 12px">
-        Unmapped columns: {{ preview.unmapped_columns.join(', ') }}
-      </n-alert>
+
       <n-data-table
         v-if="preview?.invalid_documents.length"
         :columns="validationColumns"
@@ -129,6 +117,7 @@
 </template>
 
 <script setup lang="ts">
+import ImportPreviewNotices from './ImportPreviewNotices.vue'
 import {
   NModal,
   NUpload,

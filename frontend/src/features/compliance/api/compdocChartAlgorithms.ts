@@ -121,7 +121,10 @@ function buildTimeline(
   revised: Map<number, number>
 ): DashboardTimeline {
   const scheduledPoints = remainingSeries(scheduled, total)
-  const actualPoints = remainingSeries(actual, total)
+  const actualPoints = remainingSeries(
+    new Map([...actual].filter(([day]) => day <= today.getTime())),
+    total
+  )
   const todayPoint = { x: formatDate(today), y: remainingOn(actual, total, today.getTime()) }
   return {
     scheduled: scheduledPoints,

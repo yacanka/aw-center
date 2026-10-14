@@ -195,6 +195,7 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["pending_days"]["ubm"], 0)
         self.assertEqual(summary["data_quality"]["out_of_order_dates"], 0)
         self.assertIsNone(summary["timeline"]["last_actual"])
+        self.assertEqual(summary["timeline"]["actual"], [{"x": "22.07.2026", "y": 1}])
         self.assertEqual(summary["performance"]["actual"]["filled"], 1)
 
     def test_revised_target_controls_delay_and_scheduled_timeline(self):

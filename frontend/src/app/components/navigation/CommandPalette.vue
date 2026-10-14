@@ -1,6 +1,7 @@
 <template>
   <n-button
     class="command-trigger"
+    size="small"
     secondary
     type="primary"
     aria-label="Quick command"
@@ -8,7 +9,7 @@
     :aria-expanded="visible"
     @click="openPalette"
   >
-    Quick command <n-tag class="command-shortcut" size="small">{{ shortcutLabel }}</n-tag>
+    Quick command
   </n-button>
   <n-modal v-model:show="visible" preset="card" title="Quick command" class="command-modal">
     <n-input
@@ -40,7 +41,10 @@
     </div>
     <n-empty v-else description="No matching command found." class="command-empty" />
     <template #footer>
-      <n-text depth="3">↑↓ select · Enter open · Esc close · recent commands appear first</n-text>
+      <div class="command-footer">
+        <n-text depth="3">↑↓ select · Enter open · Esc close · recent commands appear first</n-text>
+        <n-tag class="command-shortcut" size="small">{{ shortcutLabel }}</n-tag>
+      </div>
     </template>
   </n-modal>
 </template>
@@ -140,20 +144,24 @@ function rememberVisitedCommand(path: string): void {
 
 <style scoped>
 .command-trigger {
-  min-height: 44px;
+  min-height: 32px;
   max-width: 100%;
 }
 
+.command-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .command-shortcut {
-  margin-left: 8px;
+  flex-shrink: 0;
 }
 
 @media (max-width: 600px) {
   .command-trigger {
+    min-height: 44px;
     padding-inline: 10px;
-  }
-  .command-shortcut {
-    display: none;
   }
 }
 

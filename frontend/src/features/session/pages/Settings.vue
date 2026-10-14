@@ -6,12 +6,9 @@ import PasswordPopup from '@/features/session/components/settings/PasswordPopup.
 import { useSessionStore } from '@/features/session/stores/session'
 import { applyPreferredTheme } from '@/app/services/theme'
 import type { IPreferences } from '@/features/session/models/auth'
-import WatcherSettings from '@/features/integrations/jira/components/WatcherSettings.vue'
-import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 
 const router = useRouter()
 const store = useSessionStore()
-const projectCatalog = useProjectCatalogStore()
 const themeVars = useThemeVars()
 const passwordPopup = ref<InstanceType<typeof PasswordPopup>>()
 const saving = ref(false)
@@ -157,18 +154,6 @@ async function logoutAction() {
               @update:value="(value: 'en' | 'tr') => updatePreference({ language: value })"
             />
           </div>
-        </section>
-
-        <section
-          v-if="projectCatalog.hasAnyRole('jira')"
-          class="settings-section"
-          aria-labelledby="watcher-settings-heading"
-        >
-          <header class="section-heading">
-            <h2 id="watcher-settings-heading">JIRA Watcher</h2>
-            <p>Customize the details you see after syncing.</p>
-          </header>
-          <WatcherSettings />
         </section>
 
         <section id="account-security" class="settings-section" aria-labelledby="security-heading">

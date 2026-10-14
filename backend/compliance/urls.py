@@ -15,6 +15,7 @@ from .api import (
     DoorsImportConfirmView,
     DoorsImportPreviewView,
     DoorsImportSourceView,
+    DoorsImportSettingsView,
     ExportView,
     ImportAuditCollectionView,
     ImportAuditDetailView,
@@ -59,6 +60,7 @@ urlpatterns = [
         name="compliance-cover-page-allocation-resume",
     ),
     path("export/", ExportView.as_view(), name="compliance-export"),
+    path("imports/doors/settings/", DoorsImportSettingsView.as_view(), name="compliance-doors-import-settings"),
     path("imports/preview/", ImportPreviewView.as_view(), name="compliance-import-preview"),
     path("imports/confirm/", ImportConfirmView.as_view(), name="compliance-import-confirm"),
     path(

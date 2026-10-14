@@ -43,6 +43,7 @@ class WatcherTests(TestCase):
         self.assertEqual(first.status_code, 201, first.data)
         self.assertEqual(first.data["title"], "Change document")
         self.assertEqual(first.data["project_slugs"], ["hys"])
+        self.assertEqual(first.data["components"], ["HYS"])
         self.assertEqual(second.status_code, 409)
         self.assertEqual(JiraTrackedIssue.objects.count(), 1)
         factory.return_value.set_issue.assert_called_with("CHN-42")
@@ -259,12 +260,12 @@ class WatcherTests(TestCase):
         preferences.extra_settings = {"other": {"keep": True}}
         preferences.save()
         url = "/api/integrations/jira/watcher/preferences/"
-        self.assertEqual(self.client.get(url).data, {"outstanding_only": False, "detail_fields": {}})
+        self.assertEqual(self.client.get(url).data, {"outstanding_only": False, "detail_fields": {}, "component_fields": {}})
         response = self.client.patch(url, {"project_slug": "hys", "detail_field_ids": [
             "customfield_45000", "priority"], "outstanding_only": True}, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data, {"outstanding_only": True,
-            "detail_fields": {"hys": ["customfield_45000", "priority"]}})
+            "detail_fields": {"hys": ["customfield_45000", "priority"]}, "component_fields": {}})
         self.client.patch(url, {"outstanding_only": False}, format="json")
         self.client.patch(url, {"project_slug": "hys", "detail_field_ids": []}, format="json")
         preferences.refresh_from_db()
@@ -272,7 +273,7 @@ class WatcherTests(TestCase):
         self.assertEqual(self.client.get(url).data["detail_fields"], {"hys": []})
         other = get_user_model().objects.create_user("other-preferences")
         self.client.force_authenticate(other)
-        self.assertEqual(self.client.get(url).data, {"outstanding_only": False, "detail_fields": {}})
+        self.assertEqual(self.client.get(url).data, {"outstanding_only": False, "detail_fields": {}, "component_fields": {}})
 
     def test_preferences_validate_scope_and_bounded_field_ids(self):
         url = "/api/integrations/jira/watcher/preferences/"
@@ -318,3 +319,54 @@ class WatcherTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["extra_settings"]["watcher"]["detail_fields"], {"hys": ["priority"]})
         self.assertEqual(self.client.get("/api/integrations/jira/watcher/preferences/").data["detail_fields"], {"hys": ["priority"]})
+
+    @patch("integrations.jira.watcher_service.jira_connector_for")
+    def test_component_snapshot_and_none_keep_existing_project_authorization(self, factory):
+        record = self.record()
+        issue = self.issue()
+        issue.fields.components = []
+        factory.return_value.get_issue.return_value = issue
+        response = self.client.post(f"/api/integrations/jira/records/{record.pk}/status/", {})
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["components"], [])
+        self.assertEqual(response.data["project_slugs"], ["hys"])
+        record.refresh_from_db()
+        self.assertEqual(record.components, [])
+        self.assertEqual(self.client.get("/api/integrations/jira/records/").data["results"][0]["components"], [])
+        ProjectRoleAssignment.objects.filter(user=self.user).delete()
+        self.assertEqual(self.client.post(f"/api/integrations/jira/records/{record.pk}/status/", {}).status_code, 404)
+
+    @patch("integrations.jira.watcher_service.jira_connector_for")
+    def test_component_preferences_require_an_authorized_tracked_match_and_preserve_other_preferences(self, factory):
+        record = self.record()
+        factory.return_value.get_issue.return_value = self.issue()
+        self.client.post(f"/api/integrations/jira/records/{record.pk}/status/", {})
+        url = "/api/integrations/jira/watcher/preferences/"
+        payload = {"record_id": str(record.pk), "component_name": "HYS", "detail_field_ids": ["priority"]}
+        response = self.client.patch(url, payload, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["component_fields"], {"component:HYS": ["priority"]})
+        self.assertEqual(self.client.patch(url, {**payload, "component_name": "Absent"}, format="json").status_code, 400)
+        self.client.patch(url, {"outstanding_only": True}, format="json")
+        self.assertEqual(self.client.get(url).data["component_fields"], {"component:HYS": ["priority"]})
+        self.client.post("/api/users/preferences/reset/")
+        self.assertEqual(self.client.get(url).data["component_fields"], {})
+        self.client.force_authenticate(get_user_model().objects.create_user("component-outsider"))
+        self.assertEqual(self.client.patch(url, payload, format="json").status_code, 404)
+
+    @patch("integrations.jira.watcher_service.jira_connector_for")
+    def test_none_component_preference_round_trip_and_invalid_shapes(self, factory):
+        record = self.record()
+        issue = self.issue()
+        issue.fields.components = []
+        factory.return_value.get_issue.return_value = issue
+        self.client.post(f"/api/integrations/jira/records/{record.pk}/status/", {})
+        url = "/api/integrations/jira/watcher/preferences/"
+        payload = {"record_id": str(record.pk), "component_name": None, "detail_field_ids": []}
+        response = self.client.patch(url, payload, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["component_fields"], {"none": []})
+        for invalid in ({"component_name": "HYS", "detail_field_ids": []},
+                        {"record_id": str(record.pk), "detail_field_ids": []},
+                        {**payload, "component_name": ""}, {**payload, "detail_field_ids": ["attachment"]}):
+            self.assertEqual(self.client.patch(url, invalid, format="json").status_code, 400)
