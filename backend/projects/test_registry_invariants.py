@@ -14,8 +14,9 @@ class ProjectRegistryInvariantTests(SimpleTestCase):
         for slug, definition in PROJECT_DEFINITIONS.items():
             with self.subTest(slug=slug):
                 self.assertFalse(set(definition.capabilities) - ALLOWED_PROJECT_CAPABILITIES)
-                self.assertTrue(definition.dcc_template_name.endswith(".docx"))
-                self.assertTrue(definition.mail_template_name)
+                if "jira" in definition.capabilities:
+                    self.assertTrue(definition.dcc_template_name.endswith(".docx"))
+                    self.assertTrue(definition.mail_template_name)
 
     def test_no_per_project_runtime_package_exists(self):
         projects_root = Path(settings.BASE_DIR) / "projects"

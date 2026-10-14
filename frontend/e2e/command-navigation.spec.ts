@@ -79,7 +79,49 @@ test('Jira navigation renders a theme-inheriting decorative vector icon', async 
   await expect(page).toHaveURL(/\/app\/jira$/)
 })
 
-async function routeShellApi(page: Page, theme: 'light' | 'dark'): Promise<void> {
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [390, 1440]) {
+    test(`compliance families and standalone projects render in ${theme} at ${width}px`, async ({
+      page
+    }, testInfo) => {
+      await page.setViewportSize({ width, height: 900 })
+      await routeShellApi(page, theme, true)
+      await page.goto('/app/home')
+      const compliance = page
+        .locator('.n-menu-item-content')
+        .filter({ hasText: /^Compliance Docs$/ })
+      if (width < 900) await compliance.hover()
+      else await compliance.click()
+
+      const entry = (label: string) =>
+        page
+          .locator('.n-menu-item-content, .n-dropdown-option-body')
+          .filter({ hasText: new RegExp(`^${label}$`) })
+      for (const label of ['Özgür', 'Gökbey', 'Havasoj', 'Hürkuş 2', 'Hürjet', 'BKM', 'MMU']) {
+        await expect(entry(label)).toBeVisible()
+      }
+      await expect(entry('Bağımsız')).toHaveCount(0)
+      if (width < 900) await entry('Özgür').hover()
+      else await entry('Özgür').click()
+      for (const label of ['AESA', 'Blok 30', 'Blok 40/50', 'HYS']) {
+        await expect(entry(label)).toBeVisible()
+      }
+      await expect(page.locator('.fade-in-height-expand-transition-enter-active')).toHaveCount(0)
+      await page.screenshot({
+        path: testInfo.outputPath('compliance-menu.png'),
+        animations: 'disabled'
+      })
+      await entry('HYS').click()
+      await expect(page).toHaveURL(/\/app\/compdocs\/hys$/)
+    })
+  }
+}
+
+async function routeShellApi(
+  page: Page,
+  theme: 'light' | 'dark',
+  allComplianceProjects = false
+): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (!path.startsWith('/api/')) return route.fallback()
@@ -108,14 +150,16 @@ async function routeShellApi(page: Page, theme: 'light' | 'dark'): Promise<void>
     if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
     if (path === '/api/projects/') {
       return route.fulfill({
-        json: [
-          {
-            slug: 'aesa',
-            name: 'AESA',
-            capabilities: ['compliance', 'organization', 'jira'],
-            roles: { compliance: 'viewer', organization: 'viewer', jira: 'viewer' }
-          }
-        ]
+        json: allComplianceProjects
+          ? complianceProjects()
+          : [
+              {
+                slug: 'aesa',
+                name: 'AESA',
+                capabilities: ['compliance', 'organization', 'jira'],
+                roles: { compliance: 'viewer', organization: 'viewer', jira: 'viewer' }
+              }
+            ]
       })
     }
     if (path === '/api/attention/') {
@@ -129,4 +173,29 @@ async function routeShellApi(page: Page, theme: 'light' | 'dark'): Promise<void>
     }
     return route.fulfill({ json: { count: 0, results: [], next: null, previous: null } })
   })
+}
+
+function complianceProjects() {
+  return [
+    ['aesa', 'AESA'],
+    ['blok30', 'Blok 30'],
+    ['blok4050', 'Blok 40/50'],
+    ['hys', 'HYS'],
+    ['gokbey', 'Gökbey'],
+    ['gokbey_jandarma', 'Gökbey Jandarma'],
+    ['havasoj_stc1', 'Havasoj STC1'],
+    ['havasoj_stc2', 'Havasoj STC2'],
+    ['hyeu', 'HYEU'],
+    ['hurkus_aviyonik', 'Hürkuş Aviyonik'],
+    ['hjt', 'HJT'],
+    ['hsp', 'HSP'],
+    ['navy', 'Navy'],
+    ['bkm', 'BKM'],
+    ['mmu', 'MMU']
+  ].map(([slug, name]) => ({
+    slug,
+    name,
+    capabilities: ['compliance', 'organization'],
+    roles: { compliance: 'viewer', organization: 'viewer', jira: null }
+  }))
 }

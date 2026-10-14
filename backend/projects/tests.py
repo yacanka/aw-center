@@ -14,6 +14,11 @@ from .registry import (
 
 
 class ProjectRegistryTests(TestCase):
+    def test_empty_jira_component_does_not_match_compliance_only_projects(self):
+        for component in ("", "   "):
+            with self.subTest(component=component):
+                self.assertIsNone(find_project_by_jira_component(component))
+
     def test_catalog_contains_exact_production_projects(self):
         self.assertEqual(
             set(PROJECT_DEFINITIONS),
@@ -30,6 +35,15 @@ class ProjectRegistryTests(TestCase):
                 "gokbey_jandarma",
                 "gokbey_sivil",
                 "hurkus",
+                "havasoj_stc1",
+                "havasoj_stc2",
+                "hyeu",
+                "hurkus_aviyonik",
+                "hjt",
+                "hsp",
+                "navy",
+                "bkm",
+                "mmu",
             },
         )
         self.assertIsInstance(PROJECT_DEFINITIONS, MappingProxyType)
@@ -38,7 +52,10 @@ class ProjectRegistryTests(TestCase):
         forbidden = {"display_name", "enabled", "app_label", "url_prefix", "tags"}
         for definition in PROJECT_DEFINITIONS.values():
             self.assertTrue(definition.capabilities)
-            self.assertTrue(definition.jira_component)
+            if "jira" in definition.capabilities:
+                self.assertTrue(definition.jira_component)
+            else:
+                self.assertIsNone(definition.jira_component)
             self.assertTrue(forbidden.isdisjoint(vars(definition)))
 
     def test_lookup_and_capability_filter_are_explicit(self):
@@ -47,7 +64,10 @@ class ProjectRegistryTests(TestCase):
             get_project_definition("unknown")
         self.assertEqual(
             {item.slug for item in get_project_definitions_by_capability(" JIRA ")},
-            set(PROJECT_DEFINITIONS),
+            {
+                "ozgur", "piku", "aesa", "havasoj", "hys", "blok30", "blok4050",
+                "gokbey", "hurjet", "gokbey_jandarma", "gokbey_sivil", "hurkus",
+            },
         )
         self.assertEqual(find_project_by_jira_component(" aesa ").slug, "aesa")
         self.assertIsNone(find_project_by_jira_component("unknown"))
