@@ -24,9 +24,83 @@ describe('project-aware main navigation', () => {
     const keys = menuKeys(createMainMenuOptions([project], user, true, true))
 
     expect(keys).toContain('/compdocs')
-    expect(keys).toContain('/compdocs/ozgur')
+    expect(keys).not.toContain('/compdocs/ozgur')
     expect(keys).toContain('/organization')
     expect(keys).toContain('/jira')
+  })
+
+  it('groups compliance projects in the requested order with BKM and MMU as direct links', () => {
+    const slugs = [
+      'mmu',
+      'navy',
+      'hsp',
+      'hjt',
+      'hurkus_aviyonik',
+      'hyeu',
+      'havasoj_stc2',
+      'havasoj_stc1',
+      'gokbey_jandarma',
+      'gokbey',
+      'hys',
+      'blok4050',
+      'blok30',
+      'aesa',
+      'bkm',
+      'ozgur',
+      'piku',
+      'havasoj',
+      'hurjet',
+      'gokbey_sivil'
+    ]
+    const projects = slugs.map((slug) => ({ ...project, slug, name: slug.toUpperCase() }))
+    const compliance = createMainMenuOptions(projects, user).find(
+      (option) => option.key === '/compdocs'
+    )!
+    const entries = (compliance.children as ProjectMenuOption[]).filter(
+      (option) => option.children || ['/compdocs/bkm', '/compdocs/mmu'].includes(String(option.key))
+    )
+
+    expect(entries.map((entry) => entry.label)).toEqual([
+      'Özgür',
+      'Gökbey',
+      'Havasoj',
+      'Hürkuş 2',
+      'Hürjet',
+      'BKM',
+      'MMU'
+    ])
+    expect(entries.map((entry) => entry.children?.map((child) => child.name))).toEqual([
+      ['aesa', 'blok30', 'blok4050', 'hys'],
+      ['gokbey', 'gokbey_jandarma'],
+      ['havasoj_stc1', 'havasoj_stc2'],
+      ['hyeu', 'hurkus_aviyonik'],
+      ['hjt', 'hsp', 'navy'],
+      undefined,
+      undefined
+    ])
+    for (const key of [
+      '/compdocs/ozgur',
+      '/compdocs/piku',
+      '/compdocs/havasoj',
+      '/compdocs/hurjet',
+      '/compdocs/gokbey_sivil'
+    ]) {
+      expect(menuKeys(compliance.children!)).not.toContain(key)
+    }
+  })
+
+  it('omits empty groups and includes only authorized children', () => {
+    const projects = ['hys', 'mmu'].map((slug) => ({ ...project, slug, name: slug.toUpperCase() }))
+    const compliance = createMainMenuOptions(projects, user).find(
+      (option) => option.key === '/compdocs'
+    )!
+    const groups = (compliance.children as ProjectMenuOption[]).filter((option) => option.children)
+
+    expect(groups.map((group) => group.label)).toEqual(['Özgür'])
+    expect(groups[0].children!.map((child) => child.key)).toEqual(['/compdocs/hys'])
+    expect(menuKeys(compliance.children!)).not.toContain('/compdocs/aesa')
+    expect(menuKeys(compliance.children!)).not.toContain('/compdocs/bkm')
+    expect(menuKeys(compliance.children!)).toContain('/compdocs/mmu')
   })
 })
 

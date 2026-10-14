@@ -13,6 +13,30 @@ class ProjectRegistryDatabaseAlignmentTests(TestCase):
     def test_seeded_catalog_passes(self):
         call_command("check_project_registry")
 
+    def test_compliance_variants_are_seeded_with_default_status(self):
+        from compliance.models import DocumentStatus
+
+        expected = {
+            "havasoj_stc1": "Havasoj STC1",
+            "havasoj_stc2": "Havasoj STC2",
+            "hyeu": "HYEU",
+            "hurkus_aviyonik": "Hürkuş Aviyonik",
+            "hjt": "HJT",
+            "hsp": "HSP",
+            "navy": "Navy",
+            "bkm": "BKM",
+            "mmu": "MMU",
+        }
+        for slug, name in expected.items():
+            with self.subTest(slug=slug):
+                project = Project.objects.get(slug=slug)
+                self.assertEqual(project.name, name)
+                self.assertTrue(project.enabled)
+                self.assertEqual(
+                    DocumentStatus.objects.get(project=project, value="unknown").label,
+                    "Unknown",
+                )
+
     def test_hurjet_is_seeded_with_its_business_name(self):
         project = Project.objects.get(slug="hurjet")
 

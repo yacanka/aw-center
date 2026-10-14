@@ -55,6 +55,13 @@ PROJECT_DEFINITIONS = MappingProxyType(
             capabilities=("jira",), dcc_controller="hurkus_dcc",
         ),
         "hurjet": _definition("hurjet", "HURJET"),
+        **{
+            slug: ProjectDefinition(slug=slug, capabilities=("compliance", "organization"))
+            for slug in (
+                "havasoj_stc1", "havasoj_stc2", "hyeu", "hurkus_aviyonik",
+                "hjt", "hsp", "navy", "bkm", "mmu",
+            )
+        },
     }
 )
 
@@ -82,6 +89,8 @@ def get_project_definitions_by_capability(capability: str) -> tuple[ProjectDefin
 
 def find_project_by_jira_component(jira_component: str) -> ProjectDefinition | None:
     normalized_component = jira_component.strip().casefold().replace("\u0307", "")
+    if not normalized_component:
+        return None
     # Preserve the historical ASCII JIRA component while accepting its corrected name.
     if normalized_component == "ozgur":
         return PROJECT_DEFINITIONS["ozgur"]

@@ -21,7 +21,11 @@ import {
 } from '@vicons/fluent'
 import { Pdf } from '@/app/stores/iconStore'
 import JiraIcon from '@/app/components/icons/JiraIcon.vue'
-import type { ProjectRegistryItem } from '@/features/projects/models/projectRegistry'
+import {
+  COMPLIANCE_PROJECT_GROUPS,
+  COMPLIANCE_STANDALONE_PROJECTS,
+  type ProjectRegistryItem
+} from '@/features/projects/models/projectRegistry'
 import type { IUser } from '@/features/session/models/auth'
 import { filterNavigationByAccess } from '@/features/session/services/accessPolicy'
 
@@ -115,8 +119,32 @@ function projectItems(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
       Document24Regular
     ),
     { key: 'divider2', type: 'divider', name: 'projectDivider' },
-    ...projects.map(projectMenuItem)
+    ...groupedComplianceProjectItems(projects)
   ]
+}
+
+function groupedComplianceProjectItems(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
+  const bySlug = new Map(projects.map((project) => [project.slug, project]))
+  const itemsFor = (slugs: readonly string[]): ProjectMenuOption[] =>
+    slugs.flatMap((slug) => {
+      const project = bySlug.get(slug)
+      return project ? [projectMenuItem(project)] : []
+    })
+  const groups = COMPLIANCE_PROJECT_GROUPS.flatMap((group) => {
+    const children = itemsFor(group.slugs)
+    return children.length
+      ? [
+          groupItem(
+            group.label,
+            `compliance-group-${group.key}`,
+            group.key,
+            Book24Regular,
+            children
+          )
+        ]
+      : []
+  })
+  return [...groups, ...itemsFor(COMPLIANCE_STANDALONE_PROJECTS)]
 }
 
 function doorsGroup(): ProjectMenuOption {

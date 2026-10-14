@@ -17,6 +17,17 @@ export interface ProjectRegistryItem {
   roles: Record<ProjectCapability, ProjectRole | null>
 }
 
+/** Compliance navigation families; entries are joined with the authorized catalog. */
+export const COMPLIANCE_PROJECT_GROUPS = [
+  { key: 'ozgur', label: 'Özgür', slugs: ['aesa', 'blok30', 'blok4050', 'hys'] },
+  { key: 'gokbey', label: 'Gökbey', slugs: ['gokbey', 'gokbey_jandarma'] },
+  { key: 'havasoj', label: 'Havasoj', slugs: ['havasoj_stc1', 'havasoj_stc2'] },
+  { key: 'hurkus2', label: 'Hürkuş 2', slugs: ['hyeu', 'hurkus_aviyonik'] },
+  { key: 'hurjet', label: 'Hürjet', slugs: ['hjt', 'hsp', 'navy'] }
+] as const
+
+export const COMPLIANCE_STANDALONE_PROJECTS = ['bkm', 'mmu'] as const
+
 const MANAGEMENT_ROLE_RANK: Record<ProjectManagementRole, number> = {
   viewer: 1,
   editor: 2,
