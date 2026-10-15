@@ -13,13 +13,16 @@ interface StoredColumnSettings {
 /** Return schema-compatible saved settings for one project. */
 export function readCompdocColumnSettings(
   project: string,
-  fields: ICompDocFieldMetadata[]
+  fields: ICompDocFieldMetadata[],
+  schemaVersion: number
 ): IColumnSetting[] {
   const raw = localStorage.getItem(storageKey(project))
   if (!raw) return createDefaultColumnSettings(fields)
   try {
     const stored = JSON.parse(raw) as StoredColumnSettings
-    if (stored.project !== project) throw new Error('Project mismatch')
+    if (stored.project !== project || stored.schema_version !== schemaVersion) {
+      throw new Error('Column schema mismatch')
+    }
     return reconcileColumnSettings(stored.settings, fields)
   } catch {
     localStorage.removeItem(storageKey(project))

@@ -38,7 +38,7 @@ export function buildClientCompdocSummary(
     }
     accumulateDate(scheduled, milestones.originalTarget)
     accumulateDate(revised, milestones.target)
-    hasRevised ||= Boolean(parseDate(row.ubm_revised_target_date))
+    hasRevised ||= Boolean(parseDate(row.revised_target_date))
     accumulateDate(actual, milestones.delivery)
   })
   return {
@@ -56,9 +56,9 @@ export function buildClientCompdocSummary(
 
 function documentMilestones(row: ICompDoc) {
   const entries = normalizedFlow(row.status_flow)
-  const originalTarget = parseDate(row.ubm_target_date)
-  const target = parseDate(row.ubm_revised_target_date || row.ubm_target_date)
-  const delivery = parseDate(row.ubm_delivery_date)
+  const originalTarget = parseDate(row.target_date)
+  const target = parseDate(row.revised_target_date || row.target_date)
+  const delivery = parseDate(row.release_date)
   const targetEntry = target ? { status: 'to_be_issued', date: target } : undefined
   const deliveryEntry = delivery
     ? { status: normalizedStatus(row.status), date: delivery }

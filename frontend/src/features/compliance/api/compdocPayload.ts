@@ -7,20 +7,16 @@ export interface CompDocWritePayload {
   cover_page: { number: string; issue: string; version?: number }
   name: string
   signature_panel: string[]
-  tech_doc_no: string
-  tech_doc_issue: string
-  delivered_tech_doc_issue: string
-  tech_doc_no_2: string
-  tech_doc_issue_2: string
-  delivered_tech_doc_issue_2: string
+  number: string
+  issue: string
   responsible: string
   cat: string | null
   moc: string | null
   mom_no: string
   requirements: string[]
-  ubm_target_date: string | null
-  ubm_revised_target_date: string | null
-  ubm_delivery_date: string | null
+  target_date: string | null
+  revised_target_date: string | null
+  release_date: string | null
   path: string
   notes: string
   change_reason?: string
@@ -56,20 +52,16 @@ function buildWritePayload(document: ICompDoc): CompDocWritePayload {
     }) as CompDocWritePayload['cover_page'],
     name: document.name,
     signature_panel: document.signature_panel,
-    tech_doc_no: document.tech_doc_no,
-    tech_doc_issue: document.tech_doc_issue,
-    delivered_tech_doc_issue: document.delivered_tech_doc_issue,
-    tech_doc_no_2: document.tech_doc_no_2,
-    tech_doc_issue_2: document.tech_doc_issue_2,
-    delivered_tech_doc_issue_2: document.delivered_tech_doc_issue_2,
+    number: document.number,
+    issue: document.issue,
     responsible: document.responsible,
     cat: document.cat,
     moc: document.moc,
     mom_no: document.mom_no,
     requirements: document.requirements,
-    ubm_target_date: document.ubm_target_date || null,
-    ubm_revised_target_date: document.ubm_revised_target_date || null,
-    ubm_delivery_date: document.ubm_delivery_date || null,
+    target_date: document.target_date || null,
+    revised_target_date: document.revised_target_date || null,
+    release_date: document.release_date || null,
     path: document.path,
     notes: document.notes,
     change_reason: document.change_reason

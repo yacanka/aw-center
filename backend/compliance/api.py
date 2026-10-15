@@ -89,12 +89,8 @@ TEXT_FILTER_FIELDS = frozenset(
         "name",
         "cover_page_no",
         "cover_page_issue",
-        "tech_doc_no",
-        "tech_doc_issue",
-        "delivered_tech_doc_issue",
-        "tech_doc_no_2",
-        "tech_doc_issue_2",
-        "delivered_tech_doc_issue_2",
+        "number",
+        "issue",
         "responsible",
         "moc",
         "cat",
@@ -104,7 +100,7 @@ TEXT_FILTER_FIELDS = frozenset(
 )
 SELECT_FILTER_FIELDS = frozenset({"panel", "panel_name", "ata", "status"})
 DATE_FILTER_FIELDS = frozenset(
-    {"ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date", "next_action_due_date", "created_at", "updated_at"}
+    {"target_date", "revised_target_date", "release_date", "next_action_due_date", "created_at", "updated_at"}
 )
 FILTER_FIELD_LOOKUPS = {
     "cover_page_no": "cover_page__number",
@@ -207,8 +203,7 @@ class DocumentCollectionView(ProjectComplianceMixin, APIView):
             queryset = queryset.filter(
                 Q(name__icontains=search)
                 | Q(cover_page__number__icontains=search)
-                | Q(tech_doc_no__icontains=search)
-                | Q(tech_doc_no_2__icontains=search)
+                | Q(number__icontains=search)
             )
         queryset = _apply_document_filters(queryset, request.query_params)
         queryset = _apply_document_ordering(queryset, request.query_params.get("ordering"))
@@ -429,7 +424,7 @@ class DocumentFieldsView(ProjectComplianceMixin, APIView):
         ]
         fields.insert(1, {"key": "ata", "label": "ATA", "required": False, "read_only": False, **_field_capabilities("ata", options)})
         return Response(
-            {"schema_version": 3, "project": self.project.slug, "fields": fields}
+            {"schema_version": 4, "project": self.project.slug, "fields": fields}
         )
 
 
@@ -1113,12 +1108,8 @@ def _export_document_row(document):
         "signature_panel": "; ".join(document.signature_panel or ()),
         "cover_page_no": document.cover_page.number,
         "cover_page_issue": document.cover_page.issue,
-        "tech_doc_no": document.tech_doc_no,
-        "tech_doc_issue": document.tech_doc_issue,
-        "delivered_tech_doc_issue": document.delivered_tech_doc_issue,
-        "tech_doc_no_2": document.tech_doc_no_2,
-        "tech_doc_issue_2": document.tech_doc_issue_2,
-        "delivered_tech_doc_issue_2": document.delivered_tech_doc_issue_2,
+        "number": document.number,
+        "issue": document.issue,
         "responsible": document.responsible,
         "cat": document.cat,
         "moc": document.moc,
@@ -1126,9 +1117,9 @@ def _export_document_row(document):
         "requirements": "; ".join(document.requirements or ()),
         "status": document.status,
         "effective_date": document.current_effective_date,
-        "ubm_target_date": document.ubm_target_date,
-        "ubm_revised_target_date": document.ubm_revised_target_date,
-        "ubm_delivery_date": document.ubm_delivery_date,
+        "target_date": document.target_date,
+        "revised_target_date": document.revised_target_date,
+        "release_date": document.release_date,
         "path": document.path,
         "notes": document.notes,
     }

@@ -72,7 +72,6 @@
           :compdoc="compdoc"
           :original="originalCompdoc"
           :readonly="formReadonly"
-          :has-extra-fields="hasExtraFields"
         />
         <CompDocOwnershipFields
           :compdoc="compdoc"
@@ -132,7 +131,6 @@ const {
   formRef,
   formReadonly,
   handleVisibilityChange,
-  hasExtraFields,
   allocationActive,
   allocationFailed,
   allocationMessage,

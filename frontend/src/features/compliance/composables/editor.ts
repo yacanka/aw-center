@@ -30,7 +30,6 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   const compdoc = ref<ICompDoc>({} as ICompDoc)
   const originalCompdoc = ref<ICompDoc>({} as ICompDoc)
   const popupMode = ref<string | null>(null)
-  const hasExtraFields = ref(false)
   const numberingAvailable = ref(false)
   const numberingFormats = ref<string[]>([])
   const numberingFormat = ref<string | null>(null)
@@ -105,7 +104,6 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     const draft = JSON.parse(JSON.stringify(value)) as ICompDoc
     originalCompdoc.value = { ...draft }
     compdoc.value = { ...draft }
-    hasExtraFields.value = compdocStore.checkBonusFields()
     allocation.value = null
     allocationOperationId.value = crypto.randomUUID()
     numberSource.value = 'manual'
@@ -329,7 +327,6 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
     formRef,
     formReadonly,
     handleVisibilityChange,
-    hasExtraFields,
     loadHistory,
     openModal,
     originalCompdoc,

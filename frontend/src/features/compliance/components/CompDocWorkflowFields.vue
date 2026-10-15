@@ -9,41 +9,41 @@
           displayDocument.status_label || statusLabel(compdoc.status)
         }}</n-tag>
       </n-descriptions-item>
-      <n-descriptions-item label="UBM target">
+      <n-descriptions-item label="Target Date">
         <span v-if="readonly">{{
-          compdoc.ubm_target_date ? formatTurkishDate(compdoc.ubm_target_date) : 'Not recorded'
+          compdoc.target_date ? formatTurkishDate(compdoc.target_date) : 'Not recorded'
         }}</span>
         <n-date-picker
           v-else
-          v-model:formatted-value="compdoc.ubm_target_date"
+          v-model:formatted-value="compdoc.target_date"
           type="date"
           format="dd.MM.yyyy"
           value-format="yyyy-MM-dd"
           clearable
         />
       </n-descriptions-item>
-      <n-descriptions-item label="UBM revised target">
+      <n-descriptions-item label="Revised Target Date">
         <span v-if="readonly">{{
-          compdoc.ubm_revised_target_date
-            ? formatTurkishDate(compdoc.ubm_revised_target_date)
+          compdoc.revised_target_date
+            ? formatTurkishDate(compdoc.revised_target_date)
             : 'Not recorded'
         }}</span>
         <n-date-picker
           v-else
-          v-model:formatted-value="compdoc.ubm_revised_target_date"
+          v-model:formatted-value="compdoc.revised_target_date"
           type="date"
           format="dd.MM.yyyy"
           value-format="yyyy-MM-dd"
           clearable
         />
       </n-descriptions-item>
-      <n-descriptions-item label="UBM delivery">
+      <n-descriptions-item label="Release Date">
         <span v-if="readonly">{{
-          compdoc.ubm_delivery_date ? formatTurkishDate(compdoc.ubm_delivery_date) : 'Not recorded'
+          compdoc.release_date ? formatTurkishDate(compdoc.release_date) : 'Not recorded'
         }}</span>
         <n-date-picker
           v-else
-          v-model:formatted-value="compdoc.ubm_delivery_date"
+          v-model:formatted-value="compdoc.release_date"
           type="date"
           format="dd.MM.yyyy"
           value-format="yyyy-MM-dd"

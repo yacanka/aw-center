@@ -13,8 +13,8 @@ MODEL_FIELDS = {
     "moc",
     "cover_page_no",
     "cover_page_issue",
-    "tech_doc_no",
-    "tech_doc_issue",
+    "number",
+    "issue",
 }
 
 
@@ -69,7 +69,7 @@ class ComplianceDocumentImportMappingTests(TestCase):
 
         self.assertEqual(mapping["İsim"], "name")
         self.assertEqual(mapping["MOC"], "moc")
-        self.assertEqual(mapping["Tech Document Number"], "tech_doc_no")
+        self.assertEqual(mapping["Tech Document Number"], "number")
         self.assertEqual(mapping["ATA Chaptre"], "ata")
 
     def test_maps_fuzzy_header_typo_when_similarity_is_confident(self):

@@ -35,7 +35,7 @@ class CompDocRiskAssessmentTests(SimpleTestCase):
             ["authority_aging", "resubmission_cycle", "missing_technical_reference"],
         )
         self.assertTrue(all(signal["detail"] for signal in risk["signals"]))
-        self.assertNotIn("tech_doc_no", risk)
+        self.assertNotIn("number", risk)
 
     def test_scores_target_overdue_and_long_wait_without_double_counting(self):
         """Target breach and active-stage wait use distinct workflow semantics."""
@@ -44,7 +44,7 @@ class CompDocRiskAssessmentTests(SimpleTestCase):
             document(target=date(2026, 6, 30)), [("to_be_issued", date(2026, 6, 30))], "delayed", TODAY
         )
         waiting = assess_document_risk(
-            document(tech_doc_no="TD-1"),
+            document(number="TD-1"),
             [("to_be_issued", date(2026, 1, 1)), ("to_be_updated", date(2026, 6, 1))],
             "to_be_updated",
             TODAY,
@@ -63,7 +63,7 @@ class CompDocRiskAssessmentTests(SimpleTestCase):
         """Completed referenced documents remain outside the priority queue."""
 
         risk = assess_document_risk(
-            document(tech_doc_no="TD-1"),
+            document(number="TD-1"),
             [("authority_approved", date(2026, 1, 1))],
             "authority_approved",
             TODAY,
@@ -73,22 +73,9 @@ class CompDocRiskAssessmentTests(SimpleTestCase):
         self.assertEqual(risk["level"], "none")
         self.assertEqual(risk["signals"], [])
 
-    def test_accepts_project_specific_secondary_technical_reference(self):
-        """Dual-document projects are not penalized when either reference exists."""
-
-        values = document()
-        values["tech_doc_no_2"] = "TD-SECONDARY"
-        risk = assess_document_risk(
-            values,
-            [("authority_approved", date(2026, 1, 1))],
-            "authority_approved",
-            TODAY,
-        )
-
-        self.assertEqual(risk["score"], 0)
 
 
-def document(document_id=None, name="Document", tech_doc_no=None, target=None):
+def document(document_id=None, name="Document", number=None, target=None):
     """Build one value-query shaped document for risk tests."""
 
     return {
@@ -96,6 +83,6 @@ def document(document_id=None, name="Document", tech_doc_no=None, target=None):
         "name": name,
         "panel": "Panel A",
         "ata": "00-00",
-        "tech_doc_no": tech_doc_no,
-        "ubm_target_date": target,
+        "number": number,
+        "target_date": target,
     }

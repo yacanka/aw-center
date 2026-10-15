@@ -43,12 +43,12 @@ test('serializes remote date operators and multi-select filters', () => {
   assert.deepEqual(
     serializeCompdocFilters({
       panel: ['Systems', 'Structures'],
-      ubm_target_date: { date: '19.07.2026', type: '>=' },
+      target_date: { date: '19.07.2026', type: '>=' },
       empty: []
     }),
     {
       panel_name: ['Systems', 'Structures'],
-      ubm_target_date__gte: '2026-07-19'
+      target_date__gte: '2026-07-19'
     }
   )
 })
@@ -107,7 +107,7 @@ test('builds resilient CompDoc chart aggregates including custom project statuse
   const rows = [
     {
       ...document('delayed', [{ status: 'to_be_issued', date: '20.07.2026' }]),
-      ubm_target_date: '2026-07-20'
+      target_date: '2026-07-20'
     },
     {
       ...document('authority_approved', [
@@ -115,7 +115,7 @@ test('builds resilient CompDoc chart aggregates including custom project statuse
         { status: 'authority_review', date: '10.07.2026' },
         { status: 'authority_approved', date: '15.07.2026' }
       ]),
-      ubm_target_date: '2026-07-01'
+      target_date: '2026-07-01'
     },
     document('to_be_updated', [{ status: 'to_be_updated', date: '18.07.2026' }]),
     document('unexpected', [{ status: 'to_be_issued', date: '31.02.2026' }])
@@ -136,8 +136,8 @@ test('builds chart milestones from canonical workflow projections', () => {
     [
       {
         ...document('authority_review', []),
-        ubm_target_date: '2026-07-20',
-        ubm_delivery_date: '2026-07-21'
+        target_date: '2026-07-20',
+        release_date: '2026-07-21'
       }
     ],
     new Date(2026, 6, 22)
@@ -152,8 +152,8 @@ test('keeps delivery-only workflow projections out of the scheduled series', () 
     [
       {
         ...document('authority_review', []),
-        ubm_target_date: null,
-        ubm_delivery_date: '2026-07-21'
+        target_date: null,
+        release_date: '2026-07-21'
       }
     ],
     new Date(2026, 6, 22)
@@ -166,9 +166,9 @@ test('keeps delivery-only workflow projections out of the scheduled series', () 
 test('separates original and revised schedule while preserving delayed display', () => {
   const row = {
     ...document('to_be_issued', []),
-    ubm_target_date: '2026-07-01',
-    ubm_revised_target_date: '2026-08-01',
-    ubm_delivery_date: '2026-06-01'
+    target_date: '2026-07-01',
+    revised_target_date: '2026-08-01',
+    release_date: '2026-06-01'
   }
   const summary = buildClientCompdocSummary([row], new Date(2026, 6, 22))
   assert.equal(summary.timeline.scheduled[0].x, '01.07.2026')
@@ -180,14 +180,13 @@ test('separates original and revised schedule while preserving delayed display',
 test('marks yesterday as delayed without a UTC/local timezone offset', () => {
   const row = {
     ...document('to_be_issued', []),
-    ubm_target_date: '2026-07-21'
+    target_date: '2026-07-21'
   }
 
   assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 22)).status, 'delayed')
   assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 21)).status, 'to_be_issued')
   assert.equal(
-    withCompdocDisplayStatus({ ...row, ubm_delivery_date: '2026-07-01' }, new Date(2026, 6, 22))
-      .status,
+    withCompdocDisplayStatus({ ...row, release_date: '2026-07-01' }, new Date(2026, 6, 22)).status,
     'to_be_issued'
   )
 })

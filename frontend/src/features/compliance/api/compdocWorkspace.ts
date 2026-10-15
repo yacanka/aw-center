@@ -10,7 +10,7 @@ export function humanizeCompdocStatus(status: unknown): string {
 
 /** Return the most useful stable reference for a compliance document. */
 export function getCompdocReference(document: ICompDoc): string {
-  return document.tech_doc_no || document.cover_page_no || document.name
+  return document.number || document.cover_page_no || document.name
 }
 
 /** Join present values without displaying empty separators. */

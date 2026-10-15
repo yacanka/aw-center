@@ -172,7 +172,7 @@ class StatusCatalogTests(TestCase):
         self.import_rows([row])
         document = ComplianceDocument.objects.get()
         self.assertEqual(document.status, "unknown")
-        self.assertEqual(document.ubm_delivery_date, date(2026, 2, 1))
+        self.assertEqual(document.release_date, date(2026, 2, 1))
         self.assertEqual(list(document.workflow_events.order_by("sequence").values_list("status", flat=True)), ["custom_review", "unknown"])
 
     def test_explicit_unknown_reimport_with_milestones_preserves_history(self):
@@ -195,7 +195,7 @@ class StatusCatalogTests(TestCase):
         document = self.document("to_be_issued")
         url = self.base + f"{document.pk}/"
         self.assertEqual(self.client.get(url).data["status_label"], "In Design (date missing)")
-        document.ubm_target_date = date(2099, 1, 1)
+        document.target_date = date(2099, 1, 1)
         document.save()
         self.assertEqual(self.client.get(url).data["status_label"], "In Design")
         self.assertEqual(self.client.get(url).data["status"], "to_be_issued")

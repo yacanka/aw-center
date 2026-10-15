@@ -33,17 +33,25 @@ FIELD_ALIASES = {
     "mom_no": ("mom no", "mom number", "meeting minutes no", "minutes no"),
     "cover_page_no": ("cover page no", "cover page number", "cover no", "cp no"),
     "cover_page_issue": ("cover page issue", "cover issue", "cp issue"),
-    "tech_doc_no": ("tech doc no", "technical document no", "tech document number", "td no"),
-    "tech_doc_issue": ("tech doc issue", "technical document issue", "td issue"),
-    "delivered_tech_doc_issue": ("delivered tech doc issue", "delivered issue", "delivery issue"),
-    "ubm_target_date": ("ubm target date", "target date", "planned date", "hedef tarih"),
-    "ubm_revised_target_date": ("ubm revised target date", "revised target date", "revised planned date", "revize hedef tarih"),
-    "ubm_delivery_date": ("ubm delivery date", "delivery date", "delivered date", "teslim tarih"),
+    "number": ("tech doc no", "technical document no", "tech document number", "td no"),
+    "issue": ("tech doc issue", "technical document issue", "td issue"),
+    "target_date": ("ubm target date", "target date", "planned date", "hedef tarih"),
+    "revised_target_date": ("ubm revised target date", "revised target date", "revised planned date", "revize hedef tarih"),
+    "release_date": ("ubm delivery date", "delivery date", "delivered date", "teslim tarih"),
     "requirements": ("requirements", "requirement", "reqs", "gereksinimler"),
     "status_flow": ("status flow", "workflow", "status history", "flow"),
     "notes": ("notes", "note", "comments", "remarks", "açıklama", "not"),
     "path": ("path", "file path", "document path", "location"),
 }
+
+# Removed references must never fuzzy-match the surviving primary reference.
+REMOVED_FIELD_HEADERS = frozenset({
+    "delivered tech doc issue", "delivered technical document issue",
+    "delivered issue", "delivery issue", "delivered tech doc issue 2",
+    "delivered technical document issue 2", "delivered issue 2", "delivery issue 2",
+    "tech doc no 2", "technical document no 2", "tech document number 2", "td no 2",
+    "tech doc issue 2", "technical document issue 2", "td issue 2",
+})
 
 
 @dataclass(frozen=True)
@@ -59,7 +67,7 @@ def normalize_header(value) -> str:
     """Normalize a model or spreadsheet header for deterministic matching."""
 
     text = "" if value is None else str(value)
-    text = text.strip().casefold().replace("ı", "i")
+    text = text.strip().casefold().replace("ı", "i").replace("_", " ")
     text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -85,7 +93,7 @@ def resolve_header_field(header, alias_lookup: dict[str, str]) -> str | None:
     """Resolve a spreadsheet header to a model field using aliases and fuzzy text."""
 
     normalized_header = normalize_header(header)
-    if not normalized_header:
+    if not normalized_header or normalized_header in REMOVED_FIELD_HEADERS:
         return None
     if normalized_header in alias_lookup:
         return alias_lookup[normalized_header]

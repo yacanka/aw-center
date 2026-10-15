@@ -64,10 +64,7 @@ function panelAta(): string {
         {{ joinCompdocValues([document.cover_page_no, document.cover_page_issue]) }}
       </n-descriptions-item>
       <n-descriptions-item label="Technical document">
-        {{ joinCompdocValues([document.tech_doc_no, document.tech_doc_issue]) }}
-      </n-descriptions-item>
-      <n-descriptions-item label="Delivered issue">
-        {{ document.delivered_tech_doc_issue || 'Not delivered' }}
+        {{ joinCompdocValues([document.number, document.issue]) }}
       </n-descriptions-item>
       <n-descriptions-item label="Responsible">
         {{ document.responsible || 'Not assigned' }}

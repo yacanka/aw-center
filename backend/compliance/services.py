@@ -328,15 +328,15 @@ def refresh_docproof_tracking(*, project, document_id, expected_version, user):
     if current_profile_version != expected_version:
         raise VersionConflict("Tracking evidence changed after you opened it.")
     document_version = document.version
-    document_number = normalize_document_number(document.tech_doc_no or "")
+    document_number = normalize_document_number(document.number or "")
     if not document_number:
-        raise ValidationError({"tech_doc_no": "A technical document number is required."})
+        raise ValidationError({"number": "A technical document number is required."})
     issue, failure_reason = search_document_issue(document_number)
     checked_at = timezone.now()
     remote_issue = "" if issue is None else str(issue)
     if failure_reason:
         docproof_status = failure_reason
-    elif remote_issue == str(document.tech_doc_issue or "").strip():
+    elif remote_issue == str(document.issue or "").strip():
         docproof_status = "current"
     else:
         docproof_status = "revision_available"

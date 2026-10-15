@@ -30,7 +30,7 @@ for (const theme of [null, darkTheme]) {
         setup() {
           const settings = useCompdocColumnSettings({
             project: ref('filter-test'),
-            schemaVersion: ref(3),
+            schemaVersion: ref(4),
             fields: ref(fields),
             columnOverrides: ref([]),
             currentColumns: columns,

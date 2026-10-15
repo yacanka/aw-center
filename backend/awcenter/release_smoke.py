@@ -169,7 +169,7 @@ def run_core_smoke(*, operator_username: str, project_slug: str) -> dict:
         ).pk
         document = ComplianceDocument.objects.get(
             project=project,
-            tech_doc_no=f"SMOKE-TD-{run_id[:12]}",
+            number=f"SMOKE-TD-{run_id[:12]}",
         )
         document_id = document.pk
         cover_page_id = document.cover_page_id

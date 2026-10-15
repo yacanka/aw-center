@@ -119,7 +119,7 @@ def detect_events(profile, *, today=None):
     current_day = today or timezone.localdate()
     events = {}
     target = document.current_target_date
-    if document.status == "to_be_issued" and target and not document.ubm_delivery_date:
+    if document.status == "to_be_issued" and target and not document.release_date:
         remaining_days = (target - current_day).days
         if remaining_days < 0:
             events["overdue"] = target.isoformat()

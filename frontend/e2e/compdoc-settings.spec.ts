@@ -54,7 +54,7 @@ for (const theme of ['light', 'dark'] as const) {
           return route.fulfill({ status: 204 })
         } else if (path.endsWith('/compliance-documents/fields/'))
           body = {
-            schema_version: 1,
+            schema_version: 4,
             project: 'aesa',
             fields: [
               {
@@ -74,8 +74,8 @@ for (const theme of ['light', 'dark'] as const) {
                 filter_kind: 'none'
               },
               {
-                key: 'tech_doc_no',
-                label: 'Document number',
+                key: 'number',
+                label: 'Number',
                 required: false,
                 read_only: false,
                 sortable: true,
@@ -124,7 +124,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.locator('[aria-label="Rows per page"] input').fill('25')
       await page.locator('[aria-label="Rows per page"] input').blur()
       await page.getByRole('button', { name: 'Remove Status', exact: true }).click()
-      await page.getByRole('button', { name: 'Move Document number up', exact: true }).click()
+      await page.getByRole('button', { name: 'Move Number up', exact: true }).click()
       page.once('dialog', (dialog) => dialog.dismiss())
       await page.getByRole('button', { name: 'Back to compliance documents' }).click()
       await expect(page).toHaveURL(/compdocs\/settings/)
@@ -133,10 +133,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.reload()
       await expect(page.locator('[aria-label="Rows per page"] input')).toHaveValue('25')
       await expect(editor.locator('.column-row')).toHaveCount(2)
-      await expect(editor.locator('.column-row').first()).toHaveAttribute(
-        'aria-label',
-        'Document number'
-      )
+      await expect(editor.locator('.column-row').first()).toHaveAttribute('aria-label', 'Number')
       await page.getByRole('button', { name: 'Recommended columns' }).click()
       await expect(editor.locator('.column-row')).toHaveCount(3)
       await page.getByRole('button', { name: 'Discard changes', exact: true }).click()
