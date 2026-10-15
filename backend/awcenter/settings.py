@@ -307,7 +307,6 @@ INSTALLED_APPS = [
     'automations',
     'compliance',
     'attention',
-    'integrations.jira.legacy_dcc.apps.LegacyDccMigrationsConfig',
     'ddf',
     'orgs',
     'pptxgallery',

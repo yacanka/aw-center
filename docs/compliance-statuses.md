@@ -28,7 +28,12 @@ Under `/api/projects/<slug>/compliance-documents/`:
 
 Document responses add `status_label`; the existing `status` string is unchanged. Field metadata and dashboard vocabulary are project-specific. Session authentication, CSRF, project roles, document versions and signed import confirmation remain enforced.
 
-Apply forward migrations `0011_project_status_catalog` and `0012_seed_project_statuses` before serving the updated application. Seeding preserves current values and history, and creates only current project statuses plus Unknown. Future projects receive Unknown automatically. No database reset is needed.
+The fresh-install baseline creates the catalog schema in the initial migrations.
+`compliance/0003_seed_default_statuses` adds Unknown to every project seeded by
+`orgs/0002_seed_projects`. No historical document values are imported. Projects
+created later receive Unknown automatically through the existing project signal.
+This baseline does not upgrade earlier development databases; see the
+[local reset runbook](local-database-reset.md).
 
 Known status codes retain existing delay, approval and risk calculations. Custom codes appear in counts/charts under their own label but acquire no implicit workflow semantics.
 
@@ -40,24 +45,21 @@ Document CRUD, search/filter/sort, register export, DocProof, numbering snapshot
 notifications and dashboard consumers use the canonical names. Existing risk
 weights and workflow behavior are unchanged; the revised target still takes precedence.
 
-Migration `0016_canonical_document_fields` renames `tech_doc_no`, `tech_doc_issue`,
-`ubm_target_date`, `ubm_revised_target_date` and `ubm_delivery_date` in both live and
-historical tables, preserving their values. It drops `delivered_tech_doc_issue`,
-`delivered_tech_doc_issue_2`, `tech_doc_no_2` and `tech_doc_issue_2`, including their
-historical values. This deletion is intentional: these fields have never been used
-in production and require no archive. The second reference and delivered-issue UI,
-search and DocProof lookup support are removed. A document now has one reference.
+The fresh baseline creates `number`, `issue`, `target_date`, `revised_target_date`
+and `release_date` directly in live and historical document tables. The removed
+`delivered_tech_doc_issue`, `delivered_tech_doc_issue_2`, `tech_doc_no_2` and
+`tech_doc_issue_2` columns do not exist. The second reference and delivered-issue
+UI, search and DocProof lookup support are removed. A document has one reference.
 
 Excel/DOORS source headers using the former primary names remain recognized, but
 mapping targets and API fields use only the new names. Removed-field headers are
 excluded before fuzzy matching so they cannot overwrite a primary reference.
-Saved DOORS mappings are migrated; removed target links are dropped. Historical
-import audit records and completed numbering snapshots remain original evidence.
+Newly saved DOORS mappings use canonical targets. Fresh installs contain no
+previous import audits, saved mappings or pending numbering snapshots.
 
-Deploy the backend and frontend together with web/worker processes stopped.
-Resolve every unfinished cover-page numbering allocation using the previous
-application version first; the migration refuses to proceed while any remain.
-Apply the forward migration without resetting the database, then restart services.
-Old Excel/DOORS preview tokens require a fresh preview. Browser-local column
-layouts from earlier metadata versions reset to recommended columns; other
-preferences are unaffected. No legacy API aliases are provided.
+Install the backend and frontend together on an empty database. Earlier local
+schemas require a deliberate reset following the local runbook. No compatibility
+migration, content-copy step or unfinished-allocation guard is needed in this
+fresh-only baseline. Browser-local column layouts from earlier metadata versions
+reset to recommended columns; other preferences are unaffected. No legacy API
+aliases are provided.

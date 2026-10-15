@@ -29,7 +29,7 @@ class JiraApplicationBoundaryTests(TestCase):
         self.assertIsNotNone(models.get("jiratrackedissue"))
         self.assertIsNotNone(models.get("jirareminderdelivery"))
         self.assertIsNotNone(models.get("jiraissuedraft"))
-        self.assertEqual(list(apps.get_app_config("dcc").get_models()), [])
+        self.assertNotIn("dcc", apps.app_configs)
 
     def test_canonical_watcher_route_is_under_jira_integration(self):
         user = get_user_model().objects.create_user("boundary-user")

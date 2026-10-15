@@ -281,6 +281,13 @@ View/component'ler doğrudan Axios import etmez, global store locator kullanmaz 
 
 ## Deployment ve migration ilkeleri
 
+15.10.2026 migration baseline’ı güncel modellerden yeniden üretilmiştir ve yalnız boş
+veritabanına kurulum içindir. Canonical project kataloğu `orgs/0002_seed_projects`,
+Unknown statüleri `compliance/0003_seed_default_statuses` ile kurulur. Eski geliştirme
+veritabanına migration veya `--fake` uygulamak desteklenmez; disposable local reset
+için [runbook](local-database-reset.md) kullanılır. Bu baseline’dan sonraki model
+değişiklikleri yeni forward migration’larla ilerler.
+
 Güncel production Windows'ta versioned release checkout'undan `launcher.py prod`
 ile çalışır. Database ayrı production SQLite dosyasıdır; development database'iyle
 paylaşılmaz. Project seed migration'ın parçasıdır. Frontend ayrı Vite server olarak
@@ -326,6 +333,6 @@ bu kontroller bugünkü Windows env dosyasının yerine geçmez. Ayrıntılı g�
 
 ## JIRA application ve kullanıcı içeriği
 
-JIRA client/session ve business akışları `integrations/jira/` içindedir; model discovery `integrations/models.py`, signal wiring `IntegrationsConfig.ready` üzerinden yapılır. Proje capability ve erişim domain'i `jira` değeridir. Eski dcc migration'ları migration-only legacy_dcc paketinde korunur; mevcut tablolar state-only migration ile integrations modellerine bağlanır. DCC doküman formatı ve persist edilmiş job-kind kimlikleri bu uygulama adından bağımsızdır.
+JIRA client/session ve business akışları `integrations/jira/` içindedir; model discovery `integrations/models.py`, signal wiring `IntegrationsConfig.ready` üzerinden yapılır. Proje capability ve erişim domain'i `jira` değeridir. 15.10.2026 fresh-only baseline’ında eski `dcc` migration-only app’i yoktur. JIRA tabloları ve M2M ilişkileri doğrudan `integrations` başlangıç migration’larıyla oluşturulur; mevcut fiziksel tablo adları korunur. DCC doküman formatı ve persist edilmiş job-kind kimlikleri bu uygulama adından bağımsızdır.
 
 Görünüm tercihleri UserPreferences, kullanıcı tarafından oluşturulan JIRA listeleri JiraUserContent ve özel analiz soruları DocumentAnalysisUserContent sorumluluğundadır. Görünüm reseti kullanıcı içeriğini silmez. JIRA listeleri session store yerine feature API'siyle yüklenir; stale writes version CAS ile reddedilir, başarısız yükleme boş içerik olarak persist edilmez.

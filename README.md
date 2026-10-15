@@ -128,6 +128,10 @@ Canonical `/api/` dışında root-level feature alias'ları ve unauthenticated f
 
 ## Proje ve compliance modeli
 
+15.10.2026 migration baseline’ı yalnız boş veritabanına kurulum içindir. Önceki
+geliştirme veritabanlarını yeni migration dosyalarıyla yükseltmeyin veya fake
+etmeyin; [disposable local reset yönergelerini](docs/local-database-reset.md) izleyin.
+
 `projects.registry.PROJECT_DEFINITIONS` teknik capability metadata'sının read-only kaynağıdır. `orgs.Project` bunun database karşılığıdır; fresh migration canonical project satırlarını seed eder. Alignment salt-okunur kontrol edilir:
 
 ```bash

@@ -1,45 +1,41 @@
-"""Content migration must preserve payloads and identifiers without normalization."""
+"""Fresh schemas store owner content separately from appearance preferences."""
 
+from django.contrib.auth import get_user_model
 from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
 from django.db.models import JSONField, Value
-from django.test import TransactionTestCase
+from django.test import TestCase
+
+from integrations.models import JiraUserContent
+from word.models import DocumentAnalysisUserContent
+from .models import UserPreferences
 
 
-class UserContentMigrationTests(TransactionTestCase):
-    def test_content_is_copied_exactly_before_old_fields_are_removed(self):
-        self.addCleanup(self.restore_latest)
-        executor = MigrationExecutor(connection)
-        before = [("users", "0002_userpreferences_version")]
-        executor.migrate(before)
-        old = executor.loader.project_state(before).apps
-        User = old.get_model("auth", "User")
-        Preferences = old.get_model("users", "UserPreferences")
-        lists = [{"title": "Saved draft", "list": [{"summary": ""}]}]
-        checks = [{"id": "71c5c4fa-995d-4f65-9e60-c2dfd7d22f1b", "question": "Keep exactly?"}]
-        owner = User.objects.create(username="content-migration")
-        Preferences.objects.create(user_id=owner.pk, jira_list=lists, document_analysis_checks=checks)
-        malformed = User.objects.create(username="malformed-content-migration")
-        Preferences.objects.create(user_id=malformed.pk, jira_list={"preserve": True}, document_analysis_checks=[])
-        null_owner = User.objects.create(username="json-null-migration")
-        Preferences.objects.create(user_id=null_owner.pk, jira_list=Value(None, output_field=JSONField()),
-                                   document_analysis_checks=Value(None, output_field=JSONField()))
-        try:
-            executor = MigrationExecutor(connection)
-            executor.migrate(executor.loader.graph.leaf_nodes())
-            new = executor.loader.project_state().apps
-            Jira = new.get_model("integrations", "JiraUserContent")
-            Analysis = new.get_model("word", "DocumentAnalysisUserContent")
-            self.assertEqual(Jira.objects.get(pk=owner.pk).subtask_lists, lists)
-            self.assertEqual(Analysis.objects.get(pk=owner.pk).checks, checks)
-            self.assertEqual(Jira.objects.get(pk=malformed.pk).subtask_lists, {"preserve": True})
-            self.assertIsNone(Jira.objects.get(pk=null_owner.pk).subtask_lists)
-            self.assertIsNone(Analysis.objects.get(pk=null_owner.pk).checks)
-            self.assertNotIn("jira_list", {field.name for field in new.get_model("users", "UserPreferences")._meta.fields})
-        finally:
-            executor = MigrationExecutor(connection)
-            executor.migrate(executor.loader.graph.leaf_nodes())
-
-    def restore_latest(self):
-        executor = MigrationExecutor(connection)
-        executor.migrate(executor.loader.graph.leaf_nodes())
+class FreshUserContentSchemaTests(TestCase):
+    def test_owner_content_round_trips_without_legacy_preference_columns(self):
+        payloads = [
+            ([{"title": "Saved draft", "list": [{"summary": ""}]}],
+             [{"question": "Keep exactly?"}]),
+            ({"preserve": True}, []),
+            (None, None),
+        ]
+        for index, (lists, checks) in enumerate(payloads):
+            with self.subTest(payload=index):
+                owner = get_user_model().objects.create_user(f"baseline-content-{index}")
+                JiraUserContent.objects.create(
+                    user=owner, subtask_lists=Value(lists, output_field=JSONField()),
+                )
+                DocumentAnalysisUserContent.objects.create(
+                    user=owner, checks=Value(checks, output_field=JSONField()),
+                )
+                preferences = owner.preferences
+                preferences.theme = "dark"
+                preferences.save(update_fields=["theme"])
+                self.assertEqual(JiraUserContent.objects.get(user=owner).subtask_lists, lists)
+                self.assertEqual(DocumentAnalysisUserContent.objects.get(user=owner).checks, checks)
+        with connection.cursor() as cursor:
+            columns = {column.name for column in connection.introspection.get_table_description(
+                cursor, UserPreferences._meta.db_table,
+            )}
+        self.assertNotIn("jira_list", columns)
+        self.assertNotIn("document_analysis_checks", columns)
+        self.assertIn("version", columns)
