@@ -11,6 +11,7 @@ SUCCESS_RESULTS = {
     "get_object": ("OBJECT_READ", "Object read successfully."),
     "list_objects": ("LIST_OBJECTS_DONE", "Module objects read successfully."),
     "export_module": ("EXPORT_MODULE_DONE", "Module export completed."),
+    "list_attributes": ("LIST_ATTRIBUTES_DONE", "Module attribute names loaded."),
     "check_applicable_disciplines": ("DISCIPLINE_CHECK_DONE", "Discipline check completed."),
     "update_object": ("ATTRIBUTES_SAVED", "Object attributes saved."),
     "create_object": ("OBJECT_CREATED", "Object created and saved."),

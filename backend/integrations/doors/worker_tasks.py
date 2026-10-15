@@ -26,6 +26,7 @@ READ_OPERATIONS = frozenset(
         "get_object",
         "list_objects",
         "export_module",
+        "list_attributes",
     }
 )
 
@@ -49,6 +50,17 @@ def execute_dxl(input_path, output_path):
                 "module_path": values["module_path"],
             }
         )
+    elif operation == "list_attributes":
+        values = validated(ModuleSerializer, payload)
+        attributes = execute_with_client(
+            lambda client: client.list_attributes(values["module_path"])
+        )
+        result = {
+            "type": "doors_module_attributes",
+            "schema_version": 1,
+            "module_path": values["module_path"],
+            "attributes": attributes,
+        }
     elif operation == "export_module":
         values = validated(ModuleExportSerializer, payload)
         exported = execute_with_client(

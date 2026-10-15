@@ -258,6 +258,55 @@ class DoorsClientFoundationTests(SimpleTestCase):
 class DoorsApiTests(TestCase):
     """Verify durable DOORS API authorization, availability, and ownership."""
 
+    @override_settings(DOORS_ENABLED=True)
+    @patch("integrations.doors.api_views.integration_status")
+    def test_attribute_job_is_idempotent_read_only_and_owner_scoped(self, status):
+        status.return_value = self.bridge_state(available=True)
+        url = "/api/integrations/doors/module-attributes-jobs/"
+        response = self.client.post(
+            url, {"module_path": "/P/M"}, format="json",
+            HTTP_IDEMPOTENCY_KEY="attributes-1",
+        )
+        self.assertEqual(response.status_code, 201)
+        job = Job.objects.get(pk=response.data["id"])
+        self.assertEqual(job.kind, "doors.run_dxl")
+        self.assertFalse(job.reconcile_on_lease_loss)
+        with job.input_file.open("rb") as artifact:
+            self.assertEqual(
+                json.load(artifact), {"operation": "list_attributes", "module_path": "/P/M"}
+            )
+        replay = self.client.post(
+            url, {"module_path": "/P/M"}, format="json",
+            HTTP_IDEMPOTENCY_KEY="attributes-1",
+        )
+        self.assertEqual(replay.data["id"], response.data["id"])
+        self.client.force_authenticate(self.other_user)
+        self.assertEqual(self.client.get(f"/api/jobs/{job.pk}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/jobs/{job.pk}/download/").status_code, 404)
+
+    @patch("integrations.doors.api_views.integration_status")
+    def test_attribute_job_validates_input_and_worker_and_requires_csrf(self, status):
+        url = "/api/integrations/doors/module-attributes-jobs/"
+        session = APIClient(enforce_csrf_checks=True)
+        self.assertIn(session.post(url, {}).status_code, (401, 403))
+        session.force_login(self.user)
+        self.assertEqual(session.post(url, {"module_path": "/P/M"}).status_code, 403)
+        status.return_value = self.bridge_state(available=True)
+        for payload in ({"module_path": ""}, {"module_path": "/P/M", "script": "unexpected"}):
+            self.assertEqual(self.client.post(url, payload, format="json").status_code, 400)
+        self.assertEqual(
+            self.client.post(url, {"module_path": "/P/M"}, format="json").data["code"],
+            "IDEMPOTENCY_KEY_REQUIRED",
+        )
+        status.return_value = self.bridge_state(available=False)
+        response = self.client.post(
+            url, {"module_path": "/P/M"}, format="json",
+            HTTP_IDEMPOTENCY_KEY="attributes-unavailable",
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], "DOORS_WORKER_UNAVAILABLE")
+        self.assertFalse(Job.objects.exists())
+
     def setUp(self):
         """Create authenticated callers and isolated private artifact storage."""
 
@@ -669,10 +718,11 @@ class DoorsApiTests(TestCase):
         self.assertIn(r'"REQ-\"1\"\nunsafe"', response.data["script"])
         self.assertIn(r'"value\"; delete all"', response.data["script"])
         self.assertNotIn("yck.dxl", response.data["script"])
-        self.assertIn("Object awc_find_object(", response.data["script"])
+        self.assertIn("bool awc_matches(", response.data["script"])
+        self.assertIn("bool SetObjectAttribute(", response.data["script"])
 
     def test_script_generator_rejects_ambiguous_or_missing_mappings(self):
-        """Exactly one unique search key must resolve to a workbook column."""
+        """At least one unique key must resolve to a workbook column."""
 
         no_search = self.client.post(
             reverse("script"),
@@ -700,6 +750,68 @@ class DoorsApiTests(TestCase):
         self.assertEqual(missing_header.status_code, 400)
         self.assertEqual(missing_header.data["code"], "DOORS_SCRIPT_MAPPING_INVALID")
         self.assertNotIn("Missing", missing_header.data["detail"])
+
+    def test_script_generator_accepts_composite_keys_in_both_modes(self):
+        """Both operation modes accept multiple unique attribute mappings."""
+
+        mappings = [
+            {"excel": "Key", "doors": "Identifier", "search": True},
+            {"excel": "Group", "doors": "Group", "search": True},
+            {"excel": "Text", "doors": "Object Text", "search": False},
+        ]
+        for mode in ("update", "create"):
+            with self.subTest(mode=mode):
+                response = self.client.post(
+                    reverse("script"),
+                    {
+                        "file": self.workbook_upload(
+                            ["Key", "Group", "Text"], [["REQ-1", "A", "New text"]]
+                        ),
+                        "json": json.dumps(mappings),
+                        "mode": mode,
+                    },
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["mapping_count"], 3)
+                self.assertEqual(response.data["row_count"], 1)
+                self.assertEqual("create after" in response.data["script"], mode == "create")
+
+    def test_script_generator_rejects_invalid_modes(self):
+        """Unknown operations never silently fall back to update."""
+
+        response = self.client.post(
+            reverse("script"),
+            {
+                "file": self.workbook_upload(["Key"], [["REQ-1"]]),
+                "json": json.dumps(
+                    [{"excel": "Key", "doors": "Identifier", "search": True}]
+                ),
+                "mode": "upsert",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["code"], "VALIDATION_ERROR")
+
+    def test_script_generation_still_requires_session_and_csrf(self):
+        """Adding create mode does not expose anonymous or CSRF-free generation."""
+
+        client = APIClient(enforce_csrf_checks=True)
+        self.assertIn(client.post(reverse("script"), {}).status_code, (401, 403))
+        client.force_login(self.user)
+        response = client.post(
+            reverse("script"),
+            {
+                "file": self.workbook_upload(["Key"], [["REQ-1"]]),
+                "json": json.dumps(
+                    [{"excel": "Key", "doors": "Identifier", "search": True}]
+                ),
+                "mode": "create",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 403)
 
     def test_script_generator_sanitizes_workbook_parser_failures(self):
         """Malformed OOXML internals never reach the API response."""

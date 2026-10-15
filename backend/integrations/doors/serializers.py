@@ -133,9 +133,10 @@ class ScriptGenerationSerializer(serializers.Serializer):
     """Validate the bounded mapping JSON carried by a multipart request."""
 
     json = serializers.JSONField(write_only=True)
+    mode = serializers.ChoiceField(choices=("update", "create"), default="update")
 
     def validate_json(self, mappings):
-        """Require one search key and unambiguous source/target mappings."""
+        """Require at least one unique key and unambiguous mappings."""
 
         if not isinstance(mappings, list):
             raise serializers.ValidationError("Column mappings must be a JSON array.")
@@ -146,8 +147,8 @@ class ScriptGenerationSerializer(serializers.Serializer):
         serializer = ScriptMappingSerializer(data=mappings, many=True)
         serializer.is_valid(raise_exception=True)
         values = list(serializer.validated_data)
-        if sum(bool(item["search"]) for item in values) != 1:
-            raise serializers.ValidationError("Exactly one search mapping is required.")
+        if not any(item["search"] for item in values):
+            raise serializers.ValidationError("At least one Unique Attribute is required.")
         if has_duplicates(item["excel"] for item in values):
             raise serializers.ValidationError("Excel column mappings must be unique.")
         if has_duplicates(item["doors"] for item in values):
