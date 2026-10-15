@@ -11,18 +11,18 @@ it('displays In Design labels for unissued documents while retaining stored stat
     status_label: 'In Design (date missing)'
   })
   for (const date of ['2026-10-13', '2026-11-01']) {
-    expect(withCompdocDisplayStatus({ ...row, ubm_target_date: date }, today)).toMatchObject({
+    expect(withCompdocDisplayStatus({ ...row, target_date: date }, today)).toMatchObject({
       status: 'to_be_issued',
       status_label: 'In Design'
     })
   }
-  expect(withCompdocDisplayStatus({ ...row, ubm_target_date: '2026-10-12' }, today)).toMatchObject({
+  expect(withCompdocDisplayStatus({ ...row, target_date: '2026-10-12' }, today)).toMatchObject({
     status: 'delayed',
     status_label: 'Delayed'
   })
   expect(
     withCompdocDisplayStatus(
-      { ...row, ubm_target_date: '2026-01-01', ubm_revised_target_date: '2026-11-01' },
+      { ...row, target_date: '2026-01-01', revised_target_date: '2026-11-01' },
       today
     ).status_label
   ).toBe('In Design')
@@ -67,6 +67,6 @@ it('preserves customized project labels for known default codes', () => {
 })
 
 it('uses the Istanbul calendar day across midnight regardless of browser timezone', () => {
-  const row = { ...createEmptyCompdoc(), status: 'to_be_issued', ubm_target_date: '2026-10-13' }
+  const row = { ...createEmptyCompdoc(), status: 'to_be_issued', target_date: '2026-10-13' }
   expect(withCompdocDisplayStatus(row, new Date('2026-10-13T22:00:00Z')).status).toBe('delayed')
 })

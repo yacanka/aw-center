@@ -1,5 +1,5 @@
 import { h, ref } from 'vue'
-import { NSpin, NSpace, NTag, NText, type DataTableColumns } from 'naive-ui'
+import { NSpin, NTag, NText, type DataTableColumns } from 'naive-ui'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import { searchDocproof } from '@/features/integrations/api/docproof'
 
@@ -15,17 +15,13 @@ export function useCompdocIssueColumns() {
       render: (row) => issueCell(row.cover_page_no, row.cover_page_issue, issueValues.value)
     },
     {
-      key: 'tech_doc_no',
-      render: (row) => renderValues([row.tech_doc_no, row.tech_doc_no_2])
+      key: 'number',
+      render: (row) => row.number
     },
     {
-      key: 'tech_doc_issue',
+      key: 'issue',
       align: 'center',
-      render: (row) =>
-        h(NSpace, { vertical: true }, () => [
-          issueCell(row.tech_doc_no, row.tech_doc_issue, issueValues.value),
-          issueCell(row.tech_doc_no_2, row.tech_doc_issue_2, issueValues.value)
-        ])
+      render: (row) => issueCell(row.number, row.issue, issueValues.value)
     }
   ]
   return { columns, issueValues }
@@ -70,12 +66,6 @@ function issueTag(currentIssue: string, expectedIssue: unknown) {
     NTag,
     { type: currentIssue === String(expectedIssue || '') ? 'success' : 'warning', size: 'small' },
     () => currentIssue
-  )
-}
-
-function renderValues(values: unknown[]) {
-  return h(NSpace, {}, () =>
-    values.filter(Boolean).map((value) => h(NText, {}, () => String(value)))
   )
 }
 

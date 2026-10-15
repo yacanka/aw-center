@@ -4,7 +4,7 @@ const DAY_MILLISECONDS = 86_400_000
 
 /** Derive unissued display labels without mutating API data or stored workflow codes. */
 export function withCompdocDisplayStatus(row: ICompDoc, today = new Date()) {
-  const target = row.ubm_revised_target_date || row.ubm_target_date
+  const target = row.revised_target_date || row.target_date
   if (
     row.status === 'airworthiness_review' &&
     (!row.status_label || row.status_label.toLowerCase() === 'airworthiness review')
@@ -18,7 +18,7 @@ export function withCompdocDisplayStatus(row: ICompDoc, today = new Date()) {
     )
   if (!target) return defaultLabel ? { ...row, status_label: 'In Design (date missing)' } : row
   const inDesign = defaultLabel ? { ...row, status_label: 'In Design' } : row
-  if (row.ubm_delivery_date) return inDesign
+  if (row.release_date) return inDesign
   const targetDay = isoDay(target)
   if (targetDay === null) return inDesign
   const parts = new Intl.DateTimeFormat('en-CA', {

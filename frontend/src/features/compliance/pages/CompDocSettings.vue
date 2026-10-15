@@ -57,7 +57,7 @@ async function load() {
   try {
     fields.value = controller.fields
     schemaVersion.value = controller.fieldsSchemaVersion
-    settings.value = readCompdocColumnSettings(project.value, fields.value)
+    settings.value = readCompdocColumnSettings(project.value, fields.value, schemaVersion.value)
     pageSize.value = Math.min(
       200,
       Math.max(1, Number(localStorage.getItem('compdocs>page_size')) || 8)

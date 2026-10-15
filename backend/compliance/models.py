@@ -158,12 +158,8 @@ class ComplianceDocument(models.Model):
     )
     name = models.CharField(max_length=256)
     signature_panel = models.JSONField(default=list, blank=True)
-    tech_doc_no = models.CharField(max_length=64, null=True, blank=True)
-    tech_doc_issue = models.CharField(max_length=255, null=True, blank=True)
-    delivered_tech_doc_issue = models.CharField(max_length=255, null=True, blank=True)
-    tech_doc_no_2 = models.CharField(max_length=64, null=True, blank=True)
-    tech_doc_issue_2 = models.CharField(max_length=255, null=True, blank=True)
-    delivered_tech_doc_issue_2 = models.CharField(max_length=255, null=True, blank=True)
+    number = models.CharField(max_length=64, null=True, blank=True)
+    issue = models.CharField(max_length=255, null=True, blank=True)
     responsible = models.CharField(max_length=64, null=True, blank=True)
     cat = models.CharField(max_length=12, null=True, blank=True)
     moc = models.CharField(max_length=1, null=True, blank=True)
@@ -175,9 +171,9 @@ class ComplianceDocument(models.Model):
         db_index=True,
         editable=False,
     )
-    ubm_target_date = models.DateField(null=True, blank=True, db_index=True)
-    ubm_revised_target_date = models.DateField(null=True, blank=True, db_index=True)
-    ubm_delivery_date = models.DateField(null=True, blank=True, db_index=True)
+    target_date = models.DateField(null=True, blank=True, db_index=True)
+    revised_target_date = models.DateField(null=True, blank=True, db_index=True)
+    release_date = models.DateField(null=True, blank=True, db_index=True)
     path = models.CharField(max_length=512, null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
     owner = models.ForeignKey(
@@ -226,7 +222,7 @@ class ComplianceDocument(models.Model):
     @property
     def current_target_date(self):
         """Use the revised target for due calculations when one is recorded."""
-        return self.ubm_revised_target_date or self.ubm_target_date
+        return self.revised_target_date or self.target_date
 
     def clean(self):
         super().clean()

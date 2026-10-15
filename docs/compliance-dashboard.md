@@ -21,14 +21,14 @@ these views and never downloads the paginated document register for analytics.
 
 ## Metric definitions
 
-- The status chart derives **Delayed** from an unissued document whose current UBM target
+- The status chart derives **Delayed** from an unissued document whose current target
   is before today and which has no delivery date. This does not change stored
   workflow status or the existing `status_counts` contract.
-- Burndown lines count remaining documents against current UBM target dates and actual
-  UBM delivery dates. Future delivery dates do not count as actual deliveries.
+- Burndown lines count remaining documents against current target dates and actual
+  release dates. Future delivery dates do not count as actual deliveries.
   Documents with no delivery evidence remain outstanding, including unknown status.
-- The current target uses the revised UBM target when present, otherwise the original
-  UBM target. Both stored target dates and the delivery date are independent fields;
+- The current target uses the revised target when present, otherwise the original
+  target. Both stored target dates and the delivery date are independent fields;
   workflow transition dates are separate audit events.
 - **Scheduled** is the proportion with a current target on or before today; **Issued**
   uses deliveries on or before today; **Authority approved** uses current status.
@@ -36,7 +36,7 @@ these views and never downloads the paginated document register for analytics.
   review and re-submission to AW, and authority review to Authority. An unissued
   document's current overdue target contributes to UBM. Future time is excluded;
   backwards event intervals are reported and skipped without rewriting history.
-- Overdue actions use `next_action_due_date`, independently of the UBM target.
+- Overdue actions use `next_action_due_date`, independently of the target.
 
 Risk policy v1 retains the main-branch thresholds and explainable signals: overdue
 targets, long waits, re-submission cycles, missing technical references and authority

@@ -27,11 +27,11 @@
                   </tr>
                   <tr>
                     <td style="color: #64748b">Technical document</td>
-                    <td>{{ document.tech_doc_no|default:"Not assigned" }}</td>
+                    <td>{{ document.number|default:"Not assigned" }}</td>
                   </tr>
                   <tr>
                     <td style="color: #64748b">Recorded issue</td>
-                    <td>{{ document.tech_doc_issue|default:"Not recorded" }}</td>
+                    <td>{{ document.issue|default:"Not recorded" }}</td>
                   </tr>
                   {% if document.tracking_profile.docproof_issue %}
                   <tr>

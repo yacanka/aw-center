@@ -38,8 +38,8 @@ def build_dashboard(project, *, today=None):
         documents.filter(is_archived=False)
         .select_related("panel", "cover_page")
         .only(
-            "id", "name", "status", "cat", "moc", "ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date",
-            "next_action_due_date", "tech_doc_no", "tech_doc_no_2",
+            "id", "name", "status", "cat", "moc", "target_date", "revised_target_date", "release_date",
+            "next_action_due_date", "number",
             "panel__id", "panel__name", "panel__ata", "cover_page__number",
         )
         .prefetch_related(Prefetch(
@@ -128,20 +128,20 @@ def _accumulate(state, document, entries, today):
     status = _chart_status(document, today)
     publication_status = _publication_status(document, today)
     state["chart_statuses"][publication_status] += 1
-    if document.ubm_delivery_date:
+    if document.release_date:
         state["issued_statuses"][publication_status] += 1
     else:
         state["unissued_statuses"][publication_status] += 1
         state["unissued_mocs"][(document.moc or "").strip()] += 1
     if document.next_action_due_date and document.next_action_due_date < today:
         state["overdue"] += 1
-    if document.ubm_target_date:
-        state["scheduled"][document.ubm_target_date] += 1
+    if document.target_date:
+        state["scheduled"][document.target_date] += 1
     if document.current_target_date:
         state["revised_scheduled"][document.current_target_date] += 1
-    state["has_revised_target"] |= bool(document.ubm_revised_target_date)
-    if document.ubm_delivery_date:
-        state["actual"][document.ubm_delivery_date] += 1
+    state["has_revised_target"] |= bool(document.revised_target_date)
+    if document.release_date:
+        state["actual"][document.release_date] += 1
     state["quality"]["missing_panel"] += not document.panel_id
     state["quality"]["blank_cover_page"] += not document.cover_page.number.strip()
     state["quality"]["unknown_status"] += status == "unknown"
@@ -156,9 +156,8 @@ def _accumulate(state, document, entries, today):
             "name": document.name,
             "panel": document.panel.name if document.panel_id else None,
             "ata": document.panel.ata if document.panel_id else None,
-            "tech_doc_no": document.tech_doc_no,
-            "tech_doc_no_2": document.tech_doc_no_2,
-            "ubm_target_date": document.current_target_date,
+            "number": document.number,
+            "target_date": document.current_target_date,
         },
         entries, status, today, DEFAULT_RISK_POLICY,
     )
@@ -166,7 +165,7 @@ def _accumulate(state, document, entries, today):
 
 def _publication_status(document, today):
     """Delivery is the publication evidence, independent of workflow status."""
-    if document.ubm_delivery_date:
+    if document.release_date:
         return document.status or "unknown"
     target = document.current_target_date
     if not target:
@@ -179,7 +178,7 @@ def _chart_status(document, today):
         document.status == "to_be_issued"
         and document.current_target_date
         and document.current_target_date < today
-        and not document.ubm_delivery_date
+        and not document.release_date
     ):
         return "delayed"
     return document.status or "unknown"

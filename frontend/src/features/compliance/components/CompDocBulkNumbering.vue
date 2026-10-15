@@ -61,9 +61,9 @@ const columns = computed<DataTableColumns<NumberingRow>>(() => [
   { title: 'Document', key: 'document.name', minWidth: 220 },
   {
     title: 'Technical document no.',
-    key: 'document.tech_doc_no',
+    key: 'document.number',
     minWidth: 180,
-    render: (row) => row.document.tech_doc_no || '—'
+    render: (row) => row.document.number || '—'
   },
   {
     title: 'Result',

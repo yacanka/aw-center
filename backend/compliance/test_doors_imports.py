@@ -56,7 +56,7 @@ class ComplianceDoorsImportTests(TestCase):
         mapping = {
             "Document Title": "name",
             "Cover Code": "cover_page_no",
-            "Technical Number": "tech_doc_no",
+            "Technical Number": "number",
         }
 
         preview = self.client.post(self.preview_url(), {"job_id": job.pk, "mapping": mapping}, format="json")
@@ -76,7 +76,7 @@ class ComplianceDoorsImportTests(TestCase):
         document = ComplianceDocument.objects.get()
         self.assertEqual(document.name, "DOORS Document")
         self.assertEqual(document.cover_page.number, "CP-D")
-        self.assertEqual(document.tech_doc_no, "TD-D")
+        self.assertEqual(document.number, "TD-D")
         self.assertEqual(ImportAudit.objects.get().status, ImportAudit.Status.SUCCESS)
         saved = DoorsImportMapping.objects.get(project=self.project)
         self.assertEqual(saved.module_path, "/Project/Compliance")
@@ -129,8 +129,8 @@ class ComplianceDoorsImportTests(TestCase):
             {"Title": "01 October 2026 Thursday", "Cover": "CP-D", "Target": "", "Delivery": "", "Effective": "2026-10-01", "Status": "To Be Issued"},
         ])
         mapping = {
-            "Title": "name", "Cover": "cover_page_no", "Target": "ubm_target_date",
-            "Revised": "ubm_revised_target_date", "Delivery": "ubm_delivery_date", "Effective": "effective_date", "Status": "status",
+            "Title": "name", "Cover": "cover_page_no", "Target": "target_date",
+            "Revised": "revised_target_date", "Delivery": "release_date", "Effective": "effective_date", "Status": "status",
         }
         values = {"job_id": job.pk, "mapping": mapping}
         preview = self.client.post(self.preview_url(), values, format="json")
@@ -142,16 +142,16 @@ class ComplianceDoorsImportTests(TestCase):
         }, format="json")
         self.assertEqual(confirmed.status_code, 201)
         document = ComplianceDocument.objects.get(name="Dated")
-        self.assertEqual(document.ubm_target_date, date(2028, 2, 29))
-        self.assertEqual(document.ubm_revised_target_date, date(2028, 3, 15))
-        self.assertEqual(document.ubm_delivery_date, date(2028, 2, 1))
+        self.assertEqual(document.target_date, date(2028, 2, 29))
+        self.assertEqual(document.revised_target_date, date(2028, 3, 15))
+        self.assertEqual(document.release_date, date(2028, 2, 1))
         self.assertEqual(
             list(document.workflow_events.order_by("sequence").values_list("effective_date", flat=True)),
             [],
         )
         undated = ComplianceDocument.objects.get(name="Undated")
-        self.assertIsNone(undated.ubm_target_date)
-        self.assertIsNone(undated.ubm_delivery_date)
+        self.assertIsNone(undated.target_date)
+        self.assertIsNone(undated.release_date)
         effective = ComplianceDocument.objects.get(name="01 October 2026 Thursday")
         self.assertEqual(effective.workflow_events.get().effective_date, date(2026, 10, 1))
 
@@ -159,12 +159,12 @@ class ComplianceDoorsImportTests(TestCase):
         job = self.export_job([{"Title": "Invalid date", "Cover": "CP-D", "Target": "2026-02-29"}])
         preview = self.client.post(self.preview_url(), {
             "job_id": job.pk,
-            "mapping": {"Title": "name", "Cover": "cover_page_no", "Target": "ubm_target_date"},
+            "mapping": {"Title": "name", "Cover": "cover_page_no", "Target": "target_date"},
         }, format="json")
         self.assertEqual(preview.status_code, 200)
         self.assertEqual(preview.data["rejected_count"], 1)
         error = preview.data["invalid_documents"][0]
-        self.assertIn("ubm_target_date", error["fields"])
+        self.assertIn("target_date", error["fields"])
         self.assertEqual(error["doors_object"], {"absolute_number": 1, "identifier": "REQ-1"})
         self.assertFalse(ComplianceDocument.objects.exists())
 
@@ -185,7 +185,7 @@ class ComplianceDoorsImportTests(TestCase):
             "job_id": job.pk,
             "mapping": {
                 "Title": "name", "Cover": "cover_page_no", "Status": "status",
-                "Effective": "effective_date", "Delivery": "ubm_delivery_date",
+                "Effective": "effective_date", "Delivery": "release_date",
             },
         }, format="json")
 

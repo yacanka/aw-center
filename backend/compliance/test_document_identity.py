@@ -47,7 +47,7 @@ class DocumentIdentityTests(TestCase):
         self.assertEqual(accepted.status_code, 201, accepted.data)
         self.assertEqual(accepted.data["status"], "unknown")
         self.assertIsNone(accepted.data["panel"])
-        self.assertIsNone(accepted.data["tech_doc_no"])
+        self.assertIsNone(accepted.data["number"])
         fields = self.client.get(self.base + "fields/").data["fields"]
         self.assertEqual({field["key"] for field in fields if field["required"]}, {"name", "cover_page"})
         for blank in ("", "  ", None):
@@ -57,9 +57,9 @@ class DocumentIdentityTests(TestCase):
             self.assertEqual(self.client.post(self.base, payload, format="json").status_code, 400)
 
     def test_identity_is_a_project_scoped_pair_and_technical_numbers_may_repeat(self):
-        self.assertEqual(self.create(tech_doc_no="TD-SHARED").status_code, 201)
-        self.assertEqual(self.create(name="Other", tech_doc_no="TD-SHARED").status_code, 201)
-        self.assertEqual(self.create(cover="CP-2", tech_doc_no="TD-SHARED").status_code, 201)
+        self.assertEqual(self.create(number="TD-SHARED").status_code, 201)
+        self.assertEqual(self.create(name="Other", number="TD-SHARED").status_code, 201)
+        self.assertEqual(self.create(cover="CP-2", number="TD-SHARED").status_code, 201)
         duplicate = self.create()
         self.assertEqual(duplicate.status_code, 400, duplicate.data)
         other = Project.objects.get(slug="aesa")
@@ -103,7 +103,7 @@ class DocumentIdentityTests(TestCase):
         self.assertEqual(ComplianceDocument.objects.count(), 1)
 
     def test_import_matches_only_cover_and_name_and_allows_shared_technical_number(self):
-        self.create(name="Existing", tech_doc_no="TD-SHARED")
+        self.create(name="Existing", number="TD-SHARED")
         preview = self.preview([
             {"Document Name": "New", "Cover Page Number": "CP-1", "Technical Document No": "TD-SHARED"},
             {"Document Name": "Existing", "Cover Page Number": "CP-1", "Technical Document No": "TD-UPDATED"},
@@ -112,4 +112,4 @@ class DocumentIdentityTests(TestCase):
         self.assertEqual(preview.data["updated_count"], 1, preview.data)
         self.assertEqual(self.confirm(preview).status_code, 201)
         self.assertEqual(ComplianceDocument.objects.count(), 2)
-        self.assertEqual(ComplianceDocument.objects.get(name="Existing").tech_doc_no, "TD-UPDATED")
+        self.assertEqual(ComplianceDocument.objects.get(name="Existing").number, "TD-UPDATED")

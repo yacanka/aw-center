@@ -27,12 +27,8 @@ LINE_BREAKS = re.compile(r"[\r\n]")
 SINGLE_LINE_FIELDS = frozenset(
     {
         "name",
-        "tech_doc_no",
-        "tech_doc_issue",
-        "delivered_tech_doc_issue",
-        "tech_doc_no_2",
-        "tech_doc_issue_2",
-        "delivered_tech_doc_issue_2",
+        "number",
+        "issue",
         "responsible",
         "path",
     }
@@ -110,7 +106,7 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         from .status_catalog import display_status_label
         label = self._status_labels.get(document.status, document.status.replace("_", " ").capitalize())
         label = display_status_label(document.status, label)
-        if document.status == "to_be_issued" and label == "In Design" and not (document.ubm_revised_target_date or document.ubm_target_date):
+        if document.status == "to_be_issued" and label == "In Design" and not (document.revised_target_date or document.target_date):
             return "In Design (date missing)"
         return label
 
@@ -141,12 +137,8 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             "cover_page",
             "name",
             "signature_panel",
-            "tech_doc_no",
-            "tech_doc_issue",
-            "delivered_tech_doc_issue",
-            "tech_doc_no_2",
-            "tech_doc_issue_2",
-            "delivered_tech_doc_issue_2",
+            "number",
+            "issue",
             "responsible",
             "cat",
             "moc",
@@ -154,9 +146,9 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             "requirements",
             "status",
             "status_label",
-            "ubm_target_date",
-            "ubm_revised_target_date",
-            "ubm_delivery_date",
+            "target_date",
+            "revised_target_date",
+            "release_date",
             "path",
             "notes",
             "owner",

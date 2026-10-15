@@ -52,7 +52,6 @@ export interface CompdocController extends CompdocState {
   readonly getAtaOptions: Array<{ label: string; value: string }>
   setProjectName(name: string): void
   clearList(): void
-  checkBonusFields(): boolean
   fetchCompDocFields(): Promise<unknown>
   fetchReferencePanels(): Promise<void>
   fetchCompdocs(query?: PaginationQuery): Promise<void>
@@ -107,7 +106,6 @@ export function createCompdocController(): CompdocController {
     state.compdocs = []
     state.loading = false
   }
-  controller.checkBonusFields = () => state.fields.some((field) => field.key === 'tech_doc_no_2')
   controller.fetchCompDocFields = () => fetchCompDocFields(state)
   controller.fetchReferencePanels = () => fetchReferencePanels(state)
   controller.fetchCompdocs = (query) => fetchCompdocs(state, query)

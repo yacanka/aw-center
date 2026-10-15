@@ -23,7 +23,7 @@ from .imports import (
 from .models import DoorsImportMapping, ImportAudit
 
 
-DOORS_CONFIRMATION_SALT = "awcenter.compliance-doors-import.v1"
+DOORS_CONFIRMATION_SALT = "awcenter.compliance-doors-import.v2"
 
 
 def load_doors_source(job):

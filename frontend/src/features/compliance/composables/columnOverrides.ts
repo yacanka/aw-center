@@ -13,12 +13,7 @@ export function useCompdocColumnOverrides(store: CompdocController) {
   const columns = ref<DataTableColumns<ICompDoc>>([
     ...issueColumns.columns,
     ...(
-      [
-        'ubm_target_date',
-        'ubm_revised_target_date',
-        'ubm_delivery_date',
-        'next_action_due_date'
-      ] as const
+      ['target_date', 'revised_target_date', 'release_date', 'next_action_due_date'] as const
     ).map((key) => ({
       key,
       render: (row: ICompDoc) => (row[key] ? formatTurkishDate(row[key]) : '—')

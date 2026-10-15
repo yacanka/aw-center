@@ -9,7 +9,6 @@ import type { ICompDoc } from '@/features/compliance/models/compdocs'
 const mocks = vi.hoisted(() => ({
   controller: {
     getProjectName: 'ozgur',
-    checkBonusFields: vi.fn(),
     createCompdoc: vi.fn(),
     updateCompdoc: vi.fn(),
     acceptCreatedCompdoc: vi.fn(),

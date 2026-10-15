@@ -13,12 +13,8 @@ export interface ICompDoc {
   cover_page_no: string
   cover_page_issue: string
   cover_page_version?: number
-  tech_doc_no: string
-  tech_doc_issue: string
-  delivered_tech_doc_issue: string
-  tech_doc_no_2: string
-  tech_doc_issue_2: string
-  delivered_tech_doc_issue_2: string
+  number: string
+  issue: string
   responsible: string
   cat: string | null
   moc: string | null
@@ -33,9 +29,9 @@ export interface ICompDoc {
   is_archived?: boolean
   archived_at?: string | null
   archive_reason?: string
-  ubm_target_date: string | null
-  ubm_revised_target_date: string | null
-  ubm_delivery_date: string | null
+  target_date: string | null
+  revised_target_date: string | null
+  release_date: string | null
   path: string
   notes: string
   authority_sharing_number: string

@@ -40,7 +40,7 @@ from .services import (
 )
 
 
-CONFIRMATION_SALT = "awcenter.compliance-import.v1"
+CONFIRMATION_SALT = "awcenter.compliance-import.v2"
 MAX_IMPORT_COLUMNS = 100
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 IMPORT_FIELDS = {
@@ -55,18 +55,14 @@ IMPORT_FIELDS = {
     "mom_no",
     "cover_page_no",
     "cover_page_issue",
-    "tech_doc_no",
-    "tech_doc_issue",
-    "delivered_tech_doc_issue",
-    "tech_doc_no_2",
-    "tech_doc_issue_2",
-    "delivered_tech_doc_issue_2",
+    "number",
+    "issue",
     "requirements",
     "status",
     "effective_date",
-    "ubm_target_date",
-    "ubm_revised_target_date",
-    "ubm_delivery_date",
+    "target_date",
+    "revised_target_date",
+    "release_date",
     "notes",
     "path",
 }
@@ -77,12 +73,8 @@ MODEL_FIELDS = {
     "cat",
     "moc",
     "mom_no",
-    "tech_doc_no",
-    "tech_doc_issue",
-    "delivered_tech_doc_issue",
-    "tech_doc_no_2",
-    "tech_doc_issue_2",
-    "delivered_tech_doc_issue_2",
+    "number",
+    "issue",
     "requirements",
     "notes",
     "path",
@@ -530,7 +522,7 @@ def _normalize_row(source, panels):
         "number": cover_number,
         "issue": values.get("cover_page_issue"),
     }
-    for field in ("ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date"):
+    for field in ("target_date", "revised_target_date", "release_date"):
         if field in values:
             payload[field] = _parse_import_date(values[field], field)
     status, status_label = normalize_status(values.get("status"))

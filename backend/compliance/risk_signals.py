@@ -29,7 +29,7 @@ def stage_age_days(entries, today):
 
 
 def _target_overdue_signal(document, status, today):
-    target_date = document.get("ubm_target_date")
+    target_date = document.get("target_date")
     overdue_days = (today - target_date).days if target_date and status == "delayed" else 0
     points = _scaled_points(overdue_days, 0, 15, 7, 5, 35)
     return _signal(
@@ -38,7 +38,7 @@ def _target_overdue_signal(document, status, today):
         points,
         overdue_days,
         0,
-        f"UBM target is {overdue_days} days overdue.",
+        f"Target date is {overdue_days} days overdue.",
     )
 
 
@@ -70,8 +70,7 @@ def _resubmission_signal(entries):
 
 
 def _missing_reference_signal(document):
-    values = [value for key, value in document.items() if key.startswith("tech_doc_no")]
-    missing = not any(str(value or "").strip() for value in values)
+    missing = not str(document.get("number") or "").strip()
     return _signal(
         "missing_technical_reference",
         "Missing technical reference",

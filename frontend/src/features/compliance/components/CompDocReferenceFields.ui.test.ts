@@ -10,7 +10,7 @@ import CompDocReferenceFields from './CompDocReferenceFields.vue'
 it('edits Cat as free text and preserves the read-only and changed states', async () => {
   const compdoc = createEmptyCompdoc()
   const wrapper = mount(CompDocReferenceFields, {
-    props: { compdoc, original: { ...compdoc }, readonly: false, hasExtraFields: false },
+    props: { compdoc, original: { ...compdoc }, readonly: false },
     global: {
       components: {
         NFormItemGi,

@@ -54,7 +54,11 @@ export function useCompdocColumnSettings(dependencies: ColumnSettingsDependencie
 }
 
 function loadSettings(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {
-  state.list = readCompdocColumnSettings(dependencies.project.value, dependencies.fields.value)
+  state.list = readCompdocColumnSettings(
+    dependencies.project.value,
+    dependencies.fields.value,
+    dependencies.schemaVersion.value
+  )
 }
 
 function applySettings(state: ColumnSettingsState, dependencies: ColumnSettingsDependencies) {

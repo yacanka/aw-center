@@ -349,7 +349,7 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(response.data["code"], "VERSION_CONFLICT")
         document.refresh_from_db()
         self.assertEqual(document.name, "Concurrent edit")
-        self.assertIsNone(document.tech_doc_no)
+        self.assertIsNone(document.number)
         self.assertEqual(ImportAudit.objects.get().status, ImportAudit.Status.FAILED)
 
     def test_confirmation_source_rejection_still_records_failed_audit(self):
@@ -565,7 +565,7 @@ class ComplianceImportTests(TestCase):
             project=self.project,
             cover_page=cover,
             name="Imported Document",
-            tech_doc_no=None,
+            number=None,
             panel=None,
         )
         content = self.workbook()
@@ -588,7 +588,7 @@ class ComplianceImportTests(TestCase):
             project=self.project,
             cover_page=cover,
             name="Imported Document",
-            tech_doc_no="TD-I",
+            number="TD-I",
         )
 
         response = self.confirm(content, preview.data["confirmation_token"])
@@ -605,7 +605,7 @@ class ComplianceImportTests(TestCase):
             project=self.project,
             cover_page=cover,
             name="Imported Document",
-            tech_doc_no=None,
+            number=None,
         )
         content = self.workbook()
 
@@ -617,7 +617,7 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(confirmed.status_code, 201)
         self.assertEqual(ComplianceDocument.objects.count(), 1)
         document.refresh_from_db()
-        self.assertEqual(document.tech_doc_no, "TD-I")
+        self.assertEqual(document.number, "TD-I")
 
     def test_workbook_change_after_preview_is_rejected(self):
         first = self.workbook(name="First")
@@ -634,7 +634,7 @@ class ComplianceImportTests(TestCase):
             project=self.project,
             cover_page=cover,
             name="Existing document",
-            tech_doc_no="TD-DUP",
+            number="TD-DUP",
         )
         output = BytesIO()
         pd.DataFrame(
@@ -990,14 +990,14 @@ class ComplianceImportTests(TestCase):
         document = ComplianceDocument.objects.get()
         event = document.workflow_events.get()
         self.assertEqual(document.status, "to_be_issued")
-        self.assertEqual(document.ubm_target_date, date(2026, 9, 10))
-        self.assertIsNone(document.ubm_delivery_date)
+        self.assertEqual(document.target_date, date(2026, 9, 10))
+        self.assertIsNone(document.release_date)
         self.assertEqual(
             (event.status, event.effective_date),
             ("to_be_issued", timezone.localdate()),
         )
 
-    def test_import_appends_current_status_with_ubm_delivery_date(self):
+    def test_import_appends_current_status_with_release_date(self):
         initial = self.workbook(
             status="To Be Issued",
             target_date=date(2026, 9, 10),
@@ -1028,7 +1028,7 @@ class ComplianceImportTests(TestCase):
             ],
         )
         self.assertEqual(document.status, "authority_review")
-        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 18))
+        self.assertEqual(document.release_date, date(2026, 9, 18))
 
     def test_dates_are_independent_of_each_other_and_workflow_history(self):
         content = self.workbook(
@@ -1041,9 +1041,9 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(preview.data["rejected_count"], 0, preview.data)
         self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
         document = ComplianceDocument.objects.get()
-        self.assertEqual(document.ubm_target_date, date(2026, 9, 20))
-        self.assertEqual(document.ubm_revised_target_date, date(2026, 9, 25))
-        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 18))
+        self.assertEqual(document.target_date, date(2026, 9, 20))
+        self.assertEqual(document.revised_target_date, date(2026, 9, 25))
+        self.assertEqual(document.release_date, date(2026, 9, 18))
         self.assertEqual(document.workflow_events.count(), 1)
 
         updated = self.workbook(
@@ -1054,9 +1054,9 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(preview.data["updated_count"], 1, preview.data)
         self.assertEqual(self.confirm(updated, preview.data["confirmation_token"]).status_code, 201)
         document.refresh_from_db()
-        self.assertEqual(document.ubm_target_date, date(2026, 10, 1))
-        self.assertEqual(document.ubm_revised_target_date, date(2026, 9, 15))
-        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 10))
+        self.assertEqual(document.target_date, date(2026, 10, 1))
+        self.assertEqual(document.revised_target_date, date(2026, 9, 15))
+        self.assertEqual(document.release_date, date(2026, 9, 10))
         self.assertEqual(document.workflow_events.count(), 1)
 
         cleared = self.workbook(status="Authority Review", revised_target_date="")
@@ -1064,9 +1064,9 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(preview.data["updated_count"], 1, preview.data)
         self.assertEqual(self.confirm(cleared, preview.data["confirmation_token"]).status_code, 201)
         document.refresh_from_db()
-        self.assertIsNone(document.ubm_revised_target_date)
-        self.assertEqual(document.ubm_target_date, date(2026, 10, 1))
-        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 10))
+        self.assertIsNone(document.revised_target_date)
+        self.assertEqual(document.target_date, date(2026, 10, 1))
+        self.assertEqual(document.release_date, date(2026, 9, 10))
 
     def test_delivery_date_without_target_is_accepted(self):
         content = self.workbook(status="To Be Issued", delivery_date=date(2026, 9, 18))
@@ -1075,14 +1075,14 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
         document = ComplianceDocument.objects.get()
         self.assertEqual(document.status, "to_be_issued")
-        self.assertIsNone(document.ubm_target_date)
-        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 18))
+        self.assertIsNone(document.target_date)
+        self.assertEqual(document.release_date, date(2026, 9, 18))
 
     def test_legacy_future_workflow_event_does_not_block_independent_dates(self):
         cover = CoverPage.objects.create(project=self.project, number="CP-I")
         document = ComplianceDocument.objects.create(
             project=self.project, cover_page=cover, name="Imported Document",
-            status="to_be_issued", ubm_target_date=date(2028, 9, 20),
+            status="to_be_issued", target_date=date(2028, 9, 20),
         )
         WorkflowEvent.objects.create(
             document=document, sequence=1, status="to_be_issued",
@@ -1099,7 +1099,7 @@ class ComplianceImportTests(TestCase):
 
         self.assertEqual(confirmed.status_code, 201, confirmed.data)
         document.refresh_from_db()
-        self.assertEqual(document.ubm_delivery_date, date(2028, 9, 10))
+        self.assertEqual(document.release_date, date(2028, 9, 10))
         self.assertEqual(document.workflow_events.count(), 2)
 
     def test_explicit_out_of_order_transition_is_reported_in_preview(self):
@@ -1133,7 +1133,7 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(self.confirm(date_only, preview.data["confirmation_token"]).status_code, 201)
         document.refresh_from_db()
         self.assertEqual(document.status, "authority_review")
-        self.assertEqual(document.ubm_revised_target_date, date(2026, 9, 25))
+        self.assertEqual(document.revised_target_date, date(2026, 9, 25))
         self.assertEqual(document.workflow_events.count(), 1)
         unchanged = self.preview(date_only)
         self.assertEqual(unchanged.data["unchanged_count"], 1, unchanged.data)

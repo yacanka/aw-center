@@ -42,7 +42,7 @@ for (const theme of ['light', 'dark'] as const) {
           ]
         else if (path.endsWith('/compliance-documents/fields/'))
           body = {
-            schema_version: 3,
+            schema_version: 4,
             project: 'ozgur',
             fields: ['name', 'panel', 'ata'].map((key) => ({
               key,
@@ -61,6 +61,8 @@ for (const theme of ['light', 'dark'] as const) {
         else if (path.endsWith('/compliance-documents/options/'))
           body = { count: panels.length, results: panels, next: null, previous: null }
         else if (path.endsWith('/compliance-documents/statuses/')) body = []
+        else if (path.endsWith('/compliance-documents/numbering-options/'))
+          body = { provider: 'numarator', available: false, supports: [], formats: [] }
         else if (path.endsWith('/compliance-documents/')) queries.push(url.searchParams)
         else if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
         return route.fulfill({ json: body })
@@ -117,6 +119,42 @@ for (const theme of ['light', 'dark'] as const) {
       await page.screenshot({
         path: `test-results/compdoc-filters-${theme}-${width}.png`,
         animations: 'disabled'
+      })
+      await page.getByRole('button', { name: 'New', exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toBeVisible()
+      const references = dialog.locator('.n-card').filter({
+        has: page.getByText('References', { exact: true })
+      })
+      await expect(references.locator('.n-form-item-label')).toHaveText([
+        'Number',
+        'Issue',
+        'Cat',
+        'MoC',
+        'MoM No',
+        'Requirements',
+        'Reference Path'
+      ])
+      const number = references.locator('input').nth(0)
+      const issue = references.locator('input').nth(1)
+      await expect(number).toBeEditable()
+      await number.fill('TD-123')
+      await issue.fill('B')
+      for (const label of ['Target Date', 'Revised Target Date', 'Release Date']) {
+        await dialog.getByText(label, { exact: true }).scrollIntoViewIfNeeded()
+        await expect(dialog.getByText(label, { exact: true })).toBeVisible()
+      }
+      await expect(dialog.getByText('Delivered', { exact: true })).toHaveCount(0)
+      const dialogDimensions = await dialog.evaluate((node) => ({
+        width: node.clientWidth,
+        scroll: node.scrollWidth
+      }))
+      expect(dialogDimensions.scroll).toBeLessThanOrEqual(dialogDimensions.width + 1)
+      expect(browserErrors).toEqual([])
+      await page.screenshot({
+        path: `test-results/compdoc-fields-${theme}-${width}.png`,
+        animations: 'disabled',
+        fullPage: true
       })
     })
   }

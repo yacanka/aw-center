@@ -29,7 +29,7 @@ class DashboardTests(TestCase):
     def document(self, name="Document", events=(), **values):
         document = ComplianceDocument.objects.create(
             project=self.project, cover_page=self.cover,
-            **{"panel": self.panel, "name": name, "tech_doc_no": name, **values},
+            **{"panel": self.panel, "name": name, "number": name, **values},
         )
         WorkflowEvent.objects.bulk_create([
             WorkflowEvent(
@@ -63,13 +63,13 @@ class DashboardTests(TestCase):
 
     def test_panel_scopes_share_all_chart_and_risk_inputs(self):
         self.document(
-            "Overdue", status="to_be_issued", ubm_target_date=date(2026, 7, 1),
-            next_action_due_date=date(2026, 7, 21), tech_doc_no=None,
+            "Overdue", status="to_be_issued", target_date=date(2026, 7, 1),
+            next_action_due_date=date(2026, 7, 21), number=None,
             events=[("to_be_issued", date(2026, 7, 1))],
         )
         self.document(
             "In review", panel=self.other_panel, status="authority_review",
-            ubm_target_date=date(2026, 7, 2), ubm_delivery_date=date(2026, 7, 3),
+            target_date=date(2026, 7, 2), release_date=date(2026, 7, 3),
             events=[
                 ("to_be_issued", date(2026, 7, 2)),
                 ("airworthiness_review", date(2026, 7, 3)),
@@ -115,13 +115,13 @@ class DashboardTests(TestCase):
 
     def test_named_panel_groups_use_complete_analytics_across_ata_chapters(self):
         self.document(
-            "Overdue", status="to_be_issued", ubm_target_date=date(2026, 7, 1),
+            "Overdue", status="to_be_issued", target_date=date(2026, 7, 1),
             next_action_due_date=date(2026, 7, 21),
             events=[("to_be_issued", date(2026, 7, 1))],
         )
         self.document(
             "Approved", panel=self.other_panel, status="authority_approved",
-            ubm_target_date=date(2026, 7, 2), ubm_delivery_date=date(2026, 7, 3),
+            target_date=date(2026, 7, 2), release_date=date(2026, 7, 3),
             events=[("authority_approved", date(2026, 7, 3))],
         )
         self.document("Archived", is_archived=True)
@@ -186,8 +186,8 @@ class DashboardTests(TestCase):
 
     def test_future_targets_and_delivery_dates_do_not_add_elapsed_time(self):
         self.document(
-            status="to_be_issued", ubm_target_date=date(2026, 8, 1),
-            ubm_delivery_date=date(2026, 8, 2),
+            status="to_be_issued", target_date=date(2026, 8, 1),
+            release_date=date(2026, 8, 2),
             events=[("to_be_issued", date(2026, 8, 1))],
         )
         summary = build_dashboard(self.project, today=TODAY)
@@ -201,8 +201,8 @@ class DashboardTests(TestCase):
     def test_revised_target_controls_delay_and_scheduled_timeline(self):
         self.document(
             status="to_be_issued",
-            ubm_target_date=date(2026, 7, 1),
-            ubm_revised_target_date=date(2026, 8, 1),
+            target_date=date(2026, 7, 1),
+            revised_target_date=date(2026, 8, 1),
         )
 
         summary = build_dashboard(self.project, today=TODAY)
@@ -223,13 +223,13 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["pending_days"]["authority"], 19)
 
     def test_publication_depends_on_delivery_and_groups_unissued_by_current_target(self):
-        self.document("Late review", status="authority_review", ubm_target_date=date(2026, 7, 1), moc="1")
-        self.document("Due today", ubm_target_date=TODAY, moc="1")
-        self.document("Replanned", ubm_target_date=date(2026, 7, 1),
-                      ubm_revised_target_date=date(2026, 8, 1), moc="2")
+        self.document("Late review", status="authority_review", target_date=date(2026, 7, 1), moc="1")
+        self.document("Due today", target_date=TODAY, moc="1")
+        self.document("Replanned", target_date=date(2026, 7, 1),
+                      revised_target_date=date(2026, 8, 1), moc="2")
         self.document("No target", status="authority_approved", moc=None)
-        self.document("Delivered", status="custom_review", ubm_delivery_date=TODAY, moc="3")
-        self.document("Future delivery", status="to_be_issued", ubm_delivery_date=date(2026, 8, 2))
+        self.document("Delivered", status="custom_review", release_date=TODAY, moc="3")
+        self.document("Future delivery", status="to_be_issued", release_date=date(2026, 8, 2))
         self.document("Archived", is_archived=True, moc="4")
         with self.assertNumQueries(4):
             summary = build_dashboard(self.project, today=TODAY)
@@ -246,9 +246,9 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["status_counts"]["authority_review"], 1)
 
     def test_burndown_separates_original_and_revised_plan_with_fallback(self):
-        self.document("Revised", ubm_target_date=date(2026, 7, 1),
-                      ubm_revised_target_date=date(2026, 8, 1), ubm_delivery_date=date(2026, 7, 5))
-        self.document("Original", ubm_target_date=date(2026, 7, 3))
+        self.document("Revised", target_date=date(2026, 7, 1),
+                      revised_target_date=date(2026, 8, 1), release_date=date(2026, 7, 5))
+        self.document("Original", target_date=date(2026, 7, 3))
         summary = build_dashboard(self.project, today=TODAY)
         self.assertEqual(summary["timeline"]["scheduled"], [
             {"x": "01.07.2026", "y": 1}, {"x": "03.07.2026", "y": 0},
@@ -260,7 +260,7 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["timeline"]["today"], [{"x": "22.07.2026", "y": 1}])
 
     def test_dashboard_preserves_project_authorization_and_response_privacy(self):
-        self.document(tech_doc_no=None, notes="Internal notes", path="private/path")
+        self.document(number=None, notes="Internal notes", path="private/path")
         self.assertEqual(self.client.get(self.url).status_code, 403)
         self.client.force_authenticate(self.user)
         self.assertEqual(self.client.get(self.url).status_code, 403)
@@ -271,7 +271,7 @@ class DashboardTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["project"], self.project.slug)
         self.assertEqual(response.data["risk"]["at_risk_count"], 1)
-        for private_field in ("notes", "path", "actor_username", "tech_doc_no", "workflow_events"):
+        for private_field in ("notes", "path", "actor_username", "number", "workflow_events"):
             self.assertNotIn(f'"{private_field}"', response.content.decode())
         self.assertEqual(
             self.client.get(self.url.replace("ozgur", "aesa")).status_code, 403,

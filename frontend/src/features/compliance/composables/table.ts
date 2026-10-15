@@ -41,9 +41,9 @@ export function serializeCompdocFilters(filters: CompdocFilterValue) {
   )
 }
 
-/** Return unique non-empty tech document numbers from both tech-doc columns. */
+/** Return unique non-empty document numbers for DocProof lookups. */
 export function collectUniqueTechDocumentNumbers(rows: ICompDoc[]) {
-  return [...new Set(rows.flatMap(getTechDocumentNumbers).filter(Boolean))] as string[]
+  return [...new Set(rows.map((row) => row.number).filter(Boolean))] as string[]
 }
 
 /** Wait for the requested retry delay. */
@@ -70,10 +70,6 @@ export async function mapWithConcurrencyLimit<T, R>(
   const workers = Array.from({ length: Math.min(limit, items.length) }, worker)
   await Promise.all(workers)
   return results
-}
-
-function getTechDocumentNumbers(row: ICompDoc) {
-  return [row.tech_doc_no, row.tech_doc_no_2]
 }
 
 function serializeFilter(key: string, value: unknown): [string, string | boolean | unknown[]][] {

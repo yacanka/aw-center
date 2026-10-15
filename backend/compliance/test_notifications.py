@@ -54,7 +54,7 @@ class ComplianceNotificationTests(TestCase):
             cover_page=cover,
             name="Notification document",
             status="to_be_issued",
-            ubm_target_date=timezone.localdate() - timedelta(days=1),
+            target_date=timezone.localdate() - timedelta(days=1),
         )
         self.profile = TrackingProfile.objects.create(
             document=document,
@@ -71,19 +71,19 @@ class ComplianceNotificationTests(TestCase):
         self.assertEqual(first.message_id, f"<{first.event_key}@awcenter>")
 
     def test_revised_target_replaces_original_for_due_notifications(self):
-        self.profile.document.ubm_revised_target_date = timezone.localdate() + timedelta(days=30)
-        self.profile.document.save(update_fields=["ubm_revised_target_date"])
+        self.profile.document.revised_target_date = timezone.localdate() + timedelta(days=30)
+        self.profile.document.save(update_fields=["revised_target_date"])
         self.assertEqual(materialize_profile_events(self.profile), 0)
 
     def test_delivery_suppresses_target_overdue_notification(self):
-        self.profile.document.ubm_delivery_date = timezone.localdate() - timedelta(days=2)
-        self.profile.document.save(update_fields=["ubm_delivery_date"])
+        self.profile.document.release_date = timezone.localdate() - timedelta(days=2)
+        self.profile.document.save(update_fields=["release_date"])
         self.assertEqual(materialize_profile_events(self.profile), 0)
 
     def test_delivery_cancels_queued_target_notification(self):
         materialize_profile_events(self.profile)
-        self.profile.document.ubm_delivery_date = timezone.localdate()
-        self.profile.document.save(update_fields=["ubm_delivery_date"])
+        self.profile.document.release_date = timezone.localdate()
+        self.profile.document.save(update_fields=["release_date"])
 
         result = scan_notifications(project_slug=self.project.slug)
 
@@ -139,7 +139,7 @@ class ComplianceNotificationTests(TestCase):
                 cover_page=CoverPage.objects.create(project=other_project, number="CP-O"),
                 name="Other notification document",
                 status="to_be_issued",
-                ubm_target_date=timezone.localdate() - timedelta(days=1),
+                target_date=timezone.localdate() - timedelta(days=1),
             ),
             notification_enabled=True,
             notification_events=["overdue"],
@@ -155,8 +155,8 @@ class ComplianceNotificationTests(TestCase):
 
     def test_stale_event_is_cancelled_before_delivery(self):
         materialize_profile_events(self.profile)
-        self.profile.document.ubm_target_date = timezone.localdate() + timedelta(days=30)
-        self.profile.document.save(update_fields=["ubm_target_date"])
+        self.profile.document.target_date = timezone.localdate() + timedelta(days=30)
+        self.profile.document.save(update_fields=["target_date"])
 
         result = scan_notifications(project_slug=self.project.slug)
 

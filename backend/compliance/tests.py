@@ -75,7 +75,7 @@ class ComplianceApiTests(TestCase):
             panel=self.panel,
             cover_page=cover,
             name="Flight Controls Compliance",
-            tech_doc_no="TD-001",
+            number="TD-001",
             owner=owner or self.editor,
         )
 
@@ -84,7 +84,7 @@ class ComplianceApiTests(TestCase):
             "panel": self.panel.pk,
             "cover_page": {"number": "CP-API", "issue": "A"},
             "name": "API-created document",
-            "tech_doc_no": "TD-API",
+            "number": "TD-API",
         }
         self.client.force_authenticate(self.viewer)
         rejected = self.client.post(self.collection_url, payload, format="json")
@@ -178,7 +178,7 @@ class ComplianceApiTests(TestCase):
             panel=self.panel,
             cover_page=first.cover_page,
             name="Second shared-cover document",
-            tech_doc_no="TD-SHARED",
+            number="TD-SHARED",
         )
         self.client.force_authenticate(self.editor)
 
@@ -220,7 +220,7 @@ class ComplianceApiTests(TestCase):
             panel=self.panel,
             cover_page=document.cover_page,
             name="Alpha secondary document",
-            tech_doc_no="TD-002",
+            number="TD-002",
         )
         self.client.force_authenticate(self.viewer)
 
@@ -253,16 +253,16 @@ class ComplianceApiTests(TestCase):
         response = self.client.get(f"{self.collection_url}fields/")
 
         fields = {field["key"]: field for field in response.data["fields"]}
-        self.assertEqual(response.data["schema_version"], 3)
+        self.assertEqual(response.data["schema_version"], 4)
         self.assertEqual(fields["name"]["filter_kind"], "text")
         self.assertTrue(fields["name"]["sortable"])
         self.assertEqual(fields["panel"]["option_source"], "panels")
         self.assertTrue(fields["status"]["choices"])
         self.assertEqual(fields["cat"]["filter_kind"], "text")
         self.assertEqual(fields["cat"]["choices"], [])
-        self.assertEqual(fields["ubm_revised_target_date"]["filter_kind"], "date")
-        self.assertTrue(fields["ubm_revised_target_date"]["sortable"])
-        self.assertFalse(fields["ubm_revised_target_date"]["read_only"])
+        self.assertEqual(fields["revised_target_date"]["filter_kind"], "date")
+        self.assertTrue(fields["revised_target_date"]["sortable"])
+        self.assertFalse(fields["revised_target_date"]["read_only"])
 
     def test_all_three_dates_can_be_saved_and_filtered_independently(self):
         document = self.create_document()
@@ -271,22 +271,22 @@ class ComplianceApiTests(TestCase):
             f"{self.collection_url}{document.pk}/",
             {
                 "version": document.version,
-                "ubm_target_date": "2026-09-20",
-                "ubm_revised_target_date": "2026-09-25",
-                "ubm_delivery_date": "2026-09-10",
+                "target_date": "2026-09-20",
+                "revised_target_date": "2026-09-25",
+                "release_date": "2026-09-10",
             },
             format="json",
         )
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(response.data["ubm_revised_target_date"], "2026-09-25")
+        self.assertEqual(response.data["revised_target_date"], "2026-09-25")
         self.assertEqual(
-            self.client.get(self.collection_url, {"ubm_revised_target_date": "2026-09-25"}).data["count"],
+            self.client.get(self.collection_url, {"revised_target_date": "2026-09-25"}).data["count"],
             1,
         )
         self.assertEqual(document.workflow_events.count(), 0)
         invalid = self.client.patch(
             f"{self.collection_url}{document.pk}/",
-            {"version": response.data["version"], "ubm_revised_target_date": "2026-02-29"},
+            {"version": response.data["version"], "revised_target_date": "2026-02-29"},
             format="json",
         )
         self.assertEqual(invalid.status_code, 400)
@@ -371,8 +371,8 @@ class ComplianceApiTests(TestCase):
     @patch("compliance.services.search_document_issue", return_value=(2, None))
     def test_docproof_refresh_persists_versioned_revision_evidence(self, search_issue):
         document = self.create_document()
-        document.tech_doc_issue = "1"
-        document.save(update_fields=["tech_doc_issue"])
+        document.issue = "1"
+        document.save(update_fields=["issue"])
         self.client.force_authenticate(self.editor)
         url = f"{self.collection_url}{document.pk}/tracking/docproof/"
 
@@ -459,10 +459,10 @@ class ComplianceApiTests(TestCase):
 
     def test_export_includes_all_independent_dates(self):
         document = self.create_document()
-        document.ubm_target_date = date(2026, 9, 20)
-        document.ubm_revised_target_date = date(2026, 9, 25)
-        document.ubm_delivery_date = date(2026, 9, 10)
-        document.save(update_fields=["ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date"])
+        document.target_date = date(2026, 9, 20)
+        document.revised_target_date = date(2026, 9, 25)
+        document.release_date = date(2026, 9, 10)
+        document.save(update_fields=["target_date", "revised_target_date", "release_date"])
         self.client.force_authenticate(self.viewer)
 
         response = self.client.get(f"{self.collection_url}export/")
@@ -471,9 +471,9 @@ class ComplianceApiTests(TestCase):
         worksheet = load_workbook(BytesIO(response.content), data_only=True).active
         headers = {cell.value: cell.column for cell in worksheet[1]}
         for field, expected in (
-            ("ubm_target_date", date(2026, 9, 20)),
-            ("ubm_revised_target_date", date(2026, 9, 25)),
-            ("ubm_delivery_date", date(2026, 9, 10)),
+            ("target_date", date(2026, 9, 20)),
+            ("revised_target_date", date(2026, 9, 25)),
+            ("release_date", date(2026, 9, 10)),
         ):
             self.assertEqual(worksheet.cell(row=2, column=headers[field]).value.date(), expected)
             self.assertEqual(worksheet.cell(row=2, column=headers[field]).number_format, "DD.MM.YYYY")
@@ -500,10 +500,10 @@ class ComplianceApiTests(TestCase):
 
     def test_transition_updates_status_without_changing_document_dates(self):
         document = self.create_document()
-        document.ubm_target_date = date(2026, 9, 20)
-        document.ubm_revised_target_date = date(2026, 9, 25)
-        document.ubm_delivery_date = date(2026, 9, 10)
-        document.save(update_fields=["ubm_target_date", "ubm_revised_target_date", "ubm_delivery_date"])
+        document.target_date = date(2026, 9, 20)
+        document.revised_target_date = date(2026, 9, 25)
+        document.release_date = date(2026, 9, 10)
+        document.save(update_fields=["target_date", "revised_target_date", "release_date"])
         self.client.force_authenticate(self.editor)
 
         response = self.client.post(
@@ -522,9 +522,9 @@ class ComplianceApiTests(TestCase):
         document.refresh_from_db()
         event = WorkflowEvent.objects.get(document=document)
         self.assertEqual(document.status, event.status)
-        self.assertEqual(document.ubm_target_date, date(2026, 9, 20))
-        self.assertEqual(document.ubm_revised_target_date, date(2026, 9, 25))
-        self.assertEqual(document.ubm_delivery_date, date(2026, 9, 10))
+        self.assertEqual(document.target_date, date(2026, 9, 20))
+        self.assertEqual(document.revised_target_date, date(2026, 9, 25))
+        self.assertEqual(document.release_date, date(2026, 9, 10))
         self.assertEqual(document.version, 2)
 
     def test_transition_rejects_a_date_before_the_latest_event(self):

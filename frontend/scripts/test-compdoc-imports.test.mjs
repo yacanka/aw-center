@@ -81,8 +81,8 @@ const transitionSource = optionalReasonSources[3]
 test('builds safe operator-facing compliance document labels', () => {
   assert.equal(humanizeCompdocStatus('authority_approved'), 'Authority approved')
   assert.equal(humanizeCompdocStatus('to_be_re-submitted'), 'To be re submitted')
-  assert.equal(getCompdocReference({ tech_doc_no: 'TD-42', cover_page_no: 'CP-7' }), 'TD-42')
-  assert.equal(getCompdocReference({ tech_doc_no: '', cover_page_no: 'CP-7' }), 'CP-7')
+  assert.equal(getCompdocReference({ number: 'TD-42', cover_page_no: 'CP-7' }), 'TD-42')
+  assert.equal(getCompdocReference({ number: '', cover_page_no: 'CP-7' }), 'CP-7')
   assert.equal(joinCompdocValues(['Panel A', '', 'Panel B']), 'Panel A, Panel B')
   assert.equal(joinCompdocValues(['CP-1', null, undefined]), 'CP-1')
   assert.equal(joinCompdocValues([]), 'Not assigned')
@@ -192,9 +192,9 @@ test('regular document updates send only canonical editable fields and version',
     path: 'controlled/reference',
     signature_panel: [],
     requirements: [],
-    ubm_target_date: '2026-09-20',
-    ubm_revised_target_date: '2026-09-25',
-    ubm_delivery_date: '2026-09-10',
+    target_date: '2026-09-20',
+    revised_target_date: '2026-09-25',
+    release_date: '2026-09-10',
     status_flow: [{ status: 'authority_review', date: '29.07.2026' }]
   })
 
@@ -202,8 +202,8 @@ test('regular document updates send only canonical editable fields and version',
   assert.equal(payload.name, 'Document')
   assert.deepEqual(payload.cover_page, { number: 'CP-7', issue: 'A' })
   assert.equal(payload.path, 'controlled/reference')
-  assert.equal(payload.ubm_revised_target_date, '2026-09-25')
-  assert.equal(payload.ubm_delivery_date, '2026-09-10')
+  assert.equal(payload.revised_target_date, '2026-09-25')
+  assert.equal(payload.release_date, '2026-09-10')
   assert.equal('id' in payload, false)
   assert.equal('status_flow' in payload, false)
   const createPayload = buildCompdocCreatePayload({
@@ -213,8 +213,8 @@ test('regular document updates send only canonical editable fields and version',
     status_flow: []
   })
   assert.equal('version' in createPayload, false)
-  assert.match(workflowFieldsSource, /UBM target/)
-  assert.match(workflowFieldsSource, /UBM revised target/)
+  assert.match(workflowFieldsSource, /Target Date/)
+  assert.match(workflowFieldsSource, /Revised Target Date/)
   assert.match(workflowFieldsSource, /Activity tab/)
   assert.match(workflowFieldsSource, /Current status/)
   assert.match(workflowFieldsSource, /audit-controlled/)
@@ -236,7 +236,7 @@ test('normalizes canonical nested document and bounded field contracts', () => {
     created_at: '2026-08-01T10:00:00Z'
   })
   const fields = normalizeCompdocFields({
-    schema_version: 3,
+    schema_version: 4,
     project: 'ozgur',
     fields: [
       {

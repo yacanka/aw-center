@@ -8,7 +8,7 @@ Excel and DOORS imports discover status options from valid rows. Preview shows p
 
 New documents without a status start as `unknown`. When updating an existing document, an omitted status column preserves its current status; a mapped but blank status cell explicitly changes it to Unknown. A status change appends a workflow event without rewriting history. An explicit effective date must not precede the latest workflow event. When no effective date is supplied, import keeps the event chronology valid even for legacy records whose events used a future target date.
 
-The original UBM target, revised UBM target and UBM delivery dates are independent document fields. Their order does not constrain imports or workflow event dates. The revised target takes precedence for current due and risk calculations while the original target remains available for reference.
+The original target (`target_date`), revised target (`revised_target_date`) and release (`release_date`) dates are independent document fields. Their order does not constrain imports or workflow event dates. The revised target takes precedence for current due and risk calculations while the original target remains available for reference.
 
 Status names are single-line strings of at most 128 characters. Codes retain the legacy import normalization: trim whitespace, case-fold, remove periods, replace whitespace with underscores. The normalized code is also limited to 128 characters. Equivalent codes reuse the project's existing option and label. `unknown` is the protected default; `delayed` remains a calculated display state and cannot be assigned.
 
@@ -31,3 +31,33 @@ Document responses add `status_label`; the existing `status` string is unchanged
 Apply forward migrations `0011_project_status_catalog` and `0012_seed_project_statuses` before serving the updated application. Seeding preserves current values and history, and creates only current project statuses plus Unknown. Future projects receive Unknown automatically. No database reset is needed.
 
 Known status codes retain existing delay, approval and risk calculations. Custom codes appear in counts/charts under their own label but acquire no implicit workflow semantics.
+
+## Document field contract (issue #123)
+
+Document metadata uses `number` and `issue`, distinct from the nested
+`cover_page.number` and `cover_page.issue`. The field metadata schema is version 4.
+Document CRUD, search/filter/sort, register export, DocProof, numbering snapshots,
+notifications and dashboard consumers use the canonical names. Existing risk
+weights and workflow behavior are unchanged; the revised target still takes precedence.
+
+Migration `0016_canonical_document_fields` renames `tech_doc_no`, `tech_doc_issue`,
+`ubm_target_date`, `ubm_revised_target_date` and `ubm_delivery_date` in both live and
+historical tables, preserving their values. It drops `delivered_tech_doc_issue`,
+`delivered_tech_doc_issue_2`, `tech_doc_no_2` and `tech_doc_issue_2`, including their
+historical values. This deletion is intentional: these fields have never been used
+in production and require no archive. The second reference and delivered-issue UI,
+search and DocProof lookup support are removed. A document now has one reference.
+
+Excel/DOORS source headers using the former primary names remain recognized, but
+mapping targets and API fields use only the new names. Removed-field headers are
+excluded before fuzzy matching so they cannot overwrite a primary reference.
+Saved DOORS mappings are migrated; removed target links are dropped. Historical
+import audit records and completed numbering snapshots remain original evidence.
+
+Deploy the backend and frontend together with web/worker processes stopped.
+Resolve every unfinished cover-page numbering allocation using the previous
+application version first; the migration refuses to proceed while any remain.
+Apply the forward migration without resetting the database, then restart services.
+Old Excel/DOORS preview tokens require a fresh preview. Browser-local column
+layouts from earlier metadata versions reset to recommended columns; other
+preferences are unaffected. No legacy API aliases are provided.

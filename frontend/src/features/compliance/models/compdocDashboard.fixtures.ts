@@ -51,7 +51,7 @@ export function dashboardAnalytics(total = 3, pending = 20): DashboardAnalytics 
               observed: 1,
               threshold: 0,
               unit: 'days',
-              detail: 'UBM target is 1 day overdue.'
+              detail: 'Target date is 1 day overdue.'
             }
           ]
         }

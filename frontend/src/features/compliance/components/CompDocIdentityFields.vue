@@ -1,9 +1,9 @@
 <template>
   <n-card title="Identity" size="small">
-    <n-grid responsive="self" item-responsive :x-gap="12" :y-gap="4" :cols="48">
+    <n-grid responsive="self" item-responsive :x-gap="12" :y-gap="4" :cols="12">
       <n-form-item-gi
         v-if="showNumberSource && numberingAvailable"
-        span="48"
+        span="12"
         label="Cover page number source"
         class="number-source"
       >
@@ -17,7 +17,7 @@
           <n-radio-button value="numarator">Create with Numarator</n-radio-button>
         </n-radio-group>
       </n-form-item-gi>
-      <n-form-item-gi span="0:48 700:12" path="panel" label="Panel">
+      <n-form-item-gi span="0:12 700:3" path="panel" label="Panel">
         <n-select
           :value="selectedPanelName"
           placeholder="Select Panel"
@@ -28,7 +28,7 @@
           @update:value="selectPanel"
         />
       </n-form-item-gi>
-      <n-form-item-gi span="0:48 700:8" path="ata" label="ATA">
+      <n-form-item-gi span="0:12 700:2" path="ata" label="ATA">
         <n-select
           :value="compdoc.ata"
           placeholder="Select ATA"
@@ -39,7 +39,7 @@
           @update:value="selectAta"
         />
       </n-form-item-gi>
-      <n-form-item-gi span="0:48 700:28" path="name" label="Name">
+      <n-form-item-gi span="0:12 700:7" path="name" label="Name">
         <n-input
           v-model:value="compdoc.name"
           maxlength="256"
@@ -48,7 +48,7 @@
           @keydown.enter.prevent
         />
       </n-form-item-gi>
-      <n-form-item-gi span="0:48 700:20" path="signature_panel" label="Signature Panel">
+      <n-form-item-gi span="0:12 700:5" path="signature_panel" label="Signature Panel">
         <n-select
           v-model:value="compdoc.signature_panel"
           :options="store.getSignaturePanelOptions"
@@ -58,7 +58,7 @@
           :status="arrayChanged ? 'warning' : ''"
         />
       </n-form-item-gi>
-      <n-form-item-gi span="0:48 700:20" path="cover_page_no" label="Cover Page No">
+      <n-form-item-gi span="0:12 700:5" path="cover_page_no" label="Cover Page No">
         <n-input
           v-model:value="compdoc.cover_page_no"
           maxlength="32"
@@ -68,7 +68,7 @@
           @keydown.enter.prevent
         />
       </n-form-item-gi>
-      <n-form-item-gi span="0:48 700:8" path="cover_page_issue" label="Issue">
+      <n-form-item-gi span="0:12 700:2" path="cover_page_issue" label="Issue">
         <n-input
           v-model:value="compdoc.cover_page_issue"
           maxlength="255"
