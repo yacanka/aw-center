@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from awcenter.api_errors import error_response
 from awcenter.file_security import OOXML_WORKBOOK_POLICY, validate_request_upload
 
-from integrations.doors.escape import dxl_quote
+from .script_builder import build_script
 from .serializers import ScriptGenerationSerializer
 
 MAX_WORKBOOK_COLUMNS = 1_000
@@ -35,50 +35,22 @@ def create_script(request):
     serializer = ScriptGenerationSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     try:
-        result = generate_dxl_script(excel_file, serializer.validated_data["json"])
+        result = generate_dxl_script(
+            excel_file,
+            serializer.validated_data["json"],
+            serializer.validated_data["mode"],
+        )
     except ScriptGenerationError as error:
         return error_response(error.detail, error.code, response_status=400)
     return Response(result)
 
 
-def generate_dxl_script(excel_file, mappings):
+def generate_dxl_script(excel_file, mappings, mode="update"):
     """Read one bounded worksheet and return a deterministic JSON-safe result."""
 
     ordered_mappings = sorted(mappings, key=lambda item: not item["search"])
-    rows = read_mapped_rows(excel_file, ordered_mappings)
-    arrays = build_arrays(ordered_mappings, rows)
-    assignments = build_assignments(ordered_mappings)
-    search_attribute = dxl_quote(ordered_mappings[0]["doors"])
-    script = f'''Object awc_find_object(Module source, string attribute_name, string expected) {{
-    AttrDef definition = find(source, attribute_name)
-    if (null definition || !definition.object) return null
-    Object candidate
-    for candidate in entire(source) do {{
-        if (candidate.attribute_name "" == expected) return candidate
-    }}
-    return null
-}}
-
-Module refModule = current
-if (null refModule) {{
-    print "Module not found\\n"
-    halt
-}}
-
-{arrays}
-
-Object o
-int i = 0
-for (i = 0; i < {len(rows)}; i++) {{
-    o = awc_find_object(refModule, {search_attribute}, awc_arr_1[i])
-    if (null o) {{
-        print "Object not found: " awc_arr_1[i] "\\n"
-    }}
-    else {{
-{assignments}
-    }}
-}}
-'''
+    rows, excel_row_numbers = read_mapped_rows(excel_file, ordered_mappings)
+    script = build_script(ordered_mappings, rows, excel_row_numbers, mode)
     if len(script.encode("utf-8")) > MAX_SCRIPT_BYTES:
         raise ScriptGenerationError(
             "The generated script exceeds the safety limit.",
@@ -92,7 +64,7 @@ for (i = 0; i < {len(rows)}; i++) {{
 
 
 def read_mapped_rows(excel_file, mappings):
-    """Return bounded scalar rows without executing workbook formulas or macros."""
+    """Return bounded rows and worksheet positions without executing formulas."""
 
     from openpyxl import load_workbook
 
@@ -116,13 +88,17 @@ def read_mapped_rows(excel_file, mappings):
         headers = read_headers(worksheet)
         positions = resolve_mapping_positions(headers, mappings)
         rows = []
+        excel_row_numbers = []
         source_bytes = 0
         maximum_column = max(positions) + 1
-        for source_row in worksheet.iter_rows(
-            min_row=2,
-            max_row=worksheet.max_row,
-            max_col=maximum_column,
-            values_only=True,
+        for excel_row_number, source_row in enumerate(
+            worksheet.iter_rows(
+                min_row=2,
+                max_row=worksheet.max_row,
+                max_col=maximum_column,
+                values_only=True,
+            ),
+            start=2,
         ):
             row = [normalize_cell(source_row[position]) for position in positions]
             if any(row):
@@ -133,12 +109,13 @@ def read_mapped_rows(excel_file, mappings):
                         "DOORS_SCRIPT_SIZE_LIMIT",
                     )
                 rows.append(row)
+                excel_row_numbers.append(excel_row_number)
         if not rows:
             raise ScriptGenerationError(
                 "The workbook has no mapped data rows.",
                 "DOORS_WORKBOOK_EMPTY",
             )
-        return rows
+        return rows, excel_row_numbers
     except ScriptGenerationError:
         raise
     except Exception as error:
@@ -206,24 +183,3 @@ def normalize_cell(value):
             "DOORS_WORKBOOK_CELL_LIMIT",
         )
     return text
-
-
-def build_arrays(mappings, rows):
-    """Build escaped DXL arrays for each ordered mapping."""
-
-    arrays = []
-    for index in range(len(mappings)):
-        values = ",".join(dxl_quote(row[index]) for row in rows)
-        arrays.append(f"string awc_arr_{index + 1}[] = {{{values}}}")
-    return "\n".join(arrays)
-
-
-def build_assignments(mappings):
-    """Build escaped attribute writes while keeping the search mapping read-only."""
-
-    if len(mappings) == 1:
-        return "        // No attribute updates were selected."
-    return "\n".join(
-        f"        SetObjectAttribute(o, {dxl_quote(item['doors'])}, awc_arr_{index}[i])"
-        for index, item in enumerate(mappings[1:], start=2)
-    )

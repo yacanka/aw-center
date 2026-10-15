@@ -24,6 +24,23 @@ class DoorsWorkerTaskTests(SimpleTestCase):
     """Verify artifact-only payloads delegate to allowlisted client methods."""
 
     @patch("integrations.doors.worker_tasks.execute_with_client")
+    def test_execute_dxl_returns_only_module_attribute_names(self, execute):
+        client = Mock()
+        client.list_attributes.return_value = ["Object Text", "Identifier"]
+        execute.side_effect = lambda operation: operation(client)
+        metadata, output = self.run_task(
+            execute_dxl, {"operation": "list_attributes", "module_path": "/P/M"}
+        )
+        payload = json.loads(output.read_text())
+        self.assertEqual(payload["type"], "doors_module_attributes")
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["module_path"], "/P/M")
+        self.assertEqual(payload["attributes"], ["Object Text", "Identifier"])
+        self.assertNotIn("results", payload)
+        self.assertEqual(payload["operation_result"]["operation"], "list_attributes")
+        self.assertTrue(metadata["sha256_required"])
+
+    @patch("integrations.doors.worker_tasks.execute_with_client")
     def test_execute_dxl_dispatches_only_named_read_operation(self, execute):
         client = Mock()
         client.check_module.return_value.ok = True

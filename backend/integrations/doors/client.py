@@ -110,6 +110,23 @@ class DoorsClient:
             "attributes_truncated": "ATTRIBUTES_TRUNCATED" in result.raw_lines,
         }
 
+    def list_attributes(self, module_path: str) -> list[str]:
+        """Return a complete, bounded attribute-name list without object data."""
+        result = self.run_dxl(builder_read.list_attributes(module_path))
+        self.raise_on_error(result)
+        self.require_completion(result, "LIST_ATTRIBUTES_DONE")
+        lines = result.raw_lines[:-1]
+        if len(lines) > builder_read.MAX_ATTRIBUTE_NAMES or any(
+            not line.startswith("ATTRIBUTE\t") for line in lines
+        ):
+            raise DoorsDxlError("DOORS returned an invalid attribute list.")
+        names = [self.parse_info(line) for line in lines]
+        if len(names) != len(set(names)) or any(
+            not name.strip() or len(name) > 256 or "\x00" in name for name in names
+        ):
+            raise DoorsDxlError("DOORS returned an invalid attribute list.")
+        return sorted(names, key=str.casefold)
+
     def get_object(self, module_path: str, absolute_number: int, attributes):
         """Return one DOORS object by absolute number."""
         names = list(attributes)

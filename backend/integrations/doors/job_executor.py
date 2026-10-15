@@ -99,12 +99,13 @@ SAFE_OPERATION_CODES = {
     code: "DOORS_" + code for code in (
         "OPEN_MODULE", "OPEN_MODULE_EDIT", "OPEN_REFERENCE_MODULE", "OPEN_TARGET_MODULE",
         "OBJECT_NOT_FOUND", "ATTRIBUTE_NOT_FOUND", "ATTRIBUTE_AMBIGUOUS", "MODULE_ALREADY_OPEN",
-        "READ_ATTRIBUTE", "SET_ATTRIBUTE", "SAVE_MODULE", "CREATE_OBJECT", "AMBIGUOUS_TARGET",
+        "READ_ATTRIBUTE", "ATTRIBUTE_LIMIT", "SET_ATTRIBUTE", "SAVE_MODULE", "CREATE_OBJECT", "AMBIGUOUS_TARGET",
         "BASE_OBJECT_NOT_FOUND", "REFERENCE_OBJECT_LIMIT", "LINK_CANDIDATE_LIMIT", "TARGET_OBJECT_LIMIT",
     )
 }
 
 OPERATION_FAILURE_MESSAGES = {
+    "DOORS_ATTRIBUTE_LIMIT": "The module has more than 1000 object attributes. Use manual mapping.",
     "DOORS_OPEN_MODULE": "Module not found or no read access. Check the module path and read permission.",
     "DOORS_OPEN_MODULE_EDIT": "The module could not be opened for editing. Check modify permission and module locks.",
     "DOORS_MODULE_ALREADY_OPEN": "The module is already open in edit or shared mode. Save and close it before submitting a write.",

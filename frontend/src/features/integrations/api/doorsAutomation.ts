@@ -30,6 +30,70 @@ export interface DoorsStatus {
   transport: 'windows-worker'
 }
 
+export interface DoorsModuleAttributesResult {
+  type: 'doors_module_attributes'
+  schema_version: 1
+  module_path: string
+  attributes: string[]
+}
+
+/** Queue an attribute-name-only read; no object values are exported. */
+export async function enqueueDoorsModuleAttributes(
+  modulePath: string,
+  idempotencyKey: string
+): Promise<Job> {
+  return enqueueDoorsJob(
+    `${API_PATHS.doors}/module-attributes-jobs/`,
+    { module_path: modulePath },
+    idempotencyKey
+  )
+}
+
+/** Validate the completed job's owner-only, verified attribute discovery artifact. */
+export async function fetchDoorsModuleAttributesResult(
+  job: Job
+): Promise<DoorsModuleAttributesResult> {
+  if (job.kind !== 'doors.run_dxl' || job.status !== 'succeeded' || !job.download_url) {
+    throw new Error('The module attribute result is unavailable.')
+  }
+  const { data } = await apiClient.get<unknown>(job.download_url, { responseType: 'json' })
+  if (!isModuleAttributesResult(data)) {
+    throw new Error('The module attribute result is unsupported or invalid.')
+  }
+  return data
+}
+
+function isModuleAttributesResult(data: unknown): data is DoorsModuleAttributesResult {
+  if (!isRecord(data) || !isRecord(data.operation_result)) return false
+  const metadata = data.operation_result
+  if (!isRecord(metadata.input)) return false
+  if (
+    data.type !== 'doors_module_attributes' ||
+    data.schema_version !== 1 ||
+    typeof data.module_path !== 'string' ||
+    !data.module_path.trim() ||
+    metadata.schema_version !== 1 ||
+    metadata.operation !== 'list_attributes' ||
+    metadata.outcome !== 'success' ||
+    metadata.code !== 'LIST_ATTRIBUTES_DONE' ||
+    metadata.input.module_path !== data.module_path ||
+    !Array.isArray(data.attributes)
+  )
+    return false
+  const attributes = data.attributes
+  return (
+    attributes.length <= 1000 &&
+    attributes.every(
+      (name) =>
+        typeof name === 'string' &&
+        Boolean(name.trim()) &&
+        name.length <= 256 &&
+        !name.includes('\0')
+    ) &&
+    new Set(attributes).size === attributes.length
+  )
+}
+
 export interface DoorsObjectUpdateInput {
   module_path: string
   absolute_number: number

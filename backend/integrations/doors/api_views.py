@@ -60,6 +60,15 @@ def create_module_check_job(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def create_module_attributes_job(request):
+    """Queue attribute-name discovery without reading object values."""
+    return enqueue_read_job(
+        request, ModuleSerializer, "list_attributes", "Load DOORS module attributes",
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def create_object_list_job(request):
     """Queue one bounded DOORS object listing operation."""
 
