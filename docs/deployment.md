@@ -1,5 +1,11 @@
 # Windows production ve operasyon
 
+Bu kaynak revizyonunun 15.10.2026 migration baseline’ı yalnız boş veritabanına ilk
+kurulumu destekler. Önceki geliştirme şemaları bu migration’larla yükseltilmez veya
+fake edilmez. Disposable local ortamlar için [reset runbook](local-database-reset.md)
+kullanılır; shared/production state üzerinde bu reset uygulanmaz. Yeni baseline ile
+kurulmuş ortamların sonraki güncellemeleri normal forward migration akışını izler.
+
 ## Desteklenen güncel topoloji
 
 AW Center production, uygulama ve IBM Rational DOORS ile aynı Windows kullanıcı

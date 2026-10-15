@@ -5,7 +5,7 @@ SQLite dosyası da dahil olmak üzere shared, staging veya production state üze
 kullanmayın. Production'da [deployment.md](deployment.md) backup ve forward-fix
 prosedürü uygulanır.
 
-Migration baseline fresh database contract'ıdır; önceki local schema'yı dönüştüren bir geçiş hattı yoktur. Korunması gereken yerel veri varsa reset yerine export/backup ihtiyacını ayrıca değerlendirin.
+15.10.2026 migration baseline’ı fresh database contract’ıdır; önceki local schema'yı dönüştüren bir geçiş hattı yoktur. Korunması gereken yerel veri varsa reset yerine export/backup ihtiyacını ayrıca değerlendirin.
 
 ## Reset öncesi kontrol
 
@@ -92,7 +92,7 @@ awcenter_local_compose exec -T backend python manage.py check
 awcenter_local_compose exec -T backend python manage.py migrate --check
 awcenter_local_compose exec -T backend python manage.py check_project_registry
 awcenter_local_compose exec -T backend python manage.py shell -c \
-  "from orgs.models import Project; assert Project.objects.count() == 8"
+  "from orgs.models import Project; from projects.registry import PROJECT_DEFINITIONS; assert set(Project.objects.values_list('slug', flat=True)) == set(PROJECT_DEFINITIONS)"
 ```
 
 ## Development SQLite profili
@@ -124,12 +124,13 @@ cd backend
 ../.venv/bin/python manage.py migrate --check
 ../.venv/bin/python manage.py check_project_registry
 ../.venv/bin/python manage.py shell -c \
-  "from orgs.models import Project; assert Project.objects.count() == 8"
+  "from orgs.models import Project; from projects.registry import PROJECT_DEFINITIONS; assert set(Project.objects.values_list('slug', flat=True)) == set(PROJECT_DEFINITIONS)"
 cd ..
 python launcher.py check
 ```
 
-Fresh migration canonical project satırlarını seed eder. Ayrı bir runtime project-sync adımı yoktur.
+Fresh migration canonical project satırlarını `orgs/0002_seed_projects`, Unknown
+statülerini `compliance/0003_seed_default_statuses` ile seed eder. Ayrı bir runtime project-sync adımı yoktur.
 
 ## Yapılmaması gerekenler
 
@@ -165,7 +166,8 @@ hem `AWCENTER_DEPLOYMENT_MODE=development` ister; production profillerinde kapal
 Hazırlık durumu veritabanında saklanır; tarayıcıyı kapatmak yazmaları yeniden açmaz.
 Başarılı sıfırlama ya da herhangi bir yetkili superuser'ın **Release preparation** işlemi
 hazırlığı kaldırır. Bırakma işlemi iptal edilmiş işleri otomatik olarak yeniden başlatmaz.
-Bu akış için `0009_developerresetstate` migration'ı uygulanmış olmalıdır.
+Bu akışın modelleri güncel compliance başlangıç migration’larında bulunur. Developer
+sekmesi migration dosyalarını veya bütün veritabanını sıfırlamaz.
 
 İşlem tek transaction içinde belgeleri, coverpage kayıtlarını, yerel numara tahsislerini,
 review/workflow/tracking/notification verilerini, geçmişleri, import kayıt ve ayarlarını,

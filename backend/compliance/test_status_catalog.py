@@ -149,15 +149,18 @@ class StatusCatalogTests(TestCase):
         project = Project.objects.create(slug="status-test", name="Status test")
         self.assertEqual(list(DocumentStatus.objects.filter(project=project).values_list("value", flat=True)), ["unknown"])
 
-    def test_forward_seed_preserves_current_values_without_rewriting_history(self):
+    def test_default_seed_preserves_custom_options_and_workflow_history(self):
         from importlib import import_module
         from django.apps import apps
         from django.db import connection
         from .models import DocumentStatus
         document = self.document("existing_status")
         event = WorkflowEvent.objects.create(document=document, sequence=1, status="historical_only", effective_date=date.today())
-        migration = import_module("compliance.migrations.0012_seed_project_statuses")
-        migration.seed_statuses(apps, connection.schema_editor())
+        DocumentStatus.objects.create(project=self.project, value="existing_status", label="Custom label")
+        migration = import_module("compliance.migrations.0003_seed_default_statuses")
+        migration.seed_default_statuses(apps, connection.schema_editor())
+        migration.seed_default_statuses(apps, connection.schema_editor())
+        self.assertEqual(DocumentStatus.objects.get(project=self.project, value="existing_status").label, "Custom label")
         self.assertEqual(set(DocumentStatus.objects.filter(project=self.project).values_list("value", flat=True)), {"unknown", "existing_status"})
         document.refresh_from_db()
         event.refresh_from_db()

@@ -9,10 +9,10 @@ both required values must still be supplied when using a UUID. Use the UUID when
 renaming a document or changing its cover number through import.
 
 Single-document Numarator creation assigns a number before persisting the document.
-Existing unnumbered records are preserved by migration and remain eligible for
-**Assign missing numbers**. They must receive a number before ordinary edits can
-be saved. Migration `0013_require_document_identity` removes the additional
-technical-number uniqueness constraint without deleting or rewriting documents.
+Unnumbered records remain eligible for **Assign missing numbers**. They must
+receive a number before ordinary edits can be saved. The initial schema enforces
+cover-number/name identity and intentionally has no technical-number uniqueness
+constraint. The fresh baseline does not migrate allocations from older schemas.
 
 Editors can open **Assign missing numbers** beside **New** in the Compliance
 Documents table. The preview uses only the active, unnumbered documents on the currently displayed
