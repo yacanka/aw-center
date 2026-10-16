@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useThemeVars } from 'naive-ui'
 import { ArrowReset24Regular, Delete24Regular } from '@vicons/fluent'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import CompDocActivity from '@/features/compliance/components/CompDocActivity.vue'
@@ -10,7 +11,7 @@ import CompDocTrackingPanel from '@/features/compliance/components/CompDocTracki
 import CompDocTransitionPanel from '@/features/compliance/components/CompDocTransitionPanel.vue'
 import CompDocWorkPanel from '@/features/compliance/components/CompDocWorkPanel.vue'
 import { withCompdocDisplayStatus } from '@/features/compliance/api/compdocStatus'
-import { statusColors } from '@/features/compliance/api/compdocCatalog'
+import { statusTagColors } from '@/features/compliance/api/compdocStatusColors'
 import {
   getCompdocReference,
   humanizeCompdocStatus
@@ -44,13 +45,14 @@ const statusLabel = computed(
   () => displayDocument.value?.status_label || humanizeCompdocStatus(displayDocument.value?.status)
 )
 const reference = computed(() => (props.document ? getCompdocReference(props.document) : ''))
-const statusColor = computed(
-  () =>
-    statusColors[
-      statusLabel.value === 'In Design (date missing)'
-        ? 'missing_target'
-        : String(displayDocument.value?.status || '')
-    ]
+const themeVars = useThemeVars()
+const statusColor = computed(() =>
+  statusTagColors(
+    statusLabel.value === 'In Design (date missing)'
+      ? 'missing_target'
+      : String(displayDocument.value?.status || ''),
+    themeVars.value.cardColor
+  )
 )
 const activeTab = ref<WorkspaceTab>('overview')
 
@@ -94,15 +96,7 @@ watch(
           </n-text>
           <n-ellipsis :line-clamp="2" class="workspace-title">{{ document.name }}</n-ellipsis>
           <n-flex align="center" size="small">
-            <n-tag
-              :color="
-                statusColor
-                  ? { color: statusColor.color25, textColor: statusColor.color }
-                  : undefined
-              "
-              :bordered="false"
-              size="small"
-            >
+            <n-tag :color="statusColor" :bordered="false" size="small">
               {{ statusLabel }}
             </n-tag>
             <n-text depth="3">{{ reference }}</n-text>

@@ -1,3 +1,4 @@
+import { statusColors } from './compdocCatalog'
 import type { CompdocOption } from './compdocCatalog'
 import type { ChartData } from 'chart.js'
 import type {
@@ -6,16 +7,36 @@ import type {
 } from '@/features/compliance/models/compdocDashboard'
 
 export const STATUS_PRESENTATION = [
-  { value: 'to_be_issued', label: 'In Design', color: '#94a3b8' },
-  { value: 'expected', label: 'In Design', color: '#94a3b8' },
-  { value: 'missing_target', label: 'In Design (date missing)', color: '#64748b' },
-  { value: 'delayed', label: 'Delayed', color: '#ef4444' },
-  { value: 'to_be_updated', label: 'To be Updated', color: '#3b82f6' },
-  { value: 'airworthiness_review', label: 'Aw Review', color: '#f97316' },
-  { value: 'to_be_re-submitted', label: 'To be Re-Submitted', color: '#3b82f6' },
-  { value: 'authority_review', label: 'Authority Review', color: '#eab308' },
-  { value: 'authority_approved', label: 'Authority Approved', color: '#22c55e' },
-  { value: 'unknown', label: 'Unknown', color: '#94a3b8' }
+  { value: 'to_be_issued', label: 'In Design', color: statusColors['to_be_issued'].color },
+  { value: 'expected', label: 'In Design', color: statusColors['expected'].color },
+  {
+    value: 'missing_target',
+    label: 'In Design (date missing)',
+    color: statusColors['missing_target'].color
+  },
+  { value: 'delayed', label: 'Delayed', color: statusColors['delayed'].color },
+  { value: 'to_be_updated', label: 'To be Updated', color: statusColors['to_be_updated'].color },
+  {
+    value: 'airworthiness_review',
+    label: 'Aw Review',
+    color: statusColors['airworthiness_review'].color
+  },
+  {
+    value: 'to_be_re-submitted',
+    label: 'To be Re-Submitted',
+    color: statusColors['to_be_re-submitted'].color
+  },
+  {
+    value: 'authority_review',
+    label: 'Authority Review',
+    color: statusColors['authority_review'].color
+  },
+  {
+    value: 'authority_approved',
+    label: 'Authority Approved',
+    color: statusColors['authority_approved'].color
+  },
+  { value: 'unknown', label: 'Unknown', color: statusColors['unknown'].color }
 ] as const
 
 export interface StatusChartRow {
