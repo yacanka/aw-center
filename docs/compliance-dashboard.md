@@ -19,6 +19,11 @@ table always shows all project panels. Refresh retains the selected panel if it
 still exists; changing projects resets it. The browser uses one response for all
 these views and never downloads the paginated document register for analytics.
 
+Status, publication-status and CAT distributions show only positive categories in
+both the chart arcs and the accompanying lists. Empty publication groups retain
+their heading and empty message; an all-zero distribution shows the existing empty
+state. The API counts and project status catalog are unchanged.
+
 ## Metric definitions
 
 - The status chart derives **Delayed** from an unissued document whose current target

@@ -92,16 +92,24 @@ ensureCompdocChartsRegistered()
 const userStore = useSessionStore()
 const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const themeVars = useThemeVars()
-const statusRows = computed(
-  () =>
-    props.groups?.flatMap((group) =>
-      group.rows.map((row) => ({ ...row, label: `${group.label}: ${row.label}` }))
-    ) ??
-    props.rows ??
-    createStatusChartRows(props.counts, props.statuses, themeVars.value.textColor3)
-)
-const displayGroups = computed(
-  () => props.groups ?? [{ label: '', total: 0, rows: statusRows.value }]
+const displayGroups = computed(() => {
+  const groups = props.groups ?? [
+    {
+      label: '',
+      total: 0,
+      rows:
+        props.rows ??
+        createStatusChartRows(props.counts, props.statuses, themeVars.value.textColor3)
+    }
+  ]
+  return groups.map((group) => ({ ...group, rows: group.rows.filter((row) => row.count > 0) }))
+})
+const statusRows = computed(() =>
+  displayGroups.value.flatMap((group) =>
+    group.rows.map((row) =>
+      props.groups ? { ...row, label: `${group.label}: ${row.label}` } : row
+    )
+  )
 )
 const total = computed(() => statusRows.value.reduce((sum, row) => sum + row.count, 0))
 const chartData = computed(() => createStatusChartData(statusRows.value))

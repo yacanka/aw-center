@@ -47,7 +47,7 @@ export interface StatusChartRow {
   percentage: number
 }
 
-/** Preserve every CAT value, including missing CAT, with stable category ordering. */
+/** Show positive CAT counts, including unspecified CAT, in stable category order. */
 export function createCatChartRows(
   counts: Record<string, number>,
   colors: string[],
@@ -70,9 +70,10 @@ export function createCatChartRows(
         percentage: total ? Math.round((count / total) * 100) : 0
       }
     })
+    .filter((row) => row.count > 0)
 }
 
-/** Build stable status rows while preserving zero-value categories in the legend. */
+/** Build positive status rows shared by chart arcs and their distribution legend. */
 export function createStatusChartRows(
   counts: Record<string, number>,
   options: CompdocOption[] = [],
@@ -88,21 +89,23 @@ export function createStatusChartRows(
           value.replaceAll('_', ' ')
       )
   })
-  return [...vocabulary].map(([value, label]) => {
-    const color = STATUS_PRESENTATION.find((item) => item.value === value)?.color || neutralColor
-    const defaultLabels: Record<string, string[]> = {
-      to_be_issued: ['to be issued', 'in design'],
-      airworthiness_review: ['airworthiness review', 'aw review'],
-      expected: ['expected', 'in design'],
-      missing_target: ['target date missing', 'in design (date missing)']
-    }
-    const displayLabel = defaultLabels[value]?.includes(label.toLowerCase())
-      ? STATUS_PRESENTATION.find((item) => item.value === value)!.label
-      : label
-    const status = { value, label: displayLabel, color }
-    const count = safeNumber(counts[status.value])
-    return { ...status, count, percentage: total ? Math.round((count / total) * 100) : 0 }
-  })
+  return [...vocabulary]
+    .filter(([value]) => safeNumber(counts[value]) > 0)
+    .map(([value, label]) => {
+      const color = STATUS_PRESENTATION.find((item) => item.value === value)?.color || neutralColor
+      const defaultLabels: Record<string, string[]> = {
+        to_be_issued: ['to be issued', 'in design'],
+        airworthiness_review: ['airworthiness review', 'aw review'],
+        expected: ['expected', 'in design'],
+        missing_target: ['target date missing', 'in design (date missing)']
+      }
+      const displayLabel = defaultLabels[value]?.includes(label.toLowerCase())
+        ? STATUS_PRESENTATION.find((item) => item.value === value)!.label
+        : label
+      const status = { value, label: displayLabel, color }
+      const count = safeNumber(counts[status.value])
+      return { ...status, count, percentage: total ? Math.round((count / total) * 100) : 0 }
+    })
 }
 
 /** Return a zero-safe doughnut dataset without invisible zero-sized arcs. */

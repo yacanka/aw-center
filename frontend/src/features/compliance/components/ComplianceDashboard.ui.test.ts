@@ -41,6 +41,7 @@ import ComplianceDashboard from './ComplianceDashboard.vue'
 import CompDocTimelineDashboard from './CompDocTimelineDashboard.vue'
 import CompDocRiskDashboard from './CompDocRiskDashboard.vue'
 import CompDocPanelDashboard from './CompDocPanelDashboard.vue'
+import CompDocStatusDashboard from './CompDocStatusDashboard.vue'
 
 const Slot = { template: '<div><slot name="header" /><slot /></div>' }
 const Table = defineComponent({
@@ -106,6 +107,33 @@ describe('compliance dashboard scope', () => {
     await flushPromises()
     return wrapper
   }
+
+  it('uses the same positive rows for explicit legends and publication chart arcs', async () => {
+    const rows = [
+      { value: 'custom', label: 'Project review', color: '#888', count: 2, percentage: 100 },
+      { value: 'unused', label: 'Unused', color: '#888', count: 0, percentage: 0 }
+    ]
+    const wrapper = mount(CompDocStatusDashboard, {
+      props: { counts: {}, rows },
+      global: { stubs }
+    })
+    wrappers.push(wrapper)
+    expect(wrapper.findAll('.status-row').map((row) => row.text())).toEqual(['Project review2100%'])
+    await wrapper.setProps({
+      groups: [
+        { label: 'Issued', total: 2, rows },
+        { label: 'Not issued', total: 0, rows: rows.slice(1) }
+      ]
+    })
+    expect(wrapper.findAll('.status-row')).toHaveLength(1)
+    expect(wrapper.findComponent({ name: 'DoughnutChart' }).props('data').labels).toEqual([
+      'Issued: Project review'
+    ])
+    expect(wrapper.findAll('.publication-group')[1].text()).toContain('No documents')
+    await wrapper.setProps({ groups: [{ label: 'Issued', total: 0, rows: rows.slice(1) }] })
+    expect(wrapper.findAll('.status-row')).toHaveLength(0)
+    expect(wrapper.findComponent({ name: 'DoughnutChart' }).exists()).toBe(false)
+  })
 
   it('panel focus updates every chart and risk scope, and switching modes clears focus', async () => {
     const summary = dashboardSummary()
