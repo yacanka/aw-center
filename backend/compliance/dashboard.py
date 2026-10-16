@@ -39,7 +39,7 @@ def build_dashboard(project, *, today=None):
         .select_related("panel", "cover_page")
         .only(
             "id", "name", "status", "cat", "moc", "target_date", "revised_target_date", "release_date",
-            "next_action_due_date", "number",
+            "next_action_due_date",
             "panel__id", "panel__name", "panel__ata", "cover_page__number",
         )
         .prefetch_related(Prefetch(
@@ -156,8 +156,11 @@ def _accumulate(state, document, entries, today):
             "name": document.name,
             "panel": document.panel.name if document.panel_id else None,
             "ata": document.panel.ata if document.panel_id else None,
-            "number": document.number,
-            "target_date": document.current_target_date,
+            "status": document.status,
+            "cover_page_no": document.cover_page.number,
+            "target_date": document.target_date,
+            "revised_target_date": document.revised_target_date,
+            "release_date": document.release_date,
         },
         entries, status, today, DEFAULT_RISK_POLICY,
     )

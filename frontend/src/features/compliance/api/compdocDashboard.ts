@@ -109,7 +109,7 @@ function isPoint(value: unknown) {
 function isRisk(value: unknown) {
   return (
     isRecord(value) &&
-    hasValues(value.counts, ['high', 'medium', 'low', 'none'], isCount) &&
+    hasValues(value.counts, ['very_high', 'high', 'medium', 'low'], isCount) &&
     isCount(value.at_risk_count) &&
     isCount(value.max_score) &&
     typeof value.average_score === 'number' &&
@@ -117,15 +117,7 @@ function isRisk(value: unknown) {
     value.average_score >= 0 &&
     hasValues(
       value.policy,
-      [
-        'version',
-        'high_score',
-        'medium_score',
-        'long_wait_days',
-        'authority_aging_days',
-        'max_score',
-        'priority_limit'
-      ],
+      ['version', 'very_high_score', 'high_score', 'medium_score', 'max_score', 'priority_limit'],
       isCount
     ) &&
     Array.isArray(value.priorities) &&
@@ -140,7 +132,7 @@ function isPriority(value: unknown) {
     typeof value.ata === 'string' &&
     isCount(value.score) &&
     isCount(value.stage_age_days) &&
-    ['high', 'medium', 'low'].includes(String(value.level)) &&
+    ['very_high', 'high', 'medium', 'low'].includes(String(value.level)) &&
     Array.isArray(value.signals) &&
     value.signals.every(isSignal)
   )

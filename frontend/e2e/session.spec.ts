@@ -298,6 +298,7 @@ for (const theme of ['light', 'dark'] as const) {
         buffer: Buffer.from('mocked-workbook')
       })
       await expect(page.getByText('Confirm Excel Import')).toBeVisible()
+      await page.getByText('Project panel changes', { exact: true }).click()
       await expect(page.getByText('Create 29-00: Hydraulics')).toBeVisible()
       await expect(page.getByText('Update 27-00: Old name → Flight Controls')).toBeVisible()
       await page.screenshot({

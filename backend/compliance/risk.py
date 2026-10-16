@@ -5,18 +5,17 @@ from dataclasses import asdict, dataclass
 
 from .risk_signals import build_risk_signals, stage_age_days
 
-LEVEL_KEYS = ("high", "medium", "low", "none")
+LEVEL_KEYS = ("very_high", "high", "medium", "low")
 
 
 @dataclass(frozen=True)
 class RiskPolicy:
     """Versioned thresholds and boundaries for deterministic risk scoring."""
 
-    version: int = 1
-    high_score: int = 60
+    version: int = 2
+    very_high_score: int = 90
+    high_score: int = 70
     medium_score: int = 30
-    long_wait_days: int = 30
-    authority_aging_days: int = 14
     max_score: int = 100
     priority_limit: int = 25
 
@@ -30,6 +29,7 @@ def create_risk_state():
     return {
         "counts": Counter({key: 0 for key in LEVEL_KEYS}),
         "score_total": 0,
+        "at_risk_count": 0,
         "max_score": 0,
         "priorities": [],
     }
@@ -43,6 +43,7 @@ def accumulate_document_risk(state, document, entries, status, today, policy):
     state["score_total"] += item["score"]
     state["max_score"] = max(state["max_score"], item["score"])
     if item["score"]:
+        state["at_risk_count"] += 1
         _retain_priority(state["priorities"], item, policy.priority_limit)
 
 
@@ -50,7 +51,7 @@ def assess_document_risk(document, entries, status, today, policy=DEFAULT_RISK_P
     """Return a value-safe score with every contributing reason exposed."""
 
     stage_age = stage_age_days(entries, today)
-    signals = build_risk_signals(document, entries, status, stage_age, today, policy)
+    signals = build_risk_signals(document, today)
     score = min(policy.max_score, sum(signal["points"] for signal in signals))
     return {
         "document_id": str(document["id"]),
@@ -70,7 +71,7 @@ def serialize_risk(state, total, policy=DEFAULT_RISK_POLICY):
 
     return {
         "counts": dict(state["counts"]),
-        "at_risk_count": total - state["counts"]["none"],
+        "at_risk_count": state["at_risk_count"],
         "average_score": round(state["score_total"] / total, 1) if total else 0,
         "max_score": state["max_score"],
         "priorities": state["priorities"],
@@ -79,11 +80,13 @@ def serialize_risk(state, total, policy=DEFAULT_RISK_POLICY):
 
 
 def _risk_level(score, policy):
+    if score >= policy.very_high_score:
+        return "very_high"
     if score >= policy.high_score:
         return "high"
     if score >= policy.medium_score:
         return "medium"
-    return "low" if score else "none"
+    return "low"
 
 
 def _retain_priority(priorities, item, limit):

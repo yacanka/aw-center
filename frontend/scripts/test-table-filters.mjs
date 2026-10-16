@@ -13,11 +13,6 @@ import {
 } from '../src/features/compliance/api/compdocColumns.ts'
 import { buildClientCompdocSummary } from '../src/features/compliance/api/compdocChartAlgorithms.ts'
 import { withCompdocDisplayStatus } from '../src/features/compliance/api/compdocStatus.ts'
-import {
-  createStatusChartData,
-  createStatusChartRows,
-  createTimelineChartData
-} from '../src/features/compliance/api/compdocChartData.ts'
 
 test('matches equal dates and supports both accepted date formats', () => {
   const filter = getDateFilterFunc('date')
@@ -189,35 +184,6 @@ test('marks yesterday as delayed without a UTC/local timezone offset', () => {
     withCompdocDisplayStatus({ ...row, release_date: '2026-07-01' }, new Date(2026, 6, 22)).status,
     'to_be_issued'
   )
-})
-
-test('creates zero-safe doughnut data and anchored stepped burndown lines', () => {
-  const rows = createStatusChartRows({ to_be_issued: 3, authority_approved: 1, delayed: 0 })
-  const statusData = createStatusChartData(rows)
-  const timelineData = createTimelineChartData(
-    {
-      scheduled: [{ x: '20.07.2026', y: 3 }],
-      actual: [{ x: '21.07.2026', y: 2 }],
-      today: [{ x: '22.07.2026', y: 2 }],
-      last_scheduled: null,
-      last_actual: null
-    },
-    4
-  )
-
-  assert.deepEqual(statusData.datasets[0].data, [3, 1])
-  assert.deepEqual(statusData.labels, ['In Design', 'Authority Approved'])
-  assert.equal(timelineData.datasets[0].stepped, 'before')
-  assert.deepEqual(
-    timelineData.datasets[0].data.map((point) => point.y),
-    [4, 3, 3, 3]
-  )
-  assert.deepEqual(
-    timelineData.datasets[1].data.map((point) => point.y),
-    [4, 4, 2, 2]
-  )
-  assert.equal(timelineData.datasets[0].data[0].y, 4)
-  assert.equal(typeof timelineData.datasets[0].data[0].x, 'number')
 })
 
 function document(status, statusFlow) {

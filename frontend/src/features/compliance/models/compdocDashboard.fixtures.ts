@@ -28,10 +28,10 @@ export function dashboardAnalytics(total = 3, pending = 20): DashboardAnalytics 
       approved: { filled: 0, empty: total, percentage: 0 }
     },
     risk: {
-      counts: { high: 0, medium: 0, low: total, none: 0 },
+      counts: { very_high: 0, high: total, medium: 0, low: 0 },
       at_risk_count: total,
-      average_score: 15,
-      max_score: 15,
+      average_score: 80,
+      max_score: 80,
       priorities: [
         {
           document_id: `00000000-0000-4000-8000-00000000000${total}`,
@@ -40,14 +40,14 @@ export function dashboardAnalytics(total = 3, pending = 20): DashboardAnalytics 
           ata: '27',
           status: 'delayed',
           stage_age_days: 1,
-          score: 15,
-          level: 'low',
+          score: 80,
+          level: 'high',
           signals: [
             {
-              code: 'sla_target_overdue',
-              label: 'SLA target overdue',
-              points: 15,
-              severity: 'medium',
+              code: 'target_overdue',
+              label: 'Target overdue',
+              points: 80,
+              severity: 'high',
               observed: 1,
               threshold: 0,
               unit: 'days',
@@ -57,11 +57,10 @@ export function dashboardAnalytics(total = 3, pending = 20): DashboardAnalytics 
         }
       ],
       policy: {
-        version: 1,
-        high_score: 60,
+        version: 2,
+        very_high_score: 90,
+        high_score: 70,
         medium_score: 30,
-        long_wait_days: 30,
-        authority_aging_days: 14,
         max_score: 100,
         priority_limit: 25
       }

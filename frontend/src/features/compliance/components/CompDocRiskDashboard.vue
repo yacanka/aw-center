@@ -5,8 +5,8 @@
         <div>
           <div class="card-title">Explainable risk priorities</div>
           <n-text depth="3" class="card-subtitle">
-            Top {{ risk.policy.priority_limit }}, ranked by SLA, aging, workflow loops and
-            references
+            Top {{ risk.policy.priority_limit }}, ranked by target dates, release age and missing
+            metadata
           </n-text>
         </div>
         <n-select
@@ -40,7 +40,7 @@
         >
           <template #header>
             <div class="priority-header">
-              <n-tag :type="levelType(priority.level)" round size="small">
+              <n-tag :color="priorityColor(priority.level)" :bordered="false" round size="small">
                 {{ priority.score }} / {{ risk.policy.max_score }}
               </n-tag>
               <div class="priority-name">
@@ -50,7 +50,12 @@
                   {{ statusLabel(priority.status) }}
                 </n-text>
               </div>
-              <n-tag size="small" :bordered="false">{{ priority.stage_age_days }} days</n-tag>
+              <n-tag
+                size="small"
+                :bordered="false"
+                title="Workflow stage age is informational and adds no risk points."
+                >Stage: {{ priority.stage_age_days }} days</n-tag
+              >
             </div>
           </template>
           <div class="signal-list">
@@ -75,9 +80,13 @@
       Showing {{ risk.priorities.length }} of {{ risk.at_risk_count }} · policy v{{
         risk.policy.version
       }}
-      · high ≥ {{ risk.policy.high_score }} · medium ≥ {{ risk.policy.medium_score }} · long wait
-      &gt; {{ risk.policy.long_wait_days }} days · authority aging &gt;
-      {{ risk.policy.authority_aging_days }} days
+      · very high ≥ {{ risk.policy.very_high_score }} · high {{ risk.policy.high_score }}–{{
+        risk.policy.very_high_score - 1
+      }}
+      · medium {{ risk.policy.medium_score }}–{{ risk.policy.high_score - 1 }} · low 0–{{
+        risk.policy.medium_score - 1
+      }}. Low includes zero-score documents; only positive scores enter the priority list. Scores
+      are capped at {{ risk.policy.max_score }}.
     </n-text>
   </n-card>
 </template>
@@ -85,26 +94,31 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useThemeVars } from 'naive-ui'
+import { accessibleTagColors } from '@/features/compliance/api/compdocStatusColors'
 import type {
   DashboardRiskLevel,
+  DashboardRiskSeverity,
   DashboardRiskSummary
 } from '@/features/compliance/models/compdocDashboard'
 import { STATUS_PRESENTATION } from '@/features/compliance/api/compdocChartData'
 
 const props = defineProps<{ project: string; risk: DashboardRiskSummary }>()
 const router = useRouter()
+const themeVars = useThemeVars()
 const selectedLevel = ref('all')
 const levelOptions = [
   { label: 'All priorities', value: 'all' },
+  { label: 'Very high risk', value: 'very_high' },
   { label: 'High risk', value: 'high' },
   { label: 'Medium risk', value: 'medium' },
   { label: 'Low risk', value: 'low' }
 ]
 const levelPresentation = [
+  { level: 'very_high', label: 'Very high', color: '#881337' },
   { level: 'high', label: 'High', color: '#ef4444' },
   { level: 'medium', label: 'Medium', color: '#f59e0b' },
-  { level: 'low', label: 'Low', color: '#3b82f6' },
-  { level: 'none', label: 'No signals', color: '#22c55e' }
+  { level: 'low', label: 'Low', color: '#3b82f6' }
 ] as const
 const summaryItems = computed(() =>
   levelPresentation.map((item) => ({ ...item, count: props.risk.counts[item.level] || 0 }))
@@ -120,11 +134,15 @@ const emptyDescription = computed(() =>
     : 'No active risk signals.'
 )
 
-function levelType(level: DashboardRiskLevel) {
+function priorityColor(level: DashboardRiskLevel) {
+  const color = levelPresentation.find((item) => item.level === level)!.color
+  return accessibleTagColors(color, themeVars.value.cardColor)
+}
+
+function levelType(level: DashboardRiskSeverity) {
   if (level === 'high') return 'error'
   if (level === 'medium') return 'warning'
-  if (level === 'low') return 'info'
-  return 'success'
+  return 'info'
 }
 
 function statusLabel(value: string) {

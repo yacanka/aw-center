@@ -28,8 +28,8 @@ class DashboardTests(TestCase):
 
     def document(self, name="Document", events=(), **values):
         document = ComplianceDocument.objects.create(
-            project=self.project, cover_page=self.cover,
-            **{"panel": self.panel, "name": name, "number": name, **values},
+            project=self.project,
+            **{"cover_page": self.cover, "panel": self.panel, "name": name, "number": name, **values},
         )
         WorkflowEvent.objects.bulk_create([
             WorkflowEvent(
@@ -69,7 +69,7 @@ class DashboardTests(TestCase):
         )
         self.document(
             "In review", panel=self.other_panel, status="authority_review",
-            target_date=date(2026, 7, 2), release_date=date(2026, 7, 3),
+            target_date=date(2026, 7, 2), release_date=date(2026, 6, 3),
             events=[
                 ("to_be_issued", date(2026, 7, 2)),
                 ("airworthiness_review", date(2026, 7, 3)),
@@ -111,7 +111,7 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["panels"][0]["id"], "unassigned")
         self.assertEqual(summary["data_quality"]["missing_panel"], 1)
         self.assertEqual(summary["data_quality"]["unknown_status"], 1)
-        self.assertEqual(summary["risk"]["priorities"], [])
+        self.assertEqual(summary["risk"]["priorities"][0]["score"], 80)
 
     def test_named_panel_groups_use_complete_analytics_across_ata_chapters(self):
         self.document(
@@ -157,7 +157,7 @@ class DashboardTests(TestCase):
         self.assertEqual(summary["total"], 0)
         self.assertEqual(summary["panels"], [])
         self.assertEqual(summary["panel_groups"], [])
-        self.assertEqual(summary["risk"]["counts"], {"high": 0, "medium": 0, "low": 0, "none": 0})
+        self.assertEqual(summary["risk"]["counts"], {"very_high": 0, "high": 0, "medium": 0, "low": 0})
         for metric in summary["performance"].values():
             self.assertEqual(metric, {"filled": 0, "empty": 0, "percentage": 0})
 
@@ -258,6 +258,28 @@ class DashboardTests(TestCase):
         ])
         self.assertEqual(summary["performance"]["scheduled"]["filled"], 1)
         self.assertEqual(summary["timeline"]["today"], [{"x": "22.07.2026", "y": 1}])
+
+    def test_risk_uses_canonical_fields_in_project_ata_and_panel_scopes(self):
+        self.document("Replanned", status="authority_approved", target_date=date(2026, 1, 1),
+                      revised_target_date=date(2026, 9, 1))
+        self.document("Review", status="authority_review", target_date=date(2026, 1, 1),
+                      release_date=date(2026, 5, 22))
+        self.document("Unknown", status="unknown", target_date=date(2026, 9, 1))
+        blank_cover = CoverPage.objects.create(project=self.project, number="")
+        self.document("No cover", cover_page=blank_cover, status="authority_approved",
+                      target_date=date(2026, 9, 1))
+        with self.assertNumQueries(4):
+            summary = build_dashboard(self.project, today=TODAY)
+        risk = summary["risk"]
+        self.assertEqual(risk["counts"], {"very_high": 0, "high": 0, "medium": 1, "low": 3})
+        self.assertEqual(risk["at_risk_count"], 3)
+        self.assertEqual({item["name"]: item["score"] for item in risk["priorities"]},
+                         {"Review": 30, "Unknown": 20, "No cover": 20})
+        self.assertEqual(summary["panels"][0]["analytics"]["risk"], risk)
+        self.assertEqual(summary["panel_groups"][0]["analytics"]["risk"], risk)
+        unknown = next(item for item in risk["priorities"] if item["name"] == "Unknown")
+        self.assertEqual(unknown["signals"][0]["code"], "missing_status")
+        self.assertEqual(unknown["status"], "unknown")
 
     def test_dashboard_preserves_project_authorization_and_response_privacy(self):
         self.document(number=None, notes="Internal notes", path="private/path")

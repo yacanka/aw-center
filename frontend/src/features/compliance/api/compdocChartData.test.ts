@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createTimelineChartData } from './compdocChartData'
+import {
+  createStatusChartData,
+  createStatusChartRows,
+  createTimelineChartData
+} from './compdocChartData'
 import { createTimelineChartOptions } from './compdocChartAxisOptions'
 import { dashboardAnalytics } from '../models/compdocDashboard.fixtures'
 
@@ -74,4 +78,28 @@ it('handles empty timelines without inventing a revision series', () => {
     0
   )
   expect(data.datasets.map((row) => row.data)).toEqual([[], []])
+})
+
+it('creates zero-safe doughnut data and anchored stepped burndown lines', () => {
+  const rows = createStatusChartRows({ to_be_issued: 3, authority_approved: 1, delayed: 0 })
+  const statusData = createStatusChartData(rows)
+  const timelineData = createTimelineChartData(
+    {
+      scheduled: [{ x: '20.07.2026', y: 3 }],
+      actual: [{ x: '21.07.2026', y: 2 }],
+      today: [{ x: '22.07.2026', y: 2 }],
+      last_scheduled: null,
+      last_actual: null
+    },
+    4
+  )
+
+  const points = timelineData.datasets.map((row) => row.data as Array<{ x: number; y: number }>)
+  expect(statusData.datasets[0].data).toEqual([3, 1])
+  expect(statusData.labels).toEqual(['In Design', 'Authority Approved'])
+  expect(timelineData.datasets[0].stepped).toBe('before')
+  expect(points[0].map((point) => point.y)).toEqual([4, 3, 3, 3])
+  expect(points[1].map((point) => point.y)).toEqual([4, 4, 2, 2])
+  expect(points[0][0].y).toBe(4)
+  expect(typeof points[0][0].x).toBe('number')
 })

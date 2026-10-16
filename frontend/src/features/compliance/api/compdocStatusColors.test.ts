@@ -13,6 +13,18 @@ for (const theme of [lightTheme, darkTheme]) {
   })
 }
 
+it('keeps the four risk level colors readable in both provider themes', () => {
+  for (const theme of [lightTheme, darkTheme]) {
+    for (const color of ['#881337', '#ef4444', '#f59e0b', '#3b82f6']) {
+      const colors = accessibleTagColors(color, theme.common!.cardColor!)!
+      expect(
+        ratio(colors.color, colors.textColor),
+        `${theme.name}: ${color}`
+      ).toBeGreaterThanOrEqual(4.5)
+    }
+  }
+})
+
 it('uses native theme styling for unrecognized statuses or unsupported surfaces', () => {
   expect(statusTagColors('custom', '#fff')).toBeUndefined()
   expect(accessibleTagColors('#c2410c', 'var(--surface)')).toBeUndefined()
