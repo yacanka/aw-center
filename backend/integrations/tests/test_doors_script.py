@@ -1,12 +1,13 @@
 """Contract tests for standalone Excel-to-DXL generation (no DOORS runtime)."""
 
+from datetime import date, datetime
 from io import BytesIO
 
 from django.test import SimpleTestCase
 from openpyxl import Workbook
 
 from integrations.doors.serializers import ScriptGenerationSerializer
-from integrations.doors.views import generate_dxl_script
+from integrations.doors.views import calendar_date, generate_dxl_script
 
 
 class DoorsScriptGenerationTests(SimpleTestCase):
@@ -34,19 +35,19 @@ class DoorsScriptGenerationTests(SimpleTestCase):
     def test_all_unique_values_are_required_for_a_match(self):
         script = self.generate()["script"]
         self.assertIn(
-            'awc_attribute_equals(candidate, "Identifier", awc_arr_1[row])', script
+            'awc_attribute_matches(candidate, "Identifier", awc_arr_1[row], awc_dates_1[row], false)', script
         )
         self.assertIn(
-            '&& awc_attribute_equals(candidate, "Group", awc_arr_2[row])', script
+            '&& awc_attribute_matches(candidate, "Group", awc_arr_2[row], awc_dates_2[row], false)', script
         )
-        self.assertNotIn('|| awc_attribute_equals', script)
+        self.assertNotIn('|| awc_attribute_matches', script)
 
     def test_update_visits_all_matches_and_keeps_keys_read_only(self):
         script = self.generate()["script"]
         self.assertIn("for o in entire(refModule) do", script)
         self.assertIn("if (!awc_matches(o, i)) continue", script)
         self.assertNotIn("break", script)
-        self.assertIn('SetObjectAttribute(o, "Object Text", awc_arr_3[i])', script)
+        self.assertIn('SetObjectAttribute(o, "Object Text", awc_arr_3[i], awc_dates_3[i])', script)
         self.assertNotIn('SetObjectAttribute(o, "Identifier",', script)
         self.assertNotIn('SetObjectAttribute(o, "Group",', script)
         self.assertIn("Object not found", script)
@@ -62,9 +63,9 @@ class DoorsScriptGenerationTests(SimpleTestCase):
         self.assertIn("if (null awc_tail) o = create(source)", script)
         self.assertIn("else o = create after awc_tail", script)
         self.assertIn("if (level(awc_candidate) == 1) awc_tail = awc_candidate", script)
-        self.assertIn('SetObjectAttribute(o, "Identifier", awc_arr_1[i])', script)
-        self.assertIn('SetObjectAttribute(o, "Group", awc_arr_2[i])', script)
-        self.assertIn('SetObjectAttribute(o, "Object Text", awc_arr_3[i])', script)
+        self.assertIn('SetObjectAttribute(o, "Identifier", awc_arr_1[i], awc_dates_1[i])', script)
+        self.assertIn('SetObjectAttribute(o, "Group", awc_arr_2[i], awc_dates_2[i])', script)
+        self.assertIn('SetObjectAttribute(o, "Object Text", awc_arr_3[i], awc_dates_3[i])', script)
         # Duplicate detection rescans the live module for each Excel row.
         self.assertLess(
             script.index("for (i ="), script.index("for o in entire(refModule)")
@@ -84,7 +85,7 @@ class DoorsScriptGenerationTests(SimpleTestCase):
     def test_setter_is_self_contained_checked_and_does_not_save(self):
         script = self.generate()["script"]
         self.assertIn(
-            "bool SetObjectAttribute(Object target, string attributeName, string value)",
+            "bool SetObjectAttribute(Object target, string attributeName, string value, string canonical)",
             script,
         )
         self.assertIn("find(module(target), attributeName)", script)
@@ -120,3 +121,90 @@ class DoorsScriptGenerationTests(SimpleTestCase):
             ]
         })
         self.assertFalse(serializer.is_valid())
+
+    def test_mapping_match_modes_default_and_validate(self):
+        serializer = ScriptGenerationSerializer(data={"json": self.mappings})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["json"][0]["match_mode"], "exact")
+        for match_mode in ("contains", "regex"):
+            serializer = ScriptGenerationSerializer(data={"json": [
+                {"excel": "Key", "doors": "Identifier", "search": True,
+                 "match_mode": match_mode},
+            ]})
+            self.assertEqual(serializer.is_valid(), match_mode == "contains")
+
+    def test_mixed_match_modes_use_literal_contains_and_composite_and(self):
+        mappings = [dict(item) for item in self.mappings]
+        mappings[1]["match_mode"] = "contains"
+        for mode in ("update", "create"):
+            script = self.generate(mode, mappings=mappings)["script"]
+            self.assertIn('awc_attribute_matches(candidate, "Identifier", awc_arr_1[row], awc_dates_1[row], true)', script)
+            self.assertIn('&& awc_attribute_matches(candidate, "Group", awc_arr_2[row], awc_dates_2[row], false)', script)
+            self.assertIn("findPlainText(actual, expected, offset, length, true)", script)
+
+    def test_number_fields_are_search_only_in_update_mode(self):
+        for name in ("Object Number", "Absolute Number"):
+            for mode, search, valid in (("update", True, True), ("update", False, False), ("create", True, False)):
+                with self.subTest(name=name, mode=mode, search=search):
+                    serializer = ScriptGenerationSerializer(data={"mode": mode, "json": [
+                        {"excel": "Key", "doors": "Identifier", "search": True},
+                        {"excel": "Text", "doors": name, "search": search},
+                    ]})
+                    self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        script = self.generate(mappings=[
+            {"excel": "Key", "doors": "Object Number", "search": True},
+            {"excel": "Text", "doors": "Object Heading", "search": False},
+        ])["script"]
+        self.assertIn('actual = number(candidate)', script)
+        self.assertLess(script.index("canRead(candidate)"), script.index("actual = number(candidate)"))
+        self.assertNotIn('SetObjectAttribute(o, "Object Number"', script)
+
+    def test_dates_keep_text_values_and_emit_calendar_dates_for_typed_targets(self):
+        for value, text, canonical in (
+            (datetime(2026, 10, 16, 23, 59), "2026-10-16 23:59:00", "2026-10-16"),
+            (date(2024, 2, 29), "2024-02-29 00:00:00", "2024-02-29"),
+            ("16.10.2026", "16.10.2026", "2026-10-16"),
+            ("2026-10-16", "2026-10-16", "2026-10-16"),
+            ("29.02.2025", "29.02.2025", ""),
+            ("01/02/2026", "01/02/2026", ""),
+            (None, "", ""),
+        ):
+            with self.subTest(value=value):
+                script = self.generate(rows=[["REQ-1", "A", value]])["script"]
+                self.assertIn(f'string awc_arr_3[] = {{"{text}"}}', script)
+                self.assertIn(f'string awc_dates_3[] = {{"{canonical}"}}', script)
+        self.assertIn("definition.type", script)
+        self.assertIn("attrDate", script)
+        self.assertIn("target.attributeName = parsed", script)
+        self.assertIn('date(canonical, "yyyy-MM-dd")', script)
+        self.assertIn('stringOf(parsed, "yyyy-MM-dd") != canonical', script)
+        self.assertLess(script.index("awc_validate_value(refModule"), script.index("for o in entire(refModule)"))
+
+    def test_calendar_date_validates_formats_without_guessing_serials_or_locales(self):
+        for value, expected in (
+            (" 29.02.2024 ", "2024-02-29"),
+            ("2024-02-29", "2024-02-29"),
+            (datetime(2026, 10, 16, 23, 59), "2026-10-16"),
+            (date(2026, 10, 16), "2026-10-16"),
+            ("29.02.2025", ""),
+            ("31.04.2026", ""),
+            ("1.2.2026", ""),
+            ("2026-2-01", ""),
+            ("01/02/2026", ""),
+            ("2026-10-16 00:00:00", ""),
+            ('2026-10-16"; delete all', ""),
+            (46311, ""),
+            (None, ""),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(calendar_date(value), expected)
+
+    def test_date_preflight_checks_custom_type_ranges_before_writes(self):
+        script = self.generate(rows=[["REQ-1", "A", "16.10.2026"]])["script"]
+        self.assertIn("bool hasMinimum = attributeType.minValue", script)
+        self.assertIn("Date minimum = attributeType.minValue", script)
+        self.assertIn("belowMinimum = parsed < minimum", script)
+        self.assertIn("Date maximum = attributeType.maxValue", script)
+        self.assertIn("aboveMaximum = parsed > maximum", script)
+        self.assertIn("Date is outside the attribute's allowed range", script)
+        self.assertIn('"Excel row " excelRow " attribute " attributeName', script)

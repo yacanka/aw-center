@@ -8,6 +8,7 @@ export interface DoorsScriptResult {
 }
 
 export type DoorsScriptMode = 'update' | 'create'
+export type DoorsScriptMatchMode = 'exact' | 'contains'
 
 /** Read validated workbook columns for the route-local mapping form. */
 export async function getExcelColumns(workbook: FormData): Promise<string[]> {

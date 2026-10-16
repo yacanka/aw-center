@@ -127,6 +127,7 @@ class ScriptMappingSerializer(serializers.Serializer):
     excel = serializers.CharField(max_length=256, trim_whitespace=True)
     doors = serializers.CharField(max_length=256, trim_whitespace=True)
     search = serializers.BooleanField(default=False)
+    match_mode = serializers.ChoiceField(choices=("exact", "contains"), default="exact")
 
 
 class ScriptGenerationSerializer(serializers.Serializer):
@@ -134,6 +135,17 @@ class ScriptGenerationSerializer(serializers.Serializer):
 
     json = serializers.JSONField(write_only=True)
     mode = serializers.ChoiceField(choices=("update", "create"), default="update")
+
+    def validate(self, attributes):
+        for item in attributes["json"]:
+            if item["doors"].casefold() in {"object number", "absolute number"}:
+                if attributes["mode"] != "update" or not item["search"]:
+                    raise serializers.ValidationError(
+                        "Object Number and Absolute Number are read-only; "
+                        "use them only as Unique Attributes in update mode."
+                    )
+                item["doors"] = item["doors"].title()
+        return attributes
 
     def validate_json(self, mappings):
         """Require at least one unique key and unambiguous mappings."""

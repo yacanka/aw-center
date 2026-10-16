@@ -37,6 +37,13 @@ class DoorsAttributeReadTests(SimpleTestCase):
             self.read_client(["OK\tLIST_ATTRIBUTES_DONE"]).list_attributes("/P/M"), []
         )
 
+    def test_discovery_includes_builtins_without_duplicate_protocol_records(self):
+        script = builder_read.list_attributes("/P/M")
+        for name in ("Object Heading", "Object Number", "Absolute Number"):
+            self.assertIn(f'awc_emit("ATTRIBUTE\\t{name}")', script)
+            self.assertIn(f'awc_attribute.name == "{name}"', script)
+        self.assertIn("int awc_count = 3", script)
+
     def test_client_rejects_truncated_partial_or_malformed_lists(self):
         for lines in (
             ["ATTRIBUTE\tName"],

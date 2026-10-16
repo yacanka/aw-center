@@ -1,5 +1,7 @@
 """Pure, request-scoped DOORS script generation endpoints."""
 
+from datetime import date, datetime
+
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -49,8 +51,8 @@ def generate_dxl_script(excel_file, mappings, mode="update"):
     """Read one bounded worksheet and return a deterministic JSON-safe result."""
 
     ordered_mappings = sorted(mappings, key=lambda item: not item["search"])
-    rows, excel_row_numbers = read_mapped_rows(excel_file, ordered_mappings)
-    script = build_script(ordered_mappings, rows, excel_row_numbers, mode)
+    rows, excel_row_numbers, date_rows = read_mapped_rows(excel_file, ordered_mappings)
+    script = build_script(ordered_mappings, rows, excel_row_numbers, mode, date_rows)
     if len(script.encode("utf-8")) > MAX_SCRIPT_BYTES:
         raise ScriptGenerationError(
             "The generated script exceeds the safety limit.",
@@ -88,6 +90,7 @@ def read_mapped_rows(excel_file, mappings):
         headers = read_headers(worksheet)
         positions = resolve_mapping_positions(headers, mappings)
         rows = []
+        date_rows = []
         excel_row_numbers = []
         source_bytes = 0
         maximum_column = max(positions) + 1
@@ -102,20 +105,22 @@ def read_mapped_rows(excel_file, mappings):
         ):
             row = [normalize_cell(source_row[position]) for position in positions]
             if any(row):
-                source_bytes += sum(len(value.encode("utf-8")) for value in row)
+                dates = [calendar_date(source_row[position]) for position in positions]
+                source_bytes += sum(len(value.encode("utf-8")) for value in row + dates)
                 if source_bytes > MAX_SCRIPT_SOURCE_BYTES:
                     raise ScriptGenerationError(
                         "The generated script exceeds the safety limit.",
                         "DOORS_SCRIPT_SIZE_LIMIT",
                     )
                 rows.append(row)
+                date_rows.append(dates)
                 excel_row_numbers.append(excel_row_number)
         if not rows:
             raise ScriptGenerationError(
                 "The workbook has no mapped data rows.",
                 "DOORS_WORKBOOK_EMPTY",
             )
-        return rows, excel_row_numbers
+        return rows, excel_row_numbers, date_rows
     except ScriptGenerationError:
         raise
     except Exception as error:
@@ -183,3 +188,27 @@ def normalize_cell(value):
             "DOORS_WORKBOOK_CELL_LIMIT",
         )
     return text
+
+
+def calendar_date(value):
+    """Carry a date-only companion without changing strings sent to text targets.
+
+    Invalid date text stays valid text. The generated script rejects it only
+    when the module's actual attribute type requires a date.
+    """
+
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    for pattern in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            parsed = datetime.strptime(text, pattern).date()
+        except ValueError:
+            continue
+        if parsed.strftime(pattern) == text:
+            return parsed.isoformat()
+    return ""
