@@ -59,24 +59,25 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useThemeVars } from 'naive-ui'
 import { formatTurkishDate } from '@/shared/utils/time'
 import { withCompdocDisplayStatus } from '@/features/compliance/api/compdocStatus'
-import { statusColors } from '@/features/compliance/api/compdocCatalog'
+import { statusTagColors } from '@/features/compliance/api/compdocStatusColors'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import { humanizeCompdocStatus } from '@/features/compliance/api/compdocWorkspace'
 import { useMediaQuery } from '@/shared/composables/mediaQuery'
 
 const props = defineProps<{ compdoc: ICompDoc; readonly: boolean }>()
 const displayDocument = computed(() => withCompdocDisplayStatus(props.compdoc))
-const statusColor = computed(() => {
-  const colors =
-    statusColors[
-      displayDocument.value.status_label === 'In Design (date missing)'
-        ? 'missing_target'
-        : displayDocument.value.status
-    ]
-  return colors ? { color: colors.color25, textColor: colors.color } : undefined
-})
+const themeVars = useThemeVars()
+const statusColor = computed(() =>
+  statusTagColors(
+    displayDocument.value.status_label === 'In Design (date missing)'
+      ? 'missing_target'
+      : displayDocument.value.status,
+    themeVars.value.cardColor
+  )
+)
 const isNarrow = useMediaQuery('(max-width: 640px)')
 
 function statusLabel(status: string): string {

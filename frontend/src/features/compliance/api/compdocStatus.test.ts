@@ -44,12 +44,13 @@ it('uses the requested default labels and colors consistently in tables and char
   expect(rows.find((row) => row.value === 'expected')?.label).toBe('In Design')
   expect(rows.find((row) => row.value === 'missing_target')?.label).toBe('In Design (date missing)')
   expect(rows.find((row) => row.value === 'airworthiness_review')?.label).toBe('Aw Review')
-  expect(statusColors.airworthiness_review.color).toBe('#f97316')
-  expect(statusColors.authority_review.color).toBe('#eab308')
+  expect(statusColors.airworthiness_review.color).toBe('#c2410c')
+  expect(statusColors.authority_review.color).toBe('#e8cd67')
   expect(statusColors['to_be_re-submitted'].color).toBe('#3b82f6')
   expect(statusColors.to_be_updated.color).toBe('#3b82f6')
   expect(statusColors.to_be_issued.color).toBe('#94a3b8')
   expect(statusColors.missing_target.color).toBe('#64748b')
+  for (const row of rows) expect(row.color).toBe(statusColors[row.value].color)
 })
 
 it('preserves customized project labels for known default codes', () => {

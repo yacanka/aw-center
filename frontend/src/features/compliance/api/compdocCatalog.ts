@@ -14,11 +14,13 @@ export interface StatusColorSet {
 
 export const statusColors: Record<string, StatusColorSet> = {
   to_be_issued: colorSet('#94a3b8'),
+  expected: colorSet('#94a3b8'),
+  unknown: colorSet('#94a3b8'),
   missing_target: colorSet('#64748b'),
-  airworthiness_review: colorSet('#f97316'),
+  airworthiness_review: colorSet('#c2410c'),
   'to_be_re-submitted': colorSet('#3b82f6'),
   to_be_updated: colorSet('#3b82f6'),
-  authority_review: colorSet('#eab308'),
+  authority_review: colorSet('#e8cd67'),
   authority_approved: colorSet('#C6EFCE'),
   delayed: colorSet('#FFC7CE')
 }

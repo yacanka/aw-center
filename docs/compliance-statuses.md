@@ -63,3 +63,11 @@ migration, content-copy step or unfinished-allocation guard is needed in this
 fresh-only baseline. Browser-local column layouts from earlier metadata versions
 reset to recommended columns; other preferences are unaffected. No legacy API
 aliases are provided.
+
+## Status presentation (issue #124)
+
+Tables, workflow forms, document details and dashboard charts share one semantic
+color catalog. Aw Review uses `#c2410c`; Authority Review uses `#e8cd67`. Status
+tags blend that color with the inherited Naive UI card surface and adjust text
+brightness to maintain at least 4.5:1 contrast in light and dark themes. Custom
+status codes use the native themed tag fallback.
