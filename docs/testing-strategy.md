@@ -192,6 +192,37 @@ Python 3.11 ortamında hedefli doğrulama:
 python backend/manage.py test awcenter.test_architecture awcenter.test_database_settings jobs.tests.test_isolated_worker compliance.test_imports compliance.test_import_concurrency compliance.test_doors_imports
 ```
 
+## Reset kilidi ve gerçek FFmpeg doğrulaması
+
+`compliance.test_reset_concurrency`, reset hazırlığının devam eden HTTP yazmasını
+beklediğini, bu yazmanın sonucunu gördüğünü ve sonradan gelen yazmayı 409 ile
+engellediğini gerçek ayrı bağlantılarla doğrular. Test hem PostgreSQL row lock'ı
+hem dosya tabanlı SQLite write fence'i için çalışır; `select_for_update` desteğine
+göre atlanmaz. SQLite için varsayılan dosya tabanlı test çalıştırıcısını kullanın.
+Windows CI bu senaryoyu SQLite test listesinde ayrıca çalıştırır.
+
+`jobs.tests.test_worker.JobWorkerTests.test_real_ffmpeg_executor_completes_when_available`,
+gerçek worker üzerinden JPEG'i PNG'ye dönüştürür ve çıktının okunabilir PNG,
+16 × 16 piksel olduğunu doğrular. Test `FFMPEG_EXECUTABLE` ayarına uyar; ikili PATH
+üzerinde veya açık bir dosya yolunda bulunabilir. İkili yoksa local test açık bir
+skip nedeni raporlar. Linux backend ve compatibility CI adımları testlerden önce
+FFmpeg'i doğrular, yoksa sistem paketinden kurar; eksik ikili CI hatasıdır.
+
+Repository kökünden, Python 3.11 ortamı ve doğrulanmış bir FFmpeg kurulumu ile:
+
+```bash
+# FFMPEG_EXECUTABLE varsayılan olarak PATH üzerindeki ffmpeg'dir.
+# Gerekirse process environment'ta kurulu ikilinin tam yolunu belirtin.
+python backend/manage.py test compliance.test_reset_concurrency \
+  awcenter.test_database_settings \
+  jobs.tests.test_worker.JobWorkerTests.test_real_ffmpeg_executor_completes_when_available \
+  --verbosity 2
+```
+
+Bu kontroller uygulama veritabanını sıfırlamaz; Django disposable test veritabanını
+ve geçici private-artifact dizinlerini kullanır. FFmpeg ikilisi kaynak veya Python
+lock dosyasına eklenmez.
+
 ## CI ve release gate
 
 GitHub Actions jobs:

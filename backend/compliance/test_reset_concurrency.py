@@ -5,7 +5,7 @@ from threading import Event
 
 from django.db import connections
 from django.http import JsonResponse
-from django.test import RequestFactory, TransactionTestCase, override_settings, skipUnlessDBFeature
+from django.test import RequestFactory, TransactionTestCase, override_settings
 
 from awcenter.developer_reset_middleware import DeveloperResetWriteMiddleware
 from orgs.models import Person
@@ -16,10 +16,9 @@ from .reset_guard import lock_reset_state
 
 @override_settings(DEBUG=True, AWCENTER_DEPLOYMENT_MODE="development")
 class ResetConcurrencyTests(TransactionTestCase):
-    @skipUnlessDBFeature("has_select_for_update")
     def test_preparation_waits_for_inflight_write_and_blocks_later_writes(self):
-        # PostgreSQL exercises separate connections and a real row lock. SQLite's
-        # in-memory shared-cache test DB fails immediately on competing writers.
+        # The runner supplies a disk-backed SQLite database. Its write fence and
+        # PostgreSQL's row lock must both serialize these independent connections.
         DeveloperResetState.objects.create(pk=1)
         entered = Event()
         finish_write = Event()
