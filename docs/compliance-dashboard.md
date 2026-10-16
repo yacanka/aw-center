@@ -24,6 +24,11 @@ both the chart arcs and the accompanying lists. Empty publication groups retain
 their heading and empty message; an all-zero distribution shows the existing empty
 state. The API counts and project status catalog are unchanged.
 
+The **Accumulated pending days** card is temporarily hidden by
+`SHOW_PENDING_DAYS` in `CompDocTimelineDashboard.vue` (issue #126). Preserve its
+chart code, helpers, tests and backend `pending_days` aggregation/API for future
+restoration. Burndown and Flow performance remain visible.
+
 ## Metric definitions
 
 - The status chart derives **Delayed** from an unissued document whose current target

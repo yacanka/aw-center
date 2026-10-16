@@ -135,6 +135,16 @@ describe('compliance dashboard scope', () => {
     expect(wrapper.findComponent({ name: 'DoughnutChart' }).exists()).toBe(false)
   })
 
+  it('hides pending days while keeping burndown, flow metrics and the API data', async () => {
+    const wrapper = await dashboard()
+    const timeline = wrapper.findComponent(CompDocTimelineDashboard)
+    expect(timeline.text()).toContain('Schedule and delivery burndown')
+    expect(timeline.find('.metric-card').exists()).toBe(true)
+    expect(timeline.text()).not.toContain('Accumulated pending days')
+    expect(timeline.findComponent({ name: 'BarChart' }).exists()).toBe(false)
+    expect(timeline.props('pendingDays')).toEqual({ authority: 0, ubm: 20, aw: 0 })
+  })
+
   it('panel focus updates every chart and risk scope, and switching modes clears focus', async () => {
     const summary = dashboardSummary()
     summary.total = 10
@@ -147,9 +157,9 @@ describe('compliance dashboard scope', () => {
       [3]
     )
     expect(wrapper.findComponent({ name: 'LineChart' }).props('data').datasets[1].data[0].y).toBe(3)
-    expect(wrapper.findComponent({ name: 'BarChart' }).props('data').datasets[0].data).toEqual([
-      0, 20, 0
-    ])
+    expect(
+      Object.values(wrapper.findComponent(CompDocTimelineDashboard).props('pendingDays'))
+    ).toEqual([0, 20, 0])
     expect(
       wrapper.findComponent(CompDocTimelineDashboard).props('performance').scheduled.filled
     ).toBe(3)
@@ -211,16 +221,16 @@ describe('compliance dashboard scope', () => {
     expect(cards[1].text()).toContain('100%')
   })
 
-  it('double-click updates doughnut, burndown, bars, performance and risk together', async () => {
+  it('double-click updates doughnut, burndown, retained pending data, performance and risk together', async () => {
     const wrapper = await dashboard()
     await wrapper.findAll('tr')[0].trigger('dblclick')
     expect(wrapper.findComponent({ name: 'DoughnutChart' }).props('data').datasets[0].data).toEqual(
       [1]
     )
     expect(wrapper.findComponent({ name: 'LineChart' }).props('data').datasets[1].data[0].y).toBe(1)
-    expect(wrapper.findComponent({ name: 'BarChart' }).props('data').datasets[0].data).toEqual([
-      0, 3, 0
-    ])
+    expect(
+      Object.values(wrapper.findComponent(CompDocTimelineDashboard).props('pendingDays'))
+    ).toEqual([0, 3, 0])
     expect(
       wrapper.findComponent(CompDocTimelineDashboard).props('performance').scheduled.filled
     ).toBe(1)
@@ -232,9 +242,9 @@ describe('compliance dashboard scope', () => {
       [3]
     )
     expect(wrapper.findComponent({ name: 'LineChart' }).props('data').datasets[1].data[0].y).toBe(3)
-    expect(wrapper.findComponent({ name: 'BarChart' }).props('data').datasets[0].data).toEqual([
-      0, 20, 0
-    ])
+    expect(
+      Object.values(wrapper.findComponent(CompDocTimelineDashboard).props('pendingDays'))
+    ).toEqual([0, 20, 0])
     expect(wrapper.findComponent(CompDocRiskDashboard).props('risk').at_risk_count).toBe(3)
   })
 
