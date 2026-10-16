@@ -36,7 +36,7 @@
       </div>
     </n-card>
 
-    <n-card class="chart-card" :bordered="false">
+    <n-card v-if="SHOW_PENDING_DAYS" class="chart-card" :bordered="false">
       <template #header>
         <div>
           <div class="card-title">Accumulated pending days</div>
@@ -69,6 +69,9 @@ import {
   createPendingChartOptions,
   createTimelineChartOptions
 } from '@/features/compliance/api/compdocChartAxisOptions'
+
+// #126: temporarily hidden; retain the chart, helpers and pending_days API for restoration.
+const SHOW_PENDING_DAYS = false
 
 const props = defineProps<{
   documentCount: number

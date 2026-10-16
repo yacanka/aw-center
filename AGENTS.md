@@ -10,6 +10,8 @@
 - Frontend composition ve route'ları `frontend/src/app/`; ortak HTTP/CSRF, hata, download ve küçük primitive'ler `frontend/src/shared/`; business UI/API/composable'ları `frontend/src/features/<feature>/` içindedir; JIRA yüzeyi `frontend/src/features/integrations/jira/` altındadır. Session bootstrap/guard `features/session/`, proje kataloğu `features/projects/` altındadır. Component/page doğrudan Axios/shared HTTP client import etmez; feature API veya composable kullanır.
 - Kök `launcher.py` local setup/check/test/dev/offline-package akışlarına ek olarak Windows-native `prod` lifecycle'ını yönetir. `prod`; repository dışındaki explicit environment/TLS dosyası, statik IPv4, SQLite, tek ASGI server ve launcher-owned worker process'leri kullanır. Davranışı `scripts/launcher/`, testleri `scripts/test_launcher*.py` içindedir.
 
+- Compliance dashboard’daki “Accumulated pending days” kartı #126 kapsamında `SHOW_PENDING_DAYS = false` ile geçici olarak gizlidir. Gelecekte geri açılabilmesi için grafik kodunu, yardımcılarını, testlerini ve backend `pending_days` hesabı/API sözleşmesini silme; burndown ve Flow performance görünür kalır.
+
 ## Arayüz ve tema sözleşmesi
 
 - Mevcut arayüz Naive UI temelli, ortak uygulama kabuğu içinde sade, okunabilir ve responsive iş ekranlarından oluşur. Yeni veya güncellenen sayfalar bu görsel bağlamı korur; bağımsız renk paleti, font veya ayrı tasarım konsepti oluşturma.
