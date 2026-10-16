@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -77,12 +78,12 @@ class JobWorkerTests(JobTestCase):
         self.assertFalse(staging.exists())
         self.assertFalse(orphan.exists())
 
-    @override_settings(FFMPEG_EXECUTABLE="ffmpeg", JOB_EXECUTION_TIMEOUT_SECONDS=30)
+    @override_settings(JOB_EXECUTION_TIMEOUT_SECONDS=30)
     def test_real_ffmpeg_executor_completes_when_available(self):
         """Exercise the complete durable media adapter with the installed FFmpeg."""
 
-        if not shutil.which("ffmpeg"):
-            self.skipTest("FFmpeg is not installed in this test environment.")
+        if not shutil.which(settings.FFMPEG_EXECUTABLE):
+            self.skipTest("Configured FFmpeg executable is unavailable in this test environment.")
         job, _ = create_job(
             self.user, "media.convert", "Convert", {"output_extension": "png"},
             self.valid_jpeg_upload(),
@@ -94,6 +95,10 @@ class JobWorkerTests(JobTestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatus.SUCCEEDED)
         self.assertGreater(job.output_file.size, 0)
+        with job.output_file.open("rb") as output, Image.open(output) as image:
+            self.assertEqual(image.format, "PNG")
+            self.assertEqual(image.size, (16, 16))
+            image.verify()
 
     def test_composition_catalog_rejects_unknown_job_kind(self):
         """Persisted kind data cannot select an arbitrary import or callback."""
