@@ -33,13 +33,14 @@ export interface DashboardDataQuality {
   blank_cover_page: number
 }
 
-export type DashboardRiskLevel = 'high' | 'medium' | 'low' | 'none'
+export type DashboardRiskLevel = 'very_high' | 'high' | 'medium' | 'low'
+export type DashboardRiskSeverity = 'high' | 'medium' | 'low'
 
 export interface DashboardRiskSignal {
   code: string
   label: string
   points: number
-  severity: Exclude<DashboardRiskLevel, 'none'>
+  severity: DashboardRiskSeverity
   observed: number
   threshold: number
   unit: 'days' | 'cycles' | 'missing'
@@ -54,16 +55,15 @@ export interface DashboardRiskPriority {
   status: string
   stage_age_days: number
   score: number
-  level: Exclude<DashboardRiskLevel, 'none'>
+  level: DashboardRiskLevel
   signals: DashboardRiskSignal[]
 }
 
 export interface DashboardRiskPolicy {
   version: number
+  very_high_score: number
   high_score: number
   medium_score: number
-  long_wait_days: number
-  authority_aging_days: number
   max_score: number
   priority_limit: number
 }

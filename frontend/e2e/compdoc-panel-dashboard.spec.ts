@@ -44,6 +44,31 @@ for (const theme of ['light', 'dark'] as const) {
           }
           const overview = dashboardAnalytics(7, 27)
           overview.timeline.revised_scheduled = [{ x: '10.07.2026', y: 0 }]
+          overview.cat_counts.B = 0
+          overview.publication.issued.status_counts.authority_review = 0
+          overview.publication.not_issued.status_counts.expected = 0
+          overview.unissued_moc_counts['2'] = 0
+          overview.risk.counts = { very_high: 1, high: 1, medium: 1, low: 4 }
+          overview.risk.at_risk_count = 4
+          overview.risk.average_score = 32.9
+          overview.risk.max_score = 100
+          const source = overview.risk.priorities[0]
+          overview.risk.priorities = (['very_high', 'high', 'medium', 'low'] as const).map(
+            (level, index) => ({
+              ...source,
+              document_id: `priority-${index}`,
+              name: `Risk level ${index}`,
+              level,
+              score: [100, 80, 30, 20][index],
+              signals: [
+                {
+                  ...source.signals[0],
+                  points: [100, 80, 30, 20][index],
+                  severity: index === 3 ? 'medium' : 'high'
+                }
+              ]
+            })
+          )
           body = {
             ...summary,
             ...overview,
@@ -71,6 +96,28 @@ for (const theme of ['light', 'dark'] as const) {
       )
       await expect(catCard.locator('.moc-distribution')).toContainText('Unspecified7100%')
       await expect(catCard.locator('.status-row')).toContainText('A7100%')
+      await expect(distributions.first().locator('.status-row')).toHaveCount(1)
+      await expect(catCard.locator('.status-row')).toHaveCount(1)
+      await expect(catCard.locator('.moc-row')).toHaveCount(1)
+      await expect(page.getByText('Accumulated pending days', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('Flow performance', { exact: true })).toBeVisible()
+      const riskCard = page.locator('.risk-card')
+      await expect(riskCard.locator('.summary-item').nth(0)).toContainText('Very high1')
+      await expect(riskCard.locator('.summary-item').nth(3)).toContainText('Low4')
+      await expect(riskCard.locator('.priority-header')).toHaveCount(4)
+      await riskCard.locator('.n-base-selection').click()
+      await page.getByText('Very high risk', { exact: true }).click()
+      await expect(page.locator('.n-base-select-menu:visible')).toHaveCount(0)
+      await expect(riskCard.locator('.priority-header')).toHaveCount(1)
+      await expect(riskCard.locator('.priority-header')).toContainText('Risk level 0')
+      await page.screenshot({
+        path: `test-results/risk-very-high-${theme}-${width}.png`,
+        animations: 'disabled'
+      })
+      await riskCard.locator('.n-base-selection').click()
+      await page.getByText('All priorities', { exact: true }).last().click()
+      await expect(riskCard.locator('.priority-header')).toHaveCount(4)
+
       // Distribution cards use a transparent gradient over the inherited theme surface.
       const cardTheme = await card.evaluate((node) =>
         getComputedStyle(node).getPropertyValue('--n-color')

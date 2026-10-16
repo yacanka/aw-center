@@ -23,7 +23,7 @@ vi.mock('@/features/session/stores/session', () => ({
 }))
 vi.mock('naive-ui', () => ({
   useMessage: () => ({ warning: mocks.warning }),
-  useThemeVars: () => ({ value: { textColor3: '#888' } })
+  useThemeVars: () => ({ value: { textColor3: '#888', cardColor: '#fff' } })
 }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('vue-chartjs', () => {
@@ -74,6 +74,8 @@ const stubs = {
   NDataTable: Table,
   NProgress: true,
   NTag: {
+    name: 'NTag',
+    props: ['color', 'type'],
     emits: ['close'],
     template: '<span><slot /><button @click="$emit(\'close\')">Clear scope</button></span>'
   },
@@ -280,6 +282,63 @@ describe('compliance dashboard scope', () => {
     await flushPromises()
     expect(catCard().findAll('.status-row')).toHaveLength(0)
     expect(catCard().findComponent({ name: 'DoughnutChart' }).exists()).toBe(false)
+  })
+
+  it('shows four risk levels, filters very-high priorities and counts zero-score documents as low', async () => {
+    const summary = dashboardSummary()
+    summary.risk.counts = { very_high: 1, high: 1, medium: 1, low: 2 }
+    summary.risk.at_risk_count = 4
+    const source = summary.risk.priorities[0]
+    summary.risk.priorities = (['very_high', 'high', 'medium', 'low'] as const).map(
+      (level, index) => ({
+        ...source,
+        document_id: `priority-${index}`,
+        name: `Priority ${index}`,
+        level,
+        score: [90, 70, 30, 20][index]
+      })
+    )
+    const risk = mount(CompDocRiskDashboard, {
+      props: { project: 'ozgur', risk: summary.risk },
+      global: { stubs }
+    })
+    wrappers.push(risk)
+    expect(
+      risk
+        .findAll('.summary-item')
+        .slice(0, 4)
+        .map((item) => item.text())
+    ).toEqual(['Very high1', 'High1', 'Medium1', 'Low2'])
+    expect(risk.text()).not.toContain('No signals')
+    expect(risk.text()).toContain('only positive scores enter the priority list')
+    const headers = risk.findAll('.priority-header')
+    expect(headers).toHaveLength(4)
+    const colors = headers.map((header) => header.findComponent({ name: 'NTag' }).props('color'))
+    expect(new Set(colors.map((color) => color.color)).size).toBe(4)
+    const select = risk.findComponent(stubs.NSelect)
+    expect(select.props('options').map((option: { value: string }) => option.value)).toEqual([
+      'all',
+      'very_high',
+      'high',
+      'medium',
+      'low'
+    ])
+    select.vm.$emit('update:value', 'very_high')
+    await flushPromises()
+    expect(risk.findAll('.priority-header')).toHaveLength(1)
+    expect(risk.find('.priority-header').text()).toContain('Priority 0')
+    summary.risk = {
+      ...summary.risk,
+      at_risk_count: 0,
+      priorities: [],
+      counts: { very_high: 0, high: 0, medium: 0, low: 5 }
+    }
+    await risk.setProps({ risk: summary.risk })
+    expect(risk.findAll('.summary-item')[3].text()).toBe('Low5')
+    expect(risk.findAll('.priority-header')).toHaveLength(0)
+    expect(risk.findComponent({ name: 'NEmpty' }).attributes('description')).toBe(
+      'No active risk signals.'
+    )
   })
 
   it('opens the exact risk document by identifier', async () => {

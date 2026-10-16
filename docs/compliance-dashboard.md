@@ -48,11 +48,50 @@ restoration. Burndown and Flow performance remain visible.
   backwards event intervals are reported and skipped without rewriting history.
 - Overdue actions use `next_action_due_date`, independently of the target.
 
-Risk policy v1 retains the main-branch thresholds and explainable signals: overdue
-targets, long waits, re-submission cycles, missing technical references and authority
-aging. Scores are capped at 100; high starts at 60 and medium at 30. The response
-includes the 25 highest priorities per scope, with deterministic ordering and full
-aggregate counts. Opening a priority uses its document ID. Private document bodies,
+## Risk policy v2 (issue #127)
+
+The effective target is the revised target when present, otherwise the original.
+A recorded release date suppresses overdue and approaching-target points,
+including when the release date is in the future.
+
+| Signal | Points |
+| --- | --- |
+| Unreleased, at least three calendar months overdue | 100 |
+| Unreleased, overdue by less than three calendar months | 80 |
+| Unreleased, target today or before today plus one calendar month | 30 |
+| Each missing effective target, raw status, cover page number, panel or ATA | 20 |
+| Authority Review, release at least one / two calendar months ago | 20 / 30 |
+| Aw Review, release at least 15 days / one calendar month ago | 20 / 30 |
+
+The approaching window includes today and excludes the exact one-month boundary.
+Calendar-month thresholds add months to the starting date and clip at month end
+(for example, 31.01.2027 plus one month is 28.02.2027). Review aging uses the
+release date, never the workflow event date. It adds only the highest applicable
+age tier; absent or future release dates add no review-age points. Blank and
+`unknown` stored statuses count as missing, even if a chart displays a calculated
+status. Custom nonblank statuses are present and have no implicit review semantics.
+
+Independent signals add together and the final score is capped at 100; all reasons
+remain visible even when their sum exceeds the cap. Workflow stage age remains
+informational and a deterministic sorting tie-breaker. Long waits, re-submission
+cycles and missing technical document numbers no longer add points.
+
+| Level | Score | Color |
+| --- | --- | --- |
+| Very high (`very_high`) | 90–100 | Maroon |
+| High (`high`) | 70–89 | Red |
+| Medium (`medium`) | 30–69 | Orange |
+| Low (`low`) | 0–29 | Blue |
+
+All active documents enter level counts, including zero-score documents in Low.
+`at_risk_count` and the bounded priority list include only positive scores. Each
+scope retains its top 25, ordered by score descending, workflow stage age
+descending, then name and document ID. Signal severity remains independently
+`high`, `medium` or `low`. Policy metadata exposes version 2, `very_high_score=90`,
+`high_score=70`, `medium_score=30`, `max_score=100` and `priority_limit=25`.
+The removed `none`, `long_wait_days` and `authority_aging_days` fields are not
+part of v2. Backend and frontend must be deployed together; no schema migration
+is required. Opening a priority uses its document ID. Private document bodies,
 paths, recipients and actor details are not included.
 
 Workflow events are prefetched in batches of 500 documents, preventing queries per
