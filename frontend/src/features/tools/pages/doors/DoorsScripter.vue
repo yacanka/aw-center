@@ -23,6 +23,11 @@
             Rows with an empty Unique Attribute are skipped. Review and save changes in DOORS
             manually.
           </n-p>
+          <n-p depth="3">
+            Matching is case-sensitive. Object Number and Absolute Number are read-only search
+            fields for update mode. Date attributes accept Excel dates, dd.MM.yyyy, or yyyy-MM-dd;
+            dates are validated before any changes are made. Contains searches use ISO date text.
+          </n-p>
         </n-grid-item>
         <n-grid-item span="12">
           <n-form-item label="DOORS Module Path (optional attribute discovery)">
@@ -74,26 +79,29 @@
           </n-upload>
         </n-grid-item>
 
-        <n-grid-item span="0:12 700:5" v-if="fileList.length != 0">
+        <n-grid-item span="0:12 700:3" v-if="fileList.length != 0">
           <n-h4 style="margin-bottom: -10px"> Excel Column Names </n-h4>
         </n-grid-item>
-        <n-grid-item span="0:12 700:5" v-if="fileList.length != 0">
+        <n-grid-item span="0:12 700:4" v-if="fileList.length != 0">
           <n-h4 style="margin-bottom: -10px"> DOORS Column Names </n-h4>
         </n-grid-item>
         <n-grid-item span="0:12 700:2" v-if="fileList.length != 0">
           <n-h4 style="margin-bottom: -10px"> Unique Attribute </n-h4>
         </n-grid-item>
+        <n-grid-item span="0:12 700:3" v-if="fileList.length != 0">
+          <n-h4 style="margin-bottom: -10px"> Match Mode </n-h4>
+        </n-grid-item>
 
         <n-grid-item span="12" v-for="(column, index) in columns" :key="index">
           <n-grid responsive="self" item-responsive cols="12" x-gap="12" y-gap="18">
-            <n-grid-item span="0:12 700:5">
+            <n-grid-item span="0:12 700:3">
               <n-input
                 v-model:value="column.excel"
                 :input-props="{ 'aria-label': `Excel column ${column.excel}` }"
                 readonly
               />
             </n-grid-item>
-            <n-grid-item span="0:12 700:5">
+            <n-grid-item span="0:12 700:4">
               <n-input
                 v-if="!attributesLoaded"
                 v-model:value="column.doors"
@@ -113,6 +121,15 @@
               <n-switch
                 v-model:value="column.search"
                 :aria-label="`Unique Attribute for ${column.excel}`"
+              />
+            </n-grid-item>
+            <n-grid-item span="0:12 700:3">
+              <n-select
+                v-if="column.search"
+                v-model:value="column.match_mode"
+                :options="matchModeOptions"
+                :input-props="{ 'aria-label': `Match mode for ${column.excel}` }"
+                :aria-label="`Match mode for ${column.excel}`"
               />
             </n-grid-item>
           </n-grid>
@@ -159,7 +176,8 @@ import { ref, watch } from 'vue'
 import {
   createDoorsScript,
   getExcelColumns,
-  type DoorsScriptMode
+  type DoorsScriptMode,
+  type DoorsScriptMatchMode
 } from '@/features/tools/api/doorsScript'
 import type { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui'
 import { selectedUploadFile } from '@/shared/utils/uploads'
@@ -167,7 +185,12 @@ import { formatApiError } from '@/shared/api/apiError'
 import PageJobStatus from '@/features/jobs/components/PageJobStatus.vue'
 import { useDoorsScriptAttributes } from '@/features/tools/composables/useDoorsScriptAttributes'
 
-type OptionItem = { excel: string; doors: string | null; search: boolean }
+type OptionItem = {
+  excel: string
+  doors: string | null
+  search: boolean
+  match_mode: DoorsScriptMatchMode
+}
 
 const columns = ref<OptionItem[]>([])
 const fileList = ref<UploadFileInfo[]>([])
@@ -217,6 +240,10 @@ const modeOptions = [
   { label: 'Update Existing Objects', value: 'update' },
   { label: 'Create New Objects', value: 'create' }
 ]
+const matchModeOptions = [
+  { label: 'Exact match', value: 'exact' },
+  { label: 'Contains', value: 'contains' }
+]
 
 const modal = ref({
   show: false,
@@ -249,6 +276,18 @@ function createScript() {
   const filtered = columns.value
     .filter((item) => item.doors?.trim())
     .map((item) => ({ ...item, doors: item.doors!.trim() }))
+  if (
+    filtered.some(
+      (item) =>
+        ['object number', 'absolute number'].includes(item.doors.toLowerCase()) &&
+        (mode.value === 'create' || !item.search)
+    )
+  ) {
+    window.$message.error(
+      'Object Number and Absolute Number are read-only; use them only as Unique Attributes in update mode.'
+    )
+    return
+  }
   const formData = new FormData()
   formData.append('file', selectedFile)
   formData.append('json', JSON.stringify(filtered))
@@ -278,7 +317,12 @@ function handleUploadReq({ file, onError }: UploadCustomRequestOptions) {
     .then((res: string[]) => {
       const excelColumns = res
       if (excelColumns) {
-        columns.value = excelColumns.map((excel) => ({ excel, doors: '', search: false }))
+        columns.value = excelColumns.map((excel) => ({
+          excel,
+          doors: '',
+          search: false,
+          match_mode: 'exact'
+        }))
       }
       window.$message.success('Excel content successfully read.')
     })

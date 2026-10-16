@@ -147,12 +147,55 @@ describe('DOORS script mapping form', () => {
     const request = api.createDoorsScript.mock.calls[0][0] as FormData
     expect(request.get('mode')).toBe(mode)
     expect(JSON.parse(request.get('json') as string)).toEqual([
-      { excel: 'Key', doors: 'Identifier', search: true },
-      { excel: 'Group', doors: 'Group', search: true },
-      { excel: 'Text', doors: 'Object Text', search: false }
+      { excel: 'Key', doors: 'Identifier', search: true, match_mode: 'exact' },
+      { excel: 'Group', doors: 'Group', search: true, match_mode: 'exact' },
+      { excel: 'Text', doors: 'Object Text', search: false, match_mode: 'exact' }
     ])
     expect(wrapper.text()).toContain('Generated DXL')
     expect(wrapper.text()).toContain('1 rows · 3 mappings')
+  })
+
+  it('submits a separate match mode for each search attribute', async () => {
+    await upload()
+    await mapAll()
+    expect(wrapper.findAll('select[aria-label^="Match mode for"]')).toHaveLength(0)
+    const keys = wrapper.findAll('input[type="checkbox"]')
+    await keys[0].setValue(true)
+    await keys[1].setValue(true)
+    await wrapper.get('select[aria-label="Match mode for Key"]').setValue('contains')
+    await generate()
+    const submitted = api.createDoorsScript.mock.calls[0][0] as FormData
+    expect(JSON.parse(submitted.get('json') as string)).toEqual([
+      { excel: 'Key', doors: 'Identifier', search: true, match_mode: 'contains' },
+      { excel: 'Group', doors: 'Group', search: true, match_mode: 'exact' },
+      { excel: 'Text', doors: 'Object Text', search: false, match_mode: 'exact' }
+    ])
+  })
+
+  it.each(['Object Number', 'Absolute Number'])(
+    'rejects writes to %s before submitting',
+    async (name) => {
+      await upload()
+      await mapAll()
+      await wrapper.findAll('input[type="checkbox"]')[0].setValue(true)
+      await wrapper.get('input[aria-label="DOORS attribute for Text"]').setValue(name)
+      await generate()
+      expect(api.createDoorsScript).not.toHaveBeenCalled()
+      expect(window.$message.error).toHaveBeenCalledWith(expect.stringContaining('read-only'))
+    }
+  )
+
+  it('allows number searches in update mode and rejects them after switching to create', async () => {
+    await upload()
+    await mapAll()
+    await wrapper.findAll('input[type="checkbox"]')[0].setValue(true)
+    await wrapper.get('input[aria-label="DOORS attribute for Key"]').setValue('Object Number')
+    await generate()
+    expect(api.createDoorsScript).toHaveBeenCalledOnce()
+    await wrapper.get('select[aria-label="Script mode"]').setValue('create')
+    await generate()
+    expect(api.createDoorsScript).toHaveBeenCalledOnce()
+    expect(window.$message.error).toHaveBeenCalledWith(expect.stringContaining('read-only'))
   })
 
   it('requires a unique attribute before generation', async () => {
@@ -256,7 +299,7 @@ describe('DOORS script mapping form', () => {
       .findAll('button')
       .find((button) => button.text() === 'Unload Attributes')!
       .trigger('click')
-    expect(wrapper.findAll('select')).toHaveLength(1)
+    expect(wrapper.findAll('select[aria-label^="DOORS attribute for"]')).toHaveLength(0)
     expect(wrapper.get('input[aria-label="DOORS attribute for Text"]').element).toHaveProperty(
       'value',
       'Object Heading'

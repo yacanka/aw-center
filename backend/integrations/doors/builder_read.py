@@ -18,11 +18,16 @@ if (!null awc_open_error || null module) {{
     awc_error("OPEN_MODULE", awc_open_error)
 }} else {{
     AttrDef awc_attribute
-    int awc_count = 0
+    // Object Number is a pseudo attribute, absent from the AttrDef iterator.
+    awc_emit("ATTRIBUTE\tObject Heading")
+    awc_emit("ATTRIBUTE\tObject Number")
+    awc_emit("ATTRIBUTE\tAbsolute Number")
+    int awc_count = 3
     bool awc_truncated = false
     noError
     for awc_attribute in module do {{
         if (!awc_attribute.object) continue
+        if (awc_attribute.name == "Object Heading" || awc_attribute.name == "Object Number" || awc_attribute.name == "Absolute Number") continue
         if (awc_count >= {limit}) {{
             awc_truncated = true
             break

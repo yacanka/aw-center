@@ -721,6 +721,30 @@ class DoorsApiTests(TestCase):
         self.assertIn("bool awc_matches(", response.data["script"])
         self.assertIn("bool SetObjectAttribute(", response.data["script"])
 
+    def test_script_generator_validates_match_modes_and_read_only_targets(self):
+        for target, mode, search, match_mode, expected in (
+            ("Object Text", "update", False, "contains", 200),
+            ("Object Text", "update", False, "regex", 400),
+            ("object number", "update", True, "contains", 200),
+            ("Object Number", "update", False, "exact", 400),
+            ("Absolute Number", "create", True, "exact", 400),
+        ):
+            with self.subTest(target=target, mode=mode, match_mode=match_mode):
+                response = self.client.post(reverse("script"), {
+                    "file": self.workbook_upload(["Key", "Value"], [["REQ-1", "1"]]),
+                    "mode": mode,
+                    "json": json.dumps([
+                        {"excel": "Key", "doors": "Identifier", "search": True},
+                        {"excel": "Value", "doors": target, "search": search,
+                         "match_mode": match_mode},
+                    ]),
+                }, format="multipart")
+                self.assertEqual(response.status_code, expected, response.data)
+                if expected == 400:
+                    self.assertIn("code", response.data)
+                elif target == "object number":
+                    self.assertIn('awc_attribute_matches(candidate, "Object Number"', response.data["script"])
+
     def test_script_generator_rejects_ambiguous_or_missing_mappings(self):
         """At least one unique key must resolve to a workbook column."""
 
