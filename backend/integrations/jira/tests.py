@@ -1,7 +1,7 @@
 """Canonical DCC record and route contract tests."""
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from orgs.models import Project, ProjectRoleAssignment
@@ -9,6 +9,7 @@ from orgs.models import Project, ProjectRoleAssignment
 from .workflow_models import JiraTrackedIssue
 
 
+@override_settings(JIRA_URL="https://jira.example.test")
 class JiraTrackedIssueApiTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -49,6 +50,7 @@ class JiraTrackedIssueApiTests(TestCase):
 
     def test_record_is_uuid_project_scoped_and_has_no_filesystem_contract(self):
         response = self.create_record()
+        self.assertEqual(response.data["jira_issue_url"], "https://jira.example.test/browse/DCC-42")
 
         self.assertEqual(
             set(response.data["project_slugs"]),
