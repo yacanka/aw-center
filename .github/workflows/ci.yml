@@ -71,7 +71,7 @@ jobs:
         run: |
           python manage.py migrate --noinput
           python manage.py migrate --check
-          python manage.py shell -c "from orgs.models import Project; assert Project.objects.count() == 8"
+          python manage.py check_project_registry
 
       - name: Run Django system check
         working-directory: backend

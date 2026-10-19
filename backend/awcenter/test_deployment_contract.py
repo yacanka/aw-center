@@ -224,6 +224,8 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("npx playwright install --with-deps chromium", workflow)
         self.assertIn("npm run test:e2e", workflow)
         self.assertIn("makemigrations --check --dry-run", workflow)
+        self.assertIn("python manage.py check_project_registry", workflow)
+        self.assertNotIn("Project.objects.count() == 8", workflow)
         self.assertIn("python manage.py verify_frontend_artifact", workflow)
         self.assertIn("docker build", workflow)
         self.assertIn("docker run --rm", workflow)
