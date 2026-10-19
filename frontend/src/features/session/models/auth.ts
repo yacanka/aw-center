@@ -64,3 +64,9 @@ export interface IUser {
   preferences?: IPreferences
   [key: string]: unknown
 }
+
+export interface UserProfile {
+  first_name: string
+  last_name: string
+  email: string
+}

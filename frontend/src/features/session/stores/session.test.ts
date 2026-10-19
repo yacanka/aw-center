@@ -115,12 +115,14 @@ describe('session store', () => {
     const dcc = useJiraStore()
     dcc.jiraConnection = {
       state: 'connected',
+      user: { username: 'operator', display_name: 'Operator' },
       expires_at: '2099-01-01T00:00:00Z'
     }
 
     session.markAnonymous()
 
     expect(dcc.jiraConnection.state).toBe('disconnected')
+    expect(dcc.jiraConnection.user).toBeNull()
   })
 
   it('clears account-scoped feature state before switching identities', () => {
@@ -129,12 +131,14 @@ describe('session store', () => {
     session.setAuthenticatedUser(currentUser)
     dcc.jiraConnection = {
       state: 'connected',
+      user: { username: 'operator', display_name: 'Operator' },
       expires_at: '2099-01-01T00:00:00Z'
     }
 
     session.setAuthenticatedUser({ ...currentUser, id: 8, username: 'publisher' })
 
     expect(dcc.jiraConnection.state).toBe('disconnected')
+    expect(dcc.jiraConnection.user).toBeNull()
     expect(session.getUser.username).toBe('publisher')
   })
 })

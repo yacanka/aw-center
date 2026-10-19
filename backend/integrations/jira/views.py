@@ -48,10 +48,12 @@ class JiraSessionView(APIView):
             return invalid
         serializer = JiraSessionConnectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        token = serializer.validated_data.get("personal_access_token")
         try:
             record = connect_jira_session(
                 request.user,
-                serializer.validated_data["JSESSIONID"],
+                token if token is not None else serializer.validated_data["JSESSIONID"],
+                auth_method="personal_access_token" if token is not None else "session_id",
             )
         except JiraSessionError as error:
             return session_error_response(error)

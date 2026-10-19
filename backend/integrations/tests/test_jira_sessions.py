@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from jira import JIRAError
 from rest_framework.test import APIClient
 from orgs.models import Project, ProjectRoleAssignment
 
@@ -20,6 +21,7 @@ from integrations.jira.sessions import (
     connect_jira_session,
     ensure_jira_enabled,
     get_jira_session,
+    jira_connector_for,
     owner_cache_key,
     session_cipher,
 )
@@ -56,7 +58,7 @@ class JiraSessionTests(TestCase):
         )
 
     @patch("integrations.jira.sessions.JiraConnector")
-    def test_post_encrypts_credential_and_returns_only_state_and_expiry(self, connector):
+    def test_post_encrypts_credential_and_returns_only_public_identity_and_state(self, connector):
         connector.return_value.current_user.return_value = {
             "name": "jira-user",
             "displayName": "JIRA User",
@@ -73,13 +75,134 @@ class JiraSessionTests(TestCase):
         cached = cache.get(owner_cache_key(self.user))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["state"], "connected")
-        self.assertEqual(set(response.data), {"state", "expires_at"})
+        self.assertEqual(set(response.data), {"state", "expires_at", "user"})
+        self.assertEqual(response.data["user"], {
+            "username": "jira-user", "display_name": "JIRA User",
+        })
+        self.assertNotIn("emailAddress", str(response.data))
         self.assertEqual(response["Cache-Control"], "no-store")
         self.assertEqual(response["Pragma"], "no-cache")
         self.assertNotIn(credential, str(response.data))
         self.assertNotIn(credential, cached)
         decrypted = Fernet(TEST_FERNET_KEY.encode("ascii")).decrypt(cached.encode("ascii"))
         self.assertIn(credential.encode("utf-8"), decrypted)
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_pat_matches_owner_case_insensitively_and_is_reused_by_tools(self, connector):
+        connector.return_value.current_user.return_value = {
+            "name": "JIRA-OWNER", "displayName": "Owner", "emailAddress": "private@example.test",
+        }
+        response = self.client.post(
+            SESSION_URL, {"personal_access_token": "fixture-personal-access-token"}, format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["user"], {"username": "JIRA-OWNER", "display_name": "Owner"})
+        self.assertNotIn("fixture-personal-access-token", str(response.data))
+        self.assertNotIn("fixture-personal-access-token", cache.get(owner_cache_key(self.user)))
+        record = get_jira_session(self.user)
+        self.assertEqual(record.auth_method, "personal_access_token")
+        self.assertEqual(record.credential, "fixture-personal-access-token")
+        self.assertEqual(self.client.get(SESSION_URL).data, response.data)
+        jira_connector_for(self.user)
+        self.assertEqual(connector.call_args.kwargs, {
+            "personal_access_token": "fixture-personal-access-token",
+        })
+        self.client.force_authenticate(self.other_user)
+        self.assertEqual(self.client.get(SESSION_URL).data["state"], "disconnected")
+        self.client.force_authenticate(self.user)
+        self.assertEqual(self.client.delete(SESSION_URL).status_code, 204)
+        self.assertIsNone(get_jira_session(self.user))
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_pat_for_another_account_cannot_replace_an_existing_connection(self, connector):
+        connector.return_value.current_user.return_value = {"name": "previous-jira-account"}
+        connect_jira_session(self.user, "previous-session-fixture")
+        connector.return_value.current_user.return_value = {"name": "another-jira-account"}
+        response = self.client.post(
+            SESSION_URL,
+            {"personal_access_token": "fixture-personal-access-token", "username": "another-jira-account"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["code"], "JIRA_ACCOUNT_MISMATCH")
+        self.assertNotIn("another-jira-account", str(response.data))
+        self.assertEqual(get_jira_session(self.user).credential, "previous-session-fixture")
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_invalid_pat_and_upstream_failure_do_not_store_a_connection(self, connector):
+        for status, expected_status in ((401, 400), (403, 400), (503, 502)):
+            with self.subTest(status=status):
+                connector.return_value.current_user.side_effect = JIRAError(
+                    status_code=status, text="private upstream detail",
+                )
+                response = self.client.post(
+                    SESSION_URL, {"personal_access_token": "fixture-token-value"}, format="json",
+                )
+                self.assertEqual(response.status_code, expected_status)
+                self.assertNotIn("private upstream", str(response.data))
+                self.assertEqual(response["Cache-Control"], "no-store")
+                self.assertIsNone(get_jira_session(self.user))
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_connect_requires_exactly_one_safe_credential(self, connector):
+        for payload in (
+            {}, {"JSESSIONID": "fixture-session", "personal_access_token": "fixture-token"},
+            {"personal_access_token": ""}, {"personal_access_token": "short"},
+            {"personal_access_token": "token with space"},
+            {"personal_access_token": "token\r\ninjected"},
+            {"personal_access_token": "non-ascii-ş-token"},
+            {"personal_access_token": "token\x00value"},
+            {"personal_access_token": "x" * 4097},
+        ):
+            with self.subTest(payload_keys=list(payload)):
+                response = self.client.post(SESSION_URL, payload, format="json")
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response["Cache-Control"], "no-store")
+        connector.assert_not_called()
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_old_cache_records_without_auth_method_remain_session_connections(self, connector):
+        connector.return_value.current_user.return_value = {"name": "session-owner"}
+        connect_jira_session(self.user, "fixture-session")
+        cipher = session_cipher()
+        payload = json.loads(cipher.decrypt(cache.get(owner_cache_key(self.user)).encode("ascii")))
+        payload.pop("auth_method", None)
+        cache.set(owner_cache_key(self.user), cipher.encrypt(json.dumps(payload).encode()).decode("ascii"))
+        self.assertEqual(get_jira_session(self.user).auth_method, "session_id")
+        jira_connector_for(self.user)
+        self.assertEqual(connector.call_args.kwargs, {"jira_session_id": "fixture-session"})
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_pat_credentials_are_forbidden_in_query_and_business_payloads(self, connector):
+        for method in (self.client.get, self.client.post, self.client.delete):
+            response = method(SESSION_URL + "?personal_access_token=fixture-token")
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.data["code"], "JIRA_SESSION_QUERY_FORBIDDEN")
+            self.assertNotIn("fixture-token", str(response.data))
+        from integrations.jira.sessions import has_legacy_jira_credential
+        self.assertTrue(has_legacy_jira_credential({"nested": [{"personal_access_token": "fixture-token"}]}))
+        connector.assert_not_called()
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_pat_expiry_and_invalid_cache_entries_are_cleared(self, connector):
+        connector.return_value.current_user.return_value = {"name": "jira-owner"}
+        connect_jira_session(self.user, "fixture-token", auth_method="personal_access_token")
+        with patch("integrations.jira.sessions.timezone.now", return_value=timezone.now() + timedelta(seconds=61)):
+            self.assertIsNone(get_jira_session(self.user))
+        for payload in ([], {"auth_method": "unknown"}):
+            cache.set(owner_cache_key(self.user), session_cipher().encrypt(json.dumps(payload).encode()).decode("ascii"))
+            self.assertIsNone(get_jira_session(self.user))
+            self.assertIsNone(cache.get(owner_cache_key(self.user)))
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_pat_connection_requires_browser_authentication_and_csrf(self, connector):
+        client = APIClient(enforce_csrf_checks=True)
+        response = client.post(SESSION_URL, {"personal_access_token": "fixture-token"}, format="json")
+        self.assertEqual(response.status_code, 403)
+        client.force_login(self.user)
+        response = client.post(SESSION_URL, {"personal_access_token": "fixture-token"}, format="json")
+        self.assertEqual(response.status_code, 403)
+        connector.assert_not_called()
 
     @patch("integrations.jira.sessions.JiraConnector")
     def test_session_is_owner_scoped_and_delete_is_idempotent(self, connector):

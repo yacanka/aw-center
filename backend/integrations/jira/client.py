@@ -57,11 +57,17 @@ def split_text_by_chracter(text, character):
 
 
 class JiraConnector:
-    """Adapt one already-established ephemeral JIRA browser session."""
+    """Adapt an ephemeral JIRA session cookie or personal access token."""
 
-    def __init__(self, server_url, jira_session_id):
+    def __init__(self, server_url, jira_session_id=None, *, personal_access_token=None):
         parsed_url = validated_server_url(server_url)
-        credential = validated_session_id(jira_session_id)
+        if (jira_session_id is None) == (personal_access_token is None):
+            raise ValueError("Provide exactly one JIRA credential.")
+        token_options = {}
+        if personal_access_token is not None:
+            token_options["token_auth"] = validated_personal_access_token(personal_access_token)
+        else:
+            jira_session_id = validated_session_id(jira_session_id)
         certificate = tls_verification()
         if not settings.DEBUG and certificate is False:
             raise JiraConfigurationError("TLS verification cannot be disabled in production.")
@@ -71,16 +77,18 @@ class JiraConnector:
                 options=options,
                 get_server_info=False,
                 timeout=10,
+                **token_options,
             )
         except JIRAError:
             logger.warning("JIRA client initialization was rejected.")
             raise
-        self.jira._session.cookies.set(
-            "JSESSIONID",
-            credential,
-            domain=parsed_url.hostname,
-            path=parsed_url.path.rstrip("/") or "/",
-        )
+        if jira_session_id is not None:
+            self.jira._session.cookies.set(
+                "JSESSIONID",
+                jira_session_id,
+                domain=parsed_url.hostname,
+                path=parsed_url.path.rstrip("/") or "/",
+            )
         self.issue_key = None
 
     def current_user(self):
@@ -314,4 +322,12 @@ def validated_session_id(value):
     if not 8 <= len(credential) <= 4096 or any(char.isspace() for char in credential):
         raise ValueError("The JIRA session credential is invalid.")
     return credential
+
+
+def validated_personal_access_token(value):
+    """Bound PATs to printable ASCII so they are safe in an HTTP header."""
+
+    credential = validated_session_id(value)
+    if any(not 33 <= ord(character) <= 126 for character in credential):
+        raise ValueError("The JIRA personal access token is invalid.")
     return credential

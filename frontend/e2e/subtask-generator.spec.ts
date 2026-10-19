@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
-import type { ISubtaskListItem } from '../src/features/integrations/jira/models/jira'
+import type { IJiraField, ISubtaskListItem } from '../src/features/integrations/jira/models/jira'
 
 const fields = [
   { id: 'description', name: 'Description', schema: { type: 'string' } },
@@ -14,6 +14,378 @@ const fields = [
     ]
   }
 ]
+
+test('fields remain editable after a delayed saved-list response and field reload', async ({
+  page
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  let releaseContent!: () => void
+  const contentReady = new Promise<void>((resolve) => {
+    releaseContent = resolve
+  })
+  await jiraShell(page, contentReady)
+  await page.goto('/app/jira')
+  await page.getByText('Subtask Generator (List)', { exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Loading saved lists')
+  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+  await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+  releaseContent()
+  await expect(page.getByText('Review checklist', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+  await page.locator('.subtask-tools > .n-select').click()
+  await page
+    .locator('.n-base-select-option:visible')
+    .filter({ hasText: /^Due Date$/ })
+    .click()
+  await page.getByPlaceholder('Enter Url').click()
+  await expect(page.getByPlaceholder('Due Date')).toHaveCount(3)
+  expect(errors).toEqual([])
+})
+
+test('field loading belongs to the generator actions next to Generate', async ({ page }) => {
+  await jiraShell(page)
+  await page.goto('/app/jira')
+  await page.getByText('Subtask Generator (List)', { exact: true }).click()
+  const actions = page.locator('.subtask-generator-actions')
+  const load = actions.getByRole('button', { name: 'Load Fields', exact: true })
+  await expect(load).toBeVisible()
+  await expect(load).toBeDisabled()
+  await expect(actions.getByRole('button', { name: 'Generate', exact: true })).toBeVisible()
+  await expect(
+    page.locator('.subtask-tools').getByRole('button', { name: 'Load Fields' })
+  ).toHaveCount(0)
+  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await expect(load).toBeEnabled()
+  await load.click()
+  await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+})
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [390, 1440]) {
+    test(`generator actions and field selection fit ${theme} mode at ${width}px`, async ({
+      page
+    }) => {
+      const errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ colorScheme: theme })
+      await jiraShell(page)
+      await page.goto('/app/jira?jira_tab=subtask')
+      await expect(page.getByText('JIRA Subtask Generator', { exact: true })).toBeVisible()
+      await page.getByPlaceholder('Enter Url').fill('CHN-42')
+      const actions = page.locator('.subtask-generator-actions')
+      await actions.getByRole('button', { name: 'Load Fields', exact: true }).click()
+      await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+      await page.locator('.subtask-tools > .n-select').click()
+      await page
+        .locator('.n-base-select-option:visible')
+        .filter({ hasText: /^Priority$/ })
+        .click()
+      await page.getByPlaceholder('Enter Url').click()
+      await expect(page.locator('.n-base-select-option:visible')).toHaveCount(0)
+      await expect(page.locator('.subtask-bulk-fields > *')).toHaveCount(3)
+      const rowSummary = await page.locator('.n-dynamic-input-item .n-input').first().boundingBox()
+      expect(rowSummary!.width).toBeGreaterThanOrEqual(160)
+      await page.getByText('Release checklist', { exact: true }).click()
+      await expect(page.getByPlaceholder('Summary').nth(1)).toHaveValue('Release')
+      await page.getByText('Review checklist', { exact: true }).click()
+      await expect(page.getByPlaceholder('Summary').nth(1)).toHaveValue('Review one')
+      const load = await actions
+        .getByRole('button', { name: 'Load Fields', exact: true })
+        .boundingBox()
+      const generate = await actions
+        .getByRole('button', { name: 'Generate', exact: true })
+        .boundingBox()
+      expect(load).not.toBeNull()
+      expect(generate).not.toBeNull()
+      expect(load!.y).toBe(generate!.y)
+      expect(generate!.x).toBeGreaterThanOrEqual(load!.x + load!.width)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        width
+      )
+      expect(errors).toEqual([])
+      await page.screenshot({
+        path: test.info().outputPath(`list-generator-${theme}-${width}.png`),
+        fullPage: true
+      })
+    })
+  }
+}
+
+for (const listKind of ['saved', 'new'] as const) {
+  test(`first dynamic field can be added to a ${listKind} list without render errors`, async ({
+    page
+  }) => {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    const state = await jiraShell(page)
+    state.content.lists[0].fields = []
+    state.content.lists[0].list = [{ summary: 'Review', fields: {} }]
+    await page.goto('/app/jira')
+    await page.getByText('Subtask Generator (List)', { exact: true }).click()
+    await expect(page.getByPlaceholder('Summary')).toHaveCount(2)
+    if (listKind === 'new') {
+      await page.locator('.n-tabs-tab--addable').click()
+      await page.getByRole('button', { name: 'Add subtask row', exact: true }).click()
+      await page.getByPlaceholder('Summary').nth(1).fill('New review')
+    }
+    await page.getByPlaceholder('Enter Url').fill('CHN-42')
+    await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+    await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+    await page.locator('.subtask-tools > .n-select').click()
+    await page
+      .locator('.n-base-select-option:visible')
+      .filter({ hasText: /^Description$/ })
+      .click()
+    await page.getByPlaceholder('Enter Url').click()
+    await expect(page.getByPlaceholder('Description')).toHaveCount(2)
+    await page.getByPlaceholder('Description').nth(1).fill('Dynamic details')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+    const saved = state.content.lists[listKind === 'new' ? 2 : 0]
+    expect(saved.fields?.map((field) => field.id)).toEqual(['description'])
+    expect(saved.list[0].fields?.description).toBe('Dynamic details')
+    expect(errors).toEqual([])
+  })
+}
+
+test('dynamic columns can be selected, cleared and selected again across list tabs', async ({
+  page
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const state = await jiraShell(page)
+  await page.goto('/app/jira')
+  await page.getByText('Subtask Generator (List)', { exact: true }).click()
+  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+  await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+  for (const title of ['Review checklist', 'Release checklist', 'Review checklist']) {
+    await page.getByText(title, { exact: true }).click()
+    const picker = page.locator('.subtask-tools > .n-select')
+    const list = state.content.lists.find((list) => list.title === title)!
+    const selected = new Set(list.fields?.map((field) => field.id))
+    for (const name of [
+      'Due Date',
+      'Priority',
+      'Description',
+      'Description',
+      'Priority',
+      'Due Date',
+      'Description'
+    ]) {
+      await picker.click()
+      await page
+        .locator('.n-base-select-option:visible')
+        .filter({ hasText: new RegExp(`^${name}$`) })
+        .click()
+      await page.getByPlaceholder('Enter Url').click()
+      const id = fields.find((field) => field.name === name)!.id
+      if (selected.has(id)) selected.delete(id)
+      else selected.add(id)
+      await expect(page.locator('.subtask-bulk-fields > *')).toHaveCount(selected.size + 1)
+      expect(errors).toEqual([])
+    }
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+    expect(
+      state.content.lists
+        .find((list) => list.title === title)!
+        .fields?.map((field) => field.id)
+        .sort()
+    ).toEqual([...selected].sort())
+  }
+})
+
+test('custom field values survive bulk editing, Save, reload and Generate', async ({ page }) => {
+  const metadata: IJiraField[] = [
+    { id: 'customfield_10001', name: 'Acceptance criteria', schema: { type: 'string' } },
+    { id: 'customfield_10002', name: 'Estimate', schema: { type: 'number' } },
+    { id: 'customfield_10003', name: 'Verified', schema: { type: 'boolean' } },
+    {
+      id: 'customfield_10004',
+      name: 'Category',
+      schema: { type: 'option' },
+      allowedValues: [{ id: '12', value: 'Review', label: 'Review' }]
+    }
+  ]
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const state = await jiraShell(page, Promise.resolve(), metadata)
+  state.content.lists[0].fields = []
+  await page.goto('/app/jira')
+  await page.getByText('Subtask Generator (List)', { exact: true }).click()
+  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+  await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+  for (const field of metadata) {
+    await page.locator('.subtask-tools > .n-select').click()
+    await page
+      .locator('.n-base-select-option:visible')
+      .filter({ hasText: new RegExp(`^${field.name}$`) })
+      .click()
+    await page.getByPlaceholder('Enter Url').click()
+  }
+  const bulk = page.locator('.subtask-bulk-fields')
+  await bulk.getByPlaceholder('Acceptance criteria').fill('Approved criteria')
+  await bulk.getByPlaceholder('Estimate').fill('0')
+  await bulk.locator('.n-select').nth(0).click()
+  await page
+    .locator('.n-base-select-option:visible')
+    .filter({ hasText: /^False$/ })
+    .click()
+  await bulk.locator('.n-select').nth(1).click()
+  await page
+    .locator('.n-base-select-option:visible')
+    .filter({ hasText: /^Review$/ })
+    .click()
+  await page.getByRole('button', { name: 'Set Values', exact: true }).click()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  const expected = {
+    description: 'Details one',
+    customfield_10001: 'Approved criteria',
+    customfield_10002: 0,
+    customfield_10003: false,
+    customfield_10004: '12'
+  }
+  expect(state.content.lists[0].list[0].fields).toEqual(expected)
+  await page.reload()
+  await page.getByText('Subtask Generator (List)', { exact: true }).click()
+  await expect(page.getByPlaceholder('Acceptance criteria').nth(1)).toHaveValue('Approved criteria')
+  await expect(page.getByPlaceholder('Estimate').nth(1)).toHaveValue('0')
+  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await page.getByRole('button', { name: 'Generate', exact: true }).click()
+  await expect
+    .poll(() => state.created)
+    .toMatchObject({
+      issue: 'CHN-42',
+      items: [
+        {
+          summary: 'Review one',
+          description: 'Details one',
+          fields: {
+            customfield_10001: 'Approved criteria',
+            customfield_10002: 0,
+            customfield_10003: false,
+            customfield_10004: '12'
+          }
+        },
+        {
+          summary: 'Review two',
+          description: 'Details two',
+          fields: {
+            customfield_10001: 'Approved criteria',
+            customfield_10002: 0,
+            customfield_10003: false,
+            customfield_10004: '12'
+          }
+        }
+      ]
+    })
+  expect(errors).toEqual([])
+})
+
+test('live metadata can replace a saved editor type before adding another column', async ({
+  page
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const metadata: IJiraField[] = [
+    {
+      id: 'customfield_10001',
+      name: 'Category',
+      schema: { type: 'option-with-child', custom: 'jira:cascadingselect' },
+      allowedValues: [
+        {
+          id: '12',
+          value: 'Parent',
+          label: 'Parent',
+          children: [{ id: '13', value: 'Child', label: 'Child' }]
+        }
+      ]
+    },
+    { id: 'customfield_10002', name: 'Notes', schema: { type: 'string' } }
+  ]
+  const state = await jiraShell(page, Promise.resolve(), metadata)
+  state.content.lists[0].fields = [
+    { id: 'customfield_10001', name: 'Category', schema: { type: 'string' } }
+  ]
+  state.content.lists[0].list = [{ summary: 'Review', fields: { customfield_10001: '12' } }]
+  await page.goto('/app/jira')
+  await page.getByText('Subtask Generator (List)', { exact: true }).click()
+  await expect(page.getByPlaceholder('Category')).toHaveCount(2)
+  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+  await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+  await expect(page.getByText('Child option', { exact: true })).toHaveCount(1)
+  await page.locator('.subtask-tools > .n-select').click()
+  await page
+    .locator('.n-base-select-option:visible')
+    .filter({ hasText: /^Notes$/ })
+    .click()
+  await page.getByPlaceholder('Enter Url').click()
+  await expect(page.getByPlaceholder('Notes')).toHaveCount(2)
+  await page.getByPlaceholder('Notes').nth(1).fill('Updated notes')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  expect(state.content.lists[0].list[0].fields?.customfield_10002).toBe('Updated notes')
+  expect(errors).toEqual([])
+})
+
+test('dynamic fields can change while a saved-content error is visible', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const state = await jiraShell(page)
+  state.failSave = true
+  await page.goto('/app/jira')
+  await page.getByText('Subtask Generator (List)', { exact: true }).click()
+  await page.getByPlaceholder('Summary').nth(1).fill('Unsaved review')
+  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Saved lists could not be saved.')
+  await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+  await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+  await page.locator('.subtask-tools > .n-select').click()
+  await page
+    .locator('.n-base-select-option:visible')
+    .filter({ hasText: /^Due Date$/ })
+    .click()
+  await page.getByPlaceholder('Enter Url').click()
+  await expect(page.getByPlaceholder('Due Date')).toHaveCount(3)
+  state.failSave = false
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(state.content.lists[0].fields?.map((field) => field.id)).toEqual([
+    'description',
+    'duedate'
+  ])
+  expect(errors).toEqual([])
+})
+
+test('duplicate saved field definitions do not prevent adding live fields', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const state = await jiraShell(page)
+  state.content.lists[0].fields = [fields[0], fields[0]]
+  await page.goto('/app/jira')
+  await page.getByText('Subtask Generator (List)', { exact: true }).click()
+  await page.getByPlaceholder('Enter Url').fill('CHN-42')
+  await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
+  await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
+  await page.locator('.subtask-tools > .n-select').click()
+  await page
+    .locator('.n-base-select-option:visible')
+    .filter({ hasText: /^Priority$/ })
+    .click()
+  await page.getByPlaceholder('Enter Url').click()
+  await expect(
+    page.locator('.subtask-bulk-fields').getByText('Priority', { exact: true })
+  ).toBeVisible()
+  expect(errors).toEqual([])
+})
 
 test('original named lists retain rename, bulk values, dynamic columns, Save and Generate', async ({
   page
@@ -197,7 +569,11 @@ test('original Excel tab keeps the four field mappings and clears them on file r
   await expect(page.locator('.n-base-select-option:visible')).toHaveCount(4)
 })
 
-async function jiraShell(page: Page) {
+async function jiraShell(
+  page: Page,
+  contentReady: Promise<void> = Promise.resolve(),
+  fieldMetadata: IJiraField[] = fields
+) {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   page.on('console', (message) => {
@@ -236,6 +612,7 @@ async function jiraShell(page: Page) {
       const payload = route.request().postDataJSON()
       state.content = { lists: payload.lists, version: state.content.version + 1 }
     }
+    await contentReady
     return json(route, state.content)
   })
   await page.route('**/api/releases/**', (route) => route.fulfill({ status: 204 }))
@@ -269,7 +646,7 @@ async function jiraShell(page: Page) {
       })
     }
     expect(route.request().postDataJSON()).toEqual({ issue: 'CHN-42' })
-    return json(route, { issue: 'CHN-42', fields })
+    return json(route, { issue: 'CHN-42', fields: fieldMetadata })
   })
   await page.route('**/api/integrations/jira/subtasks/workbook/', (route) =>
     json(route, { columns: ['Title', 'Details', 'Owner', 'Due'] })

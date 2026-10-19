@@ -29,10 +29,23 @@ from .serializers import (
     GroupSerializer,
     PermissionSerializer,
     UserPreferencesSerializer,
+    UserProfileSerializer,
     UserAdministrationSerializer,
 )
 
 User = get_user_model()
+
+
+class UserProfileView(APIView):
+    """Update only the authenticated user's own profile; session CSRF applies."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        serializer = UserProfileSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class UserView(APIView):

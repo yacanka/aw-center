@@ -9,6 +9,7 @@
   <p v-if="loadingContent" role="status">Loading saved lists…</p>
   <n-tabs
     v-model:value="activeListTab"
+    class="subtask-lists"
     type="card"
     size="small"
     :addable="initialized && !saving"
@@ -43,16 +44,6 @@
             placeholder="Search and add JIRA fields as dynamic columns"
             @update:value="handleFieldSelection"
           />
-          <n-button
-            class="subtask-tool-button"
-            type="primary"
-            ghost
-            :loading="fieldLoading"
-            :disabled="fieldLoadDisabled"
-            @click="emits('load-fields')"
-          >
-            Load Fields
-          </n-button>
           <div class="subtask-bulk-fields">
             <n-input v-model:value="bulkValues.summary" placeholder="Summary" clearable />
             <jira-field-input
@@ -71,23 +62,17 @@
         <n-dynamic-input :value="item.list" :on-create="createListItem" :on-remove="removeListItem">
           <template #create-button-default>Add subtask row</template>
           <template #default="{ value }">
-            <n-grid :cols="gridColumns" x-gap="12" y-gap="8">
-              <n-grid-item>
-                <n-input
-                  v-model:value="value.summary"
-                  placeholder="Summary"
-                  @change="activateSave"
-                />
-              </n-grid-item>
-              <n-grid-item v-for="field in activeFields" :key="field.id">
-                <jira-field-input
-                  :field="field"
-                  :model-value="getFieldValue(value, field.id)"
-                  @update:model-value="setFieldValue(value, field.id, $event)"
-                  @change="activateSave"
-                />
-              </n-grid-item>
-            </n-grid>
+            <div class="subtask-row-fields">
+              <n-input v-model:value="value.summary" placeholder="Summary" @change="activateSave" />
+              <jira-field-input
+                v-for="field in activeFields"
+                :key="field.id"
+                :field="field"
+                :model-value="getFieldValue(value, field.id)"
+                @update:model-value="setFieldValue(value, field.id, $event)"
+                @change="activateSave"
+              />
+            </div>
           </template>
         </n-dynamic-input>
       </n-space>
@@ -148,14 +133,11 @@ const bulkValues = ref<ISubtaskItem>({ fields: {} })
 const props = defineProps<{
   list?: ISubtaskItem[]
   fields?: IJiraField[]
-  fieldLoading?: boolean
-  fieldLoadDisabled?: boolean
 }>()
 
 const emits = defineEmits<{
   'update:list': [value: ISubtaskItem[]]
   change: []
-  'load-fields': []
 }>()
 
 const availableFields = computed(() => mergeFields(props.fields || [], activeFields.value))
@@ -165,7 +147,6 @@ const fieldOptions = computed(() =>
     .map((field) => ({ label: field.name, value: field.id }))
 )
 const activeFields = computed(() => subtaskLists.value[activeListTab.value]?.fields || [])
-const gridColumns = computed(() => Math.max(1, activeFields.value.length + 1))
 
 watch(
   () => props.fields,
@@ -418,7 +399,44 @@ onMounted(loadSavedLists)
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+.subtask-row-fields {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 8px 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+}
+
+.subtask-tools > .n-select {
+  grid-column: 1 / -1;
+}
+
 .subtask-tool-button {
   width: 120px;
+}
+
+@media (max-width: 640px) {
+  .subtask-lists :deep(.n-tabs-nav) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+
+  .subtask-lists :deep(.n-tabs-nav__prefix) {
+    grid-column: 1 / -1;
+    padding-right: 0;
+  }
+
+  .subtask-lists :deep(.n-tabs-nav-scroll-wrapper) {
+    min-width: 0;
+  }
+
+  .subtask-tools {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .subtask-tool-button {
+    width: 100%;
+  }
 }
 </style>

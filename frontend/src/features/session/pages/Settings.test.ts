@@ -14,6 +14,7 @@ function renderSettings() {
     global: {
       stubs: {
         PasswordPopup: true,
+        ProfileSettings: true,
         'n-switch': true,
         'n-select': true,
         'n-button': { template: '<button><slot /></button>' }

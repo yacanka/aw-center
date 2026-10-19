@@ -40,6 +40,7 @@ async function screen(kind: 'assessment' | 'workflow') {
   vi.spyOn(catalog, 'load').mockResolvedValue(catalog.projects)
   vi.spyOn(useJiraStore(), 'fetchJiraConnection').mockResolvedValue({
     state: 'disconnected',
+    user: null,
     expires_at: null
   })
   const router = createRouter({

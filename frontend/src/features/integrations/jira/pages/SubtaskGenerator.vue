@@ -2,23 +2,29 @@
   <n-flex justify="center">
     <n-card title="JIRA Subtask Generator" style="width: 90%; min-width: 300px">
       <n-grid cols="6" x-gap="12" y-gap="18">
-        <n-grid-item span="5">
-          <n-input
-            v-model:value="generator.url"
-            type="url"
-            placeholder="Enter Url"
-            @keydown.enter.prevent
-          />
-        </n-grid-item>
-        <n-grid-item span="1">
-          <n-button
-            type="info"
-            ghost
-            style="width: 100%"
-            :disabled="checkGenerateStatus()"
-            @click="createSubtasks"
-            >Generate</n-button
-          >
+        <n-grid-item span="6">
+          <div class="subtask-generator-header">
+            <n-input
+              v-model:value="generator.url"
+              type="url"
+              placeholder="Enter Url"
+              @keydown.enter.prevent
+            />
+            <n-flex class="subtask-generator-actions">
+              <n-button
+                type="primary"
+                ghost
+                :loading="fieldLoading"
+                :disabled="isFieldLoadDisabled"
+                @click="loadSubtaskFields"
+              >
+                Load Fields
+              </n-button>
+              <n-button type="info" ghost :disabled="checkGenerateStatus()" @click="createSubtasks">
+                Generate
+              </n-button>
+            </n-flex>
+          </div>
         </n-grid-item>
         <n-grid-item v-if="loadingBar.show" span="6">
           <n-flex vertical size="small" class="subtask-progress">
@@ -36,13 +42,7 @@
           </n-flex>
         </n-grid-item>
         <n-grid-item span="6">
-          <subtask-list
-            v-model:list="generator.list"
-            :fields="subtaskFields"
-            :field-loading="fieldLoading"
-            :field-load-disabled="isFieldLoadDisabled"
-            @load-fields="loadSubtaskFields"
-          />
+          <subtask-list v-model:list="generator.list" :fields="subtaskFields" />
         </n-grid-item>
       </n-grid>
     </n-card>
@@ -116,7 +116,23 @@ async function createSubtasks(): Promise<void> {
 </script>
 
 <style scoped>
+.subtask-generator-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
 .subtask-progress {
   margin-top: -8px;
+}
+
+@media (max-width: 640px) {
+  .subtask-generator-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .subtask-generator-actions > .n-button {
+    flex: 1;
+  }
 }
 </style>

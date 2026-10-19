@@ -97,6 +97,36 @@ class UserPreferencesSerializer(ModelSerializer):
         read_only_fields = ["updated_at", "extra_settings"]
 
 
+class UserProfileSerializer(ModelSerializer):
+    """Allow self-service identity edits without exposing account administration."""
+
+    class Meta:
+        model = User
+        fields = ["first_name", "last_name", "email"]
+        extra_kwargs = {"email": {"allow_blank": False}}
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError("This email address is unavailable.")
+        return value
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            unknown = set(data) - set(self.fields)
+            if unknown:
+                raise serializers.ValidationError({
+                    field: "This field cannot be updated here." for field in sorted(unknown)
+                })
+        return super().to_internal_value(data)
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        if validated_data:
+            instance.save(update_fields=list(validated_data))
+        return instance
+
+
 class UserSerializer(ModelSerializer):
     password = CharField(write_only=True, required=False, allow_blank=False)
     permissions = PermissionSerializer(source="user_permissions", many=True, read_only=True)

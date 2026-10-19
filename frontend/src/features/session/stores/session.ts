@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { isAxiosError } from 'axios'
-import type { IPermission, IPreferences, IUser } from '@/features/session/models/auth'
+import type { IPermission, IPreferences, IUser, UserProfile } from '@/features/session/models/auth'
 import { hasEffectivePermission } from '@/features/session/services/accessPolicy'
 import { formatApiError } from '@/shared/api/apiError'
 import { notifyError, notifySuccess } from '@/shared/services/notify'
@@ -12,6 +12,7 @@ import {
   fetchSession,
   requestPasswordReset,
   updateSessionPreferences,
+  updateSessionProfile,
   type LoginCredentials
 } from '@/features/session/api/sessionApi'
 import { resetSessionScopedStores } from '@/features/session/stores/sessionScope'
@@ -120,6 +121,12 @@ export const useSessionStore = defineStore('session', {
       } finally {
         this.loading = false
       }
+    },
+    async updateProfile(profile: UserProfile): Promise<UserProfile> {
+      const updated = await updateSessionProfile(profile)
+      if (this.user) Object.assign(this.user, updated)
+      notifySuccess('Profile updated successfully.')
+      return updated
     },
     resetPasswordRequest(payload: object): Promise<void> {
       return requestPasswordReset(payload)

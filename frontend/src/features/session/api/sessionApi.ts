@@ -1,6 +1,6 @@
 import { apiClient, isAuthenticationFailure } from '@/shared/api/http'
 import { isAxiosError } from 'axios'
-import type { IPreferences, IUser } from '@/features/session/models/auth'
+import type { IPreferences, IUser, UserProfile } from '@/features/session/models/auth'
 
 export interface LoginCredentials {
   username: string
@@ -34,6 +34,11 @@ export async function deleteSession(): Promise<void> {
 /** Update current-user preferences without persisting session identity in the browser. */
 export async function updateSessionPreferences(payload: IPreferences): Promise<IPreferences> {
   return (await apiClient.patch<IPreferences>('users/preferences/', payload)).data
+}
+
+/** Update only the current user's editable identity fields. */
+export async function updateSessionProfile(payload: UserProfile): Promise<UserProfile> {
+  return (await apiClient.patch<UserProfile>('users/profile/', payload)).data
 }
 
 export async function requestPasswordReset(payload: object): Promise<void> {

@@ -16,6 +16,7 @@ urlpatterns = [
     path("groups/", views.GroupView.as_view(), name="groups"),
     path("groups/<int:pk>/", views.GroupView.as_view(), name="group-detail"),
     path("password/", views.PasswordChangeView.as_view(), name="change-password"),
+    path("profile/", views.UserProfileView.as_view(), name="user-profile"),
     path("preferences/", views.UserPreferencesView.as_view(), name="preferences"),
     path("preferences/reset/", views.ResetPreferencesView.as_view(), name="reset-preferences"),
     path("password-reset/", views.PasswordResetRequestAPIView.as_view(), name="password-reset"),

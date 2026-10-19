@@ -78,8 +78,10 @@ export default class ParticleAnimation {
   }
 
   createSprites() {
-    const radius = this.ww <= 500 ? 0.9 : 1
-    this.spriteSize = Math.ceil(radius * 2 + 2)
+    // Fill more of the existing three-pixel grid without adding particles or draws.
+    // Keep the four-pixel sprite footprint, including room for antialiased edges.
+    const radius = this.ww <= 500 ? 1.2 : 1.35
+    this.spriteSize = Math.ceil(radius * 2 + 1)
     this.sprites.clear()
     for (const color of new Set(this.colors)) {
       const sprite = document.createElement('canvas')

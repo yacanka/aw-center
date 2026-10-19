@@ -15,10 +15,14 @@ from jira import JIRAError
 
 from awcenter.cache_policy import production_cache_is_valid
 
-from .client import JiraConfigurationError, JiraConnector, validated_session_id
+from .client import (
+    JiraConfigurationError, JiraConnector, validated_personal_access_token, validated_session_id,
+)
 
 CACHE_KEY_PREFIX = "integrations:jira-session:v1"
-LEGACY_CREDENTIAL_KEYS = frozenset({"jsessionid", "sessionid", "jira_session_id"})
+LEGACY_CREDENTIAL_KEYS = frozenset({
+    "jsessionid", "sessionid", "jira_session_id", "personal_access_token", "access_token", "token",
+})
 
 
 class JiraSessionError(RuntimeError):
@@ -52,29 +56,37 @@ class JiraSessionUpstreamError(JiraSessionError):
     response_status = 502
 
 
+class JiraAccountMismatch(JiraSessionError):
+    detail = "Use a personal access token belonging to your AW Center username."
+    code = "JIRA_ACCOUNT_MISMATCH"
+    response_status = 400
+
+
 @dataclass(frozen=True)
 class JiraSessionRecord:
     credential: str
     identity: dict
     expires_at: str
+    auth_method: str = "session_id"
 
     def public_payload(self):
         return {
             "state": "connected",
             "expires_at": self.expires_at,
+            "user": self.identity,
         }
 
 
-def connect_jira_session(owner, credential):
+def connect_jira_session(owner, credential, *, auth_method="session_id"):
     """Validate, encrypt, and cache one owner's replaceable JIRA session."""
 
     ensure_jira_enabled()
     try:
-        normalized = validated_session_id(credential)
+        normalized = validated_credential(credential, auth_method)
     except ValueError as error:
         raise JiraSessionInvalid() from error
     try:
-        connector = JiraConnector(settings.JIRA_URL, jira_session_id=normalized)
+        connector = JiraConnector(settings.JIRA_URL, **connector_credentials(normalized, auth_method))
         identity = sanitize_jira_identity(connector.current_user())
     except JiraConfigurationError as error:
         raise JiraSessionConfigurationError() from error
@@ -86,7 +98,12 @@ def connect_jira_session(owner, credential):
         raise JiraSessionUpstreamError() from error
     if not identity:
         raise JiraSessionInvalid()
-    return store_jira_session(owner, normalized, identity)
+    if auth_method == "personal_access_token":
+        # PAT authentication carries no username; trust only Jira's verified identity.
+        username = str(owner.get_username())
+        if not username or identity["username"].casefold() != username.casefold():
+            raise JiraAccountMismatch()
+    return store_jira_session(owner, normalized, identity, auth_method=auth_method)
 
 
 def get_jira_session(owner):
@@ -99,10 +116,14 @@ def get_jira_session(owner):
     try:
         decoded = session_cipher().decrypt(str(encrypted).encode("ascii"))
         payload = json.loads(decoded.decode("utf-8"))
+        if not isinstance(payload, Mapping):
+            raise ValueError("Invalid cached JIRA connection.")
+        auth_method = payload.get("auth_method", "session_id")
         record = JiraSessionRecord(
-            credential=validated_session_id(payload["credential"]),
+            credential=validated_credential(payload["credential"], auth_method),
             identity=sanitize_cached_identity(payload["identity"]),
             expires_at=str(payload["expires_at"]),
+            auth_method=auth_method,
         )
         if datetime.fromisoformat(record.expires_at) <= timezone.now():
             clear_jira_session(owner)
@@ -126,26 +147,30 @@ def jira_connector_for(owner):
     ensure_jira_enabled()
     record = require_jira_session(owner)
     try:
-        return JiraConnector(settings.JIRA_URL, jira_session_id=record.credential)
+        return JiraConnector(
+            settings.JIRA_URL, **connector_credentials(record.credential, record.auth_method),
+        )
     except (JiraConfigurationError, ValueError) as error:
         raise JiraSessionConfigurationError() from error
     except JIRAError as error:
         raise JiraSessionUpstreamError() from error
 
 
-def store_jira_session(owner, credential, identity):
+def store_jira_session(owner, credential, identity, *, auth_method="session_id"):
     ttl = session_ttl_seconds()
     expires_at = timezone.now() + timedelta(seconds=ttl)
     record = JiraSessionRecord(
         credential=credential,
         identity=sanitize_cached_identity(identity),
         expires_at=expires_at.isoformat(),
+        auth_method=auth_method,
     )
     serialized = json.dumps(
         {
             "credential": record.credential,
             "identity": record.identity,
             "expires_at": record.expires_at,
+            "auth_method": record.auth_method,
         },
         separators=(",", ":"),
         sort_keys=True,
@@ -153,6 +178,19 @@ def store_jira_session(owner, credential, identity):
     encrypted = session_cipher().encrypt(serialized).decode("ascii")
     cache.set(owner_cache_key(owner), encrypted, timeout=ttl)
     return record
+
+
+def validated_credential(credential, auth_method):
+    if auth_method == "session_id":
+        return validated_session_id(credential)
+    if auth_method == "personal_access_token":
+        return validated_personal_access_token(credential)
+    raise ValueError("Invalid JIRA authentication method.")
+
+
+def connector_credentials(credential, auth_method):
+    key = "personal_access_token" if auth_method == "personal_access_token" else "jira_session_id"
+    return {key: credential}
 
 
 def clear_jira_session(owner):

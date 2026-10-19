@@ -124,7 +124,11 @@ async function screen(
   catalog.status = 'ready'
   vi.spyOn(catalog, 'load').mockReturnValue(projectsReady || Promise.resolve([]))
   const jira = useJiraStore()
-  jira.jiraConnection = { state: 'connected', expires_at: null }
+  jira.jiraConnection = {
+    state: 'connected',
+    user: { username: 'operator', display_name: 'Operator' },
+    expires_at: null
+  }
   vi.spyOn(jira, 'fetchJiraConnection').mockResolvedValue(jira.jiraConnection)
   const component = kind === 'dcc' ? DCCCreator : EcrTask
   const router = createRouter({

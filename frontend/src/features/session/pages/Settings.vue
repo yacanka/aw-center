@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeVars } from 'naive-ui'
+import ProfileSettings from '@/features/session/components/settings/ProfileSettings.vue'
 import PasswordPopup from '@/features/session/components/settings/PasswordPopup.vue'
 import { useSessionStore } from '@/features/session/stores/session'
 import { applyPreferredTheme } from '@/app/services/theme'
@@ -96,6 +97,13 @@ async function logoutAction() {
       </aside>
 
       <div class="settings-sections">
+        <section class="settings-section" aria-labelledby="profile-heading">
+          <header class="section-heading profile-heading">
+            <h2 id="profile-heading">Profile</h2>
+            <p>Update your name and email address.</p>
+          </header>
+          <ProfileSettings />
+        </section>
         <section class="settings-section" aria-labelledby="appearance-heading">
           <header class="section-heading">
             <h2 id="appearance-heading">Appearance</h2>
@@ -293,6 +301,9 @@ dd {
   border: 1px solid var(--settings-line);
   padding: 26px 28px;
   scroll-margin-top: 24px;
+}
+.profile-heading {
+  margin-bottom: 24px;
 }
 .section-heading p {
   margin-top: 4px;
