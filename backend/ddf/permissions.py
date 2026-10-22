@@ -24,3 +24,10 @@ class IsDDFOwner(BasePermission):
 
     def has_object_permission(self, request, view, obj):
         return obj.created_by_id == request.user.id
+
+
+class DDFAssessmentPermission(BasePermission):
+    """Assessment writes an existing record and requires change permission."""
+
+    def has_permission(self, request, view):
+        return request.user.has_perm("ddf.change_ddf")

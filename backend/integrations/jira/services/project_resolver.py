@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 from typing import Any
 
-from projects.registry import find_project_by_jira_component
+from projects.registry import find_projects_by_jira_components
 from projects.types import ProjectDefinition
 
 DCC_CAPABILITY = "jira"
@@ -35,8 +35,7 @@ def resolve_projects_from_jira_components(
     component_names = tuple(_extract_component_names(components))
     projects = []
     seen_slugs = set()
-    for component_name in component_names:
-        project_definition = find_project_by_jira_component(component_name)
+    for project_definition in find_projects_by_jira_components(component_names):
         if project_definition is None:
             continue
         if DCC_CAPABILITY not in project_definition.capabilities:

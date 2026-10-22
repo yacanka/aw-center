@@ -37,8 +37,8 @@ outbox contracts instead of restoring retired routes.
   Confirmed publication automatically creates a Watcher record atomically.
 
 JIRA credentials remain in the existing server-side integration session. AI
-uses `ASSESSMENT_API_URL`, `ASSESSMENT_API_ALLOWED_HOSTS`,
-`ASSESSMENT_API_MODEL_ID` and `ASSESSMENT_API_TOKEN`; mail uses the existing
+uses `AI_API_URL`, `AI_API_ALLOWED_HOSTS`,
+`AI_API_MODEL_ID` and `AI_API_TOKEN`; mail uses the existing
 notification worker and SMTP configuration. No new dependencies or migrations
 are required. Browser-provided filesystem paths and legacy raw credential
 endpoints remain retired by the current architecture.
@@ -85,3 +85,14 @@ unavailable; parser regressions use generated PDFs for both supported layouts.
 ## Preference ve kullanıcı içeriği sınırı
 
 Watcher görünüm tercihleri JIRA preference servisi ile yönetilir. Kayıtlı JIRA listeleri ayrı JiraUserContent modelinde ve `/api/integrations/jira/subtasks/saved-lists/` GET/PUT yüzeyinde saklanır. PUT `{lists, version}` gerektirir; stale version 409 verir. Görünüm reseti kayıtlı listeleri ve analiz sorularını silmez.
+
+## Private DCC signatories and CA configuration
+
+Mandatory Gokbey reviewers are loaded from an external private JSON file rather
+than source code. See [private DCC policy setup](dcc-private-policy.md) for the
+schema, permissions, deployment transition and DocProof CA behavior. JIRA
+snapshots and the existing dynamic reminder recipient rules remain unchanged.
+
+Project/component, document-label and template mappings now come from
+`PROJECT_CONFIGURATION_FILE`. Technical slugs/capabilities, role enforcement and
+stored records remain unchanged. See [private workflow setup](private-workflow-configuration.md).

@@ -54,3 +54,22 @@ class SmtpTimeoutTests(SimpleTestCase):
             server.join(timeout=3)
 
         self.assertFalse(server.is_alive())
+
+
+@override_settings(AWCENTER_MAIL_TRANSPORT="django",
+                   EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+                   DEFAULT_FROM_EMAIL="sender@example.invalid")
+class MailRecipientRegressionTests(SimpleTestCase):
+    def test_transport_keeps_only_explicit_to_cc_bcc_and_message_id(self):
+        from django.core import mail
+        send_html_email(
+            "Synthetic notice", "<p>Approved content</p>",
+            ["to@example.invalid", "to@example.invalid"],
+            cc="cc@example.invalid", bcc="bcc@example.invalid",
+            message_id="<synthetic-notice@awcenter>",
+        )
+        message = mail.outbox[-1]
+        self.assertEqual(message.to, ["to@example.invalid"])
+        self.assertEqual(message.cc, ["cc@example.invalid"])
+        self.assertEqual(message.bcc, ["bcc@example.invalid"])
+        self.assertEqual(message.extra_headers["Message-ID"], "<synthetic-notice@awcenter>")

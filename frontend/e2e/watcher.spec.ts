@@ -216,6 +216,15 @@ for (const theme of ['light', 'dark']) {
       await expect.poll(() => state.reminders).toBe(1)
       await expect(page.locator('.n-modal-mask')).toHaveCount(0)
       await page.getByRole('button', { name: 'Assessment', exact: true }).click()
+      await expect(
+        modal.getByText('including names and technical descriptions', { exact: false })
+      ).toBeVisible()
+      await expect(
+        modal.getByText('The PDF file itself is not sent.', { exact: false })
+      ).toBeVisible()
+      expect(
+        await modal.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
+      ).toBe(true)
       await modal.locator('input[type=file]').setInputFiles({
         name: 'ecr.pdf',
         mimeType: 'application/pdf',

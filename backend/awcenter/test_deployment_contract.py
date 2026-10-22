@@ -65,6 +65,7 @@ class DeploymentContractTests(SimpleTestCase):
     def test_ai_provider_environment_is_limited_to_backend_lifecycle(self):
         services = yaml.safe_load(self.read("docker-compose.yml"))["services"]
         backend_environment = services["backend"]["environment"]
+        self.assertFalse(any(key.startswith("ASSESSMENT_API_") for key in backend_environment))
         for suffix in AI_SETTING_NAMES:
             self.assertIn(f"AI_API_{suffix}", backend_environment)
         for name in ("worker", "notification-worker", "cleanup-worker"):
@@ -208,6 +209,21 @@ class DeploymentContractTests(SimpleTestCase):
                 service["environment"]["CUSTOM_TEMPLATE_DIR"],
                 "/app/document-templates",
             )
+            self.assertEqual(
+                service["environment"]["PROJECT_CONFIGURATION_FILE"],
+                "/app/document-templates/project-configuration.json",
+            )
+            self.assertEqual(
+                service["environment"]["GOKBEY_DCC_POLICY_FILE"],
+                "/app/document-templates/gokbey-dcc-policy.json",
+            )
+        for service_name in ("notification-worker", "cleanup-worker"):
+            self.assertNotIn("GOKBEY_DCC_POLICY_FILE", services[service_name]["environment"])
+            self.assertNotIn("PROJECT_CONFIGURATION_FILE", services[service_name]["environment"])
+        self.assertEqual(services["backend"]["environment"]["DDF_ASSESSMENT_POLICY_FILE"],
+                         "/app/document-templates/ddf-assessment-policy.json")
+        for service_name in ("worker", "notification-worker", "cleanup-worker"):
+            self.assertNotIn("DDF_ASSESSMENT_POLICY_FILE", services[service_name]["environment"])
         self.assertEqual(services["redis"]["user"], "redis")
         self.assertIn("requirepass %s", " ".join(services["redis"]["command"]))
         self.assertNotIn("--requirepass", services["redis"]["command"][-1])

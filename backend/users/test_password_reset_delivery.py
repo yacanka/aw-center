@@ -24,6 +24,7 @@ from .password_reset_notifications import (
     enqueue_password_reset,
     process_password_reset_deliveries,
 )
+from .password_reset_tokens import current_token_timestamp, make_token_at, token_generator
 
 
 User = get_user_model()
@@ -42,6 +43,34 @@ class PasswordResetDeliveryTests(TestCase):
             email="reset-user@example.invalid",
             password="StrongPass!123",
         )
+
+    @override_settings(AWCENTER_MAIL_TRANSPORT="django", SECRET_KEY_FALLBACKS=[])
+    def test_key_rotation_cancels_old_outbox_and_allows_a_new_reset(self):
+        original_password = self.user.password
+        with override_settings(SECRET_KEY="synthetic-old-django-key"):
+            old_token = make_token_at(self.user, current_token_timestamp())
+            old_delivery, _ = enqueue_password_reset(self.user)
+
+        with override_settings(SECRET_KEY="synthetic-new-django-key"):
+            self.assertFalse(token_generator.check_token(self.user, old_token))
+            delivery_id, lease_token = claim_password_reset_deliveries()[0]
+            outcome = deliver_password_reset(delivery_id, lease_token)
+            self.assertEqual(outcome, PasswordResetDelivery.Status.CANCELLED)
+            self.assertEqual(len(mail.outbox), 0)
+            old_delivery.refresh_from_db()
+            self.assertEqual(old_delivery.error_code, "ACCOUNT_STATE_CHANGED")
+
+            new_delivery, created = enqueue_password_reset(self.user)
+            self.assertTrue(created)
+            self.assertNotEqual(new_delivery.pk, old_delivery.pk)
+            delivery_id, lease_token = claim_password_reset_deliveries()[0]
+            self.assertEqual(deliver_password_reset(delivery_id, lease_token), PasswordResetDelivery.Status.SENT)
+            self.assertEqual(len(mail.outbox), 1)
+            self.assertTrue(token_generator.check_token(self.user, make_token_at(self.user, new_delivery.token_timestamp)))
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.password, original_password)
+        self.assertTrue(PasswordResetDelivery.objects.filter(pk=old_delivery.pk).exists())
 
     @override_settings(AWCENTER_MAIL_TRANSPORT="disabled")
     def test_public_request_queues_without_mail_secret_or_account_disclosure(self):

@@ -1,4 +1,4 @@
-"""Compatibility adapter for document assessment through the shared AI client."""
+"""Document assessment through the shared AI client and central provider."""
 
 from .ai import client as ai_client
 from .ai.config import resolve_configuration
@@ -40,12 +40,11 @@ class AssessmentServiceError(RuntimeError):
 def request_assessment(prompt):
     """Return complete chat content, preserving the assessment error contract.
 
-    Prefer an active legacy provider family; otherwise use the central family.
     Prompts are sent unchanged as one user message without retries or history.
     Invalid input is rejected before network access with ASSESSMENT_INVALID_INPUT.
     """
     try:
-        configuration = resolve_configuration(prefer_assessment=True)
+        configuration = resolve_configuration()
         policy = AIRequestPolicy(
             purpose="assessment",
             max_request_bytes=ASSESSMENT_MAX_REQUEST_BYTES,

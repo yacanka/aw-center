@@ -19,6 +19,8 @@ from jobs.services import create_job
 from jobs.worker import claim_next_job, execute_claimed_job
 from orgs.models import Project, ProjectRoleAssignment
 
+from projects.policy_test_utils import private_dcc_policy
+
 from .base import JobTestCase
 
 
@@ -90,7 +92,8 @@ class DccSnapshotTests(JobTestCase):
             [project],
         )
 
-        context = build_render_context(snapshot)
+        with private_dcc_policy():
+            context = build_render_context(snapshot)
 
         self.assertEqual(
             snapshot["placeholders"]["Panels"][0]["Panel_AS_Name"],
@@ -98,7 +101,7 @@ class DccSnapshotTests(JobTestCase):
         )
         self.assertEqual(
             context["Panels"][0]["Panel_AS_Name"],
-            "Example Signatory 1, Ada LOVELACE",
+            "Required Reviewer, Ada LOVELACE",
         )
 
     def test_conflicting_explicit_responsible_values_are_rejected(self):
@@ -205,7 +208,7 @@ class DccDocumentExecutorTests(JobTestCase):
                 return_value=snapshot_contract([project.pk]),
             ),
             patch("integrations.jira.job_views.jira_connector_for"),
-            patch("integrations.jira.document_job.get_project_definition", return_value=project_definition()),
+            patch("integrations.jira.document_job.get_project_integration_definition", return_value=project_definition()),
             patch("integrations.jira.document_job.resolve_dcc_template_path", return_value=template_path),
         ):
             preview = self.client.post(
@@ -233,7 +236,7 @@ class DccDocumentExecutorTests(JobTestCase):
             self.user, "dcc.create_document", "Create DCC", {"issue_key": "DCC-1"}, upload
         )
 
-        with patch("integrations.jira.document_job.get_project_definition", return_value=project_definition()):
+        with patch("integrations.jira.document_job.get_project_integration_definition", return_value=project_definition()):
             with patch("integrations.jira.document_job.resolve_dcc_template_path", return_value=template_path):
                 execute_claimed_job(claim_next_job("dcc-worker"), resolve_job_executor)
 
@@ -271,7 +274,7 @@ class DccDocumentExecutorTests(JobTestCase):
         create_template(template_path)
         snapshot = snapshot_contract()
 
-        with patch("integrations.jira.document_job.get_project_definition", return_value=project_definition()):
+        with patch("integrations.jira.document_job.get_project_integration_definition", return_value=project_definition()):
             with patch("integrations.jira.document_job.resolve_dcc_template_path", return_value=template_path):
                 summary = prepare_dcc_preview(snapshot)
 

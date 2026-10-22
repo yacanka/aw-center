@@ -50,6 +50,7 @@ class DocProofSearchTests(SimpleTestCase):
             params={"inline": "true", "input_document_number": "ABC-123"},
             timeout=views.REQUEST_TIMEOUT_SECONDS,
             stream=True,
+            verify=client.verify,
             allow_redirects=False,
         )
 

@@ -42,11 +42,8 @@ x-awcenter-backend-integrations: &awcenter-backend-integrations
   TEAMCENTER_USERNAME: "${TEAMCENTER_USERNAME:-${AWCENTER_USERNAME:-}}"
   TEAMCENTER_PASSWORD: "${TEAMCENTER_PASSWORD:-${AWCENTER_PASSWORD:-}}"
   TEAMCENTER_VERIFY_SSL: "True"
-  ASSESSMENT_API_MODEL_ID: "${ASSESSMENT_API_MODEL_ID:-}"
-  ASSESSMENT_API_TOKEN: "${ASSESSMENT_API_TOKEN:-}"
-  ASSESSMENT_API_URL: "${ASSESSMENT_API_URL:-}"
-  ASSESSMENT_API_ALLOWED_HOSTS: "${ASSESSMENT_API_ALLOWED_HOSTS:-}"
   # Null passthrough preserves unset versus explicitly empty central settings.
+  DDF_ASSESSMENT_POLICY_FILE: /app/document-templates/ddf-assessment-policy.json
   AI_API_URL:
   AI_API_MODEL_ID:
   AI_API_TOKEN:
@@ -74,6 +71,8 @@ x-awcenter-worker-integrations: &awcenter-worker-integrations
   TEAMCENTER_VERIFY_SSL: "True"
 
 x-awcenter-runtime-assets-environment: &awcenter-runtime-assets-environment
+  PROJECT_CONFIGURATION_FILE: /app/document-templates/project-configuration.json
+  GOKBEY_DCC_POLICY_FILE: /app/document-templates/gokbey-dcc-policy.json
   MODEL_RUNTIME_DIR: /app/ai-models
   CUSTOM_TEMPLATE_DIR: /app/document-templates
   COVER_PAGE_TEMPLATE_PATH: /app/document-templates/cover_page_template.docx

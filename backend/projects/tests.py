@@ -9,6 +9,7 @@ from .registry import (
     UnknownProjectDefinitionError,
     find_project_by_jira_component,
     get_project_definition,
+    get_project_integration_definition,
     get_project_definitions_by_capability,
 )
 
@@ -52,10 +53,9 @@ class ProjectRegistryTests(TestCase):
         forbidden = {"display_name", "enabled", "app_label", "url_prefix", "tags"}
         for definition in PROJECT_DEFINITIONS.values():
             self.assertTrue(definition.capabilities)
+            self.assertIsNone(definition.jira_component)
             if "jira" in definition.capabilities:
-                self.assertTrue(definition.jira_component)
-            else:
-                self.assertIsNone(definition.jira_component)
+                self.assertTrue(get_project_integration_definition(definition.slug).jira_component)
             self.assertTrue(forbidden.isdisjoint(vars(definition)))
 
     def test_lookup_and_capability_filter_are_explicit(self):
@@ -75,8 +75,8 @@ class ProjectRegistryTests(TestCase):
             PROJECT_DEFINITIONS["gokbey"].dcc_controller,
             GOKBEY_DCC_CONTROLLER,
         )
-        self.assertEqual(PROJECT_DEFINITIONS["hurjet"].jira_component, "HURJET")
+        self.assertEqual(get_project_integration_definition("hurjet").jira_component, "HURJET")
         self.assertEqual(
-            PROJECT_DEFINITIONS["hurjet"].dcc_template_name,
+            get_project_integration_definition("hurjet").dcc_template_name,
             "hurjet_dcc_template.docx",
         )

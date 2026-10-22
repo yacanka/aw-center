@@ -222,7 +222,6 @@ const columns: DataTableColumns<IDdf> = [
                   store
                     .assessment(row)
                     .then((res) => {
-                      console.log(res)
                       popup.open('Result', res, false)
                     })
                     .finally(() => {

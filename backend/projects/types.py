@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class ProjectDefinition:
-    """Technical metadata only; business name/enabled state live in orgs.Project."""
+    """Static technical identity, optionally joined with private integration metadata.
+
+    Business display name/enabled state remain in orgs.Project.
+    """
 
     slug: str
     capabilities: tuple[str, ...] = field(default_factory=tuple)

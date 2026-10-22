@@ -151,6 +151,9 @@ class ComplianceNotificationTests(TestCase):
         other_log = NotificationLog.objects.get(profile=other_profile)
         self.assertEqual(result["sent"], 1)
         self.assertEqual(other_log.status, NotificationLog.Status.PENDING)
+        self.assertEqual(mail.outbox[0].to, ["ada@example.com"])
+        self.assertEqual(mail.outbox[0].cc, [])
+        self.assertEqual(mail.outbox[0].bcc, [])
         self.assertEqual(len(mail.outbox), 1)
 
     def test_stale_event_is_cancelled_before_delivery(self):

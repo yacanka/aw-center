@@ -37,6 +37,7 @@ def login(client: Session) -> bool:
             login_url(),
             data=payload,
             timeout=LOGIN_TIMEOUT_SECONDS,
+            verify=client.verify,
             allow_redirects=False,
         )
         response.raise_for_status()
@@ -62,6 +63,7 @@ def get_json(client: Session, path: str, params: dict[str, Any]) -> dict[str, An
         f"{base_url()}{path}",
         params=params,
         timeout=REQUEST_TIMEOUT_SECONDS,
+        verify=client.verify,
         stream=True,
         allow_redirects=False,
     )
@@ -120,7 +122,11 @@ def base_url() -> str:
 
 def tls_verification() -> bool | str:
     certificate = settings.DOCPROOF_CERTIFICATE_FILE
-    return str(certificate) if certificate.is_file() else settings.DOCPROOF_VERIFY_SSL
+    if certificate is None:
+        return settings.DOCPROOF_VERIFY_SSL
+    if not certificate.is_absolute() or not certificate.is_file():
+        raise RequestException("DocProof CA configuration is unavailable or invalid.")
+    return str(certificate)
 
 
 def normalize_document_number(raw_document_number: str) -> str:

@@ -11,7 +11,9 @@ from jobs.artifacts import (
 )
 from jobs.contracts import JobExecutionFailure, JobExecutionResult
 from jobs.worker import update_progress
-from projects.registry import UnknownProjectDefinitionError, get_project_definition
+from projects.registry import UnknownProjectDefinitionError, get_project_integration_definition
+from projects.policies.gokbey import DccPolicyConfigurationError
+from projects.configuration import ProjectConfigurationError
 
 from .services.render_controllers import apply_project_dcc_controller
 from .services.template_resolver import DccTemplateResolutionError, resolve_dcc_template_path
@@ -69,6 +71,16 @@ def render_snapshot(snapshot, output_path):
         from docxtpl import DocxTemplate
         document = create_template_document(snapshot, DocxTemplate)
         render_document(document, snapshot, output_path)
+    except ProjectConfigurationError as error:
+        raise JobExecutionFailure(
+            "Private project configuration is unavailable or invalid.",
+            "PROJECT_CONFIGURATION_UNAVAILABLE", True,
+        ) from error
+    except DccPolicyConfigurationError as error:
+        raise JobExecutionFailure(
+            "The private DCC signatory policy is unavailable or invalid.",
+            "DCC_POLICY_UNAVAILABLE", True,
+        ) from error
     except (ImportError, OSError, DccTemplateResolutionError) as error:
         raise JobExecutionFailure(
             "The configured DCC template is unavailable.", "DCC_TEMPLATE_UNAVAILABLE", True
@@ -84,7 +96,7 @@ def render_snapshot(snapshot, output_path):
 def create_template_document(snapshot, template_class):
     """Create one allowlisted project template instance."""
 
-    project = get_project_definition(snapshot["project_slug"])
+    project = get_project_integration_definition(snapshot["project_slug"])
     return template_class(resolve_dcc_template_path(project))
 
 

@@ -54,11 +54,19 @@ class ImportedDccPolicyTests(SimpleTestCase):
         self.assertEqual(get_project_definition("hurkus").capabilities, ("jira",))
 
     def test_jira_component_names_accept_existing_and_corrected_spelling(self):
-        for component in ("OZGUR", "Özgür", "ÖZGÜR"):
-            self.assertEqual(find_project_by_jira_component(component).slug, "ozgur")
-        self.assertEqual(find_project_by_jira_component("GÖKBEY SİVİL").slug, "gokbey_sivil")
-        self.assertEqual(find_project_by_jira_component("Example hurkus").slug, "hurkus")
-        self.assertEqual(find_project_by_jira_component("PIKU").slug, "piku")
+        import json
+        from pathlib import Path
+        from awcenter.workflow_test_utils import private_workflow_configuration
+        with private_workflow_configuration() as files:
+            path = Path(files["PROJECT_CONFIGURATION_FILE"])
+            data = json.loads(path.read_text())
+            data["projects"]["ozgur"].update(jira_component="Örnek", aliases=["ORNEK"])
+            path.write_text(json.dumps(data))
+            for component in ("ORNEK", "Örnek", "ÖRNEK"):
+                self.assertEqual(find_project_by_jira_component(component).slug, "ozgur")
+            self.assertEqual(find_project_by_jira_component("GOKBEY_SIVIL").slug, "gokbey_sivil")
+            self.assertEqual(find_project_by_jira_component("HURKUS").slug, "hurkus")
+            self.assertEqual(find_project_by_jira_component("PIKU").slug, "piku")
 
     @patch("integrations.jira.document_fields.timezone.localdate", return_value=date(2026, 9, 22))
     def test_document_date_does_not_replace_the_source_update_date(self, _today):

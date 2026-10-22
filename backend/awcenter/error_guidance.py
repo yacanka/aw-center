@@ -128,6 +128,15 @@ _EXACT_GUIDANCE = {
     "DCC_TEMPLATE_UNAVAILABLE": ErrorGuidance(
         False, "Ask an administrator to deploy the registered project DOCX template."
     ),
+    "PROJECT_CONFIGURATION_UNAVAILABLE": ErrorGuidance(
+        False, "Ask an administrator to validate the private project configuration and its access permissions."
+    ),
+    "DDF_POLICY_UNAVAILABLE": ErrorGuidance(
+        False, "Ask an administrator to validate the private DDF assessment policy."
+    ),
+    "DCC_POLICY_UNAVAILABLE": ErrorGuidance(
+        False, "Ask an administrator to validate the private DCC signatory policy and its access permissions."
+    ),
     "DCC_RENDER_FAILED": ErrorGuidance(
         False, "Ask an administrator to validate the registered template placeholders."
     ),

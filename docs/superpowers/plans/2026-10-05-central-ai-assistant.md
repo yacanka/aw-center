@@ -1,5 +1,7 @@
 # Merkezi AI ve AW Center Asistanı Implementation Plan
 
+> 20.10.2026: Historical design record. The active provider contract is now AI_API_* only; see [current AI service documentation](../../ai-assistant.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** AI sorgularını bağımsız tüketilebilen ortak fonksiyonlarda merkezileştirmek ve bu fonksiyonlarla yetkiye uygun uygulama rehberliği sunan bir asistan eklemek.

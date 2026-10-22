@@ -46,6 +46,11 @@ class ProductionConfigurationCheckTests(SimpleTestCase):
         self.assertIn("awcenter.E019", identifiers)
         self.assertIn("awcenter.E020", identifiers)
 
+    @override_settings(DEBUG=False, DOCPROOF_ENABLED=True, DOCPROOF_VERIFY_SSL=True,
+                       DOCPROOF_CERTIFICATE_FILE=Path("/missing-explicit-ca.pem"))
+    def test_explicit_docproof_ca_must_be_available_even_with_system_tls_enabled(self):
+        self.assertIn("awcenter.E039", self.error_ids())
+
     @override_settings(
         DEBUG=False,
         TEAMCENTER_ENABLED=True,
@@ -68,11 +73,11 @@ class ProductionConfigurationCheckTests(SimpleTestCase):
 
     @override_settings(
         DEBUG=False,
-        ASSESSMENT_API_URL="https://assessment.example.test/api",
-        ASSESSMENT_API_ALLOWED_HOSTS=[],
+        AI_API_URL="https://assessment.example.test/api",
+        AI_API_ALLOWED_HOSTS=[],
     )
     def test_assessment_host_requires_explicit_allowlist(self):
-        self.assertIn("awcenter.E023", self.error_ids())
+        self.assertIn("awcenter.E038", self.error_ids())
 
     @override_settings(DEBUG=False, DOORS_ENABLED=True)
     def test_doors_requires_windows(self):
@@ -202,38 +207,29 @@ class AssessmentConfigurationChecksTests(SimpleTestCase):
         from integrations.tests.test_ai_config import ABSENT_CONFIGURATION, CENTRAL_CONFIGURATION
 
         with override_settings(DEBUG=False, **ABSENT_CONFIGURATION):
-            self.assertTrue({"awcenter.E023", "awcenter.E038"}.isdisjoint(
+            self.assertTrue({"awcenter.E038"}.isdisjoint(
                 {error.id for error in production_runtime_checks(None)}
             ))
             with override_settings(**CENTRAL_CONFIGURATION, AI_API_READ_TIMEOUT_SECONDS="nan"):
                 errors = production_runtime_checks(None)
                 identifiers = {error.id for error in errors}
-                self.assertTrue({"awcenter.E023", "awcenter.E038"}.issubset(identifiers))
+                self.assertTrue({"awcenter.E038"}.issubset(identifiers))
                 self.assertNotIn("synthetic-central-token", str(errors))
                 self.assertNotIn("central.example.test", str(errors))
             with override_settings(**CENTRAL_CONFIGURATION):
-                self.assertTrue({"awcenter.E023", "awcenter.E038"}.isdisjoint(
+                self.assertTrue({"awcenter.E038"}.isdisjoint(
                     {error.id for error in production_runtime_checks(None)}
                 ))
 
-    def test_invalid_legacy_is_checked_even_with_valid_central_family(self):
-        from integrations.tests.test_ai_config import ABSENT_CONFIGURATION, CENTRAL_CONFIGURATION
-
-        with override_settings(DEBUG=False, **ABSENT_CONFIGURATION):
-            with override_settings(**CENTRAL_CONFIGURATION, ASSESSMENT_API_MODEL_ID="legacy-model"):
-                identifiers = {error.id for error in production_runtime_checks(None)}
-        self.assertIn("awcenter.E023", identifiers)
-        self.assertNotIn("awcenter.E038", identifiers)
-
     @override_settings(
         DEBUG=False,
-        ASSESSMENT_API_URL="https://assessment.example.test/api/chat/completions",
-        ASSESSMENT_API_ALLOWED_HOSTS=["assessment.example.test"],
-        ASSESSMENT_API_MODEL_ID="",
-        ASSESSMENT_API_TOKEN="",
+        AI_API_URL="https://assessment.example.test/api/chat/completions",
+        AI_API_ALLOWED_HOSTS=["assessment.example.test"],
+        AI_API_MODEL_ID="",
+        AI_API_TOKEN="",
     )
     def test_chat_configuration_requires_model_and_token(self):
         from django.core.checks import run_checks
 
         errors = run_checks(include_deployment_checks=True)
-        self.assertIn("awcenter.E023", {error.id for error in errors})
+        self.assertIn("awcenter.E038", {error.id for error in errors})

@@ -1,7 +1,5 @@
 """Owner-scoped encrypted cache for ephemeral JIRA sessions."""
 
-import base64
-import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -239,16 +237,9 @@ def session_ttl_seconds():
 
 
 def session_cipher():
-    """Return a stable Fernet cipher; production never derives its own key."""
+    """Require an explicit, independent Fernet key in every environment."""
 
     configured = str(settings.JIRA_SESSION_ENCRYPTION_KEY or "").strip()
-    if not configured:
-        if not settings.DEBUG:
-            raise JiraSessionConfigurationError()
-        digest = hashlib.sha256(
-            f"awcenter:jira-session:{settings.SECRET_KEY}".encode("utf-8")
-        ).digest()
-        configured = base64.urlsafe_b64encode(digest).decode("ascii")
     try:
         return Fernet(configured.encode("ascii"))
     except (TypeError, ValueError, UnicodeError) as error:

@@ -1,7 +1,7 @@
 """User-visible project catalog contract tests."""
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from orgs.models import Project, ProjectRoleAssignment
@@ -26,6 +26,7 @@ class ProjectRegistryApiTests(TestCase):
         self.assertEqual(empty.status_code, 200)
         self.assertEqual(empty.data, [])
 
+    @override_settings(PROJECT_CONFIGURATION_FILE="")
     def test_catalog_joins_enabled_business_record_roles_and_capabilities(self):
         ProjectRoleAssignment.objects.create(
             project=self.ozgur,

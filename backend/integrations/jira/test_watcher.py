@@ -101,6 +101,36 @@ class WatcherTests(TestCase):
         self.assertIn("Reason", assess.call_args.args[0])
         self.assertIn("Human Factors", assess.call_args.args[0])
 
+    def test_assessment_sends_exactly_the_approved_fields_without_mutating_snapshot(self):
+        import json
+        from .watcher_assessment import assessment_prompt
+
+        fields = (
+            "ecr_number", "title", "project", "change_class", "change_type", "effectivity",
+            "track_type", "record_of_change", "requestor", "originator", "ata", "subata",
+            "initiator", "justification", "proposed_solution", "nonimplementation_consequence",
+            "impacted_groups",
+        )
+        snapshot = {name: f"synthetic-{name}" for name in fields}
+        snapshot["future_private_field"] = "synthetic-not-approved"
+        original = snapshot.copy()
+
+        prompt = assessment_prompt(snapshot)
+        outgoing = json.loads(prompt.split("\nBelge verisi:\n", 1)[1])
+
+        self.assertEqual(set(outgoing), set(fields))
+        for name in fields:
+            self.assertEqual(outgoing[name], f"synthetic-{name}")
+        self.assertNotIn("synthetic-not-approved", prompt)
+        self.assertEqual(snapshot, original)
+        for panel in (
+            "Structural Panel Assessment", "Software Panel Assessment", "Systems Engineering Assessment",
+            "Avionics & Electrical & E3 Panel Assessment", "Flight Panel Assessment",
+            "Mission Systems Assessment", "Safety Panel Assessment", "Human Factors Panel Assessment",
+            "ICA (Instructions for Continued Airworthiness) Panel Assessment",
+        ):
+            self.assertIn(panel, prompt)
+
     @patch("integrations.jira.watcher_service.jira_connector_for")
     def test_invalid_and_foreign_urls_never_reach_jira(self, factory):
         for reference in ("https://untrusted.example/browse/CHN-42", "CHN-42 garbage",

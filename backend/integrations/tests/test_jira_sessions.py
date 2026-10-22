@@ -291,6 +291,26 @@ class JiraSessionTests(TestCase):
         with self.assertRaises(JiraSessionConfigurationError):
             session_cipher()
 
+    @override_settings(DEBUG=True, JIRA_SESSION_ENCRYPTION_KEY="")
+    def test_development_never_derives_an_encryption_key(self):
+        with self.assertRaises(JiraSessionConfigurationError):
+            session_cipher()
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_jira_key_is_independent_and_rotation_requires_reconnection(self, connector):
+        connector.return_value.current_user.return_value = {"name": "jira-owner"}
+        connect_jira_session(self.user, "synthetic-session-value")
+
+        with override_settings(SECRET_KEY="synthetic-rotated-django-key"):
+            self.assertEqual(get_jira_session(self.user).credential, "synthetic-session-value")
+
+        with override_settings(JIRA_SESSION_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii")):
+            self.assertIsNone(get_jira_session(self.user))
+            self.assertIsNone(cache.get(owner_cache_key(self.user)))
+            connect_jira_session(self.user, "synthetic-reconnected-value")
+            self.assertEqual(get_jira_session(self.user).credential, "synthetic-reconnected-value")
+            self.assertTrue(get_user_model().objects.filter(pk=self.user.pk).exists())
+
     def test_logout_service_clears_only_requested_owner(self):
         with patch("integrations.jira.sessions.JiraConnector") as connector:
             connector.return_value.current_user.return_value = {

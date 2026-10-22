@@ -1,5 +1,7 @@
 # Merkezi AI erişimi ve AW Center Asistanı
 
+> 20.10.2026: Historical design record. The active provider contract is now AI_API_* only; see [current AI service documentation](../../ai-assistant.md).
+
 Bu tasarım, mevcut AI servis erişimini farklı özelliklerin bağımsız kullanabildiği
 ortak fonksiyonlara ayırır ve bunları kullanan AW Center yardımcı asistanını ekler.
 Kullanıcı asistanın rehberlik, sohbet ve uygulama bağlantıları sunması kapsamını

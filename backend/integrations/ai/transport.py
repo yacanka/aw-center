@@ -9,6 +9,17 @@ import requests
 from .contracts import AIConfiguration, AIRequestPolicy, AIServiceError
 
 
+class _BearerAuth(requests.auth.AuthBase):
+    """Explicit auth prevents ambient netrc credentials from replacing the token."""
+
+    def __init__(self, token: str):
+        self._token = token
+
+    def __call__(self, request):
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        return request
+
+
 def invalid_response() -> AIServiceError:
     return AIServiceError(
         "The AI service returned an invalid response.", "AI_RESPONSE_INVALID", 502,
@@ -86,6 +97,7 @@ def request_text(payload: dict[str, Any], *, policy: AIRequestPolicy, configurat
             headers={"Accept": "application/json", "Content-Type": "application/json; charset=utf-8",
                      "Authorization": f"Bearer {configuration.token}"},
             timeout=timeout, stream=True, allow_redirects=False,
+            auth=_BearerAuth(configuration.token),
         ) as response:
             if response.status_code != 200:
                 raise AIServiceError(

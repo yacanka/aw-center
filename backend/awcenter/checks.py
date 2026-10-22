@@ -20,7 +20,6 @@ PLACEHOLDER_SECRETS = {
     "changeme",
     "replace-me",
     "your-secret-key",
-    "aw-center-local-development-secret-key-change-before-production-2026",
 }
 
 
@@ -46,7 +45,7 @@ def production_runtime_checks(app_configs, **kwargs):
     if (
         len(settings.SECRET_KEY) < 50
         or normalized_secret in PLACEHOLDER_SECRETS
-        or normalized_secret.startswith("replace-")
+        or normalized_secret.startswith(("replace-", "aw-center-local-development-"))
     ):
         errors.append(Error("SECRET_KEY is missing or a placeholder.", id="awcenter.E003"))
     if not settings.SESSION_COOKIE_SECURE or not settings.CSRF_COOKIE_SECURE:
@@ -270,6 +269,14 @@ def _integration_checks():
                 )
             )
     if settings.DOCPROOF_ENABLED:
+        certificate = settings.DOCPROOF_CERTIFICATE_FILE
+        if certificate is not None and (
+            not certificate.is_absolute() or not certificate.is_file()
+        ):
+            checks.append(
+                Error("The configured DocProof CA file must be an available absolute path.",
+                      id="awcenter.E039")
+            )
         if not settings.DOCPROOF_USERNAME or not settings.DOCPROOF_PASSWORD:
             checks.append(
                 Error(
@@ -279,7 +286,7 @@ def _integration_checks():
             )
         if (
             not settings.DOCPROOF_VERIFY_SSL
-            and not settings.DOCPROOF_CERTIFICATE_FILE.is_file()
+            and not (settings.DOCPROOF_CERTIFICATE_FILE and settings.DOCPROOF_CERTIFICATE_FILE.is_file())
         ):
             checks.append(
                 Error(
@@ -330,13 +337,6 @@ def _integration_checks():
                     id="awcenter.E034",
                 )
             )
-    if configuration_status(prefer_assessment=True) == "invalid":
-        checks.append(
-            Error(
-                "Assessment API requires a complete safe provider configuration and bounded limits.",
-                id="awcenter.E023",
-            )
-        )
     if configuration_status() == "invalid":
         checks.append(
             Error(

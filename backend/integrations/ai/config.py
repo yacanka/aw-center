@@ -26,18 +26,10 @@ def configuration_error() -> AIServiceError:
     )
 
 
-def resolve_configuration(*, prefer_assessment: bool = False) -> AIConfiguration:
-    """Select one whole provider family and validate it without network access.
-
-    Explicit central values (including empty values) select the central family.
-    Legacy empty defaults remain disabled; assessment prefers an active legacy
-    family. An invalid selected family never borrows values from the other one.
-    """
-    family = _selected_family(prefer_assessment)
-    if family is None:
-        raise configuration_error()
+def resolve_configuration() -> AIConfiguration:
+    """Validate the sole AI_API provider without network access or fallbacks."""
     values = {
-        suffix: getattr(settings, f"{family}_{suffix}", None)
+        suffix: getattr(settings, f"AI_API_{suffix}", None)
         for suffix in _DEFAULTS
     }
     values = {suffix: _DEFAULTS[suffix] if value is None else value
@@ -64,33 +56,15 @@ def resolve_configuration(*, prefer_assessment: bool = False) -> AIConfiguration
         raise configuration_error() from None
 
 
-def configuration_status(
-    *, prefer_assessment: bool = False,
-) -> Literal["configured", "unconfigured", "invalid"]:
+def configuration_status() -> Literal["configured", "unconfigured", "invalid"]:
     """Return safe configuration readiness; never probe or disclose provider data."""
-    if _selected_family(prefer_assessment) is None:
+    if all(getattr(settings, f"AI_API_{suffix}", None) is None for suffix in _DEFAULTS):
         return "unconfigured"
     try:
-        resolve_configuration(prefer_assessment=prefer_assessment)
+        resolve_configuration()
     except AIServiceError:
         return "invalid"
     return "configured"
-
-
-def _selected_family(prefer_assessment: bool) -> str | None:
-    central = any(getattr(settings, f"AI_API_{suffix}", None) is not None
-                  for suffix in _DEFAULTS)
-    legacy = any(
-        bool(getattr(settings, f"ASSESSMENT_API_{suffix}", default))
-        if suffix in {"URL", "MODEL_ID", "TOKEN", "ALLOWED_HOSTS"}
-        else getattr(settings, f"ASSESSMENT_API_{suffix}", default) != default
-        for suffix, default in _DEFAULTS.items()
-    )
-    if prefer_assessment and legacy:
-        return "ASSESSMENT_API"
-    if central:
-        return "AI_API"
-    return "ASSESSMENT_API" if legacy else None
 
 
 def validate_configuration(configuration: AIConfiguration) -> AIConfiguration:

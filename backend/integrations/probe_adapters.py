@@ -57,7 +57,11 @@ def probe_docproof() -> ProbeOutcome:
         return ProbeOutcome("not_configured", "DocProof is disabled.")
     if not settings.DOCPROOF_USERNAME or not settings.DOCPROOF_PASSWORD:
         return ProbeOutcome("not_configured", "Server credentials are not configured.")
-    return _http_probe(settings.DOCPROOF_URL, docproof_tls_verification())
+    try:
+        verification = docproof_tls_verification()
+    except requests.RequestException:
+        return ProbeOutcome("degraded", "DocProof CA configuration is unavailable or invalid.")
+    return _http_probe(settings.DOCPROOF_URL, verification)
 
 
 def probe_numarator() -> ProbeOutcome:

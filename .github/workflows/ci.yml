@@ -228,6 +228,64 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Verify private development configuration and NTFS permissions
+        shell: pwsh
+        run: |
+          $privateDir = Join-Path $env:RUNNER_TEMP ("awcenter-private-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $privateDir | Out-Null
+          try {
+            $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $acl = [System.Security.AccessControl.DirectorySecurity]::new()
+            $acl.SetOwner($sid)
+            $acl.SetAccessRuleProtection($true, $false)
+            $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+              $sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'
+            ))
+            Set-Acl -LiteralPath $privateDir -AclObject $acl
+            $actual = Get-Acl -LiteralPath $privateDir
+            if (-not $actual.AreAccessRulesProtected -or @($actual.Access).Count -ne 1 -or
+                $actual.Access[0].IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]) -ne $sid -or
+                $actual.Access[0].AccessControlType -ne 'Allow') {
+              throw 'Private directory ACL verification failed.'
+            }
+            $env:AWCENTER_ENV_FILE = Join-Path $privateDir 'development.env'
+            @'
+          import os
+          import secrets
+          from pathlib import Path
+          from cryptography.fernet import Fernet
+          content = (
+              "DEBUG=True\nJIRA_ENABLED=True\n"
+              "SECRET_KEY=" + secrets.token_urlsafe(64) + "\n"
+              "JIRA_SESSION_ENCRYPTION_KEY=" + Fernet.generate_key().decode("ascii") + "\n"
+          )
+          with Path(os.environ["AWCENTER_ENV_FILE"]).open("x", encoding="utf-8") as output:
+              output.write(content)
+          '@ | python -
+            if ($LASTEXITCODE -ne 0) { throw 'Private configuration provisioning failed.' }
+            $fileAcl = Get-Acl -LiteralPath $env:AWCENTER_ENV_FILE
+            if (@($fileAcl.Access).Count -ne 1 -or
+                $fileAcl.Access[0].IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]) -ne $sid -or
+                $fileAcl.Access[0].AccessControlType -ne 'Allow' -or -not $fileAcl.Access[0].IsInherited) {
+              throw 'Private configuration file ACL verification failed.'
+            }
+            Remove-Item Env:SECRET_KEY, Env:JIRA_ENABLED -ErrorAction SilentlyContinue
+            $env:PYTHONPATH = (Resolve-Path backend).Path
+            $probe = @'
+          import hashlib
+          from awcenter import settings
+          assert settings.DEBUG and settings.JIRA_ENABLED
+          assert len(settings.SECRET_KEY) >= 50
+          print(hashlib.sha256((settings.SECRET_KEY + settings.JIRA_SESSION_ENCRYPTION_KEY).encode()).hexdigest())
+          '@
+            $first = $probe | python -
+            if ($LASTEXITCODE -ne 0) { throw 'First private configuration import failed.' }
+            $second = $probe | python -
+            if ($LASTEXITCODE -ne 0 -or $first -ne $second) { throw 'Private keys changed across processes.' }
+          } finally {
+            Remove-Item -LiteralPath $privateDir -Recurse -Force
+          }
+
       - name: Run Windows launcher and worker regressions
         run: >-
           python -m unittest

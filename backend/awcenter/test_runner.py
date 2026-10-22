@@ -30,6 +30,19 @@ class ProcessSafeDiscoverRunner(DiscoverRunner):
                 level=logging.WARNING,
             )
 
+    def setup_test_environment(self, **kwargs):
+        from awcenter.workflow_test_utils import private_workflow_configuration
+
+        super().setup_test_environment(**kwargs)
+        self._workflow_configuration = private_workflow_configuration()
+        self._workflow_configuration.__enter__()
+
+    def teardown_test_environment(self, **kwargs):
+        try:
+            self._workflow_configuration.__exit__(None, None, None)
+        finally:
+            super().teardown_test_environment(**kwargs)
+
     def setup_databases(self, **kwargs):
         self._sqlite_directory = None
         self._sqlite_test_settings = None

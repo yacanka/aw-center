@@ -4,7 +4,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError, replace
 from threading import Barrier
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 import requests
 from django.test import SimpleTestCase
@@ -67,8 +67,43 @@ class AIClientTests(SimpleTestCase):
             headers={"Accept": "application/json", "Content-Type": "application/json; charset=utf-8",
                      "Authorization": "Bearer test-only-secret"},
             timeout=(2.0, 20.0), stream=True, allow_redirects=False,
+            auth=ANY,
         )
         context.__exit__.assert_called_once()
+        self.assertNotIn(self.configuration.token, repr(post.call_args.kwargs["auth"]))
+
+    @patch("requests.sessions.get_netrc_auth", return_value=("ambient-user", "ambient-password"))
+    @patch("requests.sessions.Session.send")
+    def test_explicit_bearer_auth_survives_netrc_and_keeps_proxy_and_ca(self, send, _netrc):
+        response = requests.Response()
+        response.status_code = 200
+        response.headers["Content-Type"] = "application/json"
+        response._content = b'{"choices":[{"message":{"content":"answer"}}]}'
+        response._content_consumed = True
+        send.return_value = response
+        with patch.dict("os.environ", {
+            "HTTPS_PROXY": "http://proxy.example.test:8080",
+            "NO_PROXY": "", "no_proxy": "",
+            "REQUESTS_CA_BUNDLE": "/synthetic/approved-ca.pem",
+        }, clear=True):
+            self.assertEqual(self.call(), "answer")
+        prepared = send.call_args.args[0]
+        self.assertEqual(prepared.headers["Authorization"], "Bearer test-only-secret")
+        self.assertEqual(send.call_args.kwargs["proxies"]["https"], "http://proxy.example.test:8080")
+        self.assertEqual(send.call_args.kwargs["verify"], "/synthetic/approved-ca.pem")
+        self.assertFalse(send.call_args.kwargs["allow_redirects"])
+
+    @patch("integrations.ai.transport.requests.post")
+    def test_transport_does_not_log_prompt_reply_or_credentials(self, post):
+        post.return_value = self.response("synthetic-private-reply")
+        messages = [ChatMessage("user", "synthetic-private-document")]
+        with self.assertNoLogs("integrations", level="DEBUG"):
+            self.assertEqual(self.call(messages), "synthetic-private-reply")
+        post.side_effect = requests.ConnectionError("synthetic-private-document test-only-secret")
+        with self.assertNoLogs("integrations", level="DEBUG"), self.assertRaises(AIServiceError) as caught:
+            self.call(messages)
+        self.assertNotIn("synthetic-private-document", str(caught.exception))
+        self.assertNotIn("test-only-secret", str(caught.exception))
 
     @patch("integrations.ai.transport.requests.post")
     def test_utf8_limit_applies_to_encoded_payload(self, post):

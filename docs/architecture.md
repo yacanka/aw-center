@@ -103,7 +103,7 @@ tüketici/rehber ekleme akışı [ai-assistant.md](ai-assistant.md) içindedir.
 
 ## Project ve compliance aggregate'i
 
-Teknik project metadata'sı `projects.registry.PROJECT_DEFINITIONS` içindedir. Her definition `slug`, capability'ler ve güvenli server-side handler/template referanslarını taşır. `orgs.Project` business karşılığıdır; fresh migration canonical satırları seed eder. API yalnız registry'de bulunan, enabled ve kullanıcı rolüyle erişilebilen project'leri döndürür.
+Teknik project metadata'sı `projects.registry.PROJECT_DEFINITIONS` içindedir. Her teknik definition `slug`, capability'ler ve izin verilen server-side controller referanslarını taşır. JIRA component, belge etiketi ve şablon dosya adı eşleştirmeleri repo dışı özel JSON'dan yalnız entegrasyon tüketicilerinde birleştirilir; yapılandırma capability veya handler tanımlayamaz. Ayrıntılar `docs/private-workflow-configuration.md` içindedir. `orgs.Project` business karşılığıdır; fresh migration canonical satırları seed eder. API yalnız registry'de bulunan, enabled ve kullanıcı rolüyle erişilebilen project'leri döndürür.
 
 Compliance kayıtları tek `compliance.ComplianceDocument` tablosundadır ve `project` foreign key'i taşır. Cover page, workflow event, review, tracking, notification policy/log ve import audit aynı aggregate çevresindeki canonical modellerdir. Proje farkı schema/model kopyasıyla değil, gerekirse `projects/policies/` altındaki küçük ve testli strategy ile uygulanır.
 

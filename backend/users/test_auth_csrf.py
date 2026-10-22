@@ -77,6 +77,21 @@ class SessionCsrfTests(TestCase):
         self.assertEqual(accepted.status_code, 204)
         self.assertEqual(self.client.get("/api/session/").data["state"], "anonymous")
 
+    @override_settings(SECRET_KEY_FALLBACKS=[])
+    def test_key_rotation_requires_login_without_changing_user_or_preferences(self):
+        original_password = self.user.password
+        with override_settings(SECRET_KEY="synthetic-old-session-key"):
+            self.assertEqual(self.login().data["state"], "authenticated")
+            original_preferences = self.client.get("/api/users/preferences/").data
+
+        with override_settings(SECRET_KEY="synthetic-new-session-key"):
+            self.assertEqual(self.client.get("/api/session/").data["state"], "anonymous")
+            self.assertEqual(self.login().data["state"], "authenticated")
+            self.assertEqual(self.client.get("/api/users/preferences/").data, original_preferences)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.password, original_password)
+
     def test_authorization_header_is_not_a_browser_auth_fallback(self):
         self.client.credentials(HTTP_AUTHORIZATION="Token debug-token")
 

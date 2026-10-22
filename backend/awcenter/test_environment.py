@@ -1,9 +1,13 @@
+import json
 import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import environ
+from cryptography.fernet import Fernet
 from django.core.cache.backends.filebased import FileBasedCache
 from django.test import SimpleTestCase
 
@@ -70,6 +74,137 @@ class EnvironmentFilePrecedenceTests(SimpleTestCase):
                 self.assertEqual(selected, base_dir / "custom.env")
                 self.assertEqual(os.environ["PROCESS_VALUE"], "process")
                 self.assertEqual(os.environ["PROFILE_ONLY"], "value")
+
+    def test_external_profile_selected_by_pointer_preserves_process_overrides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base_dir = Path(directory) / "backend"
+            base_dir.mkdir()
+            external = Path(directory) / "private profile.env"
+            external.write_text("FROM_PRIVATE=private\nPROCESS_VALUE=file\n", encoding="utf-8")
+            (base_dir / ".env").write_text(
+                f'AWCENTER_ENV_FILE="{external.as_posix()}"\n', encoding="utf-8"
+            )
+            with patch.dict(os.environ, {"PROCESS_VALUE": "process"}, clear=True):
+                selected = load_environment_files(environ.Env(), base_dir)
+
+                self.assertEqual(selected, external)
+                self.assertEqual(os.environ["FROM_PRIVATE"], "private")
+                self.assertEqual(os.environ["PROCESS_VALUE"], "process")
+
+
+class ExplicitKeyStartupTests(SimpleTestCase):
+    """Exercise fresh settings imports without inheriting this machine's credentials."""
+
+    def load_settings(self, values, *, overrides=None):
+        script = """
+import hashlib
+import json
+from django.core.exceptions import ImproperlyConfigured
+try:
+    from awcenter import settings
+except ImproperlyConfigured as error:
+    print(str(error))
+    raise SystemExit(1)
+print(json.dumps({
+    'secret_digest': hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest(),
+    'jira_digest': hashlib.sha256(settings.JIRA_SESSION_ENCRYPTION_KEY.encode()).hexdigest(),
+    'docproof_ca': str(settings.DOCPROOF_CERTIFICATE_FILE) if settings.DOCPROOF_CERTIFICATE_FILE else None,
+    'dcc_policy': settings.GOKBEY_DCC_POLICY_FILE,
+    'project_configuration': settings.PROJECT_CONFIGURATION_FILE,
+    'ddf_policy': settings.DDF_ASSESSMENT_POLICY_FILE,
+    'database': settings.DATABASES['default']['NAME'],
+    'artifacts': str(settings.PRIVATE_MEDIA_ROOT),
+}))
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            external = Path(directory) / "private.env"
+            external.write_text(values, encoding="utf-8")
+            environment = {
+                name: value for name, value in os.environ.items()
+                if name in {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME"}
+            }
+            environment["AWCENTER_ENV_FILE"] = str(external)
+            environment.update(overrides or {})
+            return subprocess.run(
+                [sys.executable, "-c", script], cwd=REPOSITORY_ROOT / "backend",
+                env=environment, capture_output=True, text=True, check=False,
+            )
+
+    def test_ca_and_policy_paths_are_explicit_and_process_values_take_precedence(self):
+        initial = self.load_settings("DEBUG=True\nSECRET_KEY=synthetic-startup-secret\n")
+        self.assertEqual(initial.returncode, 0, initial.stderr)
+        self.assertIsNone(json.loads(initial.stdout)["docproof_ca"])
+        self.assertEqual(json.loads(initial.stdout)["dcc_policy"], "")
+        result = self.load_settings(
+            "SECRET_KEY=synthetic-startup-secret\nDOCPROOF_CERTIFICATE_FILE=/private/file-ca.pem\n"
+            "GOKBEY_DCC_POLICY_FILE=/private/file-policy.json\n",
+            overrides={"DOCPROOF_CERTIFICATE_FILE": "/private/process-ca.pem",
+                       "GOKBEY_DCC_POLICY_FILE": "/private/process-policy.json"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["docproof_ca"], str(Path("/private/process-ca.pem")))
+        self.assertEqual(json.loads(result.stdout)["dcc_policy"], "/private/process-policy.json")
+
+    def test_workflow_paths_preserve_process_precedence_and_restart_stability(self):
+        values = ("SECRET_KEY=synthetic-startup-secret\n"
+                  "PROJECT_CONFIGURATION_FILE=/private/env-projects.json\n"
+                  "DDF_ASSESSMENT_POLICY_FILE=/private/env-ddf.json\n")
+        overrides = {"PROJECT_CONFIGURATION_FILE": "/private/process-projects.json",
+                     "DDF_ASSESSMENT_POLICY_FILE": "/private/process-ddf.json"}
+        first = self.load_settings(values, overrides=overrides)
+        second = self.load_settings(values, overrides=overrides)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(json.loads(first.stdout), json.loads(second.stdout))
+        self.assertEqual(json.loads(first.stdout)["project_configuration"], overrides["PROJECT_CONFIGURATION_FILE"])
+        self.assertEqual(json.loads(first.stdout)["ddf_policy"], overrides["DDF_ASSESSMENT_POLICY_FILE"])
+
+    def test_missing_or_blank_secret_stops_startup_even_in_debug(self):
+        for entry in ("", "SECRET_KEY=\n", "SECRET_KEY='   '\n"):
+            with self.subTest(entry=entry):
+                result = self.load_settings("DEBUG=True\n" + entry)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("SECRET_KEY", result.stdout)
+                self.assertEqual(result.stderr, "")
+
+    def test_jira_requires_an_explicit_valid_key_before_startup(self):
+        for debug in ("True", "False"):
+            for key in ("", "not-a-fernet-key", "non-ascii-ş"):
+                with self.subTest(debug=debug, key=key):
+                    result = self.load_settings(
+                        f"DEBUG={debug}\nSECRET_KEY=synthetic-startup-secret\n"
+                        f"JIRA_ENABLED=True\nJIRA_SESSION_ENCRYPTION_KEY={key}\n"
+                    )
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("JIRA_SESSION_ENCRYPTION_KEY", result.stdout)
+                    if key:
+                        self.assertNotIn(key, result.stdout + result.stderr)
+                    self.assertEqual(result.stderr, "")
+
+    def test_disabled_jira_does_not_require_an_encryption_key(self):
+        result = self.load_settings(
+            "DEBUG=True\nSECRET_KEY=synthetic-startup-secret\nJIRA_ENABLED=False\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_private_configuration_is_stable_and_keeps_data_paths(self):
+        key = Fernet.generate_key().decode("ascii")
+        values = (
+            "DEBUG=True\nSECRET_KEY=synthetic-startup-secret\nJIRA_ENABLED=True\n"
+            f"JIRA_SESSION_ENCRYPTION_KEY={key}\n"
+            "DATABASE_URL=sqlite:///unchanged.sqlite3\nPRIVATE_MEDIA_ROOT=unchanged-private\n"
+        )
+        first = self.load_settings(values)
+        second = self.load_settings(values)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(json.loads(first.stdout), json.loads(second.stdout))
+        resolved = json.loads(first.stdout)
+        self.assertEqual(resolved["database"], "unchanged.sqlite3")
+        self.assertEqual(Path(resolved["artifacts"]), REPOSITORY_ROOT / "backend/unchanged-private")
+        overridden = self.load_settings(values, overrides={"SECRET_KEY": "synthetic-process-secret"})
+        self.assertEqual(overridden.returncode, 0, overridden.stderr)
+        self.assertNotEqual(json.loads(overridden.stdout)["secret_digest"], resolved["secret_digest"])
 
 
 class DevelopmentEnvironmentTemplateTests(SimpleTestCase):

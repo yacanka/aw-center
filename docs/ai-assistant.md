@@ -17,34 +17,39 @@ cevabına aktarılmaz. Yerel Word çeviri ve analiz modellerini gösteren mevcut
 | `AI_API_READ_TIMEOUT_SECONDS` | 60 saniye; pozitif, en fazla 300 |
 | `AI_API_MAX_RESPONSE_BYTES` | 1.048.576 byte; 1.024–10.485.760 aralığında |
 
-Merkezi aileden herhangi bir ayar verilirse ailenin tamamı seçilir. Açık boş
-değerler de verilmiş sayılır. Kısmi, bozuk veya boş yapılandırma legacy aileden
-alan almaz ve başka sağlayıcıya geçmez. Süre ve boyut varsayılanları yalnız o
-alan hiç verilmediğinde uygulanır; açık boş limit geçersizdir. HTTPS hostname'i
-allowlist ile tam eşleşmelidir. URL credential, query, fragment veya redirect
-kullanamaz; TLS doğrulaması korunur.
-
-Merkezi anahtarların hiçbiri verilmemişse `ASSESSMENT_API_*` ailesi bütün olarak
-uyumluluk kaynağı olur. Legacy URL/model/token/allowlist boş ve limitler mevcut
-5/60 saniye, 1.048.576 byte varsayılanlarındaysa aile devre dışıdır. Bu davranış
-mevcut env örnekleri ve Compose'un boş legacy varsayılanlarıyla uyumludur.
-Herhangi bir nonempty legacy sağlayıcı alanı veya varsayılandan farklı legacy
-limit aileyi seçilebilir yapar; eksik veya bozuk aile geçersizdir.
-
-Assessment çağrıları aktif legacy ailesini tercih eder; legacy ailesi devre
-dışıysa merkezi aileyi kullanır. Böylece yeni kurulumlar yalnız merkezi ayarlarla
-çalışabilir, mevcut assessment sağlayıcısı da aynı şekilde kullanılabilir.
-Her iki aile devre dışıysa readiness `unconfigured` olur ve AI çağrısı güvenli
-`AI_CONFIGURATION_ERROR` ile durur. Ayar değişiminden sonra backend'i yeniden
-başlatın. Gerçek token ve endpoint değerlerini kaynak kontrolüne eklemeyin.
+Asistan ve ECD/ECR assessment yalnız bu tek yapılandırmayı kullanır. Herhangi bir
+`AI_API_*` ayarı verilirse URL/model/token/allowlist tam olmalıdır. Açık boş veya
+kısmi yapılandırma geçersizdir; başka sağlayıcıdan alan tamamlanmaz. Tüm anahtarlar
+unset ise durum `unconfigured` olur; AI çağrısı ağ erişiminden önce güvenli hata
+verir. Süre ve boyut varsayılanları yalnız alan hiç verilmediğinde uygulanır.
+HTTPS hostname'i allowlist ile tam eşleşmelidir. URL credential, query, fragment
+ve redirect kullanamaz; TLS doğrulaması korunur.
 
 Compose merkezi anahtarları boş-string varsayılanı olmadan backend'e geçirir;
 verilmemiş anahtarlar unset kalır. AI provider ayarları ve credentials job worker,
 notification worker ve cleanup worker environment'larına aktarılmaz. Windows
 production'da launcher'ın private environment dosyasını kullanın; gerçek env
-dosyasını commit etmeyin. Production kontrolleri seçilen assessment ailesini
-`awcenter.E023`, merkezi AI ailesini `awcenter.E038` ile aynı validator üzerinden
-denetler; hata metinleri provider ayrıntısı içermez.
+dosyasını commit etmeyin. Production kontrolleri ortak yapılandırmayı `awcenter.E038` ile denetler; hata
+metinleri provider ayrıntısı içermez.
+
+## Mevcut kurulumdan geçiş
+
+Geçiş gerçek servisin çalıştığı makinedeki özel env dosyasında yapılır. Bu
+repository'deki örnekler gerçek kurum endpoint/model/token değerlerini içermez.
+Çalışan kurum içi servisin değerlerini terminale, sohbete veya Git'e yazdırmayın.
+
+- Tam ve geçerli `AI_API_*` değerleri zaten varsa bunları değiştirmeyin.
+- Yalnız eski `ASSESSMENT_API_*` ailesi varsa URL, MODEL_ID, TOKEN, ALLOWED_HOSTS
+  ve kullanılan CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS, MAX_RESPONSE_BYTES
+  değerlerini aynı suffix'li `AI_API_*` anahtarlarına özel dosya içinde taşıyın.
+  Artık iki özellik de bu tek servis/modeli kullanır.
+- Kısmi merkezi değerleri eski aileden otomatik tamamlamayın; doğru onaylı servis
+  yapılandırmasını açıkça tamamlayın. Sonra eski ailenin değişkenlerini env
+  dosyasından ve process/service environment'ından kaldırın. Eski ayarlar artık
+  okunmaz; runtime fallback veya alias yoktur.
+- Yapılandırmayı doğrulayıp backend'i kontrollü yeniden başlatın. Integration Hub
+  durumu canlı erişim kanıtı değildir; asistanı ve assessment'ı ayrı ayrı, yalnız
+  sentetik içerikle sınayın. Testi yapamıyorsanız canlı doğrulama yapılmış saymayın.
 
 ## Veri ve işletim sınırları
 
@@ -72,6 +77,29 @@ Otomatik testler gerçek sağlayıcı uyumluluğunu ve dil modelinin rehberlik
 kalitesini kanıtlamaz. Canlı doğrulama ayrıca, gerçek iş verisi içermeyen
 Türkçe/İngilizce tanıtım ve yönlendirme sorularıyla yapılmalıdır. Bu yapılandırma
 değişikliğinde canlı sağlayıcı smoke çalıştırılmamıştır.
+
+
+ECD/ECR değerlendirmesinde PDF yalnız AW Center içinde ayrıştırılır; ham PDF
+sağlayıcıya gönderilmez. AI'ye gönderim açık ve ayrı bir 17 alan izin listesiyle
+sınırlıdır: `ecr_number`, `title`, `project`, `change_class`, `change_type`,
+`effectivity`, `track_type`, `record_of_change`, `requestor`, `originator`, `ata`,
+`subata`, `initiator`, `justification`, `proposed_solution`,
+`nonimplementation_consequence`, `impacted_groups`. Kişi alanları ve teknik
+metinler onaylı kapsamda korunur; otomatik maskeleme yapılmaz. Canonical parser
+ve JIRA snapshot'ı değişmez; yeni parser alanları bu listeye açıkça eklenmeden
+sağlayıcıya gitmez. Ekran gönderim kapsamını açıklar; kullanım tek adımlıdır ve
+sonuç dokuz panel için uzman incelemesine sunulan taslaktır. Assessment kendi
+akışında PDF/prompt/yanıtı kalıcı kayda veya cache'e yazmaz; multipart işlenirken
+Django boyuta göre geçici upload dosyası kullanabilir.
+
+Bearer auth açıkça uygulanır; `.netrc` dosyası bu kimliği değiştiremez. Kurumun
+mevcut proxy ve CA desteği korunur: Requests'in `HTTPS_PROXY`/`NO_PROXY` ve
+`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` davranışı sürer. Bu process environment
+ayarları da kurumun onaylı ağ yapılandırmasının parçası olmalıdır.
+
+Uygulamada kalıcı içerik kaydı yapılmaması, sağlayıcının veriyi saklamadığını veya
+eğitimde kullanmadığını kanıtlamaz. Sağlayıcının erişim, saklama, silme ve eğitim
+politikası kurum tarafından yönetilir ve ayrıca doğrulanır.
 
 ## Yeni bir AI tüketicisi ekleme
 
@@ -219,3 +247,8 @@ Canlı smoke için yalnız uydurma/generic sorular kullanın: “İki belgeyi ka
 istiyorum”, “Where can I split a PDF?”, “Belgeyle işlem yapacağım”; ayrıca
 desteklenmeyen özellik ve sahte yönlendirme isteğini kontrol edin. Production
 CPython 3.11 eşliği ve provider smoke sonuçlarını ayrı raporlayın.
+
+DDF assessment uses the same approved central service. Its original explanation
+is now loaded from `DDF_ASSESSMENT_POLICY_FILE`; see
+[private workflow configuration](private-workflow-configuration.md). The numbered
+comment list, four classification labels and persistence contract are preserved.

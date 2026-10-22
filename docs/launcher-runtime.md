@@ -8,6 +8,9 @@ development desteklenir; `prod` komutu fail-closed biçimde yalnız Windows'ta �
 
 - CPython 3.11+ ister ve `.venv` sürümünü doğrular.
 - `.env`, `.env.local`, PID veya kalıcı runtime state yazmaz.
+- Geliştirmede de açık `SECRET_KEY`, JIRA etkinse bağımsız Fernet anahtarı gerekir.
+  [Özel ortam kurulumu](private-environment.md) bir kez operatör tarafından yapılır;
+  `setup`, `dev`, web ve worker süreçleri anahtar üretmez veya yenilemez.
 - Child process'ler mevcut shell environment'ını miras alır; host/port ve `VITE_API_URL` yalnız process-local override'dır.
 - Migration örtülü uygulanmaz. Yalnız `dev --migrate` açıkça verilirse startup öncesi `migrate --noinput` çalışır.
 - `prod`, migration'ı yalnız `--migrate` verildiğinde uygular; her başlangıçta

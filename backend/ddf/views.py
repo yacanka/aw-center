@@ -11,8 +11,9 @@ from rest_framework.views import APIView
 from awcenter.api_errors import ErrorCodes, error_response
 from awcenter.pagination import paginated_response
 from ddf.models import DDF
+from ddf.assessment_policy import DdfPolicyConfigurationError, assessment_prompt
 from ddf.imports import DDFImportError, read_ddf
-from ddf.permissions import DDFPermission, IsDDFOwner
+from ddf.permissions import DDFPermission, IsDDFOwner, DDFAssessmentPermission
 from ddf.serializers import DDFSerializer
 from integrations.assessment import AssessmentServiceError, request_assessment
 
@@ -21,6 +22,9 @@ from awcenter.file_security import WORD_POLICY, validate_request_upload
 
 PUBLIC_ENDPOINTS = {}
 LOGGER = logging.getLogger(__name__)
+REVIEW_TYPES = frozenset({
+    "Teknik Görüş", "Bilgi Görüşü", "Editöryel Görüş", "Panel Ekleme/Çıkarma Görüşü",
+})
 
 
 class DDFView(APIView):
@@ -97,7 +101,7 @@ def upload_ddf(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated, DDFPermission])
+@permission_classes([IsAuthenticated, DDFAssessmentPermission])
 def ddf_assessment(request):
     ddf_data = request.data
     ddf = get_object_or_404(DDF, id=ddf_data.get("id"))
@@ -118,17 +122,22 @@ def ddf_assessment(request):
             response_status=400,
         )
 
+    if comments != ddf.comments:
+        return assessment_conflict()
+
     authority_comments = [
         f"\n{index + 1}) {comment[2]}\n"
         for index, comment in enumerate(comments)
     ]
 
     try:
-        prompt = f"""Use the configured external DDF assessment policy.{authority_comments}"""
+        prompt = assessment_prompt(authority_comments)
 
         answer = request_assessment(prompt)
         review_types = [review_type.strip() for review_type in answer.split(",")]
-        if len(review_types) != len(comments):
+        if len(review_types) != len(comments) or any(
+            review not in REVIEW_TYPES for review in review_types
+        ):
             raise AssessmentServiceError(
                 "The assessment service returned an invalid response.",
                 "ASSESSMENT_RESPONSE_INVALID",
@@ -140,10 +149,18 @@ def ddf_assessment(request):
             for index, review in enumerate(review_types)
         ]
 
-        ddf.comment_types = review_types
-        ddf.save(update_fields=["comment_types"])
+        # One conditional SQL write protects SQLite as well as PostgreSQL;
+        # never hold a database lock while waiting for an external AI response.
+        updated = DDF.objects.filter(
+            pk=ddf.pk, created_by=request.user, comments=ddf.comments,
+            comment_types=ddf.comment_types,
+        ).update(comment_types=review_types)
+        if not updated:
+            return assessment_conflict()
 
         return Response(result)
+    except DdfPolicyConfigurationError:
+        raise
     except AssessmentServiceError as error:
         return error_response(
             error.detail,
@@ -160,3 +177,11 @@ def ddf_assessment(request):
             code="DDF_ASSESSMENT_FAILED",
             response_status=500,
         )
+
+
+def assessment_conflict():
+    """Do not disclose stored source text in stale-request errors."""
+    return error_response(
+        "The DDF changed; reload the record and retry the assessment.",
+        code="DDF_ASSESSMENT_CONFLICT", response_status=409,
+    )

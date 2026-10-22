@@ -1,11 +1,12 @@
 """Durability and credential-boundary tests for Watcher reminder mail."""
 
 from datetime import timedelta
+from pathlib import Path
 import uuid
 from unittest.mock import patch
 
 from django.core import mail
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -38,6 +39,36 @@ class DccReminderTests(TestCase):
         self.record.projects.add(self.project)
         self.client = APIClient()
         self.client.force_authenticate(self.user)
+
+    @override_settings(AWCENTER_MAIL_TRANSPORT="django",
+                       EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    @patch("integrations.jira.reminder_service.jira_connector_for")
+    def test_private_project_label_reaches_durable_reminder_and_mail_without_record_changes(self, factory):
+        from datetime import date
+        from types import SimpleNamespace as NS
+        from .reminder_service import enqueue_dcc_reminder
+        factory.return_value.get_issue.return_value = NS(fields=NS(
+            issuetype=NS(subtask=False), subtasks=[], components=[NS(name="HYS")],
+        ))
+        factory.return_value.get_open_subtask.return_value = [NS(fields=NS(
+            assignee=NS(emailAddress="reviewer@example.invalid"),
+        ))]
+        delivery, created = enqueue_dcc_reminder(self.user, self.record.pk, {
+            "version": self.record.version, "ccb_no": 12, "due_date": date(2026, 10, 20),
+        }, "private-project-label-reminder")
+        self.assertTrue(created)
+        self.assertEqual(delivery.subject, "[Example hys] CCB - 12 toplantı gündemi")
+        self.assertEqual(delivery.context["project_labels"], ["Example hys"])
+        self.assertEqual(delivery.recipients, ["reviewer@example.invalid"])
+        delivery_id, token = claim_dcc_reminders()[0]
+        self.assertTrue(deliver_dcc_reminder(delivery_id, token))
+        self.assertEqual(mail.outbox[-1].subject, delivery.subject)
+        self.assertEqual(mail.outbox[-1].to, ["reviewer@example.invalid"])
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.owner_id, self.user.pk)
+        self.assertEqual(self.record.issue, "CHN-42")
+        self.assertEqual(self.record.version, 1)
+        self.assertEqual(list(self.record.projects.values_list("slug", flat=True)), ["hys"])
 
     @patch("integrations.jira.reminder_service.build_reminder_snapshot")
     def test_api_materializes_idempotent_outbox_without_credentials(self, build_snapshot):
@@ -302,3 +333,23 @@ def reminder_snapshot(record):
             "record_version": record.version,
         },
     }
+
+
+class ReminderRecipientRegressionTests(SimpleTestCase):
+    @override_settings(JIRA_VERIFY_SSL=True, JIRA_CERTIFICATE_FILE=Path("/missing-fixture-ca"))
+    def test_only_open_jira_assignees_receive_mail_with_no_fixed_extra_recipients(self):
+        from types import SimpleNamespace as NS
+        from integrations.jira.client import JiraConnector
+        from .reminder_service import reminder_recipients
+        issues = {
+            "ROOT-1": NS(fields=NS(subtasks=[NS(key=f"SUB-{n}") for n in range(1, 5)])),
+            "SUB-1": NS(fields=NS(status=NS(name="Open", statusCategory=NS(key="new")), assignee=NS(emailAddress="first@example.invalid"))),
+            "SUB-2": NS(fields=NS(status=NS(name="Closed", statusCategory=NS(key="done")), assignee=NS(emailAddress="closed@example.invalid"))),
+            "SUB-3": NS(fields=NS(status=NS(name="In Review", statusCategory=NS(key="indeterminate")), assignee=NS(emailAddress="FIRST@example.invalid"))),
+            "SUB-4": NS(fields=NS(status=NS(name="Open", statusCategory=NS(key="new")), assignee=NS(emailAddress="invalid-address"))),
+        }
+        with patch("integrations.jira.client.JIRA") as jira:
+            jira.return_value.issue.side_effect = issues.__getitem__
+            connector = JiraConnector("https://jira.example.invalid", "synthetic-session")
+            connector.set_issue("ROOT-1")
+            self.assertEqual(reminder_recipients(connector.get_open_subtask()), ["first@example.invalid"])

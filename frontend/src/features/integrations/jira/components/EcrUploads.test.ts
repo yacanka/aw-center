@@ -74,6 +74,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+it('explains assessment data transfer without adding a confirmation step', async () => {
+  await screen('assessment')
+  expect(document.body.textContent).toContain('including names and technical descriptions')
+  expect(document.body.textContent).toContain('The PDF file itself is not sent')
+  expect(button('Assess document')).not.toBeNull()
+})
+
 describe.each(['assessment', 'workflow'] as const)('%s ECR upload', (kind) => {
   it('provides a button for choosing a PDF and a drop target', async () => {
     await screen(kind)

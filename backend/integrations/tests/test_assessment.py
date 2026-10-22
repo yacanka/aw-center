@@ -1,6 +1,6 @@
 import json
 
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 import requests
 from django.test import SimpleTestCase, override_settings
@@ -11,18 +11,41 @@ from integrations.ai.contracts import AIServiceError
 
 
 @override_settings(
-    ASSESSMENT_API_URL="https://assessment.internal.example/api/chat/completions",
-    ASSESSMENT_API_MODEL_ID="test-model",
-    ASSESSMENT_API_TOKEN="test-only-token",
-    ASSESSMENT_API_ALLOWED_HOSTS=["assessment.internal.example"],
-    ASSESSMENT_API_CONNECT_TIMEOUT_SECONDS=3,
-    ASSESSMENT_API_READ_TIMEOUT_SECONDS=20,
-    ASSESSMENT_API_MAX_RESPONSE_BYTES=4096,
+    AI_API_URL="https://assessment.internal.example/api/chat/completions",
+    AI_API_MODEL_ID="test-model",
+    AI_API_TOKEN="test-only-token",
+    AI_API_ALLOWED_HOSTS=["assessment.internal.example"],
+    AI_API_CONNECT_TIMEOUT_SECONDS=3,
+    AI_API_READ_TIMEOUT_SECONDS=20,
+    AI_API_MAX_RESPONSE_BYTES=4096,
 )
 class AssessmentClientTests(SimpleTestCase):
     """Verify assessment traffic is bounded and restricted to explicit HTTPS hosts."""
 
-    @override_settings(ASSESSMENT_API_URL="http://assessment.internal.example/ask")
+    @patch("integrations.assistant.service.authorized_guides", return_value=())
+    @patch("integrations.ai.transport.requests.post")
+    def test_assistant_and_assessment_use_the_same_configured_service(self, post, _guides):
+        from integrations.assistant.service import answer_question
+
+        response = Mock(status_code=200, headers={"Content-Type": "application/json"})
+        response.iter_content.return_value = [b'{"choices":[{"message":{"content":"Shared answer"}}]}']
+        post.return_value.__enter__.return_value = response
+        self.assertEqual(request_assessment("Synthetic document"), "Shared answer")
+        self.assertEqual(answer_question(object(), message="Synthetic question", history=[])["answer"], "Shared answer")
+
+        self.assertEqual(post.call_count, 2)
+        for call in post.call_args_list:
+            self.assertEqual(call.args, ("https://assessment.internal.example/api/chat/completions",))
+            self.assertEqual(call.kwargs["json"]["model"], "test-model")
+            self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer test-only-token")
+        self.assertEqual(post.call_args_list[0].kwargs["json"]["messages"], [
+            {"role": "user", "content": "Synthetic document"},
+        ])
+        self.assertEqual(post.call_args_list[1].kwargs["json"]["messages"][-1], {
+            "role": "user", "content": "Synthetic question",
+        })
+
+    @override_settings(AI_API_URL="http://assessment.internal.example/ask")
     def test_plain_http_configuration_is_rejected_before_network_access(self):
         with patch("integrations.ai.transport.requests.post") as post:
             with self.assertRaises(AssessmentServiceError) as raised:
@@ -31,7 +54,7 @@ class AssessmentClientTests(SimpleTestCase):
         self.assertEqual(raised.exception.code, "ASSESSMENT_CONFIGURATION_ERROR")
         post.assert_not_called()
 
-    @override_settings(ASSESSMENT_API_URL="https://unexpected.example/ask")
+    @override_settings(AI_API_URL="https://unexpected.example/ask")
     def test_unallowlisted_host_is_rejected_before_network_access(self):
         with patch("integrations.ai.transport.requests.post") as post:
             with self.assertRaises(AssessmentServiceError) as raised:
@@ -60,6 +83,7 @@ class AssessmentClientTests(SimpleTestCase):
             timeout=(3.0, 20.0),
             stream=True,
             allow_redirects=False,
+            auth=ANY,
         )
 
     @patch(
@@ -73,7 +97,7 @@ class AssessmentClientTests(SimpleTestCase):
         self.assertEqual(raised.exception.code, "ASSESSMENT_UNAVAILABLE")
         self.assertNotIn("internal connection detail", raised.exception.detail)
 
-    @override_settings(ASSESSMENT_API_MAX_RESPONSE_BYTES=1024)
+    @override_settings(AI_API_MAX_RESPONSE_BYTES=1024)
     @patch("integrations.ai.transport.requests.post")
     def test_oversized_response_is_rejected(self, post):
         response = Mock(status_code=200, headers={"Content-Type": "application/json"})
@@ -102,7 +126,7 @@ class AssessmentClientTests(SimpleTestCase):
 
     @patch("integrations.ai.transport.requests.post")
     def test_missing_credentials_and_model_fail_before_network(self, post):
-        for setting in ("ASSESSMENT_API_TOKEN", "ASSESSMENT_API_MODEL_ID"):
+        for setting in ("AI_API_TOKEN", "AI_API_MODEL_ID"):
             with self.subTest(setting=setting), override_settings(**{setting: ""}):
                 with self.assertRaises(AssessmentServiceError) as raised:
                     request_assessment("safe")
@@ -148,11 +172,11 @@ class AssessmentClientTests(SimpleTestCase):
         messages = complete.call_args.args[0]
         self.assertEqual([(message.role, message.content) for message in messages], [("user", prompt)])
         configuration = complete.call_args.kwargs["configuration"]
-        self.assertEqual(configuration.url, "https://assessment.internal.example/api/chat/completions")
-        self.assertEqual(configuration.model, "test-model")
-        self.assertEqual(configuration.token, "test-only-token")
+        self.assertEqual(configuration.url, "https://central.internal.example/chat")
+        self.assertEqual(configuration.model, "central-model")
+        self.assertEqual(configuration.token, "central-test-only-token")
         self.assertEqual(post.call_args.kwargs["json"], {
-            "model": "test-model", "messages": [{"role": "user", "content": prompt}], "stream": False,
+            "model": "central-model", "messages": [{"role": "user", "content": prompt}], "stream": False,
         })
 
     @patch("integrations.ai.transport.requests.post")
@@ -189,16 +213,13 @@ class AssessmentClientTests(SimpleTestCase):
         post.assert_not_called()
 
     @override_settings(
-        ASSESSMENT_API_URL="", ASSESSMENT_API_MODEL_ID="", ASSESSMENT_API_TOKEN="",
-        ASSESSMENT_API_ALLOWED_HOSTS=[], ASSESSMENT_API_CONNECT_TIMEOUT_SECONDS=5,
-        ASSESSMENT_API_READ_TIMEOUT_SECONDS=60, ASSESSMENT_API_MAX_RESPONSE_BYTES=1024 * 1024,
         AI_API_URL="https://central.internal.example/chat", AI_API_MODEL_ID="central-model",
         AI_API_TOKEN="central-test-only-token", AI_API_ALLOWED_HOSTS=["central.internal.example"],
         AI_API_CONNECT_TIMEOUT_SECONDS=7, AI_API_READ_TIMEOUT_SECONDS=80,
         AI_API_MAX_RESPONSE_BYTES=8192,
     )
     @patch("integrations.ai.transport.requests.post")
-    def test_assessment_uses_whole_central_family_when_legacy_absent(self, post):
+    def test_assessment_uses_central_provider_and_limits(self, post):
         response = Mock(status_code=200, headers={"Content-Type": "application/json"})
         response.iter_content.return_value = [b'{"choices":[{"message":{"content":"assessment"}}]}']
         post.return_value.__enter__.return_value = response

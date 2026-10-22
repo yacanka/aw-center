@@ -20,6 +20,7 @@ class CredentialSettingsTests(SimpleTestCase):
         environment = {
             "AWCENTER_ENV_FILE": os.devnull,
             "DEBUG": "True",
+            "SECRET_KEY": "synthetic-credential-settings-test-key",
             "AWCENTER_USERNAME": encode("örnek-user"),
             "AWCENTER_PASSWORD": encode("example-password"),
             **values,

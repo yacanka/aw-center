@@ -73,7 +73,9 @@ defineExpose({ open })
   >
     <n-space vertical :size="16">
       <n-alert type="info" :bordered="false"
-        >AI assessment provides a draft for specialist review.</n-alert
+        >Extracted document fields, including names and technical descriptions, are sent to the
+        configured AI service. The PDF file itself is not sent. AI assessment provides a draft for
+        specialist review.</n-alert
       >
       <n-form-item label="Affected projects">
         <n-select

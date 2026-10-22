@@ -58,3 +58,56 @@ class ImportedTlsTests(SimpleTestCase):
                 client = NumaratorClient()
                 self.addCleanup(client.session.close)
                 self.assertIs(client.session.verify, verify)
+
+
+class DocProofExplicitCaTests(SimpleTestCase):
+    @override_settings(DOCPROOF_CERTIFICATE_FILE=None, DOCPROOF_VERIFY_SSL=True)
+    def test_no_custom_ca_uses_system_trust(self):
+        from integrations.docproof import tls_verification
+        self.assertIs(tls_verification(), True)
+
+    @override_settings(DOCPROOF_CERTIFICATE_FILE=Path('/missing-explicit-ca.pem'))
+    def test_missing_explicit_ca_fails_before_authentication(self):
+        from integrations.docproof import search_document_issue
+        from requests.exceptions import RequestException
+        with override_settings(DOCPROOF_ENABLED=True), patch('integrations.docproof.login') as login, patch(
+            'requests.Session.send', side_effect=RequestException('Synthetic upstream failure')
+        ):
+            with self.assertRaises(RequestException) as raised:
+                search_document_issue('SYNTHETIC-1')
+            self.assertNotIn('missing-explicit-ca', str(raised.exception))
+        login.assert_not_called()
+
+    @override_settings(DOCPROOF_ENABLED=True, DOCPROOF_URL="https://doc.example.invalid",
+                       DOCPROOF_USERNAME="fixture", DOCPROOF_PASSWORD="fixture",
+                       DOCPROOF_CERTIFICATE_FILE=Path("/missing-explicit-ca.pem"))
+    def test_invalid_ca_probe_is_sanitized_without_network(self):
+        with patch("integrations.probe_adapters.requests.head") as head:
+            outcome = probe_docproof()
+        self.assertEqual(outcome.status, "degraded")
+        self.assertNotIn("missing-explicit-ca", outcome.detail)
+        head.assert_not_called()
+
+    def test_explicit_ca_wins_over_ambient_ca_for_login_and_search(self):
+        import os
+        import requests
+        from integrations.docproof import search_document_issue
+        with TemporaryDirectory() as directory:
+            certificate = Path(directory) / 'approved.pem'
+            certificate.touch()
+            observed = []
+            def send(session, request, **kwargs):
+                observed.append(kwargs['verify'])
+                response = requests.Response()
+                response.status_code = 200
+                response._content = b'{"total": 0, "entries": []}'
+                response._content_consumed = True
+                return response
+            with override_settings(DOCPROOF_ENABLED=True, DOCPROOF_URL='https://doc.example.invalid',
+                                   DOCPROOF_USERNAME='fixture', DOCPROOF_PASSWORD='fixture',
+                                   DOCPROOF_CERTIFICATE_FILE=certificate), patch.dict(
+                os.environ, {'REQUESTS_CA_BUNDLE': '/synthetic/ambient.pem',
+                             'CURL_CA_BUNDLE': '/synthetic/other.pem'}
+            ), patch.object(requests.Session, 'send', send):
+                self.assertEqual(search_document_issue('EXAMPLE-1'), (None, 'missing'))
+            self.assertEqual(observed, [str(certificate), str(certificate)])

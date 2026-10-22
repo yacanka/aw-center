@@ -14,6 +14,7 @@ from pathlib import Path
 import base64
 import binascii
 import os
+from cryptography.fernet import Fernet
 from corsheaders.defaults import default_headers, default_methods
 from django.core.exceptions import ImproperlyConfigured
 import environ
@@ -58,8 +59,12 @@ ENV_FILE = load_environment_files(env)
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-DEV_SECRET_KEY = "aw-center-local-development-secret-key-change-before-production-2026"
 SECRET_KEY = env.str("SECRET_KEY", default="")
+if not SECRET_KEY.strip():
+    raise ImproperlyConfigured(
+        "SECRET_KEY must be explicitly configured through the process environment "
+        "or an external AWCENTER_ENV_FILE."
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool("DEBUG", default=False)
@@ -72,12 +77,6 @@ if AWCENTER_DEPLOYMENT_MODE not in {"development", "windows-native", "container"
     raise ImproperlyConfigured(
         "AWCENTER_DEPLOYMENT_MODE must be development, windows-native, or container."
     )
-
-if not SECRET_KEY:
-    if DEBUG:
-        SECRET_KEY = DEV_SECRET_KEY
-    else:
-        raise ImproperlyConfigured("SECRET_KEY must be defined when DEBUG is False.")
 
 IPV4_ADDRESS = env.str("IPV4_ADDRESS", default="127.0.0.1")
 PORT = env.int("PORT", default=8000)
@@ -112,12 +111,11 @@ DOCPROOF_MAX_RESPONSE_BYTES = env.int(
     "DOCPROOF_MAX_RESPONSE_BYTES",
     default=10 * 1024 * 1024,
 )
-DOCPROOF_CERTIFICATE_FILE = Path(
-    env.path(
-        "DOCPROOF_CERTIFICATE_FILE",
-        default=BASE_DIR / "certificates" / "configured-ca.pem",
-    )
+_docproof_certificate_file = env.str("DOCPROOF_CERTIFICATE_FILE", default="").strip()
+DOCPROOF_CERTIFICATE_FILE = (
+    Path(_docproof_certificate_file).expanduser() if _docproof_certificate_file else None
 )
+GOKBEY_DCC_POLICY_FILE = env.str("GOKBEY_DCC_POLICY_FILE", default="").strip()
 NUMARATOR_ENABLED = env.bool("NUMARATOR_ENABLED", default=False)
 NUMARATOR_BASE_URL = env.str("NUMARATOR_BASE_URL", default="")
 NUMARATOR_API_KEY = env.str("NUMARATOR_API_KEY", default="")
@@ -189,8 +187,16 @@ JIRA_URL = env.str("JIRA_URL", default="")
 JIRA_DEFAULT_PROJECT_KEY = env.str("JIRA_DEFAULT_PROJECT_KEY", default="CHN")
 JIRA_DRAFT_PUBLISH_STALE_SECONDS = env.int("JIRA_DRAFT_PUBLISH_STALE_SECONDS", default=300)
 JIRA_SESSION_TTL_SECONDS = env.int("JIRA_SESSION_TTL_SECONDS", default=3600)
-JIRA_SESSION_ENCRYPTION_KEY = env.str("JIRA_SESSION_ENCRYPTION_KEY", default="")
-# Preserve absence versus explicit empty/malformed values until AI validation.
+JIRA_SESSION_ENCRYPTION_KEY = env.str("JIRA_SESSION_ENCRYPTION_KEY", default="").strip()
+if JIRA_ENABLED:
+    try:
+        Fernet(JIRA_SESSION_ENCRYPTION_KEY.encode("ascii"))
+    except (TypeError, ValueError, UnicodeError):
+        raise ImproperlyConfigured(
+            "JIRA_SESSION_ENCRYPTION_KEY must be explicitly configured as a valid "
+            "Fernet key when JIRA is enabled."
+        ) from None
+# One provider for assistant and assessment; preserve absence until validation.
 AI_API_URL = os.environ.get("AI_API_URL")
 AI_API_MODEL_ID = os.environ.get("AI_API_MODEL_ID")
 AI_API_TOKEN = os.environ.get("AI_API_TOKEN")
@@ -198,19 +204,6 @@ AI_API_ALLOWED_HOSTS = os.environ.get("AI_API_ALLOWED_HOSTS")
 AI_API_CONNECT_TIMEOUT_SECONDS = os.environ.get("AI_API_CONNECT_TIMEOUT_SECONDS")
 AI_API_READ_TIMEOUT_SECONDS = os.environ.get("AI_API_READ_TIMEOUT_SECONDS")
 AI_API_MAX_RESPONSE_BYTES = os.environ.get("AI_API_MAX_RESPONSE_BYTES")
-ASSESSMENT_API_URL = env.str("ASSESSMENT_API_URL", default="")
-ASSESSMENT_API_MODEL_ID = env.str("ASSESSMENT_API_MODEL_ID", default="")
-ASSESSMENT_API_TOKEN = env.str("ASSESSMENT_API_TOKEN", default="")
-ASSESSMENT_API_ALLOWED_HOSTS = env.list("ASSESSMENT_API_ALLOWED_HOSTS", default=[])
-ASSESSMENT_API_CONNECT_TIMEOUT_SECONDS = env.float(
-    "ASSESSMENT_API_CONNECT_TIMEOUT_SECONDS", default=5.0
-)
-ASSESSMENT_API_READ_TIMEOUT_SECONDS = env.float(
-    "ASSESSMENT_API_READ_TIMEOUT_SECONDS", default=60.0
-)
-ASSESSMENT_API_MAX_RESPONSE_BYTES = env.int(
-    "ASSESSMENT_API_MAX_RESPONSE_BYTES", default=1024 * 1024
-)
 
 FFMPEG_EXECUTABLE = env.str("FFMPEG_EXECUTABLE", default="ffmpeg")
 
@@ -262,12 +255,8 @@ COVER_PAGE_TEMPLATE_PATH = Path(
     env.path("COVER_PAGE_TEMPLATE_PATH", default=CUSTOM_TEMPLATE_DIR / "cover_page_template.docx")
 )
 COVER_PAGE_MAX_ROWS = env.int("COVER_PAGE_MAX_ROWS", default=1000)
-COVER_PAGE_B30_PROJECT_LABEL = env.str(
-    "COVER_PAGE_B30_PROJECT_LABEL", default="Example Work Package"
-)
-COVER_PAGE_DEFAULT_PROJECT_LABEL = env.str(
-    "COVER_PAGE_DEFAULT_PROJECT_LABEL", default="Example Work Package"
-)
+PROJECT_CONFIGURATION_FILE = env.str("PROJECT_CONFIGURATION_FILE", default="").strip()
+DDF_ASSESSMENT_POLICY_FILE = env.str("DDF_ASSESSMENT_POLICY_FILE", default="").strip()
 REPOSITORY_DIR = BASE_DIR.parent
 FRONTEND_DIST_DIR = Path(env.path("FRONTEND_DIST_DIR", default=REPOSITORY_DIR / "frontend" / "dist"))
 FRONTEND_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"

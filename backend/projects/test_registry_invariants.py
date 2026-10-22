@@ -6,7 +6,7 @@ from django.conf import settings
 from django.test import SimpleTestCase
 
 from .constants import ALLOWED_PROJECT_CAPABILITIES
-from .registry import PROJECT_DEFINITIONS
+from .registry import PROJECT_DEFINITIONS, get_project_integration_definition
 
 
 class ProjectRegistryInvariantTests(SimpleTestCase):
@@ -15,8 +15,10 @@ class ProjectRegistryInvariantTests(SimpleTestCase):
             with self.subTest(slug=slug):
                 self.assertFalse(set(definition.capabilities) - ALLOWED_PROJECT_CAPABILITIES)
                 if "jira" in definition.capabilities:
-                    self.assertTrue(definition.dcc_template_name.endswith(".docx"))
-                    self.assertTrue(definition.mail_template_name)
+                    private = get_project_integration_definition(slug)
+                    self.assertTrue(private.dcc_template_name.endswith(".docx"))
+                    self.assertTrue(private.mail_template_name)
+                    self.assertIsNone(definition.dcc_template_name)
 
     def test_no_per_project_runtime_package_exists(self):
         projects_root = Path(settings.BASE_DIR) / "projects"
