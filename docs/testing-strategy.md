@@ -140,6 +140,8 @@ Değişen yüzeyle orantılı olarak en az şunları değerlendirin:
 - DDF'de eksik tablo/kısa satır ve eşit metinli bağımsız hücreler; legacy Word/Excel'de JSON/threshold/shape, aggregate character-work ve combined cell bütçeleri, malformed Office ve unexpected 500;
 - Worksheet XML preflight'ta completed node detach ile satır sayısından bağımsız memory; parent-remove mutation aynı peak-allocation regresyonunu tetikler;
 - Gerçek executor/child/grandchild ağacında timeout/cancel/crash/success, startup containment failure, publication öncesi çıkış ve dış write için containment exit timeout'ta reconciliation;
+- Isolated executor'da private scratch sahipliği, timeout/cancel/crash/success ve process-start failure sonrası temizleme; retention'da eski orphan temizliği, güncel token/expired lease ve symlink sınırlarının korunması;
+- JIRA draft publication'da provider timeout ve reconciliation lookup hatasının worker terminal projection sonrasında da reconciliation-required kalması; sunum upload/reconvert işinin ilk commit anında çalışan worker tarafından doğru sunumla eşleştirilmesi;
 - PDF bölmede `parts` için sayfa sayısı ve 1.000 parça sınırı, `pages_per_parts` ile türetilen parça sayısında aynı üst sınır, ondalıklı/geçersiz parametre reddi ve her iki modda ZIP içindeki sayfa sırasının korunması;
 - Outlook attachment capability'sinde cross-user kullanım, query/URL sızıntısı, replay ve cached SHA-256 mismatch; production file cache üzerinde aynı payload'ı okuyan thread/process'ler için tek başarılı tüketim, expiry ve kilit hatasında payload reddi;
 - idempotency key replay: aynı input ve farklı input;

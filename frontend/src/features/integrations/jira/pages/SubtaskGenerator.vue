@@ -111,7 +111,7 @@ async function createSubtasks(): Promise<void> {
   }
   const issue = generator.value.url
   const items = generator.value.list.map(toSubtaskRequest)
-  await submit(() => createManualSubtaskJob(issue, items))
+  await submit((key) => createManualSubtaskJob(issue, items, key), JSON.stringify([issue, items]))
 }
 </script>
 

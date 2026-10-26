@@ -7,6 +7,9 @@ development desteklenir; `prod` komutu fail-closed biçimde yalnız Windows'ta �
 ## Sözleşme
 
 - CPython 3.11+ ister ve `.venv` sürümünü doğrular.
+- Launcher giriş noktası yalnız standart kütüphane kullanır; ilk `setup` için
+  uygulama paketlerinin global Python'a kurulması gerekmez. Production TLS
+  doğrulaması proje `.venv` interpreter'ında çalışır.
 - `.env`, `.env.local`, PID veya kalıcı runtime state yazmaz.
 - Geliştirmede de açık `SECRET_KEY`, JIRA etkinse bağımsız Fernet anahtarı gerekir.
   [Özel ortam kurulumu](private-environment.md) bir kez operatör tarafından yapılır;
@@ -21,6 +24,8 @@ development desteklenir; `prod` komutu fail-closed biçimde yalnız Windows'ta �
   ile job, notification ve cleanup worker'larını aynı terminal lifecycle'ında supervise eder.
 - `prod` environment, TLS certificate ve private key girdilerini repository dışından
   ister. Sertifika seçilen IPv4 adresini SAN olarak içermeli ve private key ile eşleşmelidir.
+- Açık production profilinde `DEBUG=True` engelleyici hatadır. Başlangıçta bir
+  child açılamazsa veya başlangıç kesilirse daha önce açılmış child'lar kapatılır.
 - Offline dependency bundle OS, architecture, Python, lock digest ve artifact SHA-256 manifest'ine bağlıdır; başka target veya değiştirilmiş bundle fail-closed reddedilir.
 - Packaging yalnız izinli Git kaynaklarını alır; secret env, key/certificate, database, media, virtualenv, dependency tree ve generated build state'ini dışarıda bırakır. Symlink ve path escape reddedilir.
 
@@ -125,3 +130,17 @@ tüketir. Yalnız local queue'ları çalıştırmak için komuta `--exclude-door
 `backend/Dockerfile`, `docker-compose.yml`, Nginx, PostgreSQL ve Redis sözleşmesi
 sonraki olgunluk aşaması için korunur; bugünkü `launcher.py prod` akışının parçası
 değildir. Ayrıntılar [deployment.md](deployment.md) içindedir.
+
+Launcher kapanışı yalnız doğrudan child PID'lerini değil, sahip olduğu süreç ağacını
+sonlandırır. POSIX'te her servis ayrı process group içinde başlar; worker'a kendi
+izole executor ağacını kapatması için toplam 30 saniyelik süre tanınır, kalan grup
+zorla durdurulur. Windows'ta komut, kill-on-close Job Object ataması tamamlanana
+kadar bir başlangıç kapısında bekler; başlangıç hatası veya launcher kapanışı aynı
+Job Object içindeki alt süreçleri de durdurur. Job Object atanamazsa komut
+çalıştırılmaz. Bu yol launcher kurulumundan önce de kullanılabildiği için yalnız
+Python standart kütüphanesine bağlıdır.
+
+POSIX worker'ın kontrollü kapanışında yarım kalan yerel işler
+`JOB_WORKER_STOPPED` ile yeniden denenebilir duruma geçer; dış sistem yazımı
+olabilecek işler `reconciliation_required` olarak korunur. Windows'ta zorunlu
+kapanıştan kalan claim'ler mevcut lease/reconciliation kurallarıyla toparlanır.

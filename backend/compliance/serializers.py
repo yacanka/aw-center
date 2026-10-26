@@ -3,13 +3,16 @@
 import re
 
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
 
 from orgs.access_policy import has_project_role
 from orgs.models import Panel, Person, ProjectRoleAssignment
+from integrations.docproof import normalize_document_number
 
 from .notifications import SUPPORTED_EVENTS
+from .review_invalidation import invalidate_shared_cover_reviews
 
 from .models import (
     ComplianceDocument,
@@ -313,26 +316,33 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             cover_page.version += 1
             cover_page._history_user = self.context["request"].user
             cover_page.save(update_fields=["issue", "version"])
+            invalidate_shared_cover_reviews(
+                cover_page,
+                self.context["request"].user,
+                editing_document_id=self.instance.pk if self.instance else None,
+            )
         return cover_page
 
     @transaction.atomic
     def create(self, validated_data):
-        from .status_catalog import ensure_status
-        ensure_status(self.context["project"], "unknown", "Unknown")
-        cover_page = self._resolve_cover_page(validated_data.pop("cover_page"))
-        document = ComplianceDocument(
-            **validated_data,
-            project=self.context["project"],
-            cover_page=cover_page,
-            owner=self.context["request"].user,
-        )
-        document.full_clean()
-        document._history_user = self.context["request"].user
-        document.save()
-        return document
+        from .status_catalog import ensure_status, lock_status_project
+        with lock_status_project(self.context["project"]):
+            ensure_status(self.context["project"], "unknown", "Unknown")
+            cover_page = self._resolve_cover_page(validated_data.pop("cover_page"))
+            document = ComplianceDocument(
+                **validated_data,
+                project=self.context["project"],
+                cover_page=cover_page,
+                owner=self.context["request"].user,
+            )
+            document.full_clean()
+            document._history_user = self.context["request"].user
+            document.save()
+            return document
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        previous_number, previous_issue = instance.number, instance.issue
         cover_page_data = validated_data.pop("cover_page", None)
         if cover_page_data is not None:
             instance.cover_page = self._resolve_cover_page(cover_page_data)
@@ -342,7 +352,42 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         instance._history_user = self.context["request"].user
         instance._change_reason = str(self.initial_data.get("change_reason", "")).strip()[:100]
         instance.save()
+        self._reconcile_docproof_evidence(instance, previous_number, previous_issue)
         return instance
+
+    def _reconcile_docproof_evidence(self, document, previous_number, previous_issue):
+        """Keep cached vendor evidence bound to the edited technical identity."""
+
+        number_changed = (
+            normalize_document_number(previous_number or "")
+            != normalize_document_number(document.number or "")
+        )
+        issue_changed = str(previous_issue or "").strip() != str(document.issue or "").strip()
+        if not number_changed and not issue_changed:
+            return
+        profile = TrackingProfile.objects.select_for_update().filter(document=document).first()
+        if profile is None:
+            return
+        if number_changed:
+            profile.docproof_issue = ""
+            profile.docproof_status = "never_checked"
+            profile.docproof_checked_at = None
+        elif (
+            profile.docproof_status in {"current", "revision_available"}
+            and profile.docproof_checked_at
+        ):
+            profile.docproof_status = (
+                "current" if profile.docproof_issue == str(document.issue or "").strip()
+                else "revision_available"
+            )
+        # Advance the same fence used by preference writes and in-flight checks.
+        profile.version += 1
+        profile.updated_by = self.context["request"].user
+        profile.updated_at = timezone.now()
+        profile.save(update_fields=[
+            "docproof_issue", "docproof_status", "docproof_checked_at",
+            "version", "updated_by", "updated_at",
+        ])
 
 
 class WorkflowEventSerializer(serializers.ModelSerializer):

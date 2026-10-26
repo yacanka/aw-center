@@ -1,20 +1,23 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from textwrap import dedent
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 
+from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobExecutionResult
 from jobs.models import JobStatus
 from jobs.services import create_job, request_cancellation
@@ -37,6 +40,32 @@ def isolated_slow_executor(_job):
 
     time.sleep(30)
     return isolated_success_executor(_job)
+
+
+def isolated_scratch_executor(job):
+    """Allocate both shared-helper and library-style scratch before termination."""
+
+    source = materialize_job_input(job)
+    output = temporary_output(".txt")
+    output.write_bytes(b"private scratch result")
+    with tempfile.TemporaryDirectory(prefix="executor-library-") as directory:
+        Path(directory, "intermediate.txt").write_bytes(b"private intermediate")
+        Path(job.parameters["scratch_marker"]).write_text(
+            json.dumps([str(source), str(output), directory]), encoding="utf-8"
+        )
+        mode = job.parameters["scratch_mode"]
+        if mode == "crash":
+            os._exit(12)
+        if mode == "success":
+            source.unlink(missing_ok=True)
+            return JobExecutionResult(output, "result.txt")
+        if mode == "cancel":
+            request_cancellation(job)
+        try:
+            time.sleep(30)
+        finally:
+            source.unlink(missing_ok=True)
+            output.unlink(missing_ok=True)
 
 
 def isolated_nested_executor(job):
@@ -79,6 +108,8 @@ time.sleep(60)
 def isolated_resolver(kind):
     """Resolve only test kinds without accepting a dotted path from job data."""
 
+    if kind.endswith(".scratch"):
+        return isolated_scratch_executor
     if kind.endswith(".nested"):
         return isolated_nested_executor
     if kind.endswith(".slow"):
@@ -145,6 +176,49 @@ class IsolatedWorkerTests(TransactionTestCase):
         self.assertEqual(job.status, JobStatus.FAILED)
         self.assertEqual(job.error_code, "JOB_EXECUTION_TIMEOUT")
         self.assertFalse(job.output_file)
+
+    def test_parent_cleans_private_scratch_after_timeout_cancel_crash_and_success(self):
+        fallback = self.private_root / "fallback-temp"
+        fallback.mkdir()
+        for mode in ("timeout", "cancel", "crash", "success"):
+            with self.subTest(mode=mode):
+                marker = self.private_root / f"scratch-{mode}.json"
+                job = self.create_job("test.scratch")
+                job.parameters = {"scratch_marker": str(marker), "scratch_mode": mode}
+                job.save(update_fields=["parameters"])
+                paths = []
+                try:
+                    with patch.dict(os.environ, {
+                        "TMPDIR": str(fallback), "TEMP": str(fallback), "TMP": str(fallback),
+                    }):
+                        execute_claimed_job(
+                            claim_next_job(f"worker-scratch-{mode}"), isolated_resolver,
+                            timeout_seconds=1 if mode == "timeout" else 5, isolate=True,
+                        )
+                    self.assertTrue(marker.exists(), "Child must allocate scratch before termination")
+                    paths = [Path(path) for path in json.loads(marker.read_text())]
+                    self.assertFalse(any(path.exists() for path in paths))
+                    self.assertTrue(all(
+                        path.is_relative_to(self.private_root.resolve() / ".scratch/jobs")
+                        for path in paths
+                    ))
+                    job.refresh_from_db()
+                    self.assertEqual(job.status, {
+                        "timeout": JobStatus.FAILED, "cancel": JobStatus.CANCELLED,
+                        "crash": JobStatus.FAILED, "success": JobStatus.SUCCEEDED,
+                    }[mode])
+                    if mode == "success":
+                        with job.output_file.open("rb") as output:
+                            self.assertEqual(output.read(), b"private scratch result")
+                finally:
+                    # Keep a failing regression from leaking its synthetic files.
+                    if marker.exists():
+                        paths = [Path(path) for path in json.loads(marker.read_text())]
+                    for path in paths:
+                        if path.is_dir():
+                            shutil.rmtree(path)
+                        else:
+                            path.unlink(missing_ok=True)
 
     def test_parent_terminates_non_write_executor_on_cancellation(self):
         job = self.create_job("test.slow")
@@ -245,6 +319,93 @@ class IsolatedWorkerTests(TransactionTestCase):
                             except ProcessLookupError:
                                 pass
 
+    def test_worker_shutdown_stops_detached_descendants_and_preserves_write_uncertainty(self):
+        for external_write in (False, True):
+            with self.subTest(external_write=external_write):
+                marker = self.private_root / f"shutdown-tree-{external_write}.json"
+                job = self.create_job("test.nested", external_write=external_write)
+                job.parameters = {"tree_marker": str(marker), "tree_mode": "shutdown"}
+                job.save(update_fields=["parameters"])
+                stopping = Event()
+                finished = Event()
+                pids = []
+
+                def request_shutdown():
+                    while not finished.wait(0.02):
+                        try:
+                            pids.extend(json.loads(marker.read_text()))
+                        except (FileNotFoundError, json.JSONDecodeError):
+                            continue
+                        stopping.set()
+                        return
+
+                requester = Thread(target=request_shutdown, daemon=True)
+                requester.start()
+                try:
+                    self.run_worker_once(job, stopping, timeout=3)
+                    job.refresh_from_db()
+                    self.assertTrue(stopping.is_set(), "Executor descendants must start before shutdown")
+                    self.assertFalse(any(self.process_is_running(pid) for pid in pids))
+                    self.assertFalse(job.output_file)
+                    if external_write:
+                        self.assertEqual(job.status, JobStatus.RECONCILIATION_REQUIRED)
+                        self.assertEqual(job.error_code, "RECONCILIATION_REQUIRED")
+                        self.assertFalse(job.retryable)
+                    else:
+                        self.assertEqual(job.status, JobStatus.FAILED)
+                        self.assertEqual(job.error_code, "JOB_WORKER_STOPPED")
+                        self.assertTrue(job.retryable)
+                    self.assertFalse(list((self.private_root / ".scratch/jobs").glob("*/*/*")))
+                finally:
+                    finished.set()
+                    requester.join(timeout=5)
+                    for pid in pids:
+                        if self.process_is_running(pid):
+                            try:
+                                os.kill(pid, 9)
+                            except ProcessLookupError:
+                                pass
+
+    def test_worker_shutdown_before_executor_ready_uses_shutdown_state(self):
+        stopping = Event()
+        process = Mock()
+        process.is_alive.return_value = True
+        connection = Mock()
+        polls = 0
+
+        def poll(_timeout=None):
+            nonlocal polls
+            polls += 1
+            stopping.set()
+            return polls > 1
+
+        connection.poll.side_effect = poll
+        connection.recv.return_value = {"outcome": "startup_failed", "error_type": "Interrupted"}
+        child = SimpleNamespace(process=process, connection=connection, tree=None, scratch_directory=None)
+        job = self.create_job("test.slow")
+
+        with patch("jobs.worker.start_executor_process", return_value=child):
+            self.run_worker_once(job, stopping)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.FAILED)
+        self.assertEqual(job.error_code, "JOB_WORKER_STOPPED")
+        self.assertTrue(job.retryable)
+        process.terminate.assert_called()
+        connection.close.assert_called_once()
+
+    def run_worker_once(self, job, stopping, timeout=5):
+        from jobs.management.commands.run_job_worker import Command
+
+        command = Command()
+        command.stopping = stopping
+        with (
+            patch("jobs.management.commands.run_job_worker.local_job_kinds", return_value=(job.kind,)),
+            patch("jobs.management.commands.run_job_worker.local_job_timeout", return_value=timeout),
+            patch("jobs.management.commands.run_job_worker.resolve_job_executor", isolated_resolver),
+        ):
+            command.run_loop("worker-shutdown", {"once": True, "poll_interval": 0.1})
+
     def process_is_running(self, pid):
         if sys.platform == "win32":
             import ctypes
@@ -283,11 +444,49 @@ class IsolatedWorkerTests(TransactionTestCase):
 
         with patch("jobs.worker.ExecutorProcessTree", side_effect=fail_containment):
             with self.assertRaises(PermissionError):
-                start_executor_process(job, isolated_resolver)
+                start_executor_process(claim_next_job("worker-containment-failure"), isolated_resolver)
 
         self.assertEqual(len(started), 1)
         self.assertFalse(self.process_is_running(started[0]))
         self.assertFalse(marker.exists())
+        self.assertFalse(list((self.private_root / ".scratch/jobs").glob("*/*/*")))
+
+    def test_failed_process_start_removes_parent_owned_scratch(self):
+        self.create_job("test.success")
+        job = claim_next_job("worker-start-failure")
+        import multiprocessing
+
+        context = multiprocessing.get_context("spawn")
+        process = Mock(pid=None)
+        process.start.side_effect = OSError("Process start failed")
+        with (
+            patch("jobs.worker.multiprocessing.get_context", return_value=context),
+            patch.object(context, "Process", return_value=process),
+        ):
+            with self.assertRaises(OSError):
+                start_executor_process(job, isolated_resolver)
+
+        self.assertFalse(list((self.private_root / ".scratch/jobs").glob("*/*/*")))
+
+    def test_scratch_allocation_failure_closes_open_process_pipe(self):
+        self.create_job("test.success")
+        job = claim_next_job("worker-scratch-allocation-failure")
+        import multiprocessing
+
+        context = multiprocessing.get_context("spawn")
+        parent, child = context.Pipe(duplex=False)
+        self.addCleanup(parent.close)
+        self.addCleanup(child.close)
+        with (
+            patch("jobs.worker.multiprocessing.get_context", return_value=context),
+            patch.object(context, "Pipe", return_value=(parent, child)),
+            patch("jobs.worker.create_execution_scratch", side_effect=OSError("Storage unavailable")),
+        ):
+            with self.assertRaises(OSError):
+                start_executor_process(job, isolated_resolver)
+
+        self.assertTrue(parent.closed)
+        self.assertTrue(child.closed)
 
     def test_executor_descendants_stop_before_artifact_publication(self):
         marker = self.private_root / "tree-publication.json"
@@ -333,16 +532,24 @@ class IsolatedWorkerTests(TransactionTestCase):
 class WorkerCompositionTests(SimpleTestCase):
     """Lock catalog timeout and process isolation into the production worker loop."""
 
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        override = override_settings(PRIVATE_MEDIA_ROOT=Path(directory.name))
+        override.enable()
+        self.addCleanup(override.disable)
+
     @patch("jobs.worker.ExecutorProcessTree")
     @patch("jobs.worker.connections.close_all")
     @patch("jobs.worker.multiprocessing.get_context")
     def test_macos_and_windows_use_spawn_while_linux_keeps_fork(
         self, get_context, _close, _tree
     ):
-        job = SimpleNamespace(id="12345678-job", kind="test.success")
+        job = SimpleNamespace(id=uuid4(), owner_id=1, execution_token=uuid4(), kind="test.success")
         get_context.return_value.Pipe.return_value = (Mock(), Mock())
         for platform, method in (("darwin", "spawn"), ("win32", "spawn"), ("linux", "fork")):
             with self.subTest(platform=platform), patch("jobs.worker.sys.platform", platform):
+                job.execution_token = uuid4()
                 start_executor_process(job, isolated_resolver)
                 get_context.assert_called_with(method)
                 self.assertIs(
@@ -428,7 +635,7 @@ class WorkerCompositionTests(SimpleTestCase):
         process = Mock()
         context.Pipe.return_value = (parent_connection, child_connection)
         context.Process.return_value = process
-        job = SimpleNamespace(id="12345678-job", kind="doors.run_dxl")
+        job = SimpleNamespace(id=uuid4(), owner_id=1, execution_token=uuid4(), kind="doors.run_dxl")
 
         child = start_executor_process(job, isolated_resolver)
 

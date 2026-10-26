@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import type { ICompDoc } from '@/features/compliance/models/compdocs'
 import {
   createCompdocReview,
@@ -22,6 +22,9 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ changed: [] }>()
 const reviews = ref<CompdocReview[]>([])
+const page = ref(1)
+const pageSize = 50
+const reviewCount = ref(0)
 const loading = ref(false)
 const decisionNotes = ref<Record<string, string>>({})
 const assignees = ref<CompdocReferenceOption[]>([])
@@ -34,6 +37,8 @@ watch(
     loadSequence += 1
     loading.value = false
     reviews.value = []
+    page.value = 1
+    reviewCount.value = 0
     assignees.value = []
     decisionNotes.value = {}
     request.value = emptyRequest()
@@ -42,23 +47,32 @@ watch(
   { immediate: true }
 )
 
-async function load() {
-  if (!props.document.id) return
+onBeforeUnmount(() => {
+  loadSequence += 1
+})
+
+async function load(requestedPage = page.value): Promise<boolean> {
+  if (!props.document.id) return false
   const sequence = ++loadSequence
   const documentId = props.document.id
   const project = props.project
   loading.value = true
   try {
-    const loadedReviews = await fetchCompdocReviews(project, documentId)
-    if (sequence !== loadSequence) return
-    reviews.value = loadedReviews
+    const loadedReviews = await fetchCompdocReviews(project, documentId, requestedPage, pageSize)
+    if (sequence !== loadSequence) return false
+    reviews.value = loadedReviews.results
+    reviewCount.value = loadedReviews.count
+    page.value = requestedPage
+    decisionNotes.value = {}
     if (props.canEdit) {
       const loadedAssignees = await fetchCompdocOptions(project, 'user')
-      if (sequence !== loadSequence) return
+      if (sequence !== loadSequence) return false
       assignees.value = loadedAssignees
     }
+    return true
   } catch (error) {
     if (sequence === loadSequence) window.$message.error(formatApiError(error))
+    return false
   } finally {
     if (sequence === loadSequence) loading.value = false
   }
@@ -89,11 +103,11 @@ async function createReview() {
   const project = props.project
   loading.value = true
   try {
-    const created = await createCompdocReview(project, documentId, request.value)
+    await createCompdocReview(project, documentId, request.value)
     if (sequence !== loadSequence) return
-    reviews.value = [created, ...reviews.value]
     request.value = emptyRequest()
     window.$message.success('Review task created.')
+    await load(1)
   } catch (error) {
     if (sequence === loadSequence) window.$message.error(formatApiError(error))
   } finally {
@@ -113,8 +127,7 @@ async function decide(task: CompdocReview, status: 'approved' | 'changes_request
   try {
     await decideCompdocReview(project, documentId, task.id, status, decisionNotes.value[task.id])
     if (sequence !== loadSequence) return
-    await load()
-    emit('changed')
+    if (await load()) emit('changed')
   } catch (error) {
     if (sequence === loadSequence) window.$message.error(formatApiError(error))
   } finally {
@@ -160,7 +173,7 @@ async function decide(task: CompdocReview, status: 'approved' | 'changes_request
       <n-button
         type="primary"
         size="small"
-        :disabled="!request.assignee || request.request_note.trim().length < 3"
+        :disabled="loading || !request.assignee || request.request_note.trim().length < 3"
         @click="createReview"
       >
         Create task
@@ -217,5 +230,13 @@ async function decide(task: CompdocReview, status: 'approved' | 'changes_request
       </n-card>
       <n-empty v-if="!loading && !reviews.length" description="No review tasks." size="small" />
     </n-spin>
+    <n-pagination
+      v-if="reviewCount > pageSize"
+      :page="page"
+      :page-size="pageSize"
+      :item-count="reviewCount"
+      :disabled="loading"
+      @update:page="load"
+    />
   </section>
 </template>

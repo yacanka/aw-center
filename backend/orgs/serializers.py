@@ -1,12 +1,27 @@
 """Organization API serializers with project scope supplied by the URL."""
 
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import serializers
 
 from .models import Panel, Person, ResponsibleAssignment
 from .ata import normalize_ata_chapter
 
 
-class PanelSerializer(serializers.ModelSerializer):
+class OrganizationModelSerializer(serializers.ModelSerializer):
+    """Apply partial edits to a fresh row while holding the database write lock."""
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        # DRF reads the instance before save; even an atomic save can otherwise
+        # restore unrelated values from that stale snapshot during a PATCH.
+        locked = get_object_or_404(
+            self.Meta.model.objects.select_for_update(), pk=instance.pk,
+        )
+        return super().update(locked, validated_data)
+
+
+class PanelSerializer(OrganizationModelSerializer):
     ata = serializers.CharField(max_length=128)
 
     def validate_ata(self, value):
@@ -22,7 +37,7 @@ class PanelSerializer(serializers.ModelSerializer):
         fields = ("id", "project_slug", "name", "discipline", "ata")
 
 
-class ResponsibleAssignmentSerializer(serializers.ModelSerializer):
+class ResponsibleAssignmentSerializer(OrganizationModelSerializer):
     panel = serializers.PrimaryKeyRelatedField(queryset=Panel.objects.none())
     panel_name = serializers.CharField(source="panel.name", read_only=True)
     panel_ata = serializers.CharField(source="panel.ata", read_only=True)
@@ -60,7 +75,7 @@ class ResponsibleAssignmentSerializer(serializers.ModelSerializer):
         return panel
 
 
-class PersonSerializer(serializers.ModelSerializer):
+class PersonSerializer(OrganizationModelSerializer):
     class Meta:
         model = Person
         fields = ("id", "person_id", "name", "email")

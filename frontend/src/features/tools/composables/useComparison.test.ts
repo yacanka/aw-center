@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { defineComponent, nextTick, ref } from 'vue'
+import { computed, defineComponent, nextTick, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Job } from '@/features/jobs/api/jobs'
@@ -20,7 +20,9 @@ const job = ref<Job | null>(null)
 vi.mock('@/features/jobs/composables/usePageJob', () => ({
   usePageJob: () => ({
     job,
-    active: ref(false),
+    active: computed(() =>
+      ['queued', 'running', 'cancel_requested'].includes(job.value?.status || '')
+    ),
     cancelling: ref(false),
     downloading: ref(false),
     errorMessage: ref(''),
@@ -118,6 +120,54 @@ describe('comparison flow', () => {
     resolve({ selection: {}, matching: { requires_input: false } })
     await flushPromises()
     expect(state.inspection.value).toBeNull()
+    wrapper.unmount()
+  })
+  it.each(['failed', 'cancelled'])(
+    'creates a fresh attempt after a %s comparison',
+    async (status) => {
+      const { state, wrapper } = setup()
+      await flushPromises()
+      state.setFile('first', new File(['a'], 'a.docx'))
+      state.setFile('second', new File(['b'], 'b.docx'))
+      mocks.enqueue.mockResolvedValueOnce(result('first')).mockResolvedValueOnce(result('second'))
+      await state.compare()
+      job.value = result('first', 'comparison.compare', status)
+      await state.compare()
+      expect(mocks.enqueue).toHaveBeenCalledTimes(2)
+      expect(mocks.enqueue.mock.calls[1][3]).not.toBe(mocks.enqueue.mock.calls[0][3])
+      expect(state.job.value?.id).toBe('second')
+      wrapper.unmount()
+    }
+  )
+
+  it('retains the attempt key when an enqueue response is lost', async () => {
+    const { state, wrapper } = setup()
+    await flushPromises()
+    state.setFile('first', new File(['a'], 'a.docx'))
+    state.setFile('second', new File(['b'], 'b.docx'))
+    mocks.enqueue
+      .mockRejectedValueOnce(new Error('response lost'))
+      .mockResolvedValueOnce(result('accepted'))
+    await state.compare()
+    await state.compare()
+    expect(mocks.enqueue).toHaveBeenCalledTimes(2)
+    expect(mocks.enqueue.mock.calls[1][3]).toBe(mocks.enqueue.mock.calls[0][3])
+    expect(state.job.value?.id).toBe('accepted')
+    wrapper.unmount()
+  })
+
+  it('does not reuse an uncertain attempt for different input', async () => {
+    const { state, wrapper } = setup()
+    await flushPromises()
+    state.setFile('first', new File(['a'], 'a.docx'))
+    state.setFile('second', new File(['b'], 'b.docx'))
+    mocks.enqueue
+      .mockRejectedValueOnce(new Error('response lost'))
+      .mockResolvedValueOnce(result('new-input'))
+    await state.compare()
+    state.setFile('second', new File(['c'], 'c.docx'))
+    await state.compare()
+    expect(mocks.enqueue.mock.calls[1][3]).not.toBe(mocks.enqueue.mock.calls[0][3])
     wrapper.unmount()
   })
 })

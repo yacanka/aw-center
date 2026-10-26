@@ -13,7 +13,7 @@ from integrations.jira.sessions import (
     require_jira_session,
 )
 from jobs.artifacts import materialize_job_input, temporary_output
-from jobs.contracts import JobExecutionFailure, JobExecutionResult
+from jobs.contracts import JobExecutionFailure, JobExecutionResult, JobExecutionUncertain
 
 from .issue_draft_models import JiraIssueDraftStatus
 from .issue_draft_publication_state import (
@@ -44,8 +44,7 @@ def execute_jira_draft_publication(job):
             input_path = materialize_job_input(job)
             validate_input(input_path, job.parameters)
         except JobExecutionFailure as error:
-            fail_publication(job, error.code, str(error))
-            raise
+            fail_and_raise(job, error.code, str(error), cause=error)
         client = resolve_connector(job)
         existing_key = find_marker(job, draft, client)
         if existing_key:
@@ -62,6 +61,7 @@ def execute_jira_draft_publication(job):
                 job,
                 "JIRA_RECONCILIATION_NOT_FOUND",
                 "No JIRA issue was found for the publication marker.",
+                reconciliation_required=False,
             )
         fields = prepare_fields(job, draft, client)
         issue_key = create_provider_issue(job, client, fields)
@@ -97,32 +97,24 @@ def validate_worker_authorization(job):
     try:
         return validate_publication_fence(job)
     except PermissionDenied as error:
-        fail_publication(
+        fail_and_raise(
             job,
             "DCC_PROJECT_ROLE_REQUIRED",
             "The publisher role is no longer available for every draft project.",
+            cause=error,
         )
-        raise JobExecutionFailure(
-            "The publisher role is no longer available for every draft project.",
-            "DCC_PROJECT_ROLE_REQUIRED",
-            retryable=False,
-        ) from error
 
 
 def resolve_connector(job):
     try:
         return jira_connector_for(job.owner)
     except JiraSessionError as error:
-        fail_publication(
+        fail_and_raise(
             job,
             "JIRA_RECONNECT_REQUIRED",
             "Reconnect JIRA before publishing this draft.",
+            cause=error,
         )
-        raise JobExecutionFailure(
-            "Reconnect JIRA before publishing this draft.",
-            "JIRA_RECONNECT_REQUIRED",
-            retryable=False,
-        ) from error
 
 
 def find_marker(job, draft, client):
@@ -132,17 +124,12 @@ def find_marker(job, draft, client):
     except Exception as error:
         if job.parameters.get("mode") == "reconcile":
             message = "JIRA publication marker reconciliation could not be completed."
-            fail_publication(
+            fail_and_raise(
                 job,
                 "JIRA_RECONCILIATION_LOOKUP_FAILED",
                 message,
-                reconciliation_required=True,
+                cause=error,
             )
-            raise JobExecutionFailure(
-                message,
-                "JIRA_RECONCILIATION_LOOKUP_FAILED",
-                retryable=False,
-            ) from error
         fail_and_raise(
             job,
             "JIRA_MARKER_LOOKUP_FAILED",
@@ -184,13 +171,22 @@ def create_provider_issue(job, client, fields):
             if uncertain
             else "JIRA rejected issue publication."
         )
-        fail_publication(job, code, message, reconciliation_required=uncertain)
-        raise JobExecutionFailure(message, code, retryable=False) from error
+        fail_and_raise(
+            job, code, message, cause=error, reconciliation_required=uncertain,
+        )
 
 
-def fail_and_raise(job, code, message, cause=None):
-    fail_publication(job, code, message)
-    error = JobExecutionFailure(message, code, retryable=False)
+def fail_and_raise(job, code, message, cause=None, *, reconciliation_required=None):
+    # Failed prerequisites cannot resolve the previous publication's unknown
+    # outcome. Only a completed marker lookup can permit a fresh publication.
+    if reconciliation_required is None:
+        reconciliation_required = job.parameters.get("mode") == "reconcile"
+    fail_publication(job, code, message, reconciliation_required=reconciliation_required)
+    error = (
+        JobExecutionUncertain(message)
+        if reconciliation_required
+        else JobExecutionFailure(message, code, retryable=False)
+    )
     if cause is not None:
         raise error from cause
     raise error
@@ -203,12 +199,12 @@ def ensure_session_active(job):
         require_jira_session(job.owner)
     except JiraSessionError as error:
         message = "Reconnect JIRA before publishing this draft."
-        fail_publication(job, "JIRA_RECONNECT_REQUIRED", message)
-        raise JobExecutionFailure(
-            message,
+        fail_and_raise(
+            job,
             "JIRA_RECONNECT_REQUIRED",
-            retryable=False,
-        ) from error
+            message,
+            cause=error,
+        )
 
 
 def receipt_result(job, issue_key, output_path, marker_reused):

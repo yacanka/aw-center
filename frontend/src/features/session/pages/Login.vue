@@ -25,9 +25,9 @@ interface Credentials {
 
 const loginCredentials = ref<Credentials>({ username: '', password: '' })
 
-const resetCapability = takePasswordResetCapability()
-const userId = resetCapability?.uid ?? ''
-const userToken = resetCapability?.token ?? ''
+const resetCapability = ref(takePasswordResetCapability())
+const userId = computed(() => resetCapability.value?.uid ?? '')
+const userToken = computed(() => resetCapability.value?.token ?? '')
 const loginForm = ref<FormInst | null>(null)
 const passwordRecovery = ref<InstanceType<typeof PasswordRecovery> | null>(null)
 
@@ -128,7 +128,12 @@ function openPasswordRecovery(): void {
             </n-button>
           </n-form>
         </template>
-        <PasswordRecovery ref="passwordRecovery" :user-id="userId" :user-token="userToken" />
+        <PasswordRecovery
+          ref="passwordRecovery"
+          :user-id="userId"
+          :user-token="userToken"
+          @completed="resetCapability = null"
+        />
       </section>
     </div>
     <footer class="login-footer">AW Center</footer>

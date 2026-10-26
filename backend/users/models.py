@@ -208,3 +208,17 @@ class PasswordResetDelivery(models.Model):
     class Meta:
         ordering = ["requested_at", "id"]
         indexes = [models.Index(fields=["status", "next_attempt_at"])]
+
+
+class EmailIdentity(models.Model):
+    """Database-maintained reservations; legacy collisions retain their owner count.
+
+    Only auth_user triggers write this table. It deliberately has no admin/API
+    surface, and no owner FK because an existing identity may have several owners.
+    """
+
+    email = models.CharField(max_length=254, primary_key=True)
+    owner_count = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'users_email_identity'

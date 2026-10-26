@@ -76,7 +76,7 @@
         The form contains unsaved changes. Save them before approval or the JIRA readiness check.
       </n-alert>
       <jira-draft-preflight-panel
-        v-if="canPreflight && draft.status !== 'published'"
+        v-if="canPreflight && !requiresReconciliation && draft.status !== 'published'"
         :connected="isJiraConnected"
         :busy="busy"
         :dirty="dirty"
@@ -87,7 +87,7 @@
         @check="checkPreflight"
       />
       <n-alert
-        v-else-if="!canPreflight && draft.status !== 'published'"
+        v-else-if="!canPreflight && !requiresReconciliation && draft.status !== 'published'"
         type="info"
         :bordered="false"
       >
@@ -109,21 +109,37 @@
       </n-space>
       <template v-if="publishable">
         <n-space v-if="canPublish" vertical>
-          <n-alert v-if="!preflight?.ready" type="warning" :bordered="false">
-            Run the JIRA readiness check successfully before publication.
-          </n-alert>
-          <n-popconfirm @positive-click="publishDraft">
-            <template #trigger>
-              <n-button
-                type="error"
-                :loading="busy"
-                :disabled="!isJiraConnected || dirty || !preflight?.ready"
-              >
-                Publish approved Task
-              </n-button>
-            </template>
-            This creates an external JIRA issue. Publish the approved version?
-          </n-popconfirm>
+          <template v-if="requiresReconciliation">
+            <n-alert type="info" :bordered="false">
+              Check the existing publication marker in JIRA. Reconciliation does not create or
+              change issues.
+            </n-alert>
+            <n-button
+              type="primary"
+              :loading="busy"
+              :disabled="!isJiraConnected || dirty"
+              @click="publishDraft"
+            >
+              Reconcile publication
+            </n-button>
+          </template>
+          <template v-else>
+            <n-alert v-if="!preflight?.ready" type="warning" :bordered="false">
+              Run the JIRA readiness check successfully before publication.
+            </n-alert>
+            <n-popconfirm @positive-click="publishDraft">
+              <template #trigger>
+                <n-button
+                  type="error"
+                  :loading="busy"
+                  :disabled="!isJiraConnected || dirty || !preflight?.ready"
+                >
+                  Publish approved Task
+                </n-button>
+              </template>
+              This creates an external JIRA issue. Publish the approved version?
+            </n-popconfirm>
+          </template>
         </n-space>
       </template>
       <n-collapse v-if="draft.events.length">
@@ -158,6 +174,7 @@ const {
   eligible,
   locked,
   publishable,
+  requiresReconciliation,
   canEdit,
   canApprove,
   canPreflight,

@@ -2,14 +2,17 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import ContentType, Group, Permission
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
 from rest_framework.serializers import CharField, ListField, ModelSerializer, Serializer
 
 from .models import UserPreferences
+from .email_policy import accounts_for_email, email_identity_write, validate_email_identity
 from .password_reset_notifications import enqueue_password_reset
 from .password_reset_tokens import token_generator
+from .password_policy import MAX_PASSWORD_LENGTH
 from .username_policy import validate_username_format
 
 User = get_user_model()
@@ -54,7 +57,10 @@ class GroupSerializer(ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         permission_ids = validated_data.pop("permission_ids", None)
-        group = super().update(instance, validated_data)
+        # A permission-only PATCH must not restore a stale group name.
+        from django.shortcuts import get_object_or_404
+        locked = get_object_or_404(Group.objects.select_for_update(), pk=instance.pk)
+        group = super().update(locked, validated_data)
         if permission_ids is not None:
             self._set_permissions(group, permission_ids)
         return group
@@ -106,9 +112,7 @@ class UserProfileSerializer(ModelSerializer):
         extra_kwargs = {"email": {"allow_blank": False}}
 
     def validate_email(self, value):
-        if User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk).exists():
-            raise serializers.ValidationError("This email address is unavailable.")
-        return value
+        return validate_email_identity(value, user=self.instance)
 
     def to_internal_value(self, data):
         if isinstance(data, dict):
@@ -119,6 +123,7 @@ class UserProfileSerializer(ModelSerializer):
                 })
         return super().to_internal_value(data)
 
+    @email_identity_write()
     def update(self, instance, validated_data):
         for field, value in validated_data.items():
             setattr(instance, field, value)
@@ -128,7 +133,8 @@ class UserProfileSerializer(ModelSerializer):
 
 
 class UserSerializer(ModelSerializer):
-    password = CharField(write_only=True, required=False, allow_blank=False)
+    password = CharField(write_only=True, required=False, allow_blank=False,
+                         max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False)
     permissions = PermissionSerializer(source="user_permissions", many=True, read_only=True)
     group_details = GroupSerializer(source="groups", many=True, read_only=True)
     preferences = UserPreferencesSerializer(required=False)
@@ -177,6 +183,9 @@ class UserSerializer(ModelSerializer):
         validate_username_format(value)
         return value
 
+    def validate_email(self, value):
+        return validate_email_identity(value, user=self.instance)
+
     def validate(self, attrs):
         request = self.context.get("request")
         actor = request.user if request else None
@@ -199,7 +208,7 @@ class UserSerializer(ModelSerializer):
             ))
         return attrs
 
-    @transaction.atomic
+    @email_identity_write()
     def create(self, validated_data):
         password = validated_data.pop("password", None)
         groups = validated_data.pop("groups", None)
@@ -226,8 +235,9 @@ class UserSerializer(ModelSerializer):
 
         return user
 
-    @transaction.atomic
+    @email_identity_write()
     def update(self, instance, validated_data):
+        instance = get_object_or_404(User.objects.select_for_update(), pk=instance.pk)
         password = validated_data.pop("password", None)
         groups = validated_data.pop("groups", None)
         permissions = validated_data.pop("user_permissions", None)
@@ -268,9 +278,9 @@ class UserAdministrationSerializer(UserSerializer):
 
 
 class PasswordChangeSerializer(Serializer):
-    current_password = CharField(write_only=True)
-    new_password = CharField(write_only=True)
-    confirm_password = CharField(write_only=True)
+    current_password = CharField(write_only=True, max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False)
+    new_password = CharField(write_only=True, max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False)
+    confirm_password = CharField(write_only=True, max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False)
 
     def validate(self, data):
         user = self.context["request"].user
@@ -291,16 +301,18 @@ class PasswordResetRequestSerializer(serializers.Serializer):
         email = self.validated_data["email"]
 
         # Account existence is deliberately not reflected in the public response.
-        user = User.objects.filter(email__iexact=email, is_active=True).first()
-        if not user:
+        # Legacy duplicate addresses cannot authorize choosing an arbitrary account.
+        users = list(accounts_for_email(email)[:2])
+        if len(users) != 1 or not users[0].is_active:
             return
-        enqueue_password_reset(user)
+        enqueue_password_reset(users[0])
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     uid = serializers.CharField(max_length=128)
     token = serializers.CharField(max_length=128)
-    new_password = serializers.CharField(min_length=8, max_length=128, write_only=True)
+    new_password = serializers.CharField(min_length=8, max_length=MAX_PASSWORD_LENGTH,
+                                         write_only=True, trim_whitespace=False)
 
     def validate(self, attrs):
         uid = attrs["uid"]

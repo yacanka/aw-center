@@ -15,7 +15,7 @@ from orgs.models import Person
 from integrations.mail import MailUnavailable, send_html_email
 
 from .reset_guard import lock_reset_state
-from .models import NotificationLog, NotificationPolicy, TrackingProfile
+from .models import ComplianceDocument, NotificationLog, NotificationPolicy, TrackingProfile
 
 
 LOGGER = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def _prepare_scan(project_slug):
         profiles = profiles.filter(document__project__slug=project_slug)
 
     materialized = 0
-    for profile in profiles.iterator(chunk_size=100):
+    for profile in _notification_batches(profiles):
         materialized += materialize_profile_events(profile)
         TrackingProfile.objects.filter(pk=profile.pk).update(
             notification_checked_at=timezone.now()
@@ -77,8 +77,46 @@ def _prepare_scan(project_slug):
     return materialized, cancelled, claim_notifications(project_slug=project_slug, limit=1)
 
 
+def _notification_batches(queryset):
+    # Close each read cursor before starting a SQLite write transaction.
+    last_id = None
+    while True:
+        page = queryset.order_by("pk")
+        if last_id is not None:
+            page = page.filter(pk__gt=last_id)
+        batch = list(page[:100])
+        if not batch:
+            return
+        yield from batch
+        last_id = batch[-1].pk
+
+
+def notification_event_key(profile, event_type, evidence):
+    legacy_key = hashlib.sha256(f"{profile.pk}:{event_type}:{evidence}".encode()).hexdigest()
+    if event_type != "revision_available":
+        return legacy_key
+    number = (profile.document.number or "").strip()
+    return hashlib.sha256(f"{legacy_key}:{number}".encode()).hexdigest()
+
+
+@transaction.atomic
 def materialize_profile_events(profile, *, today=None):
-    """Create at most one durable delivery record per event evidence value."""
+    """Materialize current persisted evidence under the document write fence."""
+
+    if not ComplianceDocument.objects.select_for_update().filter(
+        pk=profile.document_id,
+    ).first():
+        return 0
+    profile = TrackingProfile.objects.select_for_update(of=("self",)).select_related(
+        "document", "document__project",
+    ).filter(pk=profile.pk).first()
+    if (
+        profile is None
+        or not profile.notification_enabled
+        or profile.document.is_archived
+        or not profile.document.project.enabled
+    ):
+        return 0
 
     policy = NotificationPolicy.objects.filter(
         project=profile.document.project,
@@ -90,8 +128,7 @@ def materialize_profile_events(profile, *, today=None):
             continue
         if policy and not policy.event_rules.get(event_type, {}).get("enabled", True):
             continue
-        raw_key = f"{profile.pk}:{event_type}:{evidence}"
-        event_key = hashlib.sha256(raw_key.encode()).hexdigest()
+        event_key = notification_event_key(profile, event_type, evidence)
         message_id = f"<{event_key}@awcenter>"
         log, was_created = NotificationLog.objects.get_or_create(
             event_key=event_key,
@@ -239,9 +276,7 @@ def notification_is_enabled(profile, event_type, event_key=None):
     if evidence is None:
         return False
     if event_key:
-        current_key = hashlib.sha256(
-            f"{profile.pk}:{event_type}:{evidence}".encode()
-        ).hexdigest()
+        current_key = notification_event_key(profile, event_type, evidence)
         if current_key != event_key:
             return False
     policy = NotificationPolicy.objects.filter(
@@ -265,7 +300,7 @@ def cancel_ineligible_notifications(*, project_slug=None):
     if project_slug:
         queryset = queryset.filter(profile__document__project__slug=project_slug)
     cancelled = 0
-    for log in queryset.iterator(chunk_size=100):
+    for log in _notification_batches(queryset):
         if notification_is_enabled(log.profile, log.event_type, log.event_key):
             continue
         cancelled += NotificationLog.objects.filter(claimable, pk=log.pk).update(

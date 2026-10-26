@@ -26,6 +26,8 @@ PLACEHOLDER_SECRETS = {
 @register(Tags.security, deploy=True)
 def production_runtime_checks(app_configs, **kwargs):
     if settings.DEBUG:
+        if settings.AWCENTER_DEPLOYMENT_MODE in {"windows-native", "container"}:
+            return [Error("Production deployment requires DEBUG=False.", id="awcenter.E040")]
         return []
     errors = []
     deployment_mode = settings.AWCENTER_DEPLOYMENT_MODE

@@ -9,6 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Job, JobStatus
+from .scratch import cleanup_orphan_execution_scratch
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,7 @@ def cleanup_orphan_artifacts(now=None):
             path.unlink(missing_ok=True)
             orphan_count += 1
     transaction.on_commit(lambda: _cleanup_orphan_inputs(current_time))
+    transaction.on_commit(lambda: cleanup_orphan_execution_scratch(root, cutoff))
     return staging_count, orphan_count
 
 

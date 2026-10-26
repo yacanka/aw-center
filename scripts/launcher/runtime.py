@@ -6,16 +6,12 @@ import ipaddress
 import socket
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
 
 from .dependencies import ensure_virtual_environment
 from .job_worker import start_job_workers
 from .model import LauncherError, Project, Scope
-from .process import required_tool, run, start, supervise
+from .process import required_tool, run, start, starting_processes, supervise
 from .quality import django, run_first_script, run_script, select_script
 
 
@@ -74,28 +70,28 @@ def dev(
     """Run Django and Vite as launcher-owned foreground children."""
     scope.require_any()
     require_runtime_ports(scope, host, backend_port, frontend_port)
-    processes = []
-    if scope.backend:
-        processes.append(
-            start_backend(
-                project,
-                host,
-                backend_port,
-                frontend_port,
-                no_backend_reload,
-                migrate,
+    with starting_processes() as processes:
+        if scope.backend:
+            processes.append(
+                start_backend(
+                    project,
+                    host,
+                    backend_port,
+                    frontend_port,
+                    no_backend_reload,
+                    migrate,
+                )
             )
-        )
-        processes.extend(
-            start_job_workers(
-                project,
-                runtime_env(host, backend_port, frontend_port),
-                include_doors_if_enabled=not exclude_doors,
+            processes.extend(
+                start_job_workers(
+                    project,
+                    runtime_env(host, backend_port, frontend_port),
+                    include_doors_if_enabled=not exclude_doors,
+                )
             )
-        )
-    if scope.frontend:
-        processes.append(start_frontend(project, host, backend_port, frontend_port))
-    print_urls(scope, host, backend_port, frontend_port)
+        if scope.frontend:
+            processes.append(start_frontend(project, host, backend_port, frontend_port))
+        print_urls(scope, host, backend_port, frontend_port)
     supervise(processes)
 
 
@@ -122,7 +118,7 @@ def prod(
     require_external_file(project, private_key_file, "TLS private key")
     if certificate_file == private_key_file:
         raise LauncherError("TLS certificate and private key must be different files")
-    validate_tls_identity(certificate_file, private_key_file, host)
+    validate_tls_identity(project, certificate_file, private_key_file, host)
 
     extra_env = production_env(env_file, host, port)
     django(project, ["check", "--deploy"], extra_env)
@@ -134,25 +130,26 @@ def prod(
     django(project, ["collectstatic", "--clear", "--noinput"], extra_env)
     django(project, ["verify_frontend_artifact"], extra_env)
 
-    processes = [
-        start_production_backend(
-            project,
-            host,
-            port,
-            certificate_file,
-            private_key_file,
-            extra_env,
+    with starting_processes() as processes:
+        processes.append(
+            start_production_backend(
+                project,
+                host,
+                port,
+                certificate_file,
+                private_key_file,
+                extra_env,
+            )
         )
-    ]
-    processes.extend(
-        start_job_workers(
-            project,
-            extra_env,
-            include_doors_if_enabled=not exclude_doors,
+        processes.extend(
+            start_job_workers(
+                project,
+                extra_env,
+                include_doors_if_enabled=not exclude_doors,
+            )
         )
-    )
-    print(f"Production: {production_url(host, port)}")
-    print("Press Ctrl+C to stop.")
+        print(f"Production: {production_url(host, port)}")
+        print("Press Ctrl+C to stop.")
     supervise(processes)
 
 
@@ -269,37 +266,16 @@ def require_external_file(project: Project, path: Path, label: str) -> None:
     raise LauncherError(f"{label} must be stored outside the repository")
 
 
-def validate_tls_identity(certificate_file: Path, private_key_file: Path, host: str) -> None:
-    """Require a live certificate/key pair whose SAN contains the static IP."""
+def validate_tls_identity(
+    project: Project, certificate_file: Path, private_key_file: Path, host: str
+) -> None:
+    """Use the project interpreter so the launcher itself needs only the standard library."""
 
-    try:
-        certificate = x509.load_pem_x509_certificate(certificate_file.read_bytes())
-        private_key = serialization.load_pem_private_key(
-            private_key_file.read_bytes(), password=None
-        )
-        certificate_key = certificate.public_key().public_bytes(
-            serialization.Encoding.DER,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        private_public_key = private_key.public_key().public_bytes(
-            serialization.Encoding.DER,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        san = certificate.extensions.get_extension_for_class(
-            x509.SubjectAlternativeName
-        ).value
-    except (OSError, ValueError, TypeError, x509.ExtensionNotFound) as error:
-        raise LauncherError("TLS certificate or private key is invalid") from error
-    if certificate_key != private_public_key:
-        raise LauncherError("TLS certificate does not match the private key")
-    if ipaddress.ip_address(host) not in san.get_values_for_type(x509.IPAddress):
-        raise LauncherError("TLS certificate SAN does not contain the production IPv4 address")
-    now = datetime.now(timezone.utc)
-    if (
-        certificate.not_valid_before_utc > now
-        or certificate.not_valid_after_utc <= now + timedelta(days=1)
-    ):
-        raise LauncherError("TLS certificate is not currently valid for production")
+    run(
+        [project.python, "-m", "scripts.launcher.tls", certificate_file, private_key_file, host],
+        project.root,
+        capture=True,
+    )
 
 
 def production_url(host: str, port: int) -> str:

@@ -57,6 +57,13 @@ export interface CompdocReviewRequest {
   request_note: string
 }
 
+export interface CompdocReviewPage {
+  count: number
+  next: string | null
+  previous: string | null
+  results: CompdocReview[]
+}
+
 /** Load the bounded unified audit timeline for one document. */
 export async function fetchCompdocActivity(
   project: string,
@@ -148,12 +155,15 @@ export async function updateCompdocWork(
 /** Load bounded review and approval tasks. */
 export async function fetchCompdocReviews(
   project: string,
-  documentId: string
-): Promise<CompdocReview[]> {
-  const response = await axios.get<{ results: CompdocReview[] }>(
-    `${compdocDocumentPath(project, documentId)}/reviews/`
+  documentId: string,
+  page = 1,
+  pageSize = 50
+): Promise<CompdocReviewPage> {
+  const response = await axios.get<CompdocReviewPage>(
+    `${compdocDocumentPath(project, documentId)}/reviews/`,
+    { params: { page, page_size: pageSize } }
   )
-  return response.data.results
+  return response.data
 }
 
 /** Create a review or approval task against the viewed document version. */

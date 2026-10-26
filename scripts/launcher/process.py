@@ -5,8 +5,11 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+import signal
+import sys
 import subprocess
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Sequence
 
@@ -73,11 +76,52 @@ def command_error(
 def start(command: Command, cwd: Path, *, extra_env: dict[str, str] | None = None) -> subprocess.Popen:
     """Start one foreground child process with inherited output."""
     print(f"[start] {display(command)}\n        cwd: {cwd}", flush=True)
-    return subprocess.Popen(
+    if os.name == "nt":
+        return _start_windows(command, cwd, extra_env)
+    process = subprocess.Popen(
         [str(part) for part in command],
         cwd=cwd,
         env=environment(extra_env),
+        start_new_session=True,
     )
+    process._launcher_group = process.pid
+    return process
+
+
+def _start_windows(command, cwd, extra_env):
+    from .windows_job import WindowsJob
+
+    # The gate prevents the command spawning descendants before containment exists.
+    process = subprocess.Popen(
+        [sys.executable, str(Path(__file__).with_name("child_bootstrap.py")),
+         *[str(part) for part in command]],
+        cwd=cwd, env=environment(extra_env), stdin=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+    )
+    try:
+        process._launcher_job = WindowsJob(process._handle)
+        process.stdin.write(b"go\n")
+        process.stdin.flush()
+        process.stdin.close()
+        return process
+    except BaseException:
+        try:
+            process.stdin.close()
+        finally:
+            terminate([process])
+        raise
+
+
+@contextmanager
+def starting_processes():
+    """Release partially started children when startup fails or is interrupted."""
+
+    processes = []
+    try:
+        yield processes
+    except BaseException:
+        terminate(processes)
+        raise
 
 
 def supervise(processes: list[subprocess.Popen]) -> None:
@@ -94,14 +138,50 @@ def supervise(processes: list[subprocess.Popen]) -> None:
 
 
 def terminate(processes: Sequence[subprocess.Popen]) -> None:
-    """Terminate launcher-owned children without persistent PID state."""
+    """Stop owned trees, including descendants whose original parent exited."""
     for process in processes:
+        # Reap exited leaders first: macOS rejects signalling zombie-only groups.
+        process.poll()
+        job = getattr(process, "_launcher_job", None)
+        group = getattr(process, "_launcher_group", None)
+        if job is not None:
+            job.terminate()
+        elif group is not None:
+            _signal_group(group, signal.SIGTERM)
+        elif process.poll() is None:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+    # Give worker shutdown time to close its independently isolated executor tree.
+    deadline = time.monotonic() + 30
+    for process in processes:
+        job = getattr(process, "_launcher_job", None)
+        if job is not None:
+            try:
+                job.wait_for_exit(max(0, deadline - time.monotonic()))
+            finally:
+                job.close()  # Kill-on-close remains the fallback for the entire tree.
+                process._launcher_job = None
         if process.poll() is None:
-            process.terminate()
-    for process in processes:
-        if process.poll() is not None:
-            continue
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
+            try:
+                process.wait(timeout=max(0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                pass
+        group = getattr(process, "_launcher_group", None)
+        if group is not None:
+            _signal_group(group, signal.SIGKILL)
+            process._launcher_group = None
+        if process.poll() is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+        process.wait(timeout=5)
+
+
+def _signal_group(group, value):
+    try:
+        os.killpg(group, value)
+    except ProcessLookupError:
+        pass

@@ -855,6 +855,9 @@ def _apply_plan(plan, project, request, audit):
         if row.target is None:
             document = serializer.save()
         else:
+            # Earlier rows may have versioned this document through a shared
+            # cover revision. The plan was verified with all target locks held.
+            row.target.refresh_from_db(fields=["version"])
             document = update_document(
                 project=project,
                 document_id=row.target.pk,

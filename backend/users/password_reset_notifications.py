@@ -19,6 +19,7 @@ from django.utils.http import urlsafe_base64_encode
 from integrations.mail import MailUnavailable, send_html_email
 
 from .models import PasswordResetDelivery
+from .email_policy import accounts_for_email
 from .password_reset_tokens import (
     account_state_digest,
     current_token_timestamp,
@@ -206,6 +207,9 @@ def deliver_password_reset(delivery_id, lease_token):
 def _cancellation_code(delivery):
     user = delivery.user
     if not user.is_active or not user.email:
+        return "ACCOUNT_UNAVAILABLE"
+    # A pre-migration queued request must not pick one legacy duplicate account.
+    if accounts_for_email(user.email).exclude(pk=user.pk).exists():
         return "ACCOUNT_UNAVAILABLE"
     if timezone.now() >= delivery.requested_at + timedelta(
         seconds=max(int(settings.PASSWORD_RESET_TIMEOUT), 1)

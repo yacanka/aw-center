@@ -85,18 +85,30 @@ const selectedJob = ref<Job | null>(null)
 const detailsVisible = ref(false)
 const detailsLoading = ref(false)
 let refreshTimer: number | undefined
+let disposed = false
+let listRequest = 0
+let detailRequest = 0
 
 onMounted(initializeJobs)
-onBeforeUnmount(stopRefreshTimer)
+onBeforeUnmount(() => {
+  disposed = true
+  listRequest++
+  detailRequest++
+  stopRefreshTimer()
+})
 watch(autoRefresh, scheduleRefresh)
 
 async function initializeJobs(): Promise<void> {
   await loadJobs()
+  if (disposed) return
   const linkedJobId = route.query.job
   if (typeof linkedJobId === 'string') await showJobDetails(linkedJobId)
 }
 
 async function loadJobs(): Promise<void> {
+  if (disposed) return
+  const request = ++listRequest
+  const isCurrent = () => !disposed && request === listRequest
   loading.value = true
   stopRefreshTimer()
   try {
@@ -104,15 +116,18 @@ async function loadJobs(): Promise<void> {
       fetchJobs(currentPage.value, pageSize),
       fetchJobSystemStatus()
     ])
+    if (!isCurrent()) return
     jobs.value = jobPage.results
     totalJobs.value = jobPage.count
     systemStatus.value = currentSystemStatus
     errorMessage.value = ''
   } catch (error) {
-    errorMessage.value = formatApiError(error)
+    if (isCurrent()) errorMessage.value = formatApiError(error)
   } finally {
-    loading.value = false
-    scheduleRefresh()
+    if (isCurrent()) {
+      loading.value = false
+      scheduleRefresh()
+    }
   }
 }
 
@@ -121,10 +136,11 @@ async function cancel(job: Job): Promise<void> {
 }
 
 async function download(job: Job): Promise<void> {
+  if (disposed) return
   try {
     await downloadJob(job)
   } catch (error) {
-    window.$message.error(formatApiError(error))
+    if (!disposed) window.$message.error(formatApiError(error))
   }
 }
 
@@ -133,14 +149,19 @@ async function showDetails(job: Job): Promise<void> {
 }
 
 async function showJobDetails(jobId: string): Promise<void> {
+  if (disposed) return
+  const request = ++detailRequest
+  const isCurrent = () => !disposed && request === detailRequest
   detailsVisible.value = true
   detailsLoading.value = true
+  selectedJob.value = null
   try {
-    selectedJob.value = await fetchJob(jobId)
+    const job = await fetchJob(jobId)
+    if (isCurrent()) selectedJob.value = job
   } catch (error) {
-    window.$message.error(formatApiError(error))
+    if (isCurrent()) window.$message.error(formatApiError(error))
   } finally {
-    detailsLoading.value = false
+    if (isCurrent()) detailsLoading.value = false
   }
 }
 
@@ -149,21 +170,23 @@ async function runAction(
   action: () => Promise<Job>,
   successMessage: string
 ): Promise<void> {
+  if (disposed || activeJobId.value) return
   activeJobId.value = job.id
   try {
     await action()
+    if (disposed) return
     window.$message.success(successMessage)
     await loadJobs()
   } catch (error) {
-    window.$message.error(formatApiError(error))
+    if (!disposed) window.$message.error(formatApiError(error))
   } finally {
-    activeJobId.value = ''
+    if (!disposed) activeJobId.value = ''
   }
 }
 
 function scheduleRefresh(): void {
   stopRefreshTimer()
-  if (autoRefresh.value) refreshTimer = window.setTimeout(loadJobs, 3000)
+  if (!disposed && autoRefresh.value) refreshTimer = window.setTimeout(loadJobs, 3000)
 }
 
 function stopRefreshTimer(): void {

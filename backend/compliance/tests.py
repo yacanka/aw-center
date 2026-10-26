@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import connection
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from openpyxl import load_workbook
 from rest_framework.test import APIClient
 
@@ -194,6 +195,7 @@ class ComplianceApiTests(TestCase):
             },
             format="json",
         )
+        second.refresh_from_db()
         stale = self.client.patch(
             f"{self.collection_url}{second.pk}/",
             {
@@ -231,7 +233,7 @@ class ComplianceApiTests(TestCase):
         invalid_archive = self.client.get(self.collection_url, {"archived": "sometimes"})
         created_today = self.client.get(
             self.collection_url,
-            {"created_at": document.created_at.date().isoformat()},
+            {"created_at": timezone.localdate(document.created_at).isoformat()},
         )
 
         self.assertEqual(filtered.status_code, 200)

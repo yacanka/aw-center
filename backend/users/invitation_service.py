@@ -11,6 +11,9 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 
 from .models import UserInvitation
+from .email_policy import (
+    EMAIL_UNAVAILABLE, accounts_for_email, is_email_identity_conflict, normalize_email_identity,
+)
 
 User = get_user_model()
 INVITATION_LIFETIME = timedelta(days=1)
@@ -35,7 +38,7 @@ class InvitationUnavailable(APIException):
 def create_invitation(actor, email, group_ids):
     """Create an email-bound invitation and return its one-time raw link."""
 
-    normalized_email = str(email).strip().casefold()
+    normalized_email = normalize_email_identity(str(email))
     ensure_email_available(normalized_email)
     groups = resolve_groups(group_ids)
     if groups and not actor.is_superuser:
@@ -87,6 +90,8 @@ def accept_invitation(token, account_data):
             mark_invitation_used(invitation, user)
             return user
     except IntegrityError as error:
+        if is_email_identity_conflict(error):
+            raise ValidationError({"email": EMAIL_UNAVAILABLE}) from error
         raise ValidationError({"username": "This username is no longer available."}) from error
 
 
@@ -138,7 +143,7 @@ def ensure_invitation_available(invitation):
 def ensure_email_available(email):
     """Prevent invitations or accounts for an already registered email address."""
 
-    if User.objects.filter(email__iexact=email).exists():
+    if accounts_for_email(email).exists():
         raise ValidationError({"email": "An account already uses this email address."})
 
 

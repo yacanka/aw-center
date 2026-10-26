@@ -1,10 +1,13 @@
 """Focused tests for fail-closed production configuration checks."""
 
 from pathlib import Path
+from io import StringIO
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
+from django.core.management import call_command
+from django.core.management.base import SystemCheckError
 
 from .checks import _frontend_capability_url_checks, production_runtime_checks
 
@@ -12,6 +15,18 @@ from .checks import _frontend_capability_url_checks, production_runtime_checks
 class ProductionConfigurationCheckTests(SimpleTestCase):
     def error_ids(self):
         return {error.id for error in production_runtime_checks(None)}
+
+    def test_debug_cannot_bypass_explicit_production_deploy_gate(self):
+        for mode in ("windows-native", "container"):
+            with self.subTest(mode=mode), override_settings(
+                DEBUG=True, AWCENTER_DEPLOYMENT_MODE=mode,
+            ):
+                with self.assertRaisesMessage(SystemCheckError, "awcenter.E040"):
+                    call_command("check", deploy=True, stdout=StringIO(), stderr=StringIO())
+
+    @override_settings(DEBUG=True, AWCENTER_DEPLOYMENT_MODE="development")
+    def test_development_debug_remains_supported(self):
+        self.assertEqual(production_runtime_checks(None), [])
 
     @override_settings(
         DEBUG=False,

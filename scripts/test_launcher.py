@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import io
 import ipaddress
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -39,8 +41,9 @@ from scripts.launcher.runtime import (
     require_production_host,
     runtime_env,
     test as run_repository_tests,
-    validate_tls_identity,
 )
+
+from scripts.launcher.tls import validate_tls_identity
 
 
 def create_project(root: Path) -> Project:
@@ -116,6 +119,37 @@ class DiscoveryTests(unittest.TestCase):
 
 class DependencyTests(unittest.TestCase):
     """Validate explicit online and offline dependency behavior."""
+
+    def test_cli_help_does_not_require_installed_application_packages(self):
+        root = Path(__file__).resolve().parent.parent
+        for arguments in (("--help",), ("setup", "--help"), ("prod", "--help")):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [sys.executable, "-S", str(root / "launcher.py"), *arguments],
+                    cwd=root, capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("usage:", result.stdout)
+
+    def test_tls_gate_uses_project_python_when_launcher_has_no_site_packages(self):
+        root = Path(__file__).resolve().parent.parent
+        script = (
+            "import sys; from pathlib import Path; from types import SimpleNamespace; "
+            "from scripts.launcher.runtime import validate_tls_identity; "
+            "project = SimpleNamespace(python=Path(sys.argv[1]), root=Path.cwd()); "
+            "validate_tls_identity(project, Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4])"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            certificate, key = write_test_certificate(Path(temporary), "192.0.2.10")
+            for host, succeeds in (("192.0.2.10", True), ("192.0.2.11", False)):
+                with self.subTest(host=host):
+                    result = subprocess.run(
+                        [sys.executable, "-S", "-c", script, sys.executable, str(certificate), str(key), host],
+                        cwd=root, capture_output=True, text=True, timeout=15,
+                    )
+                    self.assertEqual(result.returncode == 0, succeeds, result.stderr)
+                    if not succeeds:
+                        self.assertIn("SAN does not contain", result.stderr)
 
     @mock.patch("scripts.launcher.dependencies.write_offline_manifest")
     @mock.patch("scripts.launcher.dependencies.run")

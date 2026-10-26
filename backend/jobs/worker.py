@@ -38,6 +38,7 @@ from .execution import (
 from .models import Job, JobStatus
 from .process_bootstrap import bootstrap_executor_process
 from .process_tree import ExecutorProcessTree
+from .scratch import create_execution_scratch, remove_execution_scratch
 from .services import record_event, set_job_state
 
 logger = logging.getLogger(__name__)
@@ -98,8 +99,9 @@ def execute_claimed_job(
     *,
     timeout_seconds=None,
     isolate=False,
+    stop_requested=None,
 ):
-    """Dispatch one claimed job and CAS-persist its terminal state."""
+    """Dispatch a claim, monitor optional shutdown intent, and fence terminal state."""
 
     result = None
     failure_stage = "executor"
@@ -107,15 +109,17 @@ def execute_claimed_job(
         heartbeat = ExecutionHeartbeat(lease)
         child = None
         try:
+            check_worker_shutdown(job, stop_requested)
             if isolate:
                 child = start_executor_process(job, resolve_executor)
-                await_executor_ready(job, lease, child)
+                await_executor_ready(job, lease, child, stop_requested=stop_requested)
                 heartbeat.start()
                 result = await_executor_process(
                     job,
                     lease,
                     child,
                     execution_timeout(timeout_seconds),
+                    stop_requested=stop_requested,
                 )
                 # No descendant may keep writing an artifact while the parent
                 # verifies its digest and publishes it under the execution fence.
@@ -217,21 +221,28 @@ def start_executor_process(job, resolve_executor):
     parent_connection, child_connection = context.Pipe(duplex=False)
     start_gate = context.Event()
     connections.close_all()
-    process = context.Process(
-        target=bootstrap_executor_process,
-        args=(job.id, job.kind, serialized_resolver, child_connection, start_gate),
-        name=f"job-executor-{str(job.id)[:8]}",
-        daemon=False,
-    )
+    scratch_directory = None
+    process = None
     tree = None
     try:
+        scratch_directory = create_execution_scratch(job)
+        process = context.Process(
+            target=bootstrap_executor_process,
+            args=(
+                job.id, job.kind, serialized_resolver, child_connection,
+                start_gate, str(scratch_directory),
+            ),
+            name=f"job-executor-{str(job.id)[:8]}",
+            daemon=False,
+        )
         process.start()
         tree = ExecutorProcessTree(process)
         start_gate.set()
     except Exception:
         if tree is not None:
-            tree.close()
-        if process.pid is not None:
+            tree.terminate()
+            tree.kill()
+        if process is not None and process.pid is not None:
             process.terminate()
             process.join(timeout=5)
             if process.is_alive():
@@ -240,10 +251,15 @@ def start_executor_process(job, resolve_executor):
             process.close()
         parent_connection.close()
         child_connection.close()
+        stopped = tree is None or tree.wait_for_exit()
+        if tree is not None:
+            tree.close()
+        if stopped:
+            remove_execution_scratch(scratch_directory)
         raise
     child_connection.close()
     connections.close_all()
-    return ExecutorProcess(process, parent_connection, tree, start_gate)
+    return ExecutorProcess(process, parent_connection, tree, start_gate, scratch_directory)
 
 
 def resolver_path(resolve_executor):
@@ -263,19 +279,21 @@ def resolver_path(resolve_executor):
 class ExecutorProcess:
     """Hold the isolated executor process and its one-way result channel."""
 
-    def __init__(self, process, connection, tree=None, start_gate=None):
+    def __init__(self, process, connection, tree=None, start_gate=None, scratch_directory=None):
         self.process = process
         self.connection = connection
         self.tree = tree
         # Keep spawn's named semaphore alive until the child has unpickled it.
         self.start_gate = start_gate
+        self.scratch_directory = scratch_directory
 
 
-def await_executor_ready(job, lease, child):
+def await_executor_ready(job, lease, child, *, stop_requested=None):
     """Wait for the child to open its own DB connection before parent heartbeats."""
 
     deadline = monotonic() + min(10.0, lease_duration().total_seconds() / 2)
     while monotonic() < deadline:
+        check_worker_shutdown(job, stop_requested)
         if child.connection.poll(CHILD_POLL_SECONDS):
             envelope = child.connection.recv()
             if isinstance(envelope, dict) and envelope.get("outcome") == "ready":
@@ -295,11 +313,12 @@ def await_executor_ready(job, lease, child):
     )
 
 
-def await_executor_process(job, lease, child, timeout_seconds):
+def await_executor_process(job, lease, child, timeout_seconds, *, stop_requested=None):
     """Monitor an executor while the parent owns heartbeat, cancellation, and timeout."""
 
     deadline = monotonic() + timeout_seconds
     while True:
+        check_worker_shutdown(job, stop_requested)
         if child.connection.poll(CHILD_POLL_SECONDS):
             envelope = child.connection.recv()
             child.process.join(timeout=1)
@@ -328,6 +347,20 @@ def await_executor_process(job, lease, child, timeout_seconds):
                 "JOB_EXECUTION_TIMEOUT",
                 True,
             )
+
+
+def check_worker_shutdown(job, stop_requested):
+    """Use existing cleanup and fencing paths when the owning worker is stopped."""
+
+    if stop_requested is None or not stop_requested():
+        return
+    if job.reconcile_on_lease_loss:
+        raise JobExecutionUncertain()
+    raise JobExecutionFailure(
+        "The worker stopped before the job completed. Retry the job when a worker is available.",
+        "JOB_WORKER_STOPPED",
+        True,
+    )
 
 
 def decode_child_outcome(job, lease, envelope):
@@ -385,6 +418,9 @@ def stop_executor_process(child):
 
     if child is None:
         return
+    # Reap an already crashed group leader before signalling its descendants;
+    # macOS reports EPERM for a group containing only an unreaped zombie.
+    child.process.join(timeout=0)
     tree = getattr(child, "tree", None)
     signalled = tree.terminate() if tree is not None else False
     if not signalled and child.process.is_alive():
@@ -404,13 +440,17 @@ def close_executor_process(child):
     if child is None:
         return
     stop_executor_process(child)
-    if getattr(child, "tree", None) is not None:
+    tree = getattr(child, "tree", None)
+    stopped = tree is None or tree.wait_for_exit()
+    if tree is not None:
         child.tree.close()
     child.connection.close()
     try:
         child.process.close()
     except ValueError:
         pass
+    if stopped:
+        remove_execution_scratch(getattr(child, "scratch_directory", None))
 
 
 def execution_timeout(value):

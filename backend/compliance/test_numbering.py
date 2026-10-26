@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from awcenter.job_executors import resolve_job_executor
@@ -16,7 +17,7 @@ from jobs.models import Job, JobStatus
 from jobs.worker import claim_next_job, execute_claimed_job
 from orgs.models import Panel, Project, ProjectRoleAssignment
 
-from .models import ComplianceDocument, CoverPage, CoverPageNumberAllocation, ReviewTask
+from .models import ComplianceDocument, CoverPage, CoverPageNumberAllocation, ReviewTask, TrackingProfile
 
 
 NUMARATOR_SETTINGS = {
@@ -171,6 +172,11 @@ class CoverPageNumberingTests(TestCase):
             cover_page=cover_page,
             name="Waiting for a number",
             owner=self.editor,
+            number="TD-ORIGINAL",
+        )
+        profile = TrackingProfile.objects.create(
+            document=document, docproof_issue="A", docproof_status="current",
+            docproof_checked_at=timezone.now(),
         )
         review = ReviewTask.objects.create(
             document=document,
@@ -191,6 +197,7 @@ class CoverPageNumberingTests(TestCase):
         )
         payload = self.payload(name=document.name)
         payload["document_id"] = str(document.id)
+        payload["document"]["number"] = "TD-EDITED"
 
         response = self.client.post(self.url, payload, format="json")
         execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
@@ -202,6 +209,9 @@ class CoverPageNumberingTests(TestCase):
         review.refresh_from_db()
         self.assertEqual(review.status, ReviewTask.Status.SUPERSEDED)
         self.assertEqual(ComplianceDocument.objects.count(), 1)
+        profile.refresh_from_db()
+        self.assertEqual(profile.docproof_status, "never_checked")
+        self.assertEqual(profile.version, 2)
 
     def test_existing_document_allocation_rejects_archived_or_shared_cover_page(self):
         cover_page = CoverPage.objects.create(project=self.project, number="", issue="A")

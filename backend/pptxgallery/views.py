@@ -5,6 +5,7 @@ from pathlib import Path
 
 from django.core.files import File
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
@@ -88,25 +89,33 @@ class PresentationViewSet(ModelViewSet):
         try:
             presentation.file.save(upload.name, upload, save=True)
             upload.seek(0)
-            job, created = create_job(
-                request.user,
-                "presentations.convert",
-                f"Convert {title}",
-                {"presentation_id": str(presentation.id), "title": title},
-                upload,
-                idempotency_key=idempotency_key,
-                request_id=getattr(request, "request_id", ""),
-            )
-            presentation.conversion_job = job
-            presentation.save(update_fields=["conversion_job"])
+            # A polling worker may claim immediately after commit. Publish the
+            # job and its presentation reservation in the same transaction.
+            with transaction.atomic():
+                job, created = create_job(
+                    request.user,
+                    "presentations.convert",
+                    f"Convert {title}",
+                    {"presentation_id": str(presentation.id), "title": title},
+                    upload,
+                    idempotency_key=idempotency_key,
+                    request_id=getattr(request, "request_id", ""),
+                )
+                presentation.conversion_job = job
+                presentation.save(update_fields=["conversion_job"])
         except Exception:
             presentation.delete()
             raise
         return job_creation_response(job, created)
 
     @action(detail=True, methods=["post"], url_path="reconvert")
+    @transaction.atomic
     def reconvert(self, request, pk=None):
-        presentation = self.get_object()
+        presentation = get_object_or_404(
+            Presentation.objects.select_for_update(),
+            pk=self.get_object().pk,
+            owner=request.user,
+        )
         if presentation.conversion_job and presentation.conversion_job.status in ACTIVE_JOB_STATUSES:
             return error_response(
                 "Presentation conversion is already active.",
@@ -142,8 +151,13 @@ class PresentationViewSet(ModelViewSet):
         presentation.save(update_fields=["conversion_job", "status"])
         return job_creation_response(job, created)
 
+    @transaction.atomic
     def perform_destroy(self, instance):
-        instance.delete()
+        presentation = get_object_or_404(
+            Presentation.objects.select_for_update(),
+            pk=instance.pk, owner=self.request.user,
+        )
+        presentation.delete()
 
 
 class SlideViewSet(ModelViewSet):
@@ -161,17 +175,40 @@ class SlideViewSet(ModelViewSet):
         upload = validate_request_upload(request, "image", IMAGE_POLICY)
         validate_uploaded_file(upload, IMAGE_POLICY)
         image_bytes, thumb_bytes = normalized_slide_payloads(upload)
-        old_names = [slide.image.name, slide.thumb.name]
-        slide.image.save("slide.png", ContentFile(image_bytes), save=False)
-        slide.thumb.save("thumb.png", ContentFile(thumb_bytes), save=False)
-        slide.image_sha256 = hashlib.sha256(image_bytes).hexdigest()
-        slide.thumb_sha256 = hashlib.sha256(thumb_bytes).hexdigest()
-        slide.save()
-        _delete_names(name for name in old_names if name not in {slide.image.name, slide.thumb.name})
+        created_names = []
+        try:
+            with transaction.atomic():
+                slide = self._lock_slide(slide)
+                old_names = [slide.image.name, slide.thumb.name]
+                slide.image.save("slide.png", ContentFile(image_bytes), save=False)
+                created_names.append(slide.image.name)
+                slide.thumb.save("thumb.png", ContentFile(thumb_bytes), save=False)
+                created_names.append(slide.thumb.name)
+                slide.image_sha256 = hashlib.sha256(image_bytes).hexdigest()
+                slide.thumb_sha256 = hashlib.sha256(thumb_bytes).hexdigest()
+                slide.save()
+                obsolete = tuple(name for name in old_names if name not in created_names)
+                transaction.on_commit(lambda: _delete_names(obsolete), robust=True)
+        except Exception:
+            _delete_names(created_names)
+            raise
         return self.retrieve(request, *args, **kwargs)
 
+    def _lock_slide(self, instance):
+        # Conversion and presentation deletion lock the parent first. Follow
+        # that order before reading image names used for replacement/deletion.
+        get_object_or_404(
+            Presentation.objects.select_for_update(),
+            pk=instance.presentation_id, owner=self.request.user,
+        )
+        return get_object_or_404(
+            Slide.objects.select_for_update(), pk=instance.pk,
+            presentation_id=instance.presentation_id,
+        )
+
+    @transaction.atomic
     def perform_destroy(self, instance):
-        instance.delete()
+        self._lock_slide(instance).delete()
 
     @action(detail=True, methods=["get"])
     def image(self, request, pk=None):

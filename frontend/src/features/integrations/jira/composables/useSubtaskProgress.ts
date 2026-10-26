@@ -18,6 +18,7 @@ export function useSubtaskProgress(queryKey: 'subtask_job' | 'excel_subtask_job'
   })
   const busy = computed(() => submitting.value || active.value)
   let notifiedResult = ''
+  let attempt: { fingerprint: string; file?: File; key: string } | null = null
 
   function notify(status: Exclude<ProgressStatus, 'default'>, description: string): void {
     window.$notification[status]({
@@ -65,8 +66,18 @@ export function useSubtaskProgress(queryKey: 'subtask_job' | 'excel_subtask_job'
     notify('error', message)
   })
 
-  async function enqueue(action: () => Promise<Job>): Promise<void> {
+  async function enqueue(
+    action: (idempotencyKey: string) => Promise<Job>,
+    fingerprint: string,
+    file?: File
+  ): Promise<void> {
     if (busy.value) return
+    // A lost response must replay the same request, including its provider markers.
+    // File identity distinguishes replacement workbooks with identical metadata.
+    if (attempt?.fingerprint !== fingerprint || attempt.file !== file) {
+      attempt = { fingerprint, file, key: crypto.randomUUID() }
+    }
+    const currentAttempt = attempt
     submitting.value = true
     loadingBar.value = {
       show: true,
@@ -75,7 +86,9 @@ export function useSubtaskProgress(queryKey: 'subtask_job' | 'excel_subtask_job'
       content: 'Preparing subtask creation...'
     }
     try {
-      setJob(await action())
+      const accepted = await action(currentAttempt.key)
+      if (attempt === currentAttempt) attempt = null
+      setJob(accepted)
     } catch (error) {
       loadingBar.value.status = 'error'
       loadingBar.value.content = ''
@@ -85,8 +98,13 @@ export function useSubtaskProgress(queryKey: 'subtask_job' | 'excel_subtask_job'
     }
   }
 
-  async function submit(action: () => Promise<Job>): Promise<void> {
+  async function submit(
+    action: (idempotencyKey: string) => Promise<Job>,
+    fingerprint: string,
+    file?: File
+  ): Promise<void> {
     if (busy.value) return
+    const create = () => enqueue(action, `create:${fingerprint}`, file)
     const previous = job.value
     if (
       previous?.kind === 'dcc.create_jira_subtasks' &&
@@ -100,12 +118,14 @@ export function useSubtaskProgress(queryKey: 'subtask_job' | 'excel_subtask_job'
           : 'The cancelled batch may have created subtasks. Creating a new batch uses the current form and may duplicate them. Close this dialog to cancel.',
         positiveText: resumable ? 'Resume previous batch' : 'Create new batch',
         negativeText: resumable ? 'Create new batch' : 'Cancel',
-        onPositiveClick: () => enqueue(resumable ? () => resumeSubtaskJob(previous.id) : action),
-        onNegativeClick: resumable ? () => enqueue(action) : undefined
+        onPositiveClick: resumable
+          ? () => enqueue((key) => resumeSubtaskJob(previous.id, key), `resume:${previous.id}`)
+          : create,
+        onNegativeClick: resumable ? create : undefined
       })
       return
     }
-    await enqueue(action)
+    await create()
   }
 
   return { loadingBar, busy, submit }

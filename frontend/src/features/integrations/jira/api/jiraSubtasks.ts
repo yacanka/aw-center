@@ -36,13 +36,14 @@ export async function inspectSubtaskWorkbook(file: File): Promise<string[]> {
 
 export async function createManualSubtaskJob(
   issue: string,
-  items: JiraSubtaskItem[]
+  items: JiraSubtaskItem[],
+  idempotencyKey: string
 ): Promise<Job> {
   return (
     await apiClient.post<Job>(
       'integrations/jira/subtasks/jobs/',
       { issue, items },
-      { headers: { 'Idempotency-Key': crypto.randomUUID() } }
+      { headers: { 'Idempotency-Key': idempotencyKey } }
     )
   ).data
 }
@@ -50,7 +51,8 @@ export async function createManualSubtaskJob(
 export async function createWorkbookSubtaskJob(
   issue: string,
   file: File,
-  mapping: WorkbookMapping[]
+  mapping: WorkbookMapping[],
+  idempotencyKey: string
 ): Promise<Job> {
   const form = new FormData()
   form.append('issue', issue)
@@ -58,17 +60,17 @@ export async function createWorkbookSubtaskJob(
   form.append('mapping', JSON.stringify(mapping))
   return (
     await apiClient.post<Job>('integrations/jira/subtasks/jobs/', form, {
-      headers: { 'Idempotency-Key': crypto.randomUUID() }
+      headers: { 'Idempotency-Key': idempotencyKey }
     })
   ).data
 }
 
-export async function resumeSubtaskJob(jobId: string): Promise<Job> {
+export async function resumeSubtaskJob(jobId: string, idempotencyKey: string): Promise<Job> {
   return (
     await apiClient.post<Job>(
       `integrations/jira/subtasks/jobs/${jobId}/resume/`,
       {},
-      { headers: { 'Idempotency-Key': crypto.randomUUID() } }
+      { headers: { 'Idempotency-Key': idempotencyKey } }
     )
   ).data
 }

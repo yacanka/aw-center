@@ -3,9 +3,12 @@
 from importlib import import_module
 
 from .process_tree import establish_executor_session
+from .scratch import configure_execution_scratch
 
 
-def bootstrap_executor_process(job_id, kind, resolver_path, connection, start_gate=None):
+def bootstrap_executor_process(
+    job_id, kind, resolver_path, connection, start_gate=None, scratch_directory=None,
+):
     """Initialize Django before importing model-backed worker code."""
 
     try:
@@ -14,6 +17,8 @@ def bootstrap_executor_process(job_id, kind, resolver_path, connection, start_ga
         # any Django/feature imports or executor code can spawn descendants.
         if start_gate is not None and not start_gate.wait(timeout=10):
             raise RuntimeError("Executor containment was not established.")
+        if scratch_directory is not None:
+            configure_execution_scratch(scratch_directory)
         import django
 
         django.setup()

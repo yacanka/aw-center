@@ -5,8 +5,9 @@ from django.contrib.auth.models import Group, Permission
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.db.models import Prefetch, Q
+from django.db.models.deletion import ProtectedError
 from orgs.models import ProjectRoleAssignment
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -34,6 +35,15 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+
+class UserHasProtectedRecords(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "USER_HAS_PROTECTED_RECORDS"
+    default_detail = (
+        "This account has protected audit records and cannot be deleted. "
+        "Ask a superuser to deactivate it instead."
+    )
 
 
 class UserProfileView(APIView):
@@ -121,7 +131,10 @@ class UserView(APIView):
             raise ValidationError({"detail": "You cannot delete yourself or a superuser."})
         if user.is_staff and not request.user.is_superuser:
             raise PermissionDenied("Only superusers can delete administrators.")
-        user.delete()
+        try:
+            user.delete()
+        except ProtectedError as error:
+            raise UserHasProtectedRecords() from error
         return Response("User deleted.", status=status.HTTP_204_NO_CONTENT)
 
 
@@ -173,7 +186,13 @@ PUBLIC_ENDPOINTS = {
 class PasswordChangeView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request):
+        # Authentication can precede another password change or account deactivation.
+        # Validate against the locked current row, never the request's stale snapshot.
+        request.user = get_object_or_404(
+            User.objects.select_for_update(), pk=request.user.pk, is_active=True,
+        )
         serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
 

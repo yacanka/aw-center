@@ -614,6 +614,10 @@ class ActivityView(ProjectComplianceMixin, APIView):
         document = self.document(document_id)
         events = WorkflowEventSerializer(document.workflow_events.all()[:100], many=True).data
         reviews = ReviewTaskSerializer(document.review_tasks.all()[:100], many=True).data
+        decisions = ReviewTaskSerializer(
+            document.review_tasks.filter(decided_at__isnull=False).order_by("-decided_at")[:100],
+            many=True,
+        ).data
         history = document.history.select_related("history_user").order_by(
             "-history_date", "-history_id"
         )[:100]
@@ -622,10 +626,7 @@ class ActivityView(ProjectComplianceMixin, APIView):
                 {"type": "workflow", "at": item["created_at"], "data": item}
                 for item in events
             ]
-            + [
-                {"type": "review", "at": item["created_at"], "data": item}
-                for item in reviews
-            ]
+            + _review_activity_items(reviews, decisions)
             + [
                 {
                     "type": "history",
@@ -645,6 +646,23 @@ class ActivityView(ProjectComplianceMixin, APIView):
         paginator = StandardResultsSetPagination()
         page = paginator.paginate_queryset(items, request)
         return paginator.get_paginated_response(page)
+
+
+def _review_activity_items(reviews, decisions):
+    """Expose immutable request evidence separately from a later decision."""
+
+    items = []
+    for review in reviews:
+        requested = {
+            **review,
+            "status": ReviewTask.Status.PENDING,
+            "decision_note": "",
+            "decided_by_username": "",
+            "decided_at": None,
+        }
+        items.append({"type": "review", "at": review["created_at"], "data": requested})
+    items.extend({"type": "review", "at": review["decided_at"], "data": review} for review in decisions)
+    return items
 
 
 class ReviewRequestInputSerializer(serializers.Serializer):

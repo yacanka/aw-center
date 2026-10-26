@@ -1,29 +1,74 @@
 from django import forms
-from django.contrib import admin
-from django.contrib.auth.models import User
-from django.contrib.auth.admin import UserAdmin
-from django.contrib.auth.forms import AuthenticationForm, UserChangeForm, UserCreationForm
+from django.contrib import admin, messages
+from django.contrib.auth.models import Group, User
+from django.contrib.auth.admin import GroupAdmin, UserAdmin
+from django.contrib.auth.forms import AdminPasswordChangeForm, AdminUserCreationForm, AuthenticationForm, UserChangeForm
+from django.core.validators import MaxLengthValidator
+from django.db import IntegrityError
+from django.http import HttpResponseRedirect
 
 from .models import PasswordResetDelivery, UserInvitation, UserPreferences
+from .email_policy import EMAIL_UNAVAILABLE, is_email_identity_conflict, validate_email_identity
+from .password_policy import MAX_PASSWORD_LENGTH
 from .username_policy import validate_username_format
 
 
-class ConstrainedUserCreationForm(UserCreationForm):
+class BoundedPasswordFormMixin:
+    """Keep Django's password widgets/help text and apply the browser limit."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ("password", "password1", "password2"):
+            if name in self.fields:
+                field = self.fields[name]
+                field.strip = False
+                field.max_length = MAX_PASSWORD_LENGTH
+                field.validators.append(MaxLengthValidator(MAX_PASSWORD_LENGTH))
+                field.widget.attrs["maxlength"] = MAX_PASSWORD_LENGTH
+
+
+class EmailIdentityFormMixin:
+    def clean_email(self):
+        return validate_email_identity(self.cleaned_data["email"], user=self.instance)
+
+
+class ConstrainedUserCreationForm(EmailIdentityFormMixin, BoundedPasswordFormMixin, AdminUserCreationForm):
     def clean_username(self):
         username = super().clean_username()
         validate_username_format(username)
         return username
 
 
-class ConstrainedAdminAuthenticationForm(AuthenticationForm):
+class ConstrainedAdminAuthenticationForm(BoundedPasswordFormMixin, AuthenticationForm):
     username = forms.CharField(max_length=6, validators=[validate_username_format])
 
 
-class ConstrainedUserChangeForm(UserChangeForm):
+class ConstrainedUserChangeForm(EmailIdentityFormMixin, UserChangeForm):
     def clean_username(self):
         username = self.cleaned_data["username"]
         validate_username_format(username)
         return username
+
+
+class ConstrainedAdminPasswordChangeForm(BoundedPasswordFormMixin, AdminPasswordChangeForm):
+    pass
+
+
+class SuperuserAuthWriteAdminMixin:
+    """Django auth model permissions also power the deliberately limited API."""
+
+    @staticmethod
+    def _can_manage_auth(request):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_add_permission(self, request):
+        return self._can_manage_auth(request)
+
+    def has_change_permission(self, request, obj=None):
+        return self._can_manage_auth(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return self._can_manage_auth(request)
 
 
 class UserPreferencesInline(admin.StackedInline):
@@ -63,15 +108,29 @@ class UserPreferencesInline(admin.StackedInline):
     )
 
 
-class CustomUserAdmin(UserAdmin):
+class CustomUserAdmin(SuperuserAuthWriteAdminMixin, UserAdmin):
     add_form = ConstrainedUserCreationForm
     form = ConstrainedUserChangeForm
+    change_password_form = ConstrainedAdminPasswordChangeForm
     inlines = (UserPreferencesInline,)
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        try:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        except IntegrityError as error:
+            if not is_email_identity_conflict(error):
+                raise
+            # UserAdmin has rolled back its complete form/inline transaction.
+            self.message_user(request, EMAIL_UNAVAILABLE, level=messages.ERROR)
+            return HttpResponseRedirect(request.path)
 
     def save_formset(self, request, form, formset, change):
         if formset.model is not UserPreferences:
             return super().save_formset(request, form, formset, change)
         from .preference_service import update_user_preferences
+        # Initialize Django's change-message bookkeeping without bypassing the
+        # preference service's versioned writes.
+        formset.save(commit=False)
         for inline_form in formset.forms:
             if inline_form.has_changed():
                 values = {name: inline_form.cleaned_data[name] for name in inline_form.changed_data
@@ -106,6 +165,14 @@ class CustomUserAdmin(UserAdmin):
 # Unregister default User admin and register custom one
 admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
+admin.site.unregister(Group)
+
+
+@admin.register(Group)
+class CustomGroupAdmin(SuperuserAuthWriteAdminMixin, GroupAdmin):
+    pass
+
+
 admin.site.login_form = ConstrainedAdminAuthenticationForm
 
 

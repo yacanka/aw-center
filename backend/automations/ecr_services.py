@@ -158,14 +158,11 @@ def project_ecr_job_terminal(job):
         )
         if workflow is None:
             return None
-        if job.status == JobStatus.CANCELLED:
-            synchronize_terminal(
-                workflow,
-                EcrWorkflowStatus.CANCELLED,
-                "ECR_PUBLICATION_CANCELLED",
-                "Publication was cancelled before provider dispatch.",
-            )
-        elif job.status == JobStatus.RECONCILIATION_REQUIRED:
+        unresolved_reconciliation = (
+            job.parameters.get("mode") == "reconcile"
+            and job.error_code != "ECR_RECONCILIATION_NOT_FOUND"
+        )
+        if job.status == JobStatus.RECONCILIATION_REQUIRED or unresolved_reconciliation:
             state = dict(workflow.publication_state or {})
             state["uncertain_operation"] = state.get("uncertain_operation") or "unknown"
             workflow.publication_state = state
@@ -174,6 +171,13 @@ def project_ecr_job_terminal(job):
                 EcrWorkflowStatus.RECONCILIATION_REQUIRED,
                 "ECR_RECONCILIATION_REQUIRED",
                 "Confirm the JIRA marker state before publishing again.",
+            )
+        elif job.status == JobStatus.CANCELLED:
+            synchronize_terminal(
+                workflow,
+                EcrWorkflowStatus.CANCELLED,
+                "ECR_PUBLICATION_CANCELLED",
+                "Publication was cancelled before provider dispatch.",
             )
         elif job.status == JobStatus.FAILED:
             synchronize_terminal(

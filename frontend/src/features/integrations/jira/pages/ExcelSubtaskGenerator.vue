@@ -303,6 +303,10 @@ async function createSubtasks(): Promise<void> {
     .filter((item): item is ListItem & { jira: string } => item.jira !== null)
     .map((item) => ({ column: item.excel, field: item.jira }))
   const issue = loadedIssue.value
-  await submit(() => createWorkbookSubtaskJob(issue, file, mapping))
+  await submit(
+    (key) => createWorkbookSubtaskJob(issue, file, mapping, key),
+    JSON.stringify([issue, mapping]),
+    file
+  )
 }
 </script>

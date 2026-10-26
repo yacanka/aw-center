@@ -155,6 +155,9 @@ export function useComparison() {
         inspecting ? selection.value : undefined
       )
       if (disposed || generation !== version) return
+      // Acknowledgement ends this logical submission. Only an unknown HTTP
+      // outcome reuses its key; a later user-initiated attempt must be new.
+      requestSignature = ''
       downloadOnCompletion = inspecting ? null : next.id
       if (inspecting) inspectedJobId = ''
       monitor.setJob(next)

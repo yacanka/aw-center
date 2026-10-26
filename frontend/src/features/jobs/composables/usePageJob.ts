@@ -49,7 +49,11 @@ class PageJobMonitor {
 
   readonly setJob = (nextJob: Job, updateUrl = true): void => {
     if (this.disposed) return
-    if (updateUrl) this.revision++
+    if (updateUrl) {
+      this.revision++
+      this.cancelling.value = false
+      this.downloading.value = false
+    }
     this.job.value = nextJob
     if (updateUrl) {
       void this.router.replace({
@@ -61,22 +65,37 @@ class PageJobMonitor {
 
   readonly cancel = async (): Promise<void> => {
     const currentJob = this.job.value
-    if (!currentJob) return
+    if (!currentJob || this.disposed || this.cancelling.value) return
+    const revision = this.revision
     this.cancelling.value = true
-    await this.runAction(() => cancelJob(currentJob.id), 'Cancellation requested.')
-    this.cancelling.value = false
+    this.errorMessage.value = ''
+    try {
+      const next = await cancelJob(currentJob.id)
+      if (!this.isCurrentAction(revision, currentJob.id)) return
+      this.setJob(next)
+      window.$message.success('Cancellation requested.')
+    } catch (error) {
+      if (this.isCurrentAction(revision, currentJob.id)) {
+        this.errorMessage.value = formatApiError(error)
+      }
+    } finally {
+      if (this.isCurrentAction(revision, currentJob.id)) this.cancelling.value = false
+    }
   }
 
   readonly download = async (): Promise<void> => {
     const currentJob = this.job.value
-    if (!currentJob) return
+    if (!currentJob || this.disposed || this.downloading.value) return
+    const revision = this.revision
     this.downloading.value = true
     try {
       await downloadJob(currentJob)
     } catch (error) {
-      this.errorMessage.value = formatApiError(error)
+      if (this.isCurrentAction(revision, currentJob.id)) {
+        this.errorMessage.value = formatApiError(error)
+      }
     } finally {
-      this.downloading.value = false
+      if (this.isCurrentAction(revision, currentJob.id)) this.downloading.value = false
     }
   }
 
@@ -96,6 +115,8 @@ class PageJobMonitor {
     this.revision++
     this.stopRefresh()
     this.job.value = null
+    this.cancelling.value = false
+    this.downloading.value = false
     this.errorMessage.value = ''
     const query = { ...this.route.query }
     delete query[this.queryKey]
@@ -131,14 +152,8 @@ class PageJobMonitor {
     }
   }
 
-  private async runAction(action: () => Promise<Job>, message: string): Promise<void> {
-    this.errorMessage.value = ''
-    try {
-      this.setJob(await action())
-      window.$message.success(message)
-    } catch (error) {
-      this.errorMessage.value = formatApiError(error)
-    }
+  private isCurrentAction(revision: number, jobId: string): boolean {
+    return !this.disposed && revision === this.revision && this.job.value?.id === jobId
   }
 }
 

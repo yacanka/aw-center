@@ -132,7 +132,12 @@ def projected_terminal_state(draft, job):
         )
     if job.status == JobStatus.RECONCILIATION_REQUIRED or (
         draft.status == JiraIssueDraftStatus.PUBLISHED
+    ) or (
+        job.parameters.get("mode") == "reconcile"
+        and job.error_code != "JIRA_RECONCILIATION_NOT_FOUND"
     ):
+        # Cancelling or failing a reconciliation before its marker lookup says
+        # nothing about the previous write; only a negative lookup resolves it.
         return JiraIssueDraftStatus.RECONCILIATION_REQUIRED, "reconciliation_required"
     return JiraIssueDraftStatus.FAILED, "publication_failed"
 

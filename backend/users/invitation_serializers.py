@@ -2,9 +2,11 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from .email_policy import normalize_email_identity
 from .invitation_management import invitation_status
 from .invitation_service import inspect_invitation
 from .models import UserInvitation
+from .password_policy import MAX_PASSWORD_LENGTH
 from .username_policy import validate_username_format
 
 User = get_user_model()
@@ -24,7 +26,7 @@ class InvitationCreateSerializer(serializers.Serializer):
     def validate_email(self, value):
         """Normalize email casing before persistence and comparison."""
 
-        return value.strip().casefold()
+        return normalize_email_identity(value)
 
 
 class InvitationQuerySerializer(serializers.Serializer):
@@ -81,9 +83,9 @@ class InvitationAcceptSerializer(InvitationTokenSerializer):
     )
     first_name = serializers.CharField(max_length=150)
     last_name = serializers.CharField(max_length=150)
-    password = serializers.CharField(write_only=True, trim_whitespace=False, max_length=128)
+    password = serializers.CharField(write_only=True, trim_whitespace=False, max_length=MAX_PASSWORD_LENGTH)
     password_confirm = serializers.CharField(
-        write_only=True, trim_whitespace=False, max_length=128
+        write_only=True, trim_whitespace=False, max_length=MAX_PASSWORD_LENGTH
     )
 
     def validate_username(self, value):

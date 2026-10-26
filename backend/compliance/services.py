@@ -11,6 +11,7 @@ from orgs.models import Person, ProjectRoleAssignment
 from integrations.docproof import normalize_document_number, search_document_issue
 
 from .status_catalog import lock_status_project
+from .review_invalidation import supersede_pending_reviews
 from .models import DocumentStatus
 from .models import ComplianceDocument, ReviewTask, TrackingProfile, WorkflowEvent
 
@@ -34,38 +35,27 @@ def _require_active(document):
         raise ValidationError("Restore the document before changing it.")
 
 
-def _supersede_pending_reviews(document, user):
-    ReviewTask.objects.filter(
-        document=document,
-        status=ReviewTask.Status.PENDING,
-    ).exclude(source_version=document.version).update(
-        status=ReviewTask.Status.SUPERSEDED,
-        decision_note="Document changed after this review was requested.",
-        decided_by=user,
-        decided_by_username=user.get_username(),
-        decided_at=timezone.now(),
-    )
-
-
 def _require_version(document, expected_version):
     if document.version != expected_version:
         raise VersionConflict()
 
 
-@transaction.atomic
 def update_document(*, project, document_id, expected_version, serializer, user):
-    document = _lock_document(project, document_id)
-    _require_active(document)
-    _require_version(document, expected_version)
-    panel = serializer.validated_data.get("panel", document.panel)
-    if getattr(panel, "pk", None) != document.panel_id:
-        require_tracking_panel_compatibility(document, panel)
-    if not _serializer_changes_document(document, serializer.validated_data):
-        return document
-    serializer.instance = document
-    updated = serializer.save(version=document.version + 1)
-    _supersede_pending_reviews(updated, user)
-    return updated
+    # Shared cover revisions touch sibling documents: serialize before taking
+    # the first document lock, as imports and document creation already do.
+    with lock_status_project(project):
+        document = _lock_document(project, document_id)
+        _require_active(document)
+        _require_version(document, expected_version)
+        panel = serializer.validated_data.get("panel", document.panel)
+        if getattr(panel, "pk", None) != document.panel_id:
+            require_tracking_panel_compatibility(document, panel)
+        if not _serializer_changes_document(document, serializer.validated_data):
+            return document
+        serializer.instance = document
+        updated = serializer.save(version=document.version + 1)
+        supersede_pending_reviews(updated, user)
+        return updated
 
 
 def require_tracking_panel_compatibility(document, panel):
@@ -179,7 +169,7 @@ def _transition_document(
             "updated_at",
         ]
     )
-    _supersede_pending_reviews(document, user)
+    supersede_pending_reviews(document, user)
     return document, event
 
 
@@ -229,7 +219,7 @@ def update_work(*, project, document_id, expected_version, values, reason, user)
     document._history_user = user
     document._change_reason = reason[:100]
     document.save(update_fields=[*changed, "version", "updated_at"])
-    _supersede_pending_reviews(document, user)
+    supersede_pending_reviews(document, user)
     return document
 
 
@@ -402,12 +392,14 @@ def request_review(
 
 @transaction.atomic
 def decide_review(*, project, document_id, review_id, decision, note, user):
+    # Document mutations acquire document -> review; never invert that order.
+    document = _lock_document(project, document_id)
     task = get_object_or_404(
-        ReviewTask.objects.select_for_update().select_related("document"),
+        ReviewTask.objects.select_for_update(),
         pk=review_id,
-        document_id=document_id,
-        document__project=project,
+        document=document,
     )
+    task.document = document
     if task.status != ReviewTask.Status.PENDING:
         raise ValidationError({"status": "This task is no longer pending."})
     if task.document.is_archived:

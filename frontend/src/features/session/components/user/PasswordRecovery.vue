@@ -75,14 +75,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
-import { useRouter } from 'vue-router'
 import { validateForm } from '@/shared/composables/forms'
 import { formatApiError } from '@/shared/api/apiError'
 import { useSessionStore } from '@/features/session/stores/session'
 
 type Status = 'error' | 'default' | 'success' | 'warning'
 const props = defineProps<{ userId: string; userToken: string }>()
-const router = useRouter()
+const emit = defineEmits<{ completed: [] }>()
 const userStore = useSessionStore()
 const requestForm = ref<FormInst | null>(null)
 const confirmationForm = ref<FormInst | null>(null)
@@ -130,7 +129,8 @@ async function updatePassword(): Promise<void> {
   try {
     await userStore.resetPasswordConfirm(buildConfirmationPayload())
     window.$message.success('Password updated successfully.')
-    await router.replace({ name: 'login' })
+    passwordRequest.value = { password: '', passwordConfirm: '' }
+    emit('completed')
   } catch (error) {
     window.$message.error(formatApiError(error))
   }

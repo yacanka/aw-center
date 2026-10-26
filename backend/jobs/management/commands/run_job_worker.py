@@ -91,13 +91,14 @@ class Command(BaseCommand):
                         else local_job_timeout(job.kind)
                     ),
                     isolate=True,
+                    stop_requested=self.stopping.is_set,
                 )
             if options["once"]:
                 break
             self.stopping.wait(max(0.1, options["poll_interval"]))
 
     def install_signal_handlers(self):
-        """Request graceful shutdown after the current executor returns."""
+        """Request shutdown through the monitored executor cleanup path."""
 
         def stop_worker(*_args):
             self.stopping.set()

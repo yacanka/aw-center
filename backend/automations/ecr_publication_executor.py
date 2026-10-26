@@ -53,8 +53,7 @@ def execute_ecr_jira_publication(job):
             input_path = materialize_job_input(job)
             validate_job_input(input_path, job.parameters)
         except JobExecutionFailure as error:
-            fail_ecr_publication(job, error.code, str(error))
-            raise
+            fail_safe(job, error.code, str(error), error)
         client = resolve_connector(job)
         if job.parameters.get("mode") == "reconcile":
             workflow = reconcile_markers(job, workflow, client)
@@ -75,12 +74,7 @@ def validate_worker_authorization(job):
         return validate_ecr_publication_fence(job)
     except PermissionDenied as error:
         message = "The publisher role is no longer available for every ECR project."
-        fail_ecr_publication(job, "DCC_PROJECT_ROLE_REQUIRED", message)
-        raise JobExecutionFailure(
-            message,
-            "DCC_PROJECT_ROLE_REQUIRED",
-            retryable=False,
-        ) from error
+        fail_safe(job, "DCC_PROJECT_ROLE_REQUIRED", message, error)
 
 
 def validate_job_input(path, parameters):
@@ -105,12 +99,7 @@ def resolve_connector(job):
         return jira_connector_for(job.owner)
     except JiraSessionError as error:
         message = "Reconnect JIRA before publishing this ECR."
-        fail_ecr_publication(job, "JIRA_RECONNECT_REQUIRED", message)
-        raise JobExecutionFailure(
-            message,
-            "JIRA_RECONNECT_REQUIRED",
-            retryable=False,
-        ) from error
+        fail_safe(job, "JIRA_RECONNECT_REQUIRED", message, error)
 
 
 def publish_missing_operations(job, workflow, client):
@@ -286,12 +275,7 @@ def reconcile_markers(job, workflow, client):
 
 def reconciliation_not_found(job):
     message = "No confirmed JIRA marker was found for every pending operation."
-    fail_ecr_publication(job, "ECR_RECONCILIATION_NOT_FOUND", message)
-    raise JobExecutionFailure(
-        message,
-        "ECR_RECONCILIATION_NOT_FOUND",
-        retryable=False,
-    )
+    fail_safe(job, "ECR_RECONCILIATION_NOT_FOUND", message, reconciliation_resolved=True)
 
 
 def parent_draft(workflow):
@@ -358,12 +342,7 @@ def ensure_session_active(job):
         require_jira_session(job.owner)
     except JiraSessionError as error:
         message = "Reconnect JIRA before publishing this ECR."
-        fail_ecr_publication(job, "JIRA_RECONNECT_REQUIRED", message)
-        raise JobExecutionFailure(
-            message,
-            "JIRA_RECONNECT_REQUIRED",
-            retryable=False,
-        ) from error
+        fail_safe(job, "JIRA_RECONNECT_REQUIRED", message, error)
 
 
 def safe_provider_key(job, value, operation):
@@ -403,9 +382,18 @@ def provider_write_failed(job, operation, error):
     raise JobExecutionFailure(message, code, retryable=False) from error
 
 
-def fail_safe(job, code, message, cause=None):
-    fail_ecr_publication(job, code, message)
-    error = JobExecutionFailure(message, code, retryable=False)
+def fail_safe(job, code, message, cause=None, *, reconciliation_resolved=False):
+    # An interrupted read-only attempt cannot resolve the preceding write.
+    # Only a completed negative marker lookup permits another writing attempt.
+    uncertain = job.parameters.get("mode") == "reconcile" and not reconciliation_resolved
+    fail_ecr_publication(
+        job, code, message, uncertain_operation="unknown" if uncertain else "",
+    )
+    error = (
+        JobExecutionUncertain(message)
+        if uncertain
+        else JobExecutionFailure(message, code, retryable=False)
+    )
     if cause is not None:
         raise error from cause
     raise error

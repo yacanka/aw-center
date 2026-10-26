@@ -70,6 +70,36 @@ class ComplianceNotificationTests(TestCase):
         self.assertEqual(NotificationLog.objects.count(), 1)
         self.assertEqual(first.message_id, f"<{first.event_key}@awcenter>")
 
+    def test_same_revision_for_changed_number_sends_once_per_number(self):
+        self.profile.document.number = "DOC-ONE"
+        self.profile.document.save(update_fields=["number"])
+        self.profile.notification_events = ["revision_available"]
+        self.profile.docproof_status = "revision_available"
+        self.profile.docproof_issue = "B"
+        self.profile.save()
+        self.assertEqual(scan_notifications()["sent"], 1)
+        first = NotificationLog.objects.get()
+
+        self.profile.document.number = "DOC-TWO"
+        self.profile.document.save(update_fields=["number"])
+        self.assertEqual(scan_notifications()["sent"], 1)
+        self.assertEqual(scan_notifications()["sent"], 0)
+        self.assertEqual(NotificationLog.objects.count(), 2)
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertNotEqual(mail.outbox[1].extra_headers["Message-ID"], first.message_id)
+
+    def test_stale_profile_cannot_materialize_invalidated_revision(self):
+        self.profile.notification_events = ["revision_available"]
+        self.profile.docproof_status = "revision_available"
+        self.profile.docproof_issue = "B"
+        self.profile.save()
+        # A worker may hold this object while the HTTP update clears evidence.
+        TrackingProfile.objects.filter(pk=self.profile.pk).update(
+            docproof_status="never_checked", docproof_issue="",
+        )
+        self.assertEqual(materialize_profile_events(self.profile), 0)
+        self.assertEqual(NotificationLog.objects.count(), 0)
+
     def test_revised_target_replaces_original_for_due_notifications(self):
         self.profile.document.revised_target_date = timezone.localdate() + timedelta(days=30)
         self.profile.document.save(update_fields=["revised_target_date"])

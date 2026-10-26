@@ -5,6 +5,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 
 from .username_policy import validate_username_format
+from .password_policy import MAX_PASSWORD_LENGTH
 
 
 class LoginSerializer(serializers.Serializer):
@@ -12,7 +13,7 @@ class LoginSerializer(serializers.Serializer):
         min_length=6, max_length=6, trim_whitespace=True,
         validators=[validate_username_format],
     )
-    password = serializers.CharField(max_length=128, trim_whitespace=False, write_only=True)
+    password = serializers.CharField(max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False, write_only=True)
 
     def validate(self, attributes):
         user = authenticate(

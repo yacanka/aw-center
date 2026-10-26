@@ -61,6 +61,38 @@ class JiraSubtaskJobTests(JobTestCase):
         with job.input_file.open("rb") as stored:
             self.assertNotIn(b"JSESSIONID", stored.read())
 
+    @patch("integrations.jira.subtask_executor.require_jira_session")
+    @patch("integrations.jira.subtask_executor.jira_connector_for")
+    @patch("integrations.jira.subtask_views.inspect_subtask_target")
+    def test_lost_enqueue_response_replays_one_job_and_one_provider_write(
+        self, inspect_target, connector_for, _require_session,
+    ):
+        inspect_target.return_value = (Mock(), "CHN-42", [self.project], [])
+        payload = {"issue": "CHN-42", "items": [{"summary": "Panel review", "fields": {}}]}
+        request = {
+            "format": "json",
+            "HTTP_IDEMPOTENCY_KEY": "subtask-lost-response-replay",
+        }
+        # The first accepted response is lost before the caller receives its job ID.
+        first = self.client.post("/api/integrations/jira/subtasks/jobs/", payload, **request)
+        replay = self.client.post("/api/integrations/jira/subtasks/jobs/", payload, **request)
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(replay.data["id"], first.data["id"])
+        self.assertEqual(Job.objects.filter(kind=JOB_KIND).count(), 1)
+        connector = Mock()
+        connector.get_subtask_fields.return_value = []
+        connector.find_issue_by_label.return_value = None
+        connector.build_subtask_fields.return_value = {"summary": "Panel review"}
+        connector.create_subtask_from_fields.return_value = SimpleNamespace(key="CHN-100")
+        connector_for.return_value = connector
+        claimed = claim_next_job("subtask-replay-worker", eligible_kinds=(JOB_KIND,))
+        execute_claimed_job(claimed, lambda _kind: execute_jira_subtask_batch)
+        self.assertIsNone(claim_next_job("subtask-replay-worker", eligible_kinds=(JOB_KIND,)))
+        connector.create_subtask_from_fields.assert_called_once()
+        claimed.refresh_from_db()
+        self.assertEqual(claimed.status, JobStatus.SUCCEEDED)
+
     @patch("integrations.jira.subtask_views.inspect_subtask_target")
     def test_api_rejects_legacy_session_before_jira_access(self, inspect_target):
         response = self.client.post(

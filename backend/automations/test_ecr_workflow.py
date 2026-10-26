@@ -24,6 +24,7 @@ from jobs.models import Job, JobStatus
 from jobs.services import set_job_state
 from jobs.tests.base import JobTestCase
 from orgs.models import Project, ProjectRoleAssignment
+from rest_framework.exceptions import PermissionDenied
 
 from .ecr_publication_executor import execute_ecr_jira_publication
 from .ecr_parser import SNAPSHOT_KEYS
@@ -569,6 +570,106 @@ class EcrPublicationExecutorTests(JobTestCase):
         self.assertEqual(workflow.jira_issue_key, "CHN-501")
         self.assertEqual(ambiguous.create_issue.call_count, 1)
         self.assertEqual(resumed.create_issue.call_count, 1)
+
+    def reconciliation_job(self, key):
+        workflow, original = self.queued_workflow(key)
+        with active_job(original):
+            fail_ecr_publication(
+                original, "ECR_JIRA_RECONCILIATION_REQUIRED", "Uncertain provider result.",
+                uncertain_operation="parent",
+            )
+        terminalize(original, JobStatus.RECONCILIATION_REQUIRED, "RECONCILIATION_REQUIRED")
+        workflow.refresh_from_db()
+        response = self.client.post(
+            f"/api/workflows/ecr/{workflow.id}/resume/",
+            {"version": workflow.version}, format="json",
+            HTTP_IDEMPOTENCY_KEY=f"{key}-reconcile",
+        )
+        self.assertEqual(response.status_code, 201)
+        job = Job.objects.get(pk=response.data["publication"]["job_id"])
+        self.assertEqual(job.parameters["mode"], "reconcile")
+        return workflow, job
+
+    def test_cancelled_reconciliation_keeps_next_attempt_read_only(self):
+        workflow, job = self.reconciliation_job("ecr-reconcile-cancel")
+        response = self.client.post(f"/api/jobs/{job.id}/cancel/", {}, format="json")
+        self.assertEqual(response.status_code, 200)
+        workflow.refresh_from_db()
+        self.assertEqual(workflow.status, EcrWorkflowStatus.RECONCILIATION_REQUIRED)
+        resumed = self.client.post(
+            f"/api/workflows/ecr/{workflow.id}/resume/",
+            {"version": workflow.version}, format="json",
+            HTTP_IDEMPOTENCY_KEY="ecr-after-reconcile-cancel",
+        )
+        next_job = Job.objects.get(pk=resumed.data["publication"]["job_id"])
+        self.assertEqual(next_job.parameters["mode"], "reconcile")
+        connector = ready_connector(subtask_count=1)
+        connector.find_issue_by_label.return_value = SimpleNamespace(key="CHN-501")
+        with active_job(next_job), patch(
+            "automations.ecr_publication_executor.jira_connector_for", return_value=connector,
+        ):
+            with self.assertRaises(JobExecutionFailure) as missing:
+                execute_ecr_jira_publication(next_job)
+        self.assertEqual(missing.exception.code, "ECR_RECONCILIATION_NOT_FOUND")
+        connector.create_issue.assert_not_called()
+        connector.add_attachment.assert_not_called()
+        workflow.refresh_from_db()
+        self.assertEqual(workflow.status, EcrWorkflowStatus.FAILED)
+
+    def test_reconciliation_startup_failure_preserves_prior_uncertainty(self):
+        workflow, job = self.reconciliation_job("ecr-reconcile-startup")
+        set_job_state(job, JobStatus.FAILED, 0, "Executor startup failed.", "JOB_EXECUTOR_START_FAILED")
+        workflow.refresh_from_db()
+        self.assertEqual(workflow.status, EcrWorkflowStatus.RECONCILIATION_REQUIRED)
+        self.assertTrue(workflow.publication_state["uncertain_operation"])
+
+    def test_reconciliation_prerequisite_failures_preserve_prior_uncertainty(self):
+        failures = {
+            "connector": ("jira_connector_for", JiraSessionNotConnected()),
+            "input": ("validate_job_input", JobExecutionFailure("Invalid input", "ECR_PUBLICATION_INPUT_INVALID")),
+            "role": ("validate_ecr_publication_fence", PermissionDenied()),
+            "session": ("require_jira_session", JiraSessionNotConnected()),
+        }
+        for name, (boundary, error) in failures.items():
+            with self.subTest(name=name):
+                workflow, job = self.reconciliation_job(f"ecr-reconcile-{name}")
+                connector = ready_connector(subtask_count=1)
+                with active_job(job), patch(
+                    "automations.ecr_publication_executor.jira_connector_for", return_value=connector,
+                ), patch(f"automations.ecr_publication_executor.{boundary}", side_effect=error):
+                    with self.assertRaises((JobExecutionFailure, JobExecutionUncertain)) as raised:
+                        execute_ecr_jira_publication(job)
+                self.assertIsInstance(raised.exception, JobExecutionUncertain)
+                workflow.refresh_from_db()
+                self.assertEqual(workflow.status, EcrWorkflowStatus.RECONCILIATION_REQUIRED)
+                connector.create_issue.assert_not_called()
+                connector.add_attachment.assert_not_called()
+                set_job_state(
+                    job, JobStatus.RECONCILIATION_REQUIRED, 0,
+                    "Confirm provider state.", "RECONCILIATION_REQUIRED",
+                )
+                workflow.refresh_from_db()
+                self.assertEqual(workflow.status, EcrWorkflowStatus.RECONCILIATION_REQUIRED)
+
+    def test_reconciliation_session_loss_after_parent_lookup_does_not_enable_writes(self):
+        workflow, job = self.reconciliation_job("ecr-reconcile-mid-session")
+        connector = ready_connector(subtask_count=1)
+        connector.find_issue_by_label.return_value = SimpleNamespace(key="CHN-501")
+        with active_job(job), patch(
+            "automations.ecr_publication_executor.jira_connector_for", return_value=connector,
+        ), patch(
+            "automations.ecr_publication_executor.require_jira_session",
+            side_effect=[None, JiraSessionNotConnected()],
+        ):
+            with self.assertRaises((JobExecutionFailure, JobExecutionUncertain)) as raised:
+                execute_ecr_jira_publication(job)
+        self.assertIsInstance(raised.exception, JobExecutionUncertain)
+        workflow.refresh_from_db()
+        self.assertEqual(workflow.status, EcrWorkflowStatus.RECONCILIATION_REQUIRED)
+        self.assertTrue(workflow.publication_state["parent_confirmed"])
+        self.assertTrue(workflow.publication_state["uncertain_operation"])
+        connector.create_issue.assert_not_called()
+        connector.add_attachment.assert_not_called()
 
     def test_dispatch_cancellation_does_not_override_confirmed_success(self):
         workflow, job = self.queued_workflow("ecr-cancel-success-1")

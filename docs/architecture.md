@@ -160,6 +160,17 @@ descendant'lar sonlandırılır; artifact digest/publication öncesinde ağacın
 sınırlı süreyle doğrulanır. Çıkış doğrulanamazsa output yayımlanmaz; dış write işi
 otomatik retry yerine reconciliation gerektirir. Lease/token fencing korunur.
 
+Parent, her isolated execution için
+`PRIVATE_MEDIA_ROOT/.scratch/jobs/<owner>/<job>/<execution-token>` altında özel
+bir geçici dizin açar. Child'ın Python `tempfile` konumu ve `TMPDIR`/`TEMP`/`TMP`
+değerleri feature import'larından önce bu dizine yönlendirilir. Parent, çıktı
+yayımlandıktan ve process ağacının kapandığı doğrulandıktan sonra dizini temizler;
+timeout, cancellation, crash ve startup failure yolları da aynı sahipliği korur.
+Retention yalnız bu kökün altındaki eski, artık geçerli bir execution token'ına
+bağlı olmayan dizinleri temizler. Çalışan veya iptal bekleyen claim'in lease'i
+sona ermiş olsa da recovery token'ı bırakana kadar dosyaları korunur; symlink ve
+tanınmayan dizinler izlenmez. Önceki sürümlerin OS temp dosyaları taranmaz.
+
 Executor metadata'sının tek kaynağı `automations.catalog.EXECUTOR_CATALOG`'dur.
 Her kayıt `kind`, dotted callable path, `queue`, upload policy ve timeout içerir.
 Normal worker `local` allowlist'ini; development ve Windows production'da DOORS

@@ -7,6 +7,7 @@ from integrations.jira.sessions import JiraSessionNotConnected, JiraSessionRecor
 from jobs.contracts import JobExecutionFailure
 from jobs.models import Job, JobStatus
 from jobs.tests.base import JobTestCase
+from jobs.worker import claim_next_job, execute_claimed_job
 from orgs.models import Project, ProjectRoleAssignment
 
 from integrations.jira.issue_draft_models import JiraIssueDraft, JiraIssueDraftStatus
@@ -153,26 +154,42 @@ class JiraDraftPublicationExecutorTests(JobTestCase):
             JiraIssueDraftStatus.FAILED,
         )
 
+    def test_reconciliation_startup_failure_preserves_prior_uncertainty(self):
+        job, draft_id = self.queued_publication()
+        job.parameters["mode"] = "reconcile"
+        job.status = JobStatus.FAILED
+        job.error_code = "JOB_EXECUTOR_START_FAILED"
+        job.save(update_fields=["parameters", "status", "error_code", "updated_at"])
+
+        self.assertEqual(
+            JiraIssueDraft.objects.get(pk=draft_id).status,
+            JiraIssueDraftStatus.RECONCILIATION_REQUIRED,
+        )
+
     def test_uncertain_create_requires_explicit_marker_reconciliation(self):
         job, draft_id = self.queued_publication()
         connector = ready_connector()
-        connector.create_issue.side_effect = RuntimeError("private upstream detail")
+        connector.create_issue.side_effect = TimeoutError("private upstream detail")
 
         with (
             patch("integrations.jira.publication_executor.jira_connector_for", return_value=connector),
             patch("integrations.jira.publication_executor.require_jira_session"),
         ):
-            with self.assertRaises(JobExecutionFailure) as raised:
-                execute_jira_draft_publication(job)
+            execute_claimed_job(
+                claim_next_job("draft-publication-worker", [job.kind]),
+                lambda _kind: execute_jira_draft_publication,
+            )
 
+        job.refresh_from_db()
         draft = JiraIssueDraft.objects.get(pk=draft_id)
         self.assertEqual(
-            raised.exception.code,
+            draft.last_error_code,
             "JIRA_PUBLICATION_RECONCILIATION_REQUIRED",
         )
-        self.assertNotIn("private upstream detail", str(raised.exception))
+        self.assertNotIn("private upstream detail", job.message)
+        self.assertEqual(job.status, JobStatus.RECONCILIATION_REQUIRED)
         self.assertEqual(draft.status, JiraIssueDraftStatus.RECONCILIATION_REQUIRED)
-        self.assertFalse(raised.exception.retryable)
+        self.assertFalse(job.retryable)
 
         reconciliation = self.client.post(
             f"/api/integrations/jira/issue-drafts/{draft_id}/publish/",
@@ -197,6 +214,141 @@ class JiraDraftPublicationExecutorTests(JobTestCase):
         connector.create_issue.assert_not_called()
         self.assertTrue(result.summary["marker_reused"])
         result.path.unlink(missing_ok=True)
+
+    def test_reconciliation_lookup_failure_stays_uncertain_after_worker_completion(self):
+        source, draft_id = self.queued_publication()
+        source.status = JobStatus.RECONCILIATION_REQUIRED
+        source.save(update_fields=["status"])
+        draft = JiraIssueDraft.objects.get(pk=draft_id)
+        response = self.client.post(
+            f"/api/integrations/jira/issue-drafts/{draft_id}/publish/",
+            {"version": draft.version, "reconcile": True},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="reconciliation-lookup-failure",
+        )
+        self.assertEqual(response.status_code, 201)
+        job = Job.objects.get(pk=response.data["id"])
+        connector = ready_connector()
+        connector.find_issue_by_label.side_effect = TimeoutError("private lookup detail")
+
+        with (
+            patch("integrations.jira.publication_executor.jira_connector_for", return_value=connector),
+            patch("integrations.jira.publication_executor.require_jira_session"),
+        ):
+            execute_claimed_job(
+                claim_next_job("draft-reconciliation-worker", [job.kind]),
+                lambda _kind: execute_jira_draft_publication,
+            )
+
+        job.refresh_from_db()
+        draft.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.RECONCILIATION_REQUIRED)
+        self.assertEqual(draft.status, JiraIssueDraftStatus.RECONCILIATION_REQUIRED)
+        self.assertEqual(draft.last_error_code, "JIRA_RECONCILIATION_LOOKUP_FAILED")
+        self.assertFalse(job.retryable)
+        self.assertNotIn("private lookup detail", job.message)
+
+    def test_reconciliation_session_failure_cannot_enable_fresh_publication(self):
+        source, draft_id = self.queued_publication()
+        source.status = JobStatus.RECONCILIATION_REQUIRED
+        source.save(update_fields=["status"])
+        draft = JiraIssueDraft.objects.get(pk=draft_id)
+        response = self.client.post(
+            f"/api/integrations/jira/issue-drafts/{draft_id}/publish/",
+            {"version": draft.version, "reconcile": True},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="reconciliation-session-failure",
+        )
+        self.assertEqual(response.status_code, 201)
+        job = Job.objects.get(pk=response.data["id"])
+
+        with patch(
+            "integrations.jira.publication_executor.jira_connector_for",
+            side_effect=JiraSessionNotConnected(),
+        ):
+            execute_claimed_job(
+                claim_next_job("draft-reconnect-worker", [job.kind]),
+                lambda _kind: execute_jira_draft_publication,
+            )
+
+        job.refresh_from_db()
+        draft.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.RECONCILIATION_REQUIRED)
+        self.assertEqual(draft.status, JiraIssueDraftStatus.RECONCILIATION_REQUIRED)
+        rejected = self.client.post(
+            f"/api/integrations/jira/issue-drafts/{draft_id}/publish/",
+            {"version": draft.version},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="unsafe-republication-after-session-failure",
+        )
+        self.assertEqual(rejected.status_code, 409)
+
+    def test_completed_reconciliation_without_marker_allows_fresh_publication(self):
+        source, draft_id = self.queued_publication()
+        source.status = JobStatus.RECONCILIATION_REQUIRED
+        source.save(update_fields=["status"])
+        draft = JiraIssueDraft.objects.get(pk=draft_id)
+        response = self.client.post(
+            f"/api/integrations/jira/issue-drafts/{draft_id}/publish/",
+            {"version": draft.version, "reconcile": True},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="reconciliation-marker-absent",
+        )
+        self.assertEqual(response.status_code, 201)
+        job = Job.objects.get(pk=response.data["id"])
+        connector = ready_connector()
+
+        with (
+            patch("integrations.jira.publication_executor.jira_connector_for", return_value=connector),
+            patch("integrations.jira.publication_executor.require_jira_session"),
+        ):
+            execute_claimed_job(
+                claim_next_job("draft-marker-absent-worker", [job.kind]),
+                lambda _kind: execute_jira_draft_publication,
+            )
+
+        job.refresh_from_db()
+        draft.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.FAILED)
+        self.assertEqual(draft.status, JiraIssueDraftStatus.FAILED)
+        self.assertEqual(draft.last_error_code, "JIRA_RECONCILIATION_NOT_FOUND")
+        connector.create_issue.assert_not_called()
+        retry = self.client.post(
+            f"/api/integrations/jira/issue-drafts/{draft_id}/publish/",
+            {"version": draft.version},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="confirmed-safe-publication-retry",
+        )
+        self.assertEqual(retry.status_code, 201)
+
+    def test_cancelled_queued_reconciliation_cannot_enable_fresh_publication(self):
+        source, draft_id = self.queued_publication()
+        source.status = JobStatus.RECONCILIATION_REQUIRED
+        source.save(update_fields=["status"])
+        draft = JiraIssueDraft.objects.get(pk=draft_id)
+        response = self.client.post(
+            f"/api/integrations/jira/issue-drafts/{draft_id}/publish/",
+            {"version": draft.version, "reconcile": True},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="cancel-queued-reconciliation",
+        )
+        self.assertEqual(response.status_code, 201)
+        job = Job.objects.get(pk=response.data["id"])
+
+        cancelled = self.client.post(f"/api/jobs/{job.id}/cancel/")
+
+        self.assertEqual(cancelled.status_code, 200)
+        job.refresh_from_db()
+        draft.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.CANCELLED)
+        self.assertEqual(draft.status, JiraIssueDraftStatus.RECONCILIATION_REQUIRED)
+        rejected = self.client.post(
+            f"/api/integrations/jira/issue-drafts/{draft_id}/publish/",
+            {"version": draft.version},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="unsafe-republication-after-cancellation",
+        )
+        self.assertEqual(rejected.status_code, 409)
 
 
 def ready_connector():
