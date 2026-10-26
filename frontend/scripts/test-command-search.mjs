@@ -79,3 +79,10 @@ test('respects the result limit', () => {
   assert.equal(searchNavigationCommands(commands, '', 2).length, 2)
   assert.equal(searchNavigationCommands(manyCommands, '', 10_000).length, 25)
 })
+
+test('finds the independent executive reporting area by Turkish reporting terms', () => {
+  const commands = buildNavigationCommands([
+    { label: 'Management Reports', key: '/management-reports' }
+  ])
+  assert.equal(searchNavigationCommands(commands, 'haftalik')[0]?.path, '/management-reports')
+})

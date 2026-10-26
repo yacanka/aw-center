@@ -26,6 +26,7 @@ cffi==2.0.0
 charset-normalizer==3.4.7
     # via
     #   pdfminer-six
+    #   reportlab
     #   requests
 cheroot==11.1.2
     # via -r requirements.in
@@ -84,10 +85,10 @@ fsspec==2026.6.0
     # via
     #   huggingface-hub
     #   torch
-h11==0.16.0
-    # via httpcore
 gunicorn==23.0.0
     # via -r requirements.in
+h11==0.16.0
+    # via httpcore
 hf-xet==1.5.1
     # via huggingface-hub
 httpcore==1.0.9
@@ -161,6 +162,7 @@ openpyxl==3.1.5
     # via -r requirements.in
 packaging==26.2
     # via
+    #   gunicorn
     #   huggingface-hub
     #   jira
     #   transformers
@@ -176,10 +178,13 @@ pillow==12.3.0
     # via
     #   -r requirements.in
     #   pdfplumber
-pycparser==3.0
-    # via cffi
+    #   reportlab
 psycopg[binary]==3.2.13
     # via -r requirements.in
+psycopg-binary==3.2.13
+    # via psycopg
+pycparser==3.0
+    # via cffi
 pygments==2.20.0
     # via rich
 pyparsing==3.3.2
@@ -210,6 +215,8 @@ redis==6.4.0
     # via -r requirements.in
 regex==2026.6.28
     # via transformers
+reportlab==5.1.0
+    # via -r requirements.in
 requests==2.34.2
     # via
     #   -r requirements.in
@@ -271,6 +278,7 @@ typing-extensions==4.16.0
     #   beautifulsoup4
     #   huggingface-hub
     #   jira
+    #   psycopg
     #   python-docx
     #   sentence-transformers
     #   torch
@@ -278,6 +286,7 @@ tzdata==2026.2
     # via
     #   django
     #   pandas
+    #   psycopg
     #   tzlocal
 tzlocal==5.4.4
     # via extract-msg

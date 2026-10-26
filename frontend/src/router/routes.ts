@@ -13,6 +13,12 @@ export const routes: RouteRecordRaw[] = [
   { path: '/welcome', name: 'welcome', meta: { public: true }, component: Welcome },
   { path: '/home', name: 'home', component: lazyRoute(() => import('@/views/Home.vue')) },
   {
+    path: '/management-reports',
+    name: 'managementReports',
+    meta: { access: navigationAccessPolicy('/management-reports') },
+    component: lazyRoute(() => import('@/views/ManagementReports.vue'))
+  },
+  {
     path: '/integrations',
     name: 'integrations',
     component: lazyRoute(() => import('@/views/IntegrationHub.vue'))

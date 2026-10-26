@@ -33,6 +33,7 @@ urlpatterns = [
     path('media-tools/', include('media_tools.urls')),
     path('jobs/', include('jobs.urls')),
     path('projects/', include('projects.urls')),
+    path('management-reports/', include('management_reports.urls')),
     path('download/<str:filename>/', download_file, name='download_file'),
     *get_project_urlpatterns(),
 ]

@@ -76,3 +76,12 @@ test('accepts only bounded internal post-login redirects', () => {
   assert.equal(safePostLoginPath('/login?redirect=/users'), '/home')
   assert.equal(safePostLoginPath(`/${'a'.repeat(600)}`), '/home')
 })
+
+test('management reporting requires login and remains available to authenticated project viewers', () => {
+  const policy = navigationAccessPolicy('/management-reports')
+  assert.equal(resolveRouteAccess(policy, null), 'login')
+  assert.equal(resolveRouteAccess(policy, { ...standardUser, is_active: false }), 'login')
+  assert.equal(resolveRouteAccess(policy, standardUser), 'allow')
+  assert.deepEqual(filterNavigationByAccess([{ key: '/management-reports' }], null), [])
+  assert.equal(filterNavigationByAccess([{ key: '/management-reports' }], standardUser).length, 1)
+})

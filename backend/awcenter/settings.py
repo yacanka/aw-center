@@ -194,6 +194,7 @@ INSTALLED_APPS = [
     'simple_history',
     'users',
     'common',
+    'management_reports',
     'projects.ozgur',
     'projects.piku',
     'projects.aesa',

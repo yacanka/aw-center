@@ -2,13 +2,19 @@
   <ParticleBackground v-if="useUserStore().getPreferences.has_particles" />
   <Welcome v-if="route.path.includes('welcome')" />
   <RouterView v-else-if="isPublicPage" />
-  <n-layout v-else-if="!route.path.includes('welcome')" has-sider class="transparent">
+  <n-layout
+    v-else-if="!route.path.includes('welcome')"
+    has-sider
+    class="transparent"
+    :class="{ 'mobile-management-shell': mobileManagementReport }"
+  >
     <n-layout-sider
       bordered
       collapse-mode="width"
       :collapsed-width="64"
       :width="240"
-      show-trigger
+      :collapsed="mobileManagementReport ? true : undefined"
+      :show-trigger="!mobileManagementReport"
       class="transparent"
     >
       <n-menu
@@ -21,8 +27,8 @@
     </n-layout-sider>
 
     <n-layout class="transparent">
-      <n-layout-content style="padding: 24px; height: 96vh" class="transparent">
-        <n-scrollbar style="max-width: 99%; margin: 0 auto; padding: 1rem; max-height: 100%">
+      <n-layout-content class="transparent shell-content">
+        <n-scrollbar class="shell-scrollbar">
           <RouterView />
         </n-scrollbar>
       </n-layout-content>
@@ -37,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, provide, watch } from 'vue'
+import { ref, computed, provide, watch, onBeforeUnmount } from 'vue'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import { useMessage, useDialog, useNotification, useLoadingBar } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
@@ -73,6 +79,18 @@ window.$userStore = userStore
 const router = useRouter()
 const route = useRoute()
 const releaseNotes = useReleaseNotesStore()
+const narrowViewportQuery = window.matchMedia('(max-width: 650px)')
+const narrowViewport = ref(narrowViewportQuery.matches)
+const mobileManagementReport = computed(
+  () => route.name === 'managementReports' && narrowViewport.value
+)
+
+function updateNarrowViewport(event: MediaQueryListEvent) {
+  narrowViewport.value = event.matches
+}
+
+narrowViewportQuery.addEventListener('change', updateNarrowViewport)
+onBeforeUnmount(() => narrowViewportQuery.removeEventListener('change', updateNarrowViewport))
 
 function handleMenuSelect(key: string) {
   router.push(key)
@@ -115,5 +133,22 @@ async function loadProjectRegistry() {
 <style scoped>
 .transparent {
   background-color: transparent !important;
+}
+.shell-content {
+  padding: 24px;
+  height: 96vh;
+}
+.shell-scrollbar {
+  max-width: 99%;
+  margin: 0 auto;
+  padding: 1rem;
+  max-height: 100%;
+}
+.mobile-management-shell .shell-content {
+  padding: 12px;
+}
+.mobile-management-shell .shell-scrollbar {
+  max-width: 100%;
+  padding: 0;
 }
 </style>

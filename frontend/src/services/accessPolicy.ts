@@ -23,6 +23,7 @@ export const PUBLIC_ACCESS: RouteAccessPolicy = { public: true }
 export const AUTHENTICATED_ACCESS: RouteAccessPolicy = {}
 
 const NAVIGATION_POLICIES: Record<string, RouteAccessPolicy> = {
+  '/management-reports': AUTHENTICATED_ACCESS,
   '/users': {
     allow: [
       { anyPermissions: ['auth.view_user'] },
