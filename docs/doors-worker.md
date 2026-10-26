@@ -1,0 +1,325 @@
+# Windows DOORS execution
+
+Güncel production'da AW Center ve IBM Rational DOORS aynı Windows cihazda, aynı
+logged-in kullanıcı oturumunda çalışır. `DOORS_ENABLED=True` olduğunda
+`launcher.py prod`, genel job worker'ına varsayılan olarak hem `local` hem `doors`
+queue allowlist'ini verir. Ayrı Task Scheduler
+kaydı, Windows Credential Manager token'ı, loopback HTTP servisi veya ikinci Python
+process'i elle başlatılmaz.
+
+Development'ta `DOORS_ENABLED=True` ise `launcher.py dev` aynı allowlist'i
+varsayılan olarak açar. Yalnız local queue'ları çalıştırmak için
+`launcher.py dev --exclude-doors` kullanılır. Gerekiyorsa migration startup'tan önce
+`launcher.py dev --migrate` ile açıkça uygulanır.
+
+## Güncel çalışma şekli
+
+```text
+Browser → HTTPS Uvicorn/Django → SQLite durable job
+                                  │
+                                  ▼
+                     launcher-owned general worker
+                         ├── local executor'lar
+                         └── DOORS adapter → aç / hazır olmasını bekle → OLE/COM → DXL
+```
+
+HTTP request process'i COM çağrısı çalıştırmaz; yalnız durable job oluşturur. Worker:
+
+- `doors` job kind'larını açık allowlist üzerinden çözer;
+- her executor'ı Windows'ta disposable `spawn` subprocess'inde izole eder;
+- input'u private artifact alanından kontrollü geçici dosyaya materialize eder;
+- timeout/cancellation ve stale execution token sınırlarını korur;
+- sonucu hash'li private artifact olarak fenced completion ile yayımlar;
+- sonucu belirsiz bir DOORS write işleminde otomatik retry yerine
+  `reconciliation_required` üretir.
+
+Her iş, önce aynı Windows oturumundaki açık istemciye bağlanır. İstemci kapalıysa
+`DOORS_AUTO_START_CLIENT=True` ile masaüstü uygulamasını başlatır; yalnız COM
+nesnesinin bulunması yeterli değildir, küçük bir DXL/Result kontrolünün başarıyla
+dönmesini bekler. İş bittikten veya executor sonlandıktan sonra DOORS'a `Quit`
+gönderilmez; başlatılan masaüstü process'i sonraki işler için açık kalır.
+Otomatik başlatma batch veya COM `/automation` yaşam döngüsünü kullanmaz.
+
+Süreç kontrolü `pywin32.win32ts` API'siyle worker'ın SessionId'sine göre yapılır;
+WMI servisi veya WMI COM type library'si gerekmez. Süreç bilgisi alınamazsa
+ikinci istemci başlatılmaz ve `DOORS_PROCESS_INSPECTION_FAILED` döner.
+
+`DOORS_WORKER_LOCK_FILE`, aynı Windows kullanıcı profilinde aynı anda yalnız bir
+DOORS-capable worker bulunmasını sağlar. Kilit dosyasını silmek çalışan process'i
+durdurmaz ve ikinci worker açmak için kullanılmamalıdır.
+
+## Production ayarları
+
+Repository dışındaki production env dosyasında:
+
+```text
+DOORS_ENABLED=True
+DOORS_OLE_PROG_ID=DOORS.Application
+DOORS_EXECUTABLE=
+DOORS_DATABASE=36677@doors-server
+# Base64-encoded UTF-8; empty values inherit AWCENTER_USERNAME/PASSWORD.
+DOORS_USERNAME=
+DOORS_PASSWORD=
+DOORS_PREFER_ACTIVE_INSTANCE=True
+DOORS_AUTO_START_CLIENT=True
+DOORS_STARTUP_TIMEOUT_SECONDS=90
+DOORS_RUN_TIMEOUT_SECONDS=120
+DOORS_MAX_RESULT_BYTES=10485760
+MAX_DOORS_COLUMNS=50
+DOORS_RESULT_MODE=application_result
+DOORS_WORKER_LOCK_FILE=C:/Users/<user>/AppData/Local/AWCenter/state/doors-worker.lock
+```
+
+`MAX_DOORS_COLUMNS`, `settings.py` üzerinden modül export'u, Compliance Documents
+import doğrulaması ve kalite raporunun ortak object attribute sınırını yönetir.
+Varsayılan 50'dir; pozitif bir tam sayı olmalıdır. Daha geniş modüller için seçilen
+env dosyasında örneğin `MAX_DOORS_COLUMNS=250` kullanılabilir. Backend ve DOORS
+worker aynı değeri kullanmalıdır; değişiklikten sonra ikisini yeniden başlatıp
+"Load module fields" ile yeni export oluşturun. Önceden kesilmiş job çıktıları
+yeniden kullanılmaz. Görünümde gizlenen veya boş olan object attribute'lar da
+sayılır; çıktı boyutu ve timeout sınırları ayrıca uygulanmaya devam eder.
+
+Compliance Documents için modül export'u, temel türü `Date` olan dolu object
+attribute'larını DOORS içinde `yyyy-MM-dd` biçimine çevirir. Böylece yerel ay/gün
+adları import'a taşınmaz; saat içeren değerlerde DOORS istemcisinin takvim günü
+alınır. Özel isimli Date türleri de kapsanır; boş değerler ve diğer türler korunur.
+Bu dönüşüm yeni export'lara uygulanır: güncellemeden sonra "Load module fields"
+ile kaynağı yeniden yükleyin. Eski job artifact'ları değiştirilmez.
+
+Gerçek DOORS kullanıcı adı/parolası yalnız seçilen, erişimi kısıtlı env dosyasına
+veya process environment'a girilir. `DOORS_EXECUTABLE` boşsa executable,
+`DOORS_OLE_PROG_ID` için Windows COM kaydının 64/32 bit görünümlerinden bulunur.
+Birden fazla DOORS sürümü varsa ProgID ile uyumlu EXE yolu açıkça verilebilir.
+`DOORS_DATABASE` boşsa kurulu istemcinin varsayılan veritabanı kullanılır.
+
+Windows'a interaktif giriş yapılmış olmalıdır. Kullanıcı adı tanımlıysa yeni
+istemci IBM'in `-user` / `-password` seçenekleriyle giriş yapar; parola tanımlıysa
+kullanıcı adı da zorunludur. İkisi de boşsa mevcut istemci/sistem giriş politikası
+geçerlidir; bir login ekranı açılırsa verilen süre içinde giriş tamamlanmalıdır.
+Açık bir istemci yeniden kullanılırken mevcut DOORS kullanıcısı ve veritabanı
+korunur; kimlik değiştirmek için istemciyi kapatıp yeniden iş başlatın.
+
+`DOORS_AUTO_START_CLIENT=False` açık tercihi korunur; bu ayarda kullanıcı DOORS'u
+önceden açmalıdır. Eski env dosyaları otomatik değiştirilmez; özelliği kullanmak
+için bu değeri `True` yapıp AW Center'ı yeniden başlatın.
+
+Production başlatılırken:
+
+```powershell
+python launcher.py prod `
+  --env-file "$env:LOCALAPPDATA\AWCenter\config\production.env" `
+  --host 192.0.2.10 `
+  --tls-cert-file "$env:LOCALAPPDATA\AWCenter\certificates\server.crt" `
+  --tls-key-file "$env:LOCALAPPDATA\AWCenter\certificates\server.key"
+```
+
+DOORS queue'sunu tüketmeden production çalıştırmak için `--exclude-doors` verilir;
+integration status bunu unavailable olarak bildirir. `DOORS_ENABLED` yanlışlıkla
+açık bırakılıp worker Windows dışında başlatılırsa production check fail-closed durur.
+
+## Güvenlik sınırı
+
+- DOORS credential'ı job payload, database, browser response veya log'a yazılmaz.
+- IBM'in otomatik GUI giriş seçeneği parolayı yerel process argümanında taşır.
+  AW Center bu komutu veya alt process çıktısını loglamaz; Windows process
+  argümanlarını okuyabilen yetkili yerel araçlar parolayı görebilir. Bunu istemeyen
+  kurulumlar önceden giriş yapılmış istemciyi kullanıp otomatik başlatmayı kapatabilir.
+- Kullanıcıdan gelen DXL dosya yolu doğrudan açılmaz; artifact servisi ve allowlisted
+  task sözleşmesi kullanılır.
+- Temporary input/output dosyaları iş sonunda temizlenir.
+- DOORS output'u bounded size ve SHA-256 doğrulamasıyla yayımlanır.
+- Browser session/CSRF sınırı worker execution identity'si yerine geçmez.
+- Okuma işi önceden açık modülleri kapatmaz. Yazma/link kaynağı modülü masaüstünde
+  açıksa iş yazmaya başlamaz; modülü önce kaydedip kapatın. Böylece kullanıcının
+  kaydedilmemiş değişiklikleri otomatik `save`/`close(false)` akışına karışmaz.
+
+## Durum ve hata teşhisi
+
+`configured`: DOORS etkin, platform Windows ve temel adapter ayarları geçerli.
+`available`: buna ek olarak DOORS-capable worker heartbeat'i güncel. Bu alanlar
+DOORS login/lisans/veritabanı veya belirli bir modüle erişim testi değildir;
+web process'i COM çalıştırmaz. Gerçek bağlantı ilk kuyruk işi sırasında yapılır.
+
+| İş hata kodu | Kontrol |
+| --- | --- |
+| `DOORS_CONFIG_INVALID` | ProgID, timeout, result mode/size ve kullanıcı adı/parola ayarları |
+| `DOORS_COM_DEPENDENCY_UNAVAILABLE` | Lock dosyasındaki Windows `pywin32` bağımlılığının kurulu olduğu |
+| `DOORS_PROCESS_INSPECTOR_UNAVAILABLE` | Lock dosyasındaki Windows `WMI` bağımlılığının kurulu olduğu |
+| `DOORS_EXECUTABLE_UNAVAILABLE` | DOORS kurulumu, ProgID COM kaydı veya EXE yolu |
+| `DOORS_CONNECTION_FAILED` | Sınıflandırılamayan bağlantı hatası; aynı Windows kullanıcı oturumu, COM kaydı ve giriş |
+| `DOORS_PLATFORM_UNSUPPORTED` | Worker interaktif Windows kullanıcı oturumunda çalışmalı |
+| `DOORS_DEPENDENCY_UNAVAILABLE` | Worker'ın kullandığı Python ortamındaki pywin32 kurulumu/DLL yüklemesi; düzeltmeden sonra AW Center'ı yeniden başlatın |
+| `DOORS_COM_INITIALIZATION_FAILED` | Worker COM başlatamadı; aynı masaüstü oturumunda AW Center'ı yeniden başlatın |
+| `DOORS_PROCESS_INSPECTION_FAILED` | Windows süreç/oturum sorgulama izinleri; süreç denetimi atlanmaz |
+| `DOORS_CLIENT_NOT_RUNNING` | İstemci kapalı, otomatik başlatma devre dışı; DOORS'u açın veya `DOORS_AUTO_START_CLIENT=True` ayarlayın |
+| `DOORS_CLIENT_START_FAILED` | EXE çalıştırma izni; istemcinin aynı kullanıcıyla elle açılabildiğini kontrol edin |
+| `DOORS_STARTUP_TIMEOUT` | Login ekranı, yanlış giriş bilgisi, lisans, veritabanı veya modal pencere |
+| `DOORS_MULTIPLE_CLIENTS` | Aynı oturumda yalnız bir DOORS istemcisi bırakın |
+| `DOORS_OPEN_MODULE` / `DOORS_ATTRIBUTE_NOT_FOUND` | Modül yolu, okuma izni ve attribute isimleri |
+| `DOORS_DXL_FAILED` | `message` alanı sonuç boyutu, boş/bozuk çıktı, eksik tamamlanma işareti, sonuç timeout'u, UTF-8, geçici dosya veya OLE çağrısı hatasını ayırır; yalnız DXL syntax hatası anlamına gelmez |
+| `RECONCILIATION_REQUIRED` | Yazma gönderildikten sonra sonuç belirsiz; DOORS durumunu incelemeden tekrar göndermeyin |
+
+DXL öncesi bağlantı hataları yazma işi için de normal failure olur. DXL gönderildikten
+sonraki belirsizliklerde mevcut reconciliation sınırı korunur. Worker'ın toplam
+iş süresi başlangıç + DXL süreleri + 15 saniye yayınlama payını kapsar. Disiplin
+kontrolü üç DXL çalıştırdığından read kuyruğu için üç çalışma payı ayrılır;
+başlangıç ve run timeout üst sınırları sırasıyla 300 ve 600 saniyedir.
+
+Varsayılan sonuç kanalı `application_result`'tır: DXL `oleSetResult` ile sonucu
+yayımlar, worker `Application.Result` üzerinden okur. Her çağrı ayrı sonuç
+token'ı kullanır; önceki çağrının cevabı kabul edilmez. Byte sınırı bu kanalda da
+uygulanır. Mevcut environment dosyasında `DOORS_RESULT_MODE=file` varsa diğer
+operasyonları da OLE kanalına geçirmek için `application_result` seçip worker'ı
+yeniden başlatın. Açıkça seçilen `file` modu geriye dönük uyumluluk için korunur;
+dosya yalnız doğru tamamlanma işaretinden sonra UTF-8 olarak okunur.
+
+Senkron `runStr` çağrısı polling süresini tüketse bile dönüşte mevcut sonuç bir
+kez okunur. Yalnız o çağrıya ait token veya dosya tamamlanma işareti kabul edilir;
+sonuç hâlâ bekleniyorsa ek bekleme yapılmaz. Worker'ın toplam hard timeout ve
+belirsiz yazmalar için reconciliation sınırı korunur. Sonuç hatalarının API kodu
+uyumluluk için `DOORS_DXL_FAILED` kalır; açıklama sabit, güvenli mesajlardan seçilir,
+ham DXL/COM hata metni veya modül verileri yayımlanmaz.
+
+DXL sonuç satırlarında, ardından TAB veya başka alan gelen tek parametreli
+fonksiyon çağrısının tamamı paranteze alınmalıdır: `(awc_escape(value)) "\t"`.
+Yalnız argümanın parantezi (`awc_escape(value) "\t"`) yeterli değildir; DXL'in
+birleştirme önceliği ayırıcıyı escape fonksiyonuna dahil ederek syntax hatası
+vermeden sütunları birleştirebilir. Export, disiplin, linker ve hata satırları
+bu sınırı korur. Kaynak: [IBM — Single parameter DXL functions and string concatenation](https://www.ibm.com/support/pages/single-parameter-dxl-functions-and-string-concatenation).
+
+Module-check, genel ayardan bağımsız olarak her zaman `application_result`
+kullanır. Yalnız `OK` + `MODULE_OPENED` sonucu erişimi doğrular; beklenmeyen veya
+eksik cevap `DOORS_DXL_FAILED` olur. Tek bir geçerli `ERR\tOPEN_MODULE\t...`
+cevabı kontrolün tamamlandığını fakat modülün okunamadığını belirtir: job
+`succeeded`, artifact `accessible: false`, `operation_result.outcome: negative`
+ve `operation_result.code: OPEN_MODULE` üretir. Bu kod bulunamama ile izin
+eksikliğini ayırmaz; arayüz "Module not found or no read access" gösterir.
+Diğer okuma işlemlerinde `OPEN_MODULE` hâlâ `failed` / `DOORS_OPEN_MODULE` olur.
+Önceden açık modül kapatılmaz. Geçici worker artifact'larındaki Windows silme
+kilitleri sınırlı tekrar ile temizlenir; kalıcı kilit uyarı olarak kaydedilir ve
+başarıyı veya asıl DOORS hata kodunu değiştirmez. Kalıcı kilitte geçici dosya
+diskte kalabilir.
+
+Nesne listeleme/detail/export, attribute/disiplin kontrolü, nesne güncelleme ve
+oluşturma ile Linker da `DOORS_RESULT_MODE=application_result` ayarını kullanır.
+Nesne okuma sonucu istenen absolute number ile eşleşmelidir. Güncelleme yalnız
+`ATTRIBUTES_SAVED`, oluşturma ise tek bir `CREATED` satırı ve `OBJECT_CREATED`
+onayıyla başarılı sayılır. Liste/export ve diğer çok satırlı işlemler kendi
+tamamlanma işaretini gerektirir. Eksik/bozuk sonuç okumalarda `DOORS_DXL_FAILED`,
+gönderilmiş yazmalarda `RECONCILIATION_REQUIRED` olur; belirsiz yazma otomatik
+olarak dosya kanalında yeniden çalıştırılmaz.
+
+Update/create işlemleri mevcut modül handle'ını `data(moduleVersion(...))` ve
+`isRead` ile kontrol eder. Read modunda açıksa `edit(..., false, true)` ile
+exclusive edit açmayı dener ve `isEdit` doğrulanmadan nesneye yazmaz. Önceden
+edit/shared modunda açık modülü değiştirmez veya kapatmaz; açıklamalı
+`DOORS_MODULE_ALREADY_OPEN` hatası döner. İşlem sonunda kaydedilmemiş kısmi
+değişiklikler `close(module, false)` ile atılır; önceden açık reader aynı
+görünürlükte yeniden read açılır. Görünüm/seçim yeniden açılınca sıfırlanabilir.
+Linker'ın önceden açık yazma kaynağını reddetme sözleşmesi korunur.
+
+### Yapılandırılmış işlem sonuçları
+
+Her başarılı DOORS artifact'ı mevcut çıktı alanlarına ek olarak `operation_result`
+alanı taşır: `schema_version: 1`, `operation`, `outcome` (`success`/`negative`),
+`code`, sabit ve güvenli `message`, doğrulanmış `input`. Çıktılar mevcut kök
+alanlarda kalır (`accessible`, `absolute_number`, `results`, `summary` vb.);
+büyük listeler kopyalanmaz. Örneğin create çıktısının `absolute_number` değeri
+ve `operation_result.input.module_path`, bir sonraki update'in girdisi olabilir.
+Bu sözleşme otomatik workflow yürütme veya yetki devri sağlamaz; her yeni istek
+mevcut validation, authorization ve idempotency kontrollerinden geçer.
+
+Developer / DOORS sayfası işi takip eder, tamamlanınca owner-only ve SHA-256
+doğrulamalı download üzerinden sonucu okur; kod, açıklama, input ve output'u
+gösterir. Nesne sonucu bir sonraki işlemin module/absolute/relative alanlarına
+kullanıcı düğmesiyle aktarılır. Sonuç indirilemezse yalnız indirme yeniden
+denenir; yazma işi tekrarlanmaz. Eski artifact'lar korunur ve indirilebilir;
+`operation_result` içermeyen eski çıktılar yeni sonuç panelinde desteklenmez.
+Ham DXL hata metinleri artifact'a veya kullanıcıya aktarılmaz.
+
+`DEBUG=True` olduğunda `DoorsClient.run_dxl`, çalıştırmayı denemeden önce tam
+üretilmiş DXL'i worker konsoluna `[DOORS run_dxl]` ve `[/DOORS run_dxl]` arasında
+yazar ve hemen flush eder. Bu çıktı modül yollarını ve DXL'e konan attribute
+değerlerini içerir. `DEBUG=False` olduğunda DXL yazdırılmaz. Ayrı bir debug
+environment ayarı gerekmez; mevcut worker'ın settings değişikliğini alması için
+yeniden başlatılması gerekir. Çıktı API yanıtına veya job artifact'ına eklenmez;
+DOORS bağlantı kullanıcı adı/parolası ve OLE yanıtı bu debug çıktısına dahil edilmez.
+
+## Doğrulama
+
+Platformdan bağımsız contract testleri:
+
+```bash
+cd backend
+../.venv/bin/python manage.py test automations \
+  integrations.tests.test_doors_api \
+  integrations.tests.test_doors_worker_tasks \
+  integrations.tests.test_doors_lifecycle \
+  integrations.tests.test_doors_result_transport \
+  integrations.tests.test_doors_execution \
+  jobs.tests.test_isolated_worker
+```
+
+Gerçek OLE canary'si Windows kullanıcı oturumunda ve test DOORS modülü üzerinde
+ayrıca yapılmalıdır. Canary sırasında payload, private path veya credential
+loglanmamalıdır.
+
+Module-check kabul ölçütleri: DOORS kapalıyken ve açıkken mevcut formal modül
+`succeeded` ve hash'i doğrulanan `accessible: true` JSON artifact'ı üretir.
+Olmayan veya erişilemeyen modül `succeeded` ve `accessible: false` artifact'ı
+üretir; arayüz olumsuz erişim sonucunu gösterir. Read modunda açık disposable
+modülde update/create başarılı olmalı ve reader yeniden açılmalıdır; edit/shared
+modunda açıkken işlem yazmadan reddedilmelidir. Gerçek DXL derleme/çalıştırma bu Windows denemesini gerektirir;
+yerel contract testleri COM yanıtını taklit eder, DXL yorumlayıcısı çalıştırmaz.
+
+Windows canary sırası: DOORS kapalıyken modül kontrolü; aynı istemcide ikinci kontrol;
+liste/detail/export ve disiplin kontrolü; Linker preview; disposable modülde
+create/update/link; yanlış login, kapalı veritabanı, modal pencere, timeout ve
+cancellation. Başarılı işlemlerden sonra DOORS process'inin açık kaldığını,
+önceden açık okuma modüllerinin kapanmadığını ve hash'li sonuç indirmesini doğrulayın.
+
+IBM sözleşmeleri: [istemci başlangıç seçenekleri](https://www.ibm.com/docs/en/engineering-lifecycle-management-suite/doors/9.7.2?topic=client-command-line-switches-doors-interoperation-server)
+ve [DXL Reference Manual](https://www.ibm.com/docs/en/SSYQBZ_9.6.0/com.ibm.doors.requirements.doc/topics/dxl_reference_manual.pdf).
+
+Süreç/oturum API sözleşmesi: [pywin32 win32ts](https://mhammond.github.io/pywin32/win32ts.html)
+ve [Microsoft WTSEnumerateProcesses](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsenumerateprocessesw).
+
+## DOORS Agent: ATA chapter / panel deneme kontrolü
+
+Agent sayfasındaki modül yolu `POST /api/integrations/doors/module-quality-jobs/`
+üzerinden `doors.check_module_quality` işi oluşturur. Session/CSRF, canlı worker,
+owner-scoped idempotency, `doors` allowlist ve private artifact sözleşmeleri geçerlidir.
+İş salt okunurdur; öneriler DOORS attribute'larını otomatik değiştirmez.
+
+Worker beş adımı lease-fenced job event'leriyle bildirir: modülü okuma, attribute
+keşfi, değer yorumlama, chapter/panel tutarlılığı ve rapor hazırlama. Sayfa mevcut
+job polling mekanizmasıyla yaklaşık iki saniyede bir güncellenir; hızlı geçen
+adımlar raporun işlem geçmişinde de görülebilir. COM okuması sırasında adım 1
+aktif kalır; obje başına canlı DXL ilerlemesi üretilmez. URL'deki job kimliğiyle
+sayfa yenilendiğinde iş ve rapor geri yüklenir.
+
+Attribute seçiminde `ATA`, `ATA Chapter`, `ATA Code`, `Panel`, `Panel Name` gibi
+adların büyük/küçük harf ve ayraç farkları tolere edilir. Doğrudan eşleşme yoksa
+kısa nitelikli adlar ve en az 0.88 benzerlikteki adlar aday olur. Birden fazla
+aday varsa seçim yapılmaz; sezgisel seçimler Detaylar'da doğrulama ister.
+Serbest metin içindeki rakamlardan ATA chapter tahmin edilmez.
+
+`27`, `ATA 27`, `27-10-00` ve `27.10` chapter `27` altında gruplanır. ATA listelerinde
+virgül, noktalı virgül, dik çizgi, satır sonu veya `/`; panel listelerinde virgül,
+noktalı virgül, dik çizgi veya satır sonu kullanılabilir. Panel kimliğindeki `-`
+ve `/` korunur. Panel değerlerinde yalnız harf büyüklüğü ve boşluk normalizasyonu
+uygulanır; benzer görünen iki panel birleştirilmez. Birden çok chapter ve birden
+çok panel içeren bir obje belirsiz eşleştirme olarak raporlanır.
+
+Rapor; seçilen attribute ve adaylarını, çelişkili chapter/panelleri, obje numaralarını,
+kaynak değer örneklerini ve düzeltme önerilerini içerir. Mevcut bounded export
+sınırı 10.000 obje / 50 attribute'tur. İki alanı da boş objeler kapsam dışında
+sayılır; boş modül, eksik attribute, yorumlanamayan değer veya kesilmiş export
+başarılı tam kontrol sayılmaz. Rapor en fazla 200 bulgu (chapter çelişkileri
+öncelikli), bulgu başına 20 kanıt örneği ve değer başına 500 karakter içerir;
+toplam ve gösterilmeyen bulgu/kanıt sayıları ayrıca verilir.
+
+Job `succeeded` durumu raporun üretildiğini belirtir. Raporun `passed`,
+`review_required`, `incomplete` sonucu ve `complete` kapsam bilgisi ayrı
+değerlendirilir. Bu deneme yalnız ATA–panel tutarlılığını kontrol eder; chapter'ın
+mühendislik açısından doğru seçildiğini veya panelin fiziksel doğruluğunu kanıtlamaz.
