@@ -18,6 +18,39 @@ from .model import LauncherError
 Command = Sequence[str | Path]
 
 
+def npm_command() -> list[str]:
+    """Managed runs bypass CMD parsing entirely, including paths containing '&'."""
+    node, cli = os.environ.get("AWCENTER_MANAGED_NODE"), os.environ.get("AWCENTER_MANAGED_NPM_CLI")
+    if node and cli:
+        return [node, cli]
+    return [required_tool("npm")]
+
+
+def non_notification_environment() -> dict[str, str]:
+    """Explicit empties also block dotenv/shared-credential fallback in Django."""
+    return {"AWCENTER_MAIL_TRANSPORT": "disabled", "EMAIL_HOST_USER": "", "EMAIL_HOST_PASSWORD": ""}
+
+
+@contextmanager
+def frontend_environment(protect: bool):
+    """The frontend needs tool paths, never private Django configuration."""
+    if not protect:
+        yield
+        return
+    from .installation_profiles import RELEVANT_KEYS, RELEVANT_PREFIXES
+    removed = {key: value for key, value in os.environ.items()
+               if key in RELEVANT_KEYS or key.startswith(RELEVANT_PREFIXES) or key.startswith("DJANGO_")}
+    # Keep only the two non-secret executable pointers used by npm_command().
+    for key in ("AWCENTER_MANAGED_NODE", "AWCENTER_MANAGED_NPM_CLI"):
+        removed.pop(key, None)
+    try:
+        for key in removed:
+            os.environ.pop(key, None)
+        yield
+    finally:
+        os.environ.update(removed)
+
+
 def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
     """Return the inherited environment with conservative Python defaults."""
     values = os.environ.copy()

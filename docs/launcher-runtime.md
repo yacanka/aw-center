@@ -4,6 +4,13 @@ Kök `launcher.py`, local setup/quality/development/offline packaging akışlar�
 güncel Windows-native production lifecycle'ının tek girişidir. macOS'ta yalnız
 development desteklenir; `prod` komutu fail-closed biçimde yalnız Windows'ta çalışır.
 
+Windows'ta sıfırdan kurulumun yönlendirmeli girişi `AWCenter.cmd` dosyasıdır.
+`wizard`, `provision`, `doctor`, `start` ve `prepare-install-bundle` komutları
+aynı launcher çekirdeğine bağlıdır. Ayrıntılar [Windows kurulum yardımcısı](windows-install-helper.md)
+içindedir. Aşağıdaki düşük seviyeli `setup/dev/prod` sözleşmeleri korunur;
+yalnız açık `provision` yeni private profil/anahtar ve repository dışı kurulum
+state'i oluşturur. `doctor` bunları oluşturmaz veya düzeltmez.
+
 ## Sözleşme
 
 - CPython 3.11+ ister ve `.venv` sürümünü doğrular.

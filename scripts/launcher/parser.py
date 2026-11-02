@@ -27,6 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_development(commands)
     add_production(commands)
     add_offline_commands(commands)
+    from .installation_cli import add_installation_commands
+    add_installation_commands(commands)
     return parser
 
 

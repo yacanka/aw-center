@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import socket
 import subprocess
 import sys
 from pathlib import Path
+from collections.abc import Callable
 
 from .dependencies import ensure_virtual_environment
 from .job_worker import start_job_workers
 from .model import LauncherError, Project, Scope
-from .process import required_tool, run, start, starting_processes, supervise
+from .process import (frontend_environment, non_notification_environment, npm_command,
+                      required_tool, run, start, starting_processes, supervise)
 from .quality import django, run_first_script, run_script, select_script
 
 
@@ -66,6 +69,9 @@ def dev(
     no_backend_reload: bool,
     migrate: bool,
     exclude_doors: bool = False,
+    ready: Callable[[list[subprocess.Popen]], None] | None = None,
+    worker_heartbeat_dir: Path | None = None,
+    protect_credentials: bool = False,
 ) -> None:
     """Run Django and Vite as launcher-owned foreground children."""
     scope.require_any()
@@ -80,6 +86,7 @@ def dev(
                     frontend_port,
                     no_backend_reload,
                     migrate,
+                    **({"protect_credentials": True} if protect_credentials else {}),
                 )
             )
             processes.extend(
@@ -87,10 +94,15 @@ def dev(
                     project,
                     runtime_env(host, backend_port, frontend_port),
                     include_doors_if_enabled=not exclude_doors,
+                    **({"heartbeat_dir": worker_heartbeat_dir} if worker_heartbeat_dir else {}),
+                    **({"protect_credentials": True} if protect_credentials else {}),
                 )
             )
         if scope.frontend:
-            processes.append(start_frontend(project, host, backend_port, frontend_port))
+            processes.append(start_frontend(project, host, backend_port, frontend_port,
+                                           **({"protect_credentials": True} if protect_credentials else {})))
+        if ready is not None:
+            ready(processes)
         print_urls(scope, host, backend_port, frontend_port)
     supervise(processes)
 
@@ -106,6 +118,9 @@ def prod(
     exclude_doors: bool,
     migrate: bool,
     build_frontend: bool = False,
+    ready: Callable[[list[subprocess.Popen]], None] | None = None,
+    worker_heartbeat_dir: Path | None = None,
+    protect_credentials: bool = False,
 ) -> None:
     """Run the single-host Windows HTTPS production lifecycle."""
 
@@ -121,14 +136,17 @@ def prod(
     validate_tls_identity(project, certificate_file, private_key_file, host)
 
     extra_env = production_env(env_file, host, port)
+    gate_env = {**extra_env, **non_notification_environment()} if protect_credentials else extra_env
+    # Validate the notification worker's real SMTP transport/TLS settings too.
+    # Redaction is for non-notification runtime roles, not deployment policy.
     django(project, ["check", "--deploy"], extra_env)
     if migrate:
-        django(project, ["migrate", "--noinput"], extra_env)
-    django(project, ["migrate", "--check"], extra_env)
+        django(project, ["migrate", "--noinput"], gate_env)
+    django(project, ["migrate", "--check"], gate_env)
     if build_frontend:
         run_script(project, "build")
-    django(project, ["collectstatic", "--clear", "--noinput"], extra_env)
-    django(project, ["verify_frontend_artifact"], extra_env)
+    django(project, ["collectstatic", "--clear", "--noinput"], gate_env)
+    django(project, ["verify_frontend_artifact"], gate_env)
 
     with starting_processes() as processes:
         processes.append(
@@ -138,7 +156,7 @@ def prod(
                 port,
                 certificate_file,
                 private_key_file,
-                extra_env,
+                gate_env,
             )
         )
         processes.extend(
@@ -146,8 +164,12 @@ def prod(
                 project,
                 extra_env,
                 include_doors_if_enabled=not exclude_doors,
+                **({"heartbeat_dir": worker_heartbeat_dir} if worker_heartbeat_dir else {}),
+                **({"protect_credentials": True} if protect_credentials else {}),
             )
         )
+        if ready is not None:
+            ready(processes)
         print(f"Production: {production_url(host, port)}")
         print("Press Ctrl+C to stop.")
     supervise(processes)
@@ -184,7 +206,8 @@ def start_production_backend(
 
 
 def start_backend(
-    project: Project, host: str, port: int, frontend_port: int, no_reload: bool, migrate: bool
+    project: Project, host: str, port: int, frontend_port: int, no_reload: bool, migrate: bool,
+    *, protect_credentials: bool = False,
 ) -> subprocess.Popen:
     """Prepare and start the Django development child."""
     ensure_virtual_environment(project, create=False)
@@ -192,6 +215,8 @@ def start_backend(
     # Only the local job worker performs number allocation; dotenv must not
     # reintroduce the generation credential into the development web process.
     extra_env["NUMARATOR_API_KEY"] = ""
+    if protect_credentials:
+        extra_env.update(non_notification_environment())
     if migrate:
         django(project, ["migrate", "--noinput"], extra_env)
     command = [project.python, "manage.py", "runserver", f"{host}:{port}"]
@@ -201,14 +226,16 @@ def start_backend(
 
 
 def start_frontend(
-    project: Project, host: str, backend_port: int, port: int
+    project: Project, host: str, backend_port: int, port: int, *, protect_credentials: bool = False,
 ) -> subprocess.Popen:
     """Start the Vue development child with an ephemeral API URL."""
     script = select_script(project, ("dev", "serve", "start"), required=True)
-    command = [required_tool("npm"), "run", script, "--", "--host", host, "--port", str(port)]
-    if script == "dev":
-        command.append("--strictPort")
-    return start(command, project.frontend, extra_env=frontend_env(public_url(host, backend_port)))
+    with frontend_environment(protect_credentials):
+        prefix = npm_command() if os.environ.get("AWCENTER_MANAGED_NPM_CLI") else [required_tool("npm")]
+        command = [*prefix, "run", script, "--", "--host", host, "--port", str(port)]
+        if script == "dev":
+            command.append("--strictPort")
+        return start(command, project.frontend, extra_env=frontend_env(public_url(host, backend_port)))
 
 
 def runtime_env(host: str, backend_port: int, frontend_port: int | None) -> dict[str, str]:

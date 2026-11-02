@@ -21,6 +21,14 @@ AW Center, kullanıcı erişimini ve doküman işlemlerini uygulama sunucusunda 
 
 ## Kurulum ve çalıştırma
 
+Windows'ta sıfırdan kurulum için `AWCenter.cmd` dosyasını çift tıklayın veya CMD'de
+çalıştırın. Yardımcı Python/Node'u kullanıcıya özel hazırlar; dev/prod profillerini,
+offline kaynakları ve eksik özellikleri yönetir. PowerShell gerekmez.
+[Windows kurulum yardımcısı](docs/windows-install-helper.md) ayrıntıları açıklar.
+
+Mevcut Python/Node kurulumu olan development ortamlarında aşağıdaki düşük seviyeli
+launcher akışı da kullanılabilir.
+
 Bağımlılıkları kurun:
 
 ```bash

@@ -1,5 +1,10 @@
 # Windows production ve operasyon
 
+Yönlendirmeli CMD kurulum/başlatma akışı için [Windows kurulum yardımcısını](windows-install-helper.md)
+kullanın. Aşağıdaki manuel launcher akışı desteklenmeye devam eder. Yönetilen
+yardımcı ayrı private `prod.env`/profil oluşturur; mevcut manuel production.env
+dosyasını veya verilerini otomatik sahiplenmez ve üzerine yazmaz.
+
 Bu kaynak revizyonunun 15.10.2026 migration baseline’ı yalnız boş veritabanına ilk
 kurulumu destekler. Önceki geliştirme şemaları bu migration’larla yükseltilmez veya
 fake edilmez. Disposable local ortamlar için [reset runbook](local-database-reset.md)

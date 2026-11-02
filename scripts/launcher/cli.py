@@ -20,14 +20,16 @@ def main(arguments: list[str] | None = None) -> int:
         args = build_parser().parse_args(arguments)
         project = discover_project(args.root)
         print_context(project, args.command)
-        dispatch(project, args)
-        return 0
+        return dispatch(project, args) or 0
+    except KeyboardInterrupt:
+        print("\nİşlem iptal edildi.", file=sys.stderr)
+        return 130
     except (LauncherError, OSError, ValueError) as error:
         print(f"[error] {error}", file=sys.stderr)
         return 1
 
 
-def dispatch(project: Project, args: argparse.Namespace) -> None:
+def dispatch(project: Project, args: argparse.Namespace) -> int | None:
     """Dispatch one parsed command to its focused workflow."""
     scope = scope_from(args)
     if args.command == "setup":
@@ -47,6 +49,9 @@ def dispatch(project: Project, args: argparse.Namespace) -> None:
     elif args.command == "package-changes":
         output = project_path(project, args.changes_zip) if args.changes_zip else None
         package_changes(project, output)
+    else:
+        from .installation_cli import dispatch_installation
+        return dispatch_installation(project, args)
 
 
 def dev_command(project: Project, scope: Scope, args: argparse.Namespace) -> None:

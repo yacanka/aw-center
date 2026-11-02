@@ -228,6 +228,49 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Run managed installation unit contracts
+        shell: cmd
+        run: >-
+          python -m unittest
+          scripts.test_launcher_profiles
+          scripts.test_launcher_sources
+          scripts.test_launcher_bootstrap
+          scripts.test_launcher_bundle
+          scripts.test_launcher_features
+          scripts.test_launcher_install_dependencies
+          scripts.test_launcher_installation
+
+      - name: Run native CMD bootstrap and owner-only ACL smoke
+        shell: cmd
+        timeout-minutes: 20
+        env:
+          AWCENTER_RUN_WINDOWS_INSTALL_SMOKE: "1"
+        run: python -m unittest scripts.test_launcher_windows_smoke
+
+      - name: Verify initial administrator provisioning
+        shell: cmd
+        run: python backend/manage.py test users.test_initial_admin
+
+      - name: Setup Node.js for Windows frontend artifact
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build and verify Windows frontend artifact
+        shell: cmd
+        run: |
+          call npm install --global npm@10.9.4
+          if errorlevel 1 exit /b %errorlevel%
+          call npm ci --prefix frontend
+          if errorlevel 1 exit /b %errorlevel%
+          call npm run build --prefix frontend
+          if errorlevel 1 exit /b %errorlevel%
+          python backend/manage.py collectstatic --clear --noinput
+          if errorlevel 1 exit /b %errorlevel%
+          python backend/manage.py verify_frontend_artifact
+
       - name: Verify private development configuration and NTFS permissions
         shell: pwsh
         run: |
