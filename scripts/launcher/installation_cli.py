@@ -37,6 +37,8 @@ def add_installation_commands(commands) -> None:
 
 
 def _sources(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--source-mode", choices=("online", "corporate", "offline"), default="online",
+                         help="Online: genel/kurumsal/offline; corporate: seçili kaynaklar; offline: yalnız yerel paketler.")
     command.add_argument("--repository", help="HTTPS artifact deposu veya yerel/UNC paket dizini.")
     command.add_argument("--offline-dir", type=Path)
     command.add_argument("--python-index-url", help="Alternatif HTTPS Python Simple API adresi.")
@@ -115,6 +117,8 @@ def wizard(project: Project, initial: argparse.Namespace) -> int:
         if choice in {"1", "5"}:
             from .installation import source_settings
             saved = source_settings(initial, project)
+            mode = input(f"Kaynak modu online/corporate/offline [{saved.mode}]: ").strip() or saved.mode
+            arguments += ["--source-mode", mode]
             for flag, label in (
                 ("repository", "Alternatif artifact deposu/dizini"),
                 ("offline-dir", "Offline paket dizini"),

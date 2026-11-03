@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, build_opener
 
 from .model import LauncherError
+from .process import check_cancelled
 
 MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 MAX_EXPANDED_BYTES = 2 * MAX_ARTIFACT_BYTES
@@ -48,6 +49,21 @@ class SourceSettings:
     python_index_url: str | None = None
     npm_registry_url: str | None = None
     ca_file: Path | None = None
+    mode: str = "online"
+
+    def __post_init__(self) -> None:
+        if self.mode not in {"online", "corporate", "offline"}:
+            raise LauncherError("Kaynak modu online, corporate veya offline olmalıdır.")
+
+
+def acquisition_urls(settings: SourceSettings, public: str, selected: str | None) -> list[str]:
+    """Return only network sources explicitly permitted by the selected mode."""
+    if settings.mode == "offline":
+        return []
+    urls = [public] if settings.mode == "online" else []
+    if selected:
+        urls.append(_https_url(selected))
+    return urls
 
 
 def _https_url(url: str, *, allow_query: bool = False) -> str:
@@ -120,7 +136,11 @@ def _download(url: str, destination: Path, context: ssl.SSLContext) -> None:
     opener = build_opener(_SecureRedirect(), HTTPSHandler(context=context))
     with opener.open(url, timeout=30) as response, destination.open("wb") as output:
         size = 0
-        while chunk := response.read(1024 * 1024):
+        while True:
+            check_cancelled()
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
             size += len(chunk)
             if size > MAX_ARTIFACT_BYTES:
                 raise LauncherError("artifact exceeds the download size limit")
@@ -130,6 +150,7 @@ def _download(url: str, destination: Path, context: ssl.SSLContext) -> None:
 def _retrieve(url: str, destination: Path, context: ssl.SSLContext) -> bool:
     """Retry transient availability failures, never integrity/TLS failures."""
     for attempt in range(3):
+        check_cancelled()
         try:
             _download(url, destination, context)
             return True
@@ -151,7 +172,7 @@ def _retrieve(url: str, destination: Path, context: ssl.SSLContext) -> bool:
 
 
 def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) -> Path:
-    """Fetch verified bytes: public HTTPS, selected repository, then offline.
+    """Fetch verified bytes using only sources permitted by the selected mode.
 
     Integrity or TLS errors fail closed. A corrupt existing cache is also fatal,
     so retries cannot accidentally mask a tampered trusted artifact.
@@ -161,8 +182,8 @@ def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) ->
     remote_repository = isinstance(repository, str) and repository.lower().startswith(("http:", "https:"))
     if remote_repository:
         _https_url(repository)
-    context = ssl.create_default_context()
-    if settings.ca_file:
+    context = ssl.create_default_context() if settings.mode != "offline" else None
+    if settings.ca_file and context is not None:
         try:
             context.load_verify_locations(cafile=str(settings.ca_file))
         except (OSError, ssl.SSLError):
@@ -176,9 +197,9 @@ def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) ->
     cache.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".download-", dir=cache) as temporary:
         stage = Path(temporary) / artifact.filename
-        urls = [artifact.url]
-        if remote_repository:
-            urls.append(str(repository).rstrip("/") + "/" + artifact.filename)
+        selected = str(repository).rstrip("/") + "/" + artifact.filename if remote_repository else None
+        urls = acquisition_urls(settings, artifact.url, selected)
+        if remote_repository and settings.mode != "offline":
             urls.append(str(repository).rstrip("/") + "/runtimes/" + artifact.filename)
         for url in urls:
             if _retrieve(url, stage, context):

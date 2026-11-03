@@ -24,7 +24,7 @@ from .installation_sources import SourceSettings, _https_url
 from .installation_state import (installation_lock, load_sources, private_directory,
                                  process_environment, runtime_session, save_report, save_sources)
 from .model import LauncherError, Project, Scope
-from .process import environment, non_notification_environment
+from .process import controlled_run, environment, non_notification_environment
 from .toolchain import ensure_toolchain, inspect_toolchain
 
 
@@ -34,9 +34,15 @@ def require_windows() -> None:
 
 
 def source_settings(args, project: Project | None = None) -> SourceSettings:
-    saved = load_sources(installation_home()) if os.environ.get("LOCALAPPDATA") else {}
-    repository = getattr(args, "repository", None) or os.environ.get("AWCENTER_PACKAGE_REPOSITORY") or saved.get("repository")
-    offline = getattr(args, "offline_dir", None) or os.environ.get("AWCENTER_OFFLINE_DIR") or saved.get("offline_dir")
+    """Resolve CLI defaults or isolate explicit desktop form choices from them."""
+    use_saved = getattr(args, "use_saved_sources", True)
+    saved = load_sources(installation_home()) if use_saved and os.environ.get("LOCALAPPDATA") else {}
+    repository = (getattr(args, "repository", None)
+                  or (os.environ.get("AWCENTER_PACKAGE_REPOSITORY") if use_saved else None)
+                  or saved.get("repository"))
+    offline = (getattr(args, "offline_dir", None)
+               or (os.environ.get("AWCENTER_OFFLINE_DIR") if use_saved else None)
+               or saved.get("offline_dir"))
     if not offline and (Path.cwd() / "install-manifest.json").is_file():
         offline = Path.cwd()
     if not offline and project and (project.root.parent / "install-manifest.json").is_file():
@@ -49,6 +55,7 @@ def source_settings(args, project: Project | None = None) -> SourceSettings:
     if repository and "://" in str(repository):
         _https_url(str(repository))
     return SourceSettings(repository=repository, offline_dir=Path(offline) if offline else None,
+                          mode=getattr(args, "source_mode", None) or saved.get("mode", "online"),
                           python_index_url=python_index, npm_registry_url=npm_registry,
                           ca_file=Path(getattr(args, "ca_file", None) or saved["ca_file"]) if getattr(args, "ca_file", None) or saved.get("ca_file") else None)
 
@@ -59,7 +66,7 @@ def backend_inspection(project: Project, profile: dict) -> dict:
         return {"schema": "error", "admin_exists": None, "diagnostics": []}
     values = environment({**profile_environment(profile), "PYTHONDONTWRITEBYTECODE": "1"})
     try:
-        result = subprocess.run([str(project.python), "-m", "scripts.launcher.installation_probe", "inspect"],
+        result = controlled_run([str(project.python), "-m", "scripts.launcher.installation_probe", "inspect"],
                                 cwd=project.root, env=values, text=True, capture_output=True,
                                 check=False, timeout=30)
         if result.returncode or len(result.stdout) > 64 * 1024:
@@ -134,9 +141,19 @@ def _initialize_schema(project: Project, profile: dict, args, tool_env: dict) ->
 def _initial_admin(project: Project, profile: dict, args, tool_env: dict) -> None:
     if args.no_admin or backend_inspection(project, profile).get("admin_exists"):
         return
-    result = subprocess.run([str(project.python), "-m", "scripts.launcher.installation_probe", "initial-admin"],
+    provider = getattr(args, "admin_provider", None)
+    options = {}
+    operation = "initial-admin"
+    if provider is not None:
+        credentials = provider()
+        if (not isinstance(credentials, dict) or set(credentials) != {"username", "password"}
+                or any(not isinstance(value, str) or not value for value in credentials.values())):
+            raise LauncherError("İlk yönetici bilgileri sağlanmadı; mevcut hesaplar değiştirilmedi.")
+        operation = "initial-admin-json"
+        options = {"input": json.dumps(credentials), "text": True, "capture_output": True, "timeout": 60}
+    result = controlled_run([str(project.python), "-m", "scripts.launcher.installation_probe", operation],
                             cwd=project.root, env=environment({**tool_env, **profile_environment(profile)}),
-                            check=False)
+                            check=False, safe_boundary=True, **options)
     if result.returncode:
         raise LauncherError("İlk yönetici oluşturulamadı; mevcut hesaplar değiştirilmedi.")
 
@@ -172,6 +189,9 @@ def provision(project: Project, args) -> list[dict]:
         bundle = verify_install_bundle(project, settings.offline_dir)
     with installation_lock(home):
         def phase(label):
+            progress = getattr(args, "progress", None)
+            if progress is not None:
+                progress(label)
             save_report(home, args.profile, [{"name": "provision", "status": "blocked",
                         "detail": f"Son başlatılan aşama henüz tamamlanmadı: {label}. İşlemi tekrar çalıştırabilirsiniz."}])
 
@@ -246,7 +266,7 @@ def _worker_ready(project: Project, directory: Path) -> bool:
         return False
 
 
-def start_profile(project: Project, name: str) -> None:
+def start_profile(project: Project, name: str, *, on_ready=None) -> None:
     require_windows()
     profile = load_profile(project, name)
     home = Path(profile.get("installation_home", Path(profile["env_file"]).parent.parent))
@@ -262,8 +282,11 @@ def start_profile(project: Project, name: str) -> None:
         values = {**tools, **pointers, **feature_environment(project, profile)}
     with process_environment(values), runtime_session(profile) as directory:
         _django(project, profile, ["migrate", "--check"], {})
-        ready = lambda processes: wait_until_ready(processes, profile, directory,
-                                                   worker_check=lambda: _worker_ready(project, directory))
+        def ready(processes):
+            wait_until_ready(processes, profile, directory,
+                             worker_check=lambda: _worker_ready(project, directory))
+            if on_ready is not None:
+                on_ready(profile)
         options = {"migrate": False, "exclude_doors": profile.get("exclude_doors", False),
                    "ready": ready, "worker_heartbeat_dir": directory, "protect_credentials": True}
         if name == "dev":

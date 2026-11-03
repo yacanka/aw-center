@@ -21,10 +21,15 @@ AW Center, kullanıcı erişimini ve doküman işlemlerini uygulama sunucusunda 
 
 ## Kurulum ve çalıştırma
 
-Windows'ta sıfırdan kurulum için `AWCenter.cmd` dosyasını çift tıklayın veya CMD'de
-çalıştırın. Yardımcı Python/Node'u kullanıcıya özel hazırlar; dev/prod profillerini,
-offline kaynakları ve eksik özellikleri yönetir. PowerShell gerekmez.
-[Windows kurulum yardımcısı](docs/windows-install-helper.md) ayrıntıları açıklar.
+Windows masaüstü yöneticisi için taşınabilir ZIP'in tamamını çıkarıp
+`AWCenterManager.exe` dosyasını açın. Arayüz dev/prod kurulumu, başlatma/durdurma,
+kurumsal ve offline kaynaklar ile durum raporlarını yönetir. İlk pencere için
+kurulu Python, Node veya Git gerekmez. ZIP, Windows build workflow'u tarafından
+üretilir; kaynak `.pyw` dosyası taşınabilir EXE'nin yerine geçmez.
+[Masaüstü yöneticisi rehberi](docs/windows-manager.md) paketleme ve kullanımı açıklar.
+
+Terminal akışı `AWCenter.cmd` ile kullanılabilir.
+[Windows CLI yardımcısı](docs/windows-install-helper.md) ayrıntıları açıklar.
 
 Mevcut Python/Node kurulumu olan development ortamlarında aşağıdaki düşük seviyeli
 launcher akışı da kullanılabilir.

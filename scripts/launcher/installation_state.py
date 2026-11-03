@@ -115,10 +115,12 @@ def load_sources(home: Path) -> dict:
         if path.stat().st_size > 16 * 1024:
             raise ValueError
         content = json.loads(path.read_text(encoding="utf-8"))
-        allowed = {"repository", "offline_dir", "python_index_url", "npm_registry_url", "ca_file"}
+        allowed = {"repository", "offline_dir", "python_index_url", "npm_registry_url", "ca_file", "mode"}
         if not isinstance(content, dict) or set(content) - allowed:
             raise ValueError
         if any(not isinstance(value, str) or any(char in value for char in "\r\n\0") for value in content.values()):
+            raise ValueError
+        if content.get("mode", "online") not in {"online", "corporate", "offline"}:
             raise ValueError
         return content
     except (ValueError, UnicodeError):
@@ -131,7 +133,7 @@ def save_sources(home: Path, settings) -> None:
     require_unlinked(destination)
     if destination.exists():
         require_private(destination)
-    fields = ("repository", "offline_dir", "python_index_url", "npm_registry_url", "ca_file")
+    fields = ("repository", "offline_dir", "python_index_url", "npm_registry_url", "ca_file", "mode")
     content = {key: str(getattr(settings, key)) for key in fields if getattr(settings, key, None)}
     descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".sources-")
     path = Path(temporary)

@@ -45,3 +45,33 @@ class InitialAdminTests(TestCase):
         with mock.patch('users.management.commands.provision_initial_admin.sys.stdin.isatty', return_value=False), self.assertRaises(CommandError):
             call_command('provision_initial_admin', stdout=StringIO())
         self.assertFalse(get_user_model().objects.exists())
+
+
+class InitialAdminServiceTests(TestCase):
+    def test_shared_service_validates_and_creates_first_admin(self):
+        from users.initial_admin import create_initial_admin
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            create_initial_admin('admin', 'service-fixture!921')
+        with self.assertRaises(ValidationError):
+            create_initial_admin('U12345', '123')
+        self.assertFalse(get_user_model().objects.exists())
+        self.assertTrue(create_initial_admin('U12345', 'service-fixture!921'))
+        user = get_user_model().objects.get(username='U12345')
+        self.assertTrue(user.is_superuser and user.is_staff and user.is_active)
+        self.assertTrue(user.check_password('service-fixture!921'))
+
+    def test_shared_service_never_promotes_or_resets_existing_accounts(self):
+        from users.initial_admin import create_initial_admin
+        from django.core.exceptions import ValidationError
+        user = get_user_model().objects.create_user(username='U12345', password='preserved-fixture!621')
+        before = user.password
+        with self.assertRaises(ValidationError):
+            create_initial_admin('U12345', 'service-fixture!921')
+        user.refresh_from_db()
+        self.assertFalse(user.is_superuser)
+        self.assertEqual(user.password, before)
+        user.is_superuser = True
+        user.save(update_fields=['is_superuser'])
+        self.assertFalse(create_initial_admin('A54321', 'service-fixture!921'))
+        self.assertEqual(get_user_model().objects.count(), 1)

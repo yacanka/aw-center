@@ -341,11 +341,9 @@ def _npm_argv() -> list[str]:
 
 def _acquire_wheels(project: Project, destination: Path, settings, overrides: dict) -> None:
     from .installation_dependencies import availability_failure
-    from .installation_sources import _https_url
+    from .installation_sources import acquisition_urls
     python = os.environ.get('AWCENTER_MANAGED_PYTHON', sys.executable)
-    indexes = ['https://pypi.org/simple']
-    if settings.python_index_url:
-        indexes.append(_https_url(settings.python_index_url))
+    indexes = acquisition_urls(settings, 'https://pypi.org/simple', settings.python_index_url)
     with tempfile.TemporaryDirectory(prefix='awcenter-wheel-acquire-') as temporary:
         selected = None
         for index, url in enumerate(indexes):
@@ -372,10 +370,8 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
 
 def _acquire_npm(project: Project, destination: Path, settings, overrides: dict) -> None:
     from .installation_dependencies import availability_failure
-    from .installation_sources import _https_url
-    registries = ['https://registry.npmjs.org']
-    if settings.npm_registry_url:
-        registries.append(_https_url(settings.npm_registry_url))
+    from .installation_sources import acquisition_urls
+    registries = acquisition_urls(settings, 'https://registry.npmjs.org', settings.npm_registry_url)
     npm = _npm_argv()
     with tempfile.TemporaryDirectory(prefix='awcenter-npm-acquire-') as temporary:
         selected = None

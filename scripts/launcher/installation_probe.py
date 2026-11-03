@@ -72,14 +72,46 @@ def inspect_backend() -> dict:
     return result
 
 
+def provision_admin_json(stream) -> dict:
+    """Consume a bounded private stdin message; return only a declared status.
+
+    This transport never places credentials in argv, environment, output or a
+    temporary file. Validation details are deliberately withheld from the IPC.
+    """
+    try:
+        payload = stream.read(16 * 1024 + 1)
+        if len(payload) > 16 * 1024:
+            raise ValueError
+        content = json.loads(payload)
+        if (not isinstance(content, dict) or set(content) != {'username', 'password'}
+                or any(not isinstance(value, str) or not value for value in content.values())
+                or len(content['username']) > 150 or len(content['password']) > 4096):
+            raise ValueError
+        from users.initial_admin import create_initial_admin
+        created = create_initial_admin(content['username'], content['password'])
+        return {'status': 'created' if created else 'exists'}
+    except Exception:
+        return {'status': 'error', 'code': 'invalid_admin_input'}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Inspect installation backend without changing state.')
-    parser.add_argument('operation', choices=['inspect', 'initial-admin'])
+    parser.add_argument('operation', choices=['inspect', 'initial-admin', 'initial-admin-json'])
     arguments = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / 'backend'))
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'awcenter.settings')
     sys.dont_write_bytecode = True
+    if arguments.operation == 'initial-admin-json':
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                import django
+                django.setup()
+                result = provision_admin_json(sys.stdin)
+        except Exception:
+            result = {'status': 'error', 'code': 'backend_unavailable'}
+        print(json.dumps(result))
+        return int(result['status'] == 'error')
     if arguments.operation == 'initial-admin':
         import django
         django.setup()

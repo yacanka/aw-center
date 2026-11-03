@@ -1,8 +1,17 @@
 @echo off
 setlocal DisableDelayedExpansion
+rem Explorer closes its console when a batch file fails, including syntax errors
+rem that bypass :failed/pause. Keep an outer CMD alive before entering bootstrap.
+rem Explicit commands retain their non-interactive exit-code contract.
+if not "%~1"=="" goto bootstrap_entry
+"%SystemRoot%\System32\cmd.exe" /d /s /k ""%~f0" wizard"
+exit /b %errorlevel%
+:bootstrap_entry
 set "AWC_STAGE="
 set "AWC_STAGE_OWNED="
 set "AWC_PUSHD="
+set "AWC_SOURCE_PROMPTED="
+set "AWC_SOURCE_MODE=online"
 set "PYTHONDONTWRITEBYTECODE=1"
 rem Reviewed bootstrap constants. Keep these synchronized with installation_catalog.json.
 set "AWC_PY_FILE=cpython-3.11.18+20261026-x86_64-pc-windows-msvc-install_only.tar.gz"
@@ -22,11 +31,14 @@ if /i "%~1"=="help" goto help
 if /i "%~1"=="doctor" set "AWC_READONLY=1"
 :parse
 if "%~1"=="" goto parsed
+set "AWC_ARGUMENT=%~1"
 if /i "%~1"=="--help" goto help
 if /i "%~1"=="-h" goto help
 if /i "%~1"=="--repository" goto repository
 if /i "%~1"=="--offline-dir" goto offline
 if /i "%~1"=="--ca-file" goto ca_file
+if /i "%~1"=="--source-mode" goto source_mode
+if /i "%AWC_ARGUMENT:~0,14%"=="--source-mode=" goto source_mode_equals
 shift
 goto parse
 :repository
@@ -47,7 +59,23 @@ set "AWC_CA_FILE=%~f2"
 shift
 shift
 goto parse
+:source_mode
+if "%~2"=="" goto usage_error
+set "AWC_SOURCE_MODE=%~2"
+shift
+goto validate_source_mode
+:source_mode_equals
+set "AWC_SOURCE_MODE=%AWC_ARGUMENT:~14%"
+:validate_source_mode
+if "%AWC_SOURCE_MODE%"=="online" goto source_mode_valid
+if "%AWC_SOURCE_MODE%"=="corporate" goto source_mode_valid
+if "%AWC_SOURCE_MODE%"=="offline" goto source_mode_valid
+goto source_mode_error
+:source_mode_valid
+shift
+goto parse
 :parsed
+echo [bootstrap] Checking Windows and installation prerequisites...
 if /i "%PROCESSOR_ARCHITECTURE%"=="AMD64" goto architecture_ok
 if /i "%PROCESSOR_ARCHITEW6432%"=="AMD64" goto architecture_ok
 echo [error] AW Center requires Windows x64.
@@ -88,10 +116,10 @@ goto launch
 echo [missing] Managed Python 3.11 is not installed. Run AWCenter.cmd provision --profile dev.
 goto failed
 :bootstrap
-if not exist "%AWC_CURL%" goto tools_missing
+if not "%AWC_SOURCE_MODE%"=="offline" if not exist "%AWC_CURL%" goto tools_missing
 if not exist "%AWC_CERTUTIL%" goto tools_missing
 if not exist "%AWC_TAR%" goto tools_missing
-if defined AWC_CA_FILE if not exist "%AWC_CA_FILE%" goto ca_error
+if not "%AWC_SOURCE_MODE%"=="offline" if defined AWC_CA_FILE if not exist "%AWC_CA_FILE%" goto ca_error
 rem Stage outside the home: failed initial downloads cannot leave a half-created home.
 set "AWC_STAGE=%LOCALAPPDATA%\AWCenter-bootstrap-%RANDOM%-%RANDOM%"
 mkdir "%AWC_STAGE%" 2>nul
@@ -105,7 +133,10 @@ if errorlevel 1 goto failed
 "%SystemRoot%\System32\icacls.exe" "%AWC_STAGE%" /setowner "*%AWC_SID%" >nul 2>nul
 if errorlevel 1 goto failed
 if exist "%AWC_ARCHIVE%" goto cached_bootstrap
+if "%AWC_SOURCE_MODE%"=="offline" goto local_repository
+if "%AWC_SOURCE_MODE%"=="corporate" goto repository_fallback
 set "AWC_FETCH_URL=%AWC_PY_URL%"
+echo [bootstrap] Downloading the verified Python runtime...
 call :download
 if errorlevel 2 goto download_failed
 if errorlevel 1 goto repository_fallback
@@ -115,12 +146,17 @@ if not defined AWC_REPOSITORY goto offline_fallback
 rem HTTPS repositories are byte mirrors; filenames and hashes are never read from them.
 if /i "%AWC_REPOSITORY:~0,8%"=="https://" goto remote_repository
 if /i "%AWC_REPOSITORY:~0,7%"=="http://" goto insecure_repository
+:local_repository
+if not defined AWC_REPOSITORY goto offline_fallback
+if /i "%AWC_REPOSITORY:~0,8%"=="https://" goto offline_fallback
+if /i "%AWC_REPOSITORY:~0,7%"=="http://" goto insecure_repository
 set "AWC_LOCAL_FILE=%AWC_REPOSITORY%\%AWC_PY_FILE%"
 if exist "%AWC_LOCAL_FILE%" goto accept_local
 set "AWC_LOCAL_FILE=%AWC_REPOSITORY%\runtimes\%AWC_PY_FILE%"
 if exist "%AWC_LOCAL_FILE%" goto accept_local
 goto offline_fallback
 :remote_repository
+if "%AWC_SOURCE_MODE%"=="offline" goto offline_fallback
 if not "%AWC_REPOSITORY:@=%"=="%AWC_REPOSITORY%" goto insecure_repository
 if not "%AWC_REPOSITORY:?=%"=="%AWC_REPOSITORY%" goto insecure_repository
 if not "%AWC_REPOSITORY:#=%"=="%AWC_REPOSITORY%" goto insecure_repository
@@ -140,8 +176,27 @@ set "AWC_LOCAL_FILE=%AWC_OFFLINE%\%AWC_PY_FILE%"
 if exist "%AWC_LOCAL_FILE%" goto accept_local
 set "AWC_LOCAL_FILE=%AWC_OFFLINE%\runtimes\%AWC_PY_FILE%"
 if exist "%AWC_LOCAL_FILE%" goto accept_local
-echo [error] Verified Python archive unavailable from public, repository and offline sources.
+echo [error] Verified Python archive unavailable from sources permitted by %AWC_SOURCE_MODE% mode.
+echo [info] Required file: %AWC_PY_FILE%
+echo [info] Use --repository for a package mirror or --offline-dir for a directory containing this file.
+if defined AWC_SOURCE_PROMPTED goto failed
+if "%AWC_COMMAND%"=="" goto choose_bootstrap_sources
+if /i "%AWC_COMMAND%"=="wizard" goto choose_bootstrap_sources
 goto failed
+:choose_bootstrap_sources
+rem This prompt must work before Python/the wizard can be installed.
+set "AWC_SOURCE_PROMPTED=1"
+set "AWC_NEW_REPOSITORY="
+set "AWC_NEW_OFFLINE="
+echo.
+echo Python could not be downloaded. Supply an alternative source, or press Enter twice to exit.
+echo Do not include passwords, tokens or surrounding quotes.
+set /p "AWC_NEW_REPOSITORY=Package repository HTTPS URL or directory: "
+set /p "AWC_NEW_OFFLINE=Offline directory containing the required archive: "
+if not defined AWC_NEW_REPOSITORY if not defined AWC_NEW_OFFLINE goto failed
+if defined AWC_NEW_REPOSITORY set "AWC_REPOSITORY=%AWC_NEW_REPOSITORY%"
+if defined AWC_NEW_OFFLINE set "AWC_OFFLINE=%AWC_NEW_OFFLINE%"
+goto repository_fallback
 :accept_local
 copy /b "%AWC_LOCAL_FILE%" "%AWC_STAGE%\python.part" >nul
 if errorlevel 1 goto failed
@@ -196,6 +251,9 @@ set "AWC_TRUST_RUNTIME=%AWC_HOME%\runtimes\python-3.11.18"
 call :verify_runtime
 if errorlevel 1 goto integrity_error
 :launch
+rem Carry bootstrap choices into the Python wizard's subsequent Node/npm setup.
+set "AWCENTER_PACKAGE_REPOSITORY=%AWC_REPOSITORY%"
+set "AWCENTER_OFFLINE_DIR=%AWC_OFFLINE%"
 if defined AWC_STAGE_OWNED rd /s /q "%AWC_STAGE%" 2>nul
 if "%AWC_COMMAND%"=="" goto wizard
 "%AWC_PYTHON%" -I -S -B -X utf8 -X frozen_modules=on "%AWC_ROOT%scripts\launcher\installation_verify_python.py" "%AWC_TRUST_RUNTIME%" "%AWC_ROOT%scripts\launcher\installation_python.sha256" "%AWC_ROOT%." launch %*
@@ -276,6 +334,15 @@ goto download_result
 :download_result
 set "AWC_FETCH_STATUS=%errorlevel%"
 if "%AWC_FETCH_STATUS%"=="0" exit /b 0
+rem Publish only numeric transport diagnostics, never curl stderr or signed URLs.
+set "AWC_HTTP_STATUS=unknown"
+if exist "%AWC_STAGE%\http-status" set /p "AWC_HTTP_STATUS=" <"%AWC_STAGE%\http-status"
+echo [download] curl exit code: %AWC_FETCH_STATUS%; HTTP status: %AWC_HTTP_STATUS%
+if "%AWC_FETCH_STATUS%"=="5" echo [download] Proxy name could not be resolved. Check HTTPS_PROXY.
+if "%AWC_FETCH_STATUS%"=="6" echo [download] Download host could not be resolved. Check DNS or use a package mirror.
+if "%AWC_FETCH_STATUS%"=="7" echo [download] Connection failed. Check network, firewall and proxy access.
+if "%AWC_FETCH_STATUS%"=="28" echo [download] Download timed out. Check proxy access or use an offline archive.
+if "%AWC_SOURCE_MODE%"=="online" echo [download] Public downloads require github.com and release-assets.githubusercontent.com access.
 if "%AWC_FETCH_STATUS%"=="5" exit /b 1
 if "%AWC_FETCH_STATUS%"=="6" exit /b 1
 if "%AWC_FETCH_STATUS%"=="7" exit /b 1
@@ -297,10 +364,14 @@ echo   prepare-install-bundle --output PATH
 echo   --repository HTTPS_URL_OR_DIR    Secondary reviewed-artifact mirror.
 echo   --offline-dir DIR                Final fallback, including DIR\runtimes.
 echo   --ca-file FILE                   Trusted CA certificate bundle.
+echo   --source-mode online^|corporate^|offline  Allowed acquisition sources; default online.
 echo HTTPS_PROXY may be inherited from the process. URL credentials are not supported.
 exit /b 0
 :usage_error
-echo [error] --repository, --offline-dir and --ca-file require a value.
+echo [error] --repository, --offline-dir, --ca-file and --source-mode require a value.
+exit /b 1
+:source_mode_error
+echo [error] --source-mode must be online, corporate or offline.
 exit /b 1
 :no_home
 echo [error] LOCALAPPDATA is required for a user-scoped installation.
@@ -325,4 +396,5 @@ echo [error] Bootstrap integrity verification failed. No unverified runtime was 
 :failed
 if defined AWC_STAGE_OWNED rd /s /q "%AWC_STAGE%" 2>nul
 if defined AWC_PUSHD popd
+if "%AWC_COMMAND%"=="" pause
 exit /b 1

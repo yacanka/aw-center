@@ -4,6 +4,7 @@ import io
 import ssl
 import tarfile
 import tempfile
+import threading
 import unittest
 import zipfile
 from pathlib import Path
@@ -12,6 +13,7 @@ from urllib.error import HTTPError, URLError
 
 from scripts.launcher import installation_sources as sources
 from scripts.launcher.model import LauncherError
+from scripts.launcher.process import OperationCancelled, operation_control
 
 
 class SourceTests(unittest.TestCase):
@@ -63,6 +65,52 @@ class SourceTests(unittest.TestCase):
             with self.assertRaises(LauncherError):
                 sources.fetch_artifact(self.artifact, self.root / "cache", sources.SourceSettings())
         self.assertEqual(download.call_count, 3)
+
+    def test_cancelled_retrieval_never_starts_an_acquisition_attempt(self):
+        stop = threading.Event()
+        stop.set()
+        attempts = []
+        def download(*_):
+            attempts.append('started')
+        with operation_control(stop), patch.object(sources, '_download', side_effect=download):
+            with self.assertRaises(OperationCancelled):
+                sources._retrieve(self.artifact.url, self.root / 'download', None)
+        self.assertEqual(attempts, [])
+
+    def test_cancellation_between_retries_prevents_the_next_network_attempt(self):
+        stop = threading.Event()
+        attempts = []
+        def unavailable(*_):
+            attempts.append('started')
+            stop.set()
+            raise URLError(TimeoutError())
+        with operation_control(stop), patch.object(sources, '_download', side_effect=unavailable):
+            with self.assertRaises(OperationCancelled):
+                sources._retrieve(self.artifact.url, self.root / 'download', None)
+        self.assertEqual(attempts, ['started'])
+
+    def test_download_cancellation_stops_at_the_next_chunk_boundary(self):
+        stop = threading.Event()
+        reads = []
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                pass
+            def read(self, _):
+                reads.append('read')
+                if len(reads) == 1:
+                    stop.set()
+                    return b'first'
+                return b'second' if len(reads) == 2 else b''
+        opener = unittest.mock.Mock()
+        opener.open.return_value = Response()
+        destination = self.root / 'download'
+        with operation_control(stop), patch.object(sources, 'build_opener', return_value=opener):
+            with self.assertRaises(OperationCancelled):
+                sources._download(self.artifact.url, destination, None)
+        self.assertEqual(reads, ['read'])
+        self.assertEqual(destination.read_bytes(), b'first')
 
     def test_unsafe_urls_and_filename_rejected_before_writes(self):
         for url in ("http://example.com/file", "https://user:secret@example.com/file"):

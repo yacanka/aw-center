@@ -1,11 +1,19 @@
 # Windows kurulum ve çalıştırma yardımcısı
 
+Masaüstü arayüzü için [AW Center Windows yöneticisini](windows-manager.md)
+kullanın. Bu rehber mevcut terminal/otomasyon akışını anlatır.
+
 Windows x64 üzerinde kaynak paketini açıp `AWCenter.cmd` dosyasına çift tıklayın.
 Sihirbaz dev kurulumu, durum kontrolü, başlatma, prod ve offline paket işlemlerini
 aynı terminalden sunar. PowerShell, önceden kurulmuş Python/Node veya Git gerekmez.
 Windows'un `curl.exe`, `certutil.exe`, `tar.exe`, `icacls.exe` ve `whoami.exe`
 araçları kullanılabilir olmalıdır. Kurum politikası bunları engelliyorsa yardımcı
 politikayı aşmaz; araç erişimi kurum tarafından sağlanmalıdır.
+
+Çift tıklama dış bir `CMD /k` oturumu açar. Bootstrap erken sonlansa veya CMD
+sözdizimi hatası oluşsa da pencere açık kalır; hata metni okunabilir. Menüden
+çıktıktan sonra bu terminali `exit` ile kapatabilirsiniz. Argüman verilerek yapılan
+CLI çağrıları otomasyon için beklemeden çıkış kodu döndürmeye devam eder.
 
 ## İlk dev kurulumu
 
@@ -55,6 +63,11 @@ Python indeksi Simple API, npm adresi npm uyumlu registry olmalıdır. Bunlar ay
 protokol değildir. Son kullanılan secretsiz kaynak tercihleri özel config altında
 saklanır. Değiştirmek için sihirbazda yeni değer girin veya ilgili CLI flag'ini
 kullanın; kullanılmayacak eski tercih config/sources.json içinden kaldırılabilir.
+
+`--source-mode corporate` yalnız seçilen kurumsal veya yerel kaynakları kullanır;
+genel internete geçmez. `--source-mode offline --offline-dir "D:\AWCenter-package"`
+ağ indirmelerini kapatır. Varsayılan `online` yukarıdaki edinim sırasını korur.
+Bu seçim CMD'nin ilk Python bootstrap aşaması için de geçerlidir.
 
 Artifact dosyaları depo kökünde veya `runtimes/` altında bulunabilir. Aynı dosya,
 seçilen kaynak ne olursa olsun onaylı sürüm/hash ile eşleşmelidir. Ağ erişimsizliği

@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 from .model import LauncherError
+from .process import check_cancelled
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -40,6 +41,7 @@ def wait_until_ready(
     """Require HTTP and this launch's worker identities before announcing readiness."""
     deadline = time.monotonic() + timeout
     while True:
+        check_cancelled()
         if any(process.poll() is not None for process in processes):
             raise LauncherError("Başlatılan bir süreç kapandı; uygulama hazır değil.")
         production = profile["name"] == "prod"

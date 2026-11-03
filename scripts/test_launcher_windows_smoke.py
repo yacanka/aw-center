@@ -65,11 +65,67 @@ class WindowsCommandSmokeTests(unittest.TestCase):
         self.assertIn('AW Center', result.stdout)
         self.assertFalse(self.home.exists())
 
+    def test_double_click_console_survives_unexpected_batch_exit(self):
+        script = (ROOT / 'AWCenter.cmd').read_text(encoding='utf-8')
+        outer, marker, _ = script.partition('\n:bootstrap_entry\n')
+        self.assertTrue(marker)
+        fixture = self.local / 'Unexpected bootstrap exit.cmd'
+        fixture.write_text(outer + '\n:bootstrap_entry\ngoto :missing_bootstrap_label\n', encoding='utf-8')
+        command = f'"{self.cmd}" /d /s /c ""{fixture}""'
+        result = subprocess.run(command, cwd=self.local, env=self.environment,
+                                input='echo AWC_CONSOLE_SURVIVED\nexit\n', capture_output=True,
+                                text=True, errors='replace', check=False, timeout=15)
+        self.assertIn('AWC_CONSOLE_SURVIVED', result.stdout)
+        self.assertFalse(self.home.exists())
+
     def test_doctor_without_managed_python_is_read_only_and_refuses_start(self):
         result = self.command('doctor', '--profile', 'dev')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Managed Python', result.stdout)
         self.assertFalse(self.home.exists())
+
+    def test_explicit_source_modes_gate_bootstrap_before_any_public_download(self):
+        # Keep CMD parsing/branches real; replace only curl with a local trace.
+        # No download is made, including when a broken policy reaches curl.
+        fixture = self.local / 'Source policy.cmd'
+        trace = self.local / 'download-urls.txt'
+        script = (ROOT / 'AWCenter.cmd').read_text(encoding='utf-8')
+        script = script.replace('\n:download\n', '\n:download\necho %AWC_FETCH_URL%>>"' + str(trace) + '"\nexit /b 1\n', 1)
+        fixture.write_text(script, encoding='utf-8')
+        offline = self.local / 'offline'
+        offline.mkdir()
+        for mode_arguments, repository, expected in (
+            ('--source-mode offline', 'https://selected.example/tools', []),
+            ('--source-mode=offline', 'https://selected.example/tools', []),
+            ('--source-mode corporate', 'https://selected.example/tools', [
+                'https://selected.example/tools/' + load_catalog()['python'].filename,
+                'https://selected.example/tools/runtimes/' + load_catalog()['python'].filename]),
+            ('--source-mode=corporate', str(offline), []),
+            ('--source-mode online', 'https://selected.example/tools', [load_catalog()['python'].url,
+                'https://selected.example/tools/' + load_catalog()['python'].filename,
+                'https://selected.example/tools/runtimes/' + load_catalog()['python'].filename]),
+            ('', 'https://selected.example/tools', [load_catalog()['python'].url,
+                'https://selected.example/tools/' + load_catalog()['python'].filename,
+                'https://selected.example/tools/runtimes/' + load_catalog()['python'].filename]),
+        ):
+            with self.subTest(mode=mode_arguments, repository=repository):
+                trace.unlink(missing_ok=True)
+                command = (f'"{self.cmd}" /d /s /c ""{fixture}" provision {mode_arguments} '
+                           f'--repository "{repository}" --offline-dir "{offline}""')
+                result = subprocess.run(command, cwd=self.local, env=self.environment, capture_output=True,
+                                        text=True, errors='replace', check=False, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                urls = trace.read_text(encoding='utf-8').splitlines() if trace.exists() else []
+                self.assertEqual(urls, expected, result.stdout + result.stderr)
+                self.assertFalse(self.home.exists())
+
+    def test_invalid_source_mode_fails_without_creating_private_state(self):
+        for arguments in (('--source-mode', 'invalid'), ('--source-mode', ''), ('--source-mode=invalid',), ('--source-mode=',)):
+            with self.subTest(arguments=arguments):
+                result = self.command('provision', *arguments)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('--source-mode', result.stdout)
+                self.assertFalse(self.home.exists())
 
     def test_exact_owner_acl_is_verified_and_restricts_inheritance(self):
         path = self.local / 'private'

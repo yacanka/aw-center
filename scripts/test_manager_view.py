@@ -1,0 +1,468 @@
+"""Headless manager form/report coverage plus an optional native Tk smoke."""
+
+import unittest
+from threading import Event, get_ident
+from unittest.mock import patch
+
+from scripts.manager import view_model
+
+from scripts.manager.view_model import (
+    FormError,
+    ManagerState,
+    normalize_values,
+    validate_admin,
+)
+
+
+class FormTests(unittest.TestCase):
+    def test_plain_values_preserve_saved_profile_defaults(self):
+        values = normalize_values("provision", {"profile": "prod", "source_root": " C:/source "})
+        self.assertEqual(values["source_root"], "C:/source")
+        self.assertEqual(values["host"], "")
+        self.assertEqual(values["backend_port"], "")
+        self.assertEqual(values["source_mode"], "online")
+        self.assertIs(values["migrate"], False)
+
+    def test_invalid_port_identifies_its_field(self):
+        for port in ("0", "65536", "abc", "1.5"):
+            with self.subTest(port=port), self.assertRaises(FormError) as caught:
+                normalize_values("provision", {"backend_port": port})
+            self.assertEqual(caught.exception.field, "backend_port")
+
+    def test_port_boundaries_and_dev_host_are_valid(self):
+        values = normalize_values("provision", {"backend_port": "1", "frontend_port": "65535", "host": "127.0.0.1"})
+        self.assertEqual(values["frontend_port"], "65535")
+
+    def test_disabled_profile_fields_do_not_override_saved_profile(self):
+        values = normalize_values("provision", {"profile": "prod", "frontend_port": "unused"})
+        self.assertEqual(values["frontend_port"], "")
+        values = normalize_values("provision", {"profile": "dev", "tls_cert_file": "old.crt", "tls_key_file": "old.key"})
+        self.assertEqual(values["tls_cert_file"], "")
+        self.assertEqual(values["tls_key_file"], "")
+
+    def test_prod_host_rejects_hostname_and_loopback(self):
+        for host in ("localhost", "127.0.0.1", "0.0.0.0", "not-a-host"):
+            with self.subTest(host=host), self.assertRaises(FormError) as caught:
+                normalize_values("provision", {"profile": "prod", "host": host})
+            self.assertEqual(caught.exception.field, "host")
+
+    def test_offline_dependency_operation_requires_directory(self):
+        with self.assertRaises(FormError) as caught:
+            normalize_values("test-sources", {"source_mode": "offline"})
+        self.assertEqual(caught.exception.field, "offline_dir")
+
+    def test_start_and_doctor_do_not_validate_unused_source_fields(self):
+        for action in ("start", "doctor"):
+            with self.subTest(action=action):
+                values = normalize_values(action, {"source_mode": "offline", "python_index_url": "http://unused"})
+                self.assertEqual(values["source_mode"], "offline")
+
+    def test_registry_rejects_credentials_and_tls_bypasses(self):
+        for url in ("http://packages.example/simple", "https://user:credential@packages.example/simple", "https://packages.example/simple?token=credential"):
+            with self.subTest(url=url), self.assertRaises(FormError) as caught:
+                normalize_values("test-sources", {"source_mode": "corporate", "python_index_url": url})
+            self.assertEqual(caught.exception.field, "python_index_url")
+
+    def test_corporate_source_accepts_https_and_unc_artifacts(self):
+        values = normalize_values("test-sources", {"source_mode": "corporate", "repository": r"\\server\packages", "python_index_url": "https://packages.example/simple", "npm_registry_url": "https://npm.example"})
+        self.assertEqual(values["repository"], r"\\server\packages")
+
+    def test_bundle_requires_an_explicit_output_directory(self):
+        with self.assertRaises(FormError) as caught:
+            normalize_values("bundle", {})
+        self.assertEqual(caught.exception.field, "output")
+
+    def test_unknown_values_never_enter_callback_payload(self):
+        values = normalize_values("doctor", {"password": "never-in-report", "unexpected": "ignored"})
+        self.assertNotIn("password", values)
+        self.assertNotIn("unexpected", values)
+
+    def test_online_retains_explicit_fallback_sources(self):
+        values = normalize_values("provision", {"source_mode": "online", "python_index_url": "https://packages.example/simple", "repository": "https://packages.example", "offline_dir": "D:/packages", "ca_file": "corporate.pem"})
+        self.assertEqual(values["python_index_url"], "https://packages.example/simple")
+        self.assertEqual(values["repository"], "https://packages.example")
+        self.assertEqual(values["offline_dir"], "D:/packages")
+        self.assertEqual(values["ca_file"], "corporate.pem")
+
+    def test_offline_retains_ca_and_ignores_network_sources(self):
+        values = normalize_values("test-sources", {"source_mode": "offline", "offline_dir": "D:/packages", "repository": "https://unused.example", "python_index_url": "http://unused", "ca_file": "corporate.pem"})
+        self.assertEqual(values["repository"], "")
+        self.assertEqual(values["python_index_url"], "")
+        self.assertEqual(values["ca_file"], "corporate.pem")
+
+    def test_admin_requires_confirmation_and_minimum_password(self):
+        for username, password, confirmation, field in (
+            ("", "safe-password-143", "safe-password-143", "username"),
+            ("admin name", "safe-password-143", "safe-password-143", "username"),
+            ("a12345", "short", "short", "password"),
+            ("a12345", "123456789012", "123456789012", "password"),
+            ("a12345", "safe-password-143", "different-value", "confirmation"),
+        ):
+            with self.subTest(field=field), self.assertRaises(FormError) as caught:
+                validate_admin(username, password, confirmation)
+            self.assertEqual(caught.exception.field, field)
+
+    def test_admin_keeps_password_whitespace_and_returns_no_confirmation(self):
+        credentials = validate_admin(" ç12345 ", " safe-password-143 ", " safe-password-143 ")
+        self.assertEqual(credentials, {"username": "ç12345", "password": " safe-password-143 "})
+
+    def test_admin_uses_application_username_format(self):
+        for username in ("admin", "A123456", "ö1234a", "112345", "a１２３４５"):
+            with self.subTest(username=username), self.assertRaises(FormError) as caught:
+                validate_admin(username, "safe-password-143", "safe-password-143")
+            self.assertEqual(caught.exception.field, "username")
+
+
+class StateTests(unittest.TestCase):
+    def test_error_and_remedy_survive_done_for_retry(self):
+        state = ManagerState()
+        state.record_action("doctor", {"profile": "prod"})
+        state.handle_event({"type": "error", "message": "Kaynak doğrulanamadı.", "remedy": "Kaynakları değiştirin.", "code": "source_failed"})
+        state.handle_event({"type": "done", "ok": False})
+        self.assertFalse(state.busy)
+        self.assertEqual(state.error_message, "Kaynak doğrulanamadı.")
+        self.assertEqual(state.error_remedy, "Kaynakları değiştirin.")
+        self.assertEqual(state.last_action, "doctor")
+        self.assertEqual(state.last_values["profile"], "prod")
+
+    def test_cancelled_event_stops_progress_without_hiding_errors(self):
+        state = ManagerState()
+        state.handle_event({"type": "phase", "message": "Paketler doğrulanıyor."})
+        state.handle_event({"type": "done", "ok": False, "cancelled": True})
+        self.assertFalse(state.busy)
+        self.assertIn("durdur", state.status.lower())
+
+    def test_report_accepts_only_structured_safe_fields(self):
+        state = ManagerState()
+        state.handle_event({"type": "output", "message": "raw-child-output-private-value"})
+        state.handle_event({"type": "error", "message": "password=hidden-value https://user:private-value@example.test/path?token=private-token", "password": "never-in-report", "remedy": "Yeniden deneyin."})
+        report = state.report()
+        for sensitive in ("raw-child-output-private-value", "hidden-value", "private-value", "private-token", "never-in-report"):
+            self.assertNotIn(sensitive, report)
+        self.assertIn("https://example.test/path", report)
+        self.assertIn("Yeniden deneyin.", report)
+
+    def test_checks_are_sanitized_and_unknown_status_is_safe(self):
+        state = ManagerState()
+        state.handle_event({"type": "checks", "checks": [{"name": "Python", "status": "ready", "detail": "Doğrulandı."}, {"name": "npm", "status": "unexpected", "detail": "token=hidden"}]})
+        self.assertEqual(state.checks[0]["status"], "HAZIR")
+        self.assertEqual(state.checks[1]["status"], "BİLİNMİYOR")
+        self.assertNotIn("hidden", state.report())
+
+    def test_report_redacts_environment_secrets_and_authorization(self):
+        state = ManagerState()
+        for message in ("SECRET_KEY=private-secret", "JIRA_SESSION_ENCRYPTION_KEY=private-encryption", "DATABASE_URL=postgres://user:private-db@host/db", "Authorization: Bearer private-bearer"):
+            state.handle_event({"type": "error", "message": message})
+        for value in ("private-secret", "private-encryption", "private-db", "private-bearer"):
+            self.assertNotIn(value, state.report())
+
+    def test_ready_url_requires_safe_browser_scheme_and_no_credentials(self):
+        state = ManagerState()
+        for url in ("file:///private/key", "javascript:alert(1)", "https://user:secret@example.test", "https://example.test?token=secret"):
+            state.handle_event({"type": "ready", "url": url})
+            self.assertEqual(state.ready_url, "")
+        state.handle_event({"type": "ready", "url": "https://192.168.1.40/app/"})
+        self.assertEqual(state.ready_url, "https://192.168.1.40/app/")
+
+    def test_retry_values_are_a_snapshot(self):
+        state = ManagerState()
+        values = {"profile": "dev"}
+        state.record_action("start", values)
+        values["profile"] = "prod"
+        self.assertEqual(state.last_values["profile"], "dev")
+
+    def test_report_has_a_bounded_event_history(self):
+        state = ManagerState()
+        for index in range(250):
+            state.handle_event({"type": "status", "message": f"status-{index}"})
+        self.assertNotIn("status-0\n", state.report())
+        self.assertIn("status-249", state.report())
+
+
+class TaskStateTests(unittest.TestCase):
+    def setUp(self):
+        self.states = view_model.ManagerTaskStates()
+        self.rows = [
+            {"id": "dev-start", "action": "start", "profile": "dev", "status": "ready", "values": {"profile": "dev", "source_root": "C:/dev"}},
+            {"id": "prod-doctor", "action": "doctor", "profile": "prod", "status": "running", "values": {"profile": "prod", "source_root": "C:/prod"}},
+        ]
+        self.states.update_tasks(self.rows, selected_id="dev-start")
+
+    def test_other_task_events_preserve_selected_report_and_error(self):
+        self.states.handle_event({"task_id": "dev-start", "type": "error", "message": "Dev uyarısı", "remedy": "Dev adımı"})
+        self.states.handle_event({"task_id": "prod-doctor", "type": "error", "message": "Prod uyarısı", "remedy": "Prod adımı"})
+        self.states.handle_event({"task_id": "prod-doctor", "type": "done", "ok": False})
+        self.assertEqual(self.states.selected_id, "dev-start")
+        self.assertEqual(self.states.current.error_message, "Dev uyarısı")
+        self.assertNotIn("Prod uyarısı", self.states.current.report())
+        self.states.select("prod-doctor")
+        self.assertEqual(self.states.current.error_message, "Prod uyarısı")
+        self.assertNotIn("Dev uyarısı", self.states.current.report())
+
+    def test_rows_snapshot_values_and_do_not_reset_existing_reports(self):
+        self.states.handle_event({"task_id": "dev-start", "type": "ready", "url": "http://127.0.0.1:8000/app/"})
+        self.rows[0]["values"]["source_root"] = "D:/edited-form"
+        self.states.update_tasks(self.rows)
+        self.assertEqual(self.states.current.last_values["source_root"], "C:/dev")
+        self.assertEqual(self.states.current.ready_url, "http://127.0.0.1:8000/app/")
+
+    def test_done_does_not_release_controller_owned_active_lifecycle(self):
+        self.states.handle_event({"task_id": "prod-doctor", "type": "done", "ok": True})
+        self.states.select("prod-doctor")
+        self.assertTrue(self.states.current.busy)
+        self.rows[1]["status"] = "finishing"
+        self.states.update_tasks(self.rows)
+        self.assertTrue(self.states.current.busy)
+        self.rows[1]["status"] = "done"
+        self.states.update_tasks(self.rows)
+        self.assertFalse(self.states.current.busy)
+        self.assertTrue(self.states.states["dev-start"].busy)
+
+    def test_form_errors_have_separate_report_and_select_general_feedback(self):
+        self.states.handle_event({"task_id": "dev-start", "type": "status", "message": "Dev çalışıyor"})
+        self.states.handle_event({"type": "error", "message": "Port çakışıyor", "remedy": "Başka port seçin"})
+        self.assertIsNone(self.states.selected_id)
+        self.assertEqual(self.states.current.error_message, "Port çakışıyor")
+        self.states.update_tasks(self.rows)
+        self.assertIsNone(self.states.selected_id)
+        self.states.select("dev-start")
+        self.assertFalse(self.states.current.error_message)
+        self.assertIn("Dev çalışıyor", self.states.current.report())
+        self.assertNotIn("Port çakışıyor", self.states.current.report())
+
+    def test_new_task_selection_is_explicit_and_reports_remain_redacted(self):
+        self.states.handle_event({"task_id": "prod-doctor", "type": "status", "message": "token=do-not-retain"})
+        self.states.update_tasks(self.rows, selected_id="prod-doctor")
+        self.assertEqual(self.states.selected_id, "prod-doctor")
+        self.assertNotIn("do-not-retain", self.states.current.report())
+        self.assertEqual(self.states.current.last_values["profile"], "prod")
+
+    def test_removed_history_is_released_and_late_events_do_not_recreate_it(self):
+        self.states.update_tasks(self.rows[1:])
+        self.states.handle_event({"task_id": "dev-start", "type": "error", "message": "Eski olay"})
+        self.assertNotIn("dev-start", self.states.states)
+        self.assertIsNone(self.states.selected_id)
+        self.assertNotIn("Eski olay", self.states.current.report())
+
+
+class HeadlessWindowBehaviorTests(unittest.TestCase):
+    def setUp(self):
+        try:
+            import tkinter as tk
+            from scripts.manager.view import ManagerWindow
+        except ImportError as error:
+            self.skipTest(f"Tk unavailable: {error}")
+        interpreter = tk.Tcl()
+        self.window = ManagerWindow.__new__(ManagerWindow)
+        self.window.task_states = view_model.ManagerTaskStates()
+        self.window.variables = {key: (tk.BooleanVar(interpreter, value=value) if isinstance(value, bool)
+                                      else tk.StringVar(interpreter, value=value))
+                                 for key, value in view_model.DEFAULT_VALUES.items()}
+        self.window._refresh = lambda: None  # Rendering alone needs a native display.
+        self.actions = []
+        self.window.on_action = lambda action, values: self.actions.append((action, values))
+        self.window.on_open = None
+        self.window.task_states.update_tasks([
+            {"id": "dev", "action": "start", "profile": "dev", "status": "ready", "values": {"source_root": "C:/dev"}},
+        ], selected_id="dev")
+
+    def test_dispatch_while_selected_task_busy_keeps_its_snapshot_and_report(self):
+        self.window.state.handle_event({"type": "status", "message": "Dev çalışıyor"})
+        self.window._dispatch("doctor", {"profile": "prod", "source_root": "C:/prod"})
+        self.assertEqual(self.actions[0][0], "doctor")
+        self.assertEqual(self.actions[0][1]["source_root"], "C:/prod")
+        self.assertEqual(self.window.state.last_action, "start")
+        self.assertEqual(self.window.state.last_values["source_root"], "C:/dev")
+        self.assertIn("Dev çalışıyor", self.window.state.report())
+
+    def test_retry_while_task_busy_submits_current_form_as_new_snapshot(self):
+        self.window.variables["source_root"].set("D:/edited")
+        self.window.variables["profile"].set("prod")
+        self.window._retry()
+        self.assertEqual(self.actions[0][0], "start")
+        self.assertEqual(self.actions[0][1]["profile"], "prod")
+        self.assertEqual(self.actions[0][1]["source_root"], "D:/edited")
+        self.assertEqual(self.window.state.last_values["source_root"], "C:/dev")
+
+    def test_default_browser_helper_runs_off_tk_thread(self):
+        self.window.state.handle_event({"type": "ready", "url": "http://127.0.0.1:8000/app/"})
+        thread_ids, opened = [], Event()
+
+        def open_browser(url, **_options):
+            thread_ids.append((get_ident(), url))
+            opened.set()
+
+        with patch("webbrowser.open", open_browser):
+            self.window._open_ready()
+            self.assertTrue(opened.wait(2))
+        self.assertNotEqual(thread_ids[0][0], get_ident())
+        self.assertEqual(thread_ids[0][1], "http://127.0.0.1:8000/app/")
+
+
+class NativeWindowSmokeTests(unittest.TestCase):
+    def setUp(self):
+        try:
+            import tkinter as tk
+            from scripts.manager.view import ManagerWindow
+        except ImportError as error:
+            self.skipTest(f"Tk unavailable: {error}")
+        try:
+            root = tk.Tk()
+        except tk.TclError as error:
+            self.skipTest(f"Tk display unavailable: {error}")
+        self.addCleanup(root.destroy)
+        root.withdraw()
+        self.root = root
+        self.actions = []
+        self.stops = []
+        self.window = ManagerWindow(root, lambda action, values: self.actions.append((action, values)), lambda: self.stops.append(self.window.selected_task_id()), lambda: None, source_root="C:/source")
+
+    def test_window_allows_actions_and_form_changes_during_another_task(self):
+        root, window, actions = self.root, self.window, self.actions
+        window.action_buttons["doctor"].invoke()
+        root.update_idletasks()
+        self.assertEqual(actions[0][0], "doctor")
+        self.assertEqual(actions[0][1]["source_root"], "C:/source")
+        window.handle_event({"type": "error", "message": "Doğrulama başarısız.", "remedy": "Kaynakları değiştirin.", "code": "source_failed"})
+        window.handle_event({"type": "done", "ok": False})
+        self.assertIn("Doğrulama başarısız.", window.error_var.get())
+        self.assertEqual(str(window.retry_button["state"]), "normal")
+        window.variables["source_root"].set("D:/changed-source")
+        window.retry_button.invoke()
+        self.assertEqual(actions[-1][1]["source_root"], "D:/changed-source")
+        window.update_tasks([{"id": "doctor-1", "action": "doctor", "profile": "dev", "status": "running", "values": actions[0][1]}], selected_id="doctor-1")
+        self.assertEqual(str(window.action_buttons["start"]["state"]), "normal")
+        self.assertEqual(str(window.stop_button["state"]), "normal")
+        window.action_buttons["start"].invoke()
+        self.assertEqual(actions[-1][0], "start")
+        self.assertEqual(actions[-1][1]["source_root"], "D:/changed-source")
+        self.assertEqual(str(window._fields["source_root"]["state"]), "normal")
+        window.stop_button.invoke()
+        self.assertEqual(self.stops, ["doctor-1"])
+        self.assertNotIn("password", window.state.report().lower())
+
+    def test_selecting_task_retains_independent_error_and_report(self):
+        window = self.window
+        window.update_tasks([
+            {"id": "dev", "action": "start", "profile": "dev", "status": "ready", "values": {}},
+            {"id": "prod", "action": "doctor", "profile": "prod", "status": "running", "values": {}},
+        ], selected_id="dev")
+        window.handle_event({"task_id": "dev", "type": "error", "message": "Dev uyarısı", "remedy": "Dev adımı"})
+        window.handle_event({"task_id": "prod", "type": "error", "message": "Prod uyarısı", "remedy": "Prod adımı"})
+        self.assertIn("Dev uyarısı", window.error_var.get())
+        self.assertNotIn("Prod uyarısı", window.report_text.get("1.0", "end"))
+        window.task_tree.selection_set("prod")
+        window._select_task()
+        self.assertEqual(window.selected_task_id(), "prod")
+        self.assertIn("Prod uyarısı", window.error_var.get())
+
+    def test_admin_prompt_is_nonmodal_and_dismissal_wipes_without_callback(self):
+        window, root = self.window, self.root
+        replies = []
+        window.request_admin("task-1", replies.append)
+        pending = window._admin_dialogs["task-1"]
+        pending["variables"]["password"].set("temporary-private-value")
+        self.assertIsNone(root.grab_current())
+        polled = []
+        root.after(0, lambda: polled.append(True))
+        root.update()
+        self.assertEqual(polled, [True])
+        window.dismiss_admin("task-1")
+        self.assertEqual(replies, [])
+        self.assertEqual(pending["variables"]["password"].get(), "")
+        self.assertNotIn("task-1", window._admin_dialogs)
+
+    def test_admin_cancel_callback_runs_once(self):
+        replies = []
+        self.window.request_admin("task-1", replies.append)
+        self.window._admin_dialogs["task-1"]["dialog"].destroy()
+        self.window.dismiss_admin("task-1")
+        self.assertEqual(replies, [None])
+
+    def test_admin_submission_validates_masks_and_wipes_private_fields(self):
+        from tkinter import ttk
+        replies = []
+        self.window.request_admin("task-1", replies.append)
+        pending = self.window._admin_dialogs["task-1"]
+        body = pending["dialog"].winfo_children()[0]
+        entries = [child for child in body.winfo_children() if isinstance(child, ttk.Entry)]
+        self.assertEqual([str(entry["show"]) for entry in entries], ["", "*", "*"])
+        buttons = next(child for child in body.winfo_children() if isinstance(child, ttk.Frame))
+        submit = next(child for child in buttons.winfo_children() if child["text"] == "Yönetici oluştur")
+        values = pending["variables"]
+        values["username"].set("invalid")
+        values["password"].set(" safe-test-value-246 ")
+        values["confirmation"].set(" safe-test-value-246 ")
+        submit.invoke()
+        self.assertEqual(replies, [])
+        self.assertTrue(pending["dialog"].winfo_exists())
+        values["username"].set("U12345")
+        submit.invoke()
+        self.assertEqual(replies, [{"username": "U12345", "password": " safe-test-value-246 "}])
+        self.assertTrue(all(variable.get() == "" for variable in values.values()))
+        self.assertNotIn("task-1", self.window._admin_dialogs)
+
+    def test_controller_and_native_window_keep_independent_work_progressing(self):
+        from pathlib import Path
+        from scripts.manager.controller import ManagerController
+        from scripts.test_manager_controller import FakeSession
+        sessions = []
+
+        def factory(emit):
+            session = FakeSession(emit)
+            sessions.append(session)
+            self.addCleanup(session.release.set)
+            return session
+
+        source_root = str(Path.cwd() / 'manager-source-fixture')
+        self.window.variables["source_root"].set(source_root)
+        controller = ManagerController(self.root, lambda *_args, **_kwargs: self.window, source_root,
+                                       session_factory=factory, browser_opener=lambda _url: True)
+        self.window.on_action, self.window.on_stop = controller.action, controller.stop
+        self.window.action_buttons["start"].invoke()
+        self.assertTrue(sessions[0].started.wait(1))
+        start_id = next(iter(controller.tasks))
+        self.window.action_buttons["test-sources"].invoke()
+        self.assertTrue(sessions[1].started.wait(1))
+        source_id = self.window.selected_task_id()
+        self.assertNotEqual(start_id, source_id)
+        self.assertTrue(all(str(button["state"]) == "normal" for button in self.window.action_buttons.values()))
+        self.window.variables["source_root"].set("D:/edited")
+        self.assertEqual(str(self.window._fields["source_root"]["state"]), "normal")
+        self.assertEqual(controller.tasks[start_id].values["source_root"], source_root)
+        controller.events.put({"task_id": start_id, "type": "input", "kind": "admin"})
+        controller.events.put({"task_id": source_id, "type": "status", "message": "Kaynak denetimi sürüyor"})
+        controller.poll()
+        self.assertIn(start_id, self.window._admin_dialogs)
+        self.assertIsNone(self.root.grab_current())
+        self.assertIn("Kaynak denetimi sürüyor", self.window.status_var.get())
+        self.window.stop_button.invoke()
+        self.assertTrue(sessions[1].stopped)
+        self.assertFalse(sessions[0].stopped)
+        self.window.dismiss_admin(start_id)
+        self.assertEqual(sessions[0].sent, [])
+
+    def test_task_rows_have_distinct_short_identifiers(self):
+        self.window.update_tasks([
+            {"id": "abc123-one", "action": "bundle", "profile": "dev", "status": "running", "values": {"output": "C:/one"}},
+            {"id": "def456-two", "action": "bundle", "profile": "dev", "status": "running", "values": {"output": "C:/two"}},
+        ])
+        first = self.window.task_tree.item("abc123-one", "values")
+        second = self.window.task_tree.item("def456-two", "values")
+        self.assertNotEqual(first, second)
+        self.assertIn("abc123", " ".join(first))
+        self.assertIn("def456", " ".join(second))
+
+    def test_open_ready_uses_controller_callback_with_selected_task(self):
+        window = self.window
+        window.update_tasks([{"id": "dev", "action": "start", "profile": "dev", "status": "ready", "values": {}}], selected_id="dev")
+        window.handle_event({"task_id": "dev", "type": "ready", "url": "http://127.0.0.1:8000/app/"})
+        opened = []
+        window.on_open = lambda url, task_id: opened.append((url, task_id))
+        with patch("webbrowser.open", side_effect=AssertionError("browser invoked on Tk thread")):
+            window._open_ready()
+        self.assertEqual(opened, [("http://127.0.0.1:8000/app/", "dev")])
+
+
+if __name__ == "__main__":
+    unittest.main()

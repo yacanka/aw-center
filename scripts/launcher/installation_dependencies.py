@@ -9,10 +9,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .installation_sources import SourceSettings, _https_url
+from .installation_sources import SourceSettings, acquisition_urls
 from .model import LauncherError, Project, Scope
 from .offline_manifest import verify_offline_manifest
-from .process import environment
+from .process import controlled_run, environment
 
 
 def availability_failure(output: str) -> bool:
@@ -47,8 +47,9 @@ def capture(command: list, project: Project, overrides: dict | None = None, *, t
     if overrides:
         values.update(overrides)
     try:
-        return subprocess.run([str(part) for part in command], cwd=project.root, env=values,
-                              capture_output=True, text=True, timeout=timeout, check=False)
+        return controlled_run([str(part) for part in command], cwd=project.root, env=values,
+                              capture_output=True, text=True, timeout=timeout, check=False,
+                              safe_boundary=any(str(part) == "migrate" for part in command))
     except subprocess.TimeoutExpired:
         raise LauncherError("Paket işlemi süre sınırını aştı; kurulum yeniden çalıştırılabilir.") from None
 
@@ -92,9 +93,7 @@ def _python_packages(project: Project, settings: SourceSettings, tool_env: dict,
     if not project.requirements:
         raise LauncherError("Python requirements lock dosyası bulunamadı.")
     wheelhouse = stage / "wheels"
-    indexes = ["https://pypi.org/simple"]
-    if settings.python_index_url:
-        indexes.append(_https_url(settings.python_index_url))
+    indexes = acquisition_urls(settings, "https://pypi.org/simple", settings.python_index_url)
     for index in indexes:
         wheelhouse.mkdir(exist_ok=True)
         result = capture([project.python, "-m", "pip", "wheel", "--wheel-dir", wheelhouse,
@@ -131,9 +130,7 @@ def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dic
         if not source.is_file():
             raise LauncherError("Frontend lock dosyası eksik.")
         shutil.copyfile(source, tree / name)
-    registries = ["https://registry.npmjs.org"]
-    if settings.npm_registry_url:
-        registries.append(_https_url(settings.npm_registry_url))
+    registries = acquisition_urls(settings, "https://registry.npmjs.org", settings.npm_registry_url)
     for registry in registries:
         result = capture([*npm, "ci", "--prefix", tree, "--ignore-scripts", "--cache", cache,
                           "--registry", registry, "--replace-registry-host=npmjs", "--no-audit", "--no-fund"],

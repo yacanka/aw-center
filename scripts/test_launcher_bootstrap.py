@@ -186,6 +186,25 @@ class IsolatedVerifierTests(unittest.TestCase):
 
 
 class BootstrapContractTests(unittest.TestCase):
+    def test_double_click_uses_persistent_outer_console(self):
+        script = Path("AWCenter.cmd").read_text(encoding="utf-8")
+        outer, marker, _ = script.partition("\n:bootstrap_entry\n")
+        self.assertTrue(marker, "Bootstrap must run behind the outer console boundary")
+        self.assertIn('if not "%~1"=="" goto bootstrap_entry', outer)
+        self.assertIn('/d /s /k ""%~f0" wizard"', outer)
+        self.assertNotIn("call ", outer.casefold())
+
+    def test_first_install_offers_sources_before_python_is_available(self):
+        source = (Path(__file__).resolve().parents[1] / "AWCenter.cmd").read_text(encoding="utf-8")
+        self.assertIn(":choose_bootstrap_sources", source)
+        self.assertRegex(source, r'set /p "AWC_\w*REPOSITORY=')
+        self.assertRegex(source, r'set /p "AWC_\w*OFFLINE=')
+        self.assertIn('set "AWCENTER_PACKAGE_REPOSITORY=%AWC_REPOSITORY%"', source)
+        self.assertIn('set "AWCENTER_OFFLINE_DIR=%AWC_OFFLINE%"', source)
+        self.assertIn("curl exit code:", source)
+        self.assertIn("HTTP status:", source)
+        self.assertNotIn('type "%AWC_STAGE%\\curl-error"', source)
+
     def test_cmd_pins_match_catalog_and_doctor_precedes_writes(self):
         script = Path("AWCenter.cmd").read_text()
         python = sources.load_catalog()["python"]
@@ -193,7 +212,7 @@ class BootstrapContractTests(unittest.TestCase):
         self.assertIn(python.filename, script)
         self.assertIn("DisableDelayedExpansion", script)
         self.assertNotIn("powershell", script.lower())
-        self.assertLess(script.index(":readonly"), script.index(":bootstrap"))
+        self.assertLess(script.index("\n:readonly\n"), script.index("\n:bootstrap\n"))
         self.assertIn("--offline-dir", script)
         self.assertIn("--repository", script)
         self.assertIn("--ca-file", script)
@@ -248,7 +267,7 @@ class NativeTrustChainSmokeTests(unittest.TestCase):
             def run(arguments):
                 command_line = f'"{command}" /d /s /c ""{script}" {arguments}"'
                 return subprocess.run(command_line, env=environment, capture_output=True, text=True, errors="replace", timeout=180)
-            result = run(f'start --profile dev --offline-dir "{offline}"')
+            result = run(f'start --profile dev --source-mode offline --offline-dir "{offline}"')
             runtime = local / "AWCenter/runtimes/python-3.11.18"
             self.assertTrue((runtime / python.executable).is_file(), result.stdout + result.stderr)
             self.assertFalse(traced.exists(), "curl must ignore hostile per-user configuration")
