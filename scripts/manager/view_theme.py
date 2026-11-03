@@ -1,6 +1,6 @@
 """Reference-shaped ttk controls, without replacing native input behavior.
 
-The tiny RGBA skins are generated locally and stretched by ttk's image element.
+The RGBA skins are generated locally and tiled by ttk's image element.
 Callers must retain the returned images for as long as their widgets exist.
 """
 
@@ -46,7 +46,9 @@ def _rgba_png(size: int, rows: bytes) -> bytes:
 def _rounded_png(fill: str, border: str, *, radius: int, border_width: int = 1) -> bytes:
     """Make a nine-slice skin with transparent, antialiased rounded corners."""
     fill_rgb, border_rgb = _rgb(fill), _rgb(border)
-    size = radius * 2 + 5
+    # ttk repeats the centre instead of scaling it. A 3px centre caused many
+    # expensive native alpha blends per entry/button, especially on Windows.
+    size = radius * 2 + 65
 
     def inside(x, y, inset):
         edge_radius = max(0, radius - inset)
@@ -61,6 +63,10 @@ def _rounded_png(fill: str, border: str, *, radius: int, border_width: int = 1) 
     for y in range(size):
         rows.append(0)  # PNG's unfiltered scanline format.
         for x in range(size):
+            if radius <= x < size - radius or radius <= y < size - radius:
+                edge = x < border_width or y < border_width or x >= size-border_width or y >= size-border_width
+                rows.extend((*(border_rgb if edge else fill_rgb), 255))
+                continue
             outer, inner = 0, 0
             for offset_x, offset_y in samples:
                 outer += inside(x + offset_x, y + offset_y, 0)
@@ -144,7 +150,7 @@ def apply_control_styles(root, style: ttk.Style, palette: dict, *,
         name = f"{prefix}.{name}"
         states = [(*state, image_for(*colors, radius, width)) for state, colors, width in variants]
         style.element_create(name, "image", image_for(*normal, radius), *states,
-                             border=radius + 1, padding=padding, sticky="nsew")
+                             border=radius + 1, padding=padding, sticky="nsew", width=0, height=0)
         return name
 
     def button_layout(element_name, label="Button"):
@@ -242,4 +248,14 @@ def apply_control_styles(root, style: ttk.Style, palette: dict, *,
     style.map("Manager.Link.TButton", foreground=[("disabled", muted), ("active", foreground)],
               background=[("disabled", surface), ("pressed", soft), ("active", background)],
               bordercolor=[("disabled", surface), ("focus", accent)])
+    quiet = element("Footer", 7, (background, background), [
+        (("focus",), (background, accent), 2),
+        (("pressed",), (soft, soft), 1),
+        (("active",), (surface, surface), 1),
+    ])
+    style.layout("Manager.Footer.TButton", button_layout(quiet))
+    style.configure("Manager.Footer.TButton", font=body_font, padding=(8, 6), width=0,
+                    foreground=muted, background=background, bordercolor=background)
+    style.map("Manager.Footer.TButton", foreground=[("active", foreground)],
+              background=[("pressed", soft), ("active", surface)], bordercolor=[("focus", accent)])
     return images

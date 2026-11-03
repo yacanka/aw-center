@@ -53,6 +53,9 @@ class _ScrollPanel(ttk.Frame):
         self.rowconfigure(0, weight=1)
         background = ttk.Style(self).lookup("Manager.TFrame", "background")
         self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0, background=background)
+        self.canvas.configure(yscrollincrement=12)
+        self._wheel_remainder = 0.0
+        self._windowing_system = self.tk.call("tk", "windowingsystem")
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview, style="Manager.Vertical.TScrollbar")
         self.canvas.configure(yscrollcommand=scrollbar.set)
         self.canvas.grid(row=0, column=0, sticky="nsew")
@@ -82,8 +85,17 @@ class _ScrollPanel(ttk.Frame):
     def _wheel(self, event):
         if not self._contains(event.widget):
             return None
-        direction = -1 if getattr(event, "num", 0) == 4 or getattr(event, "delta", 0) > 0 else 1
-        self.canvas.yview_scroll(direction * 3, "units")
+        number = getattr(event, "num", None)
+        if number in (4, 5):
+            movement = -3 if number == 4 else 3
+        else:
+            delta = getattr(event, "delta", 0)
+            movement = -delta if self._windowing_system == "aqua" else -delta / 120 * 3
+        self._wheel_remainder += movement
+        units = int(self._wheel_remainder)
+        self._wheel_remainder -= units
+        if units:
+            self.canvas.yview_scroll(units, "units")
         return "break"
 
     def _focus_changed(self, event):
@@ -119,6 +131,10 @@ class ManagerWindow:
         self.on_open: Callable | None = None
         self._admin_dialogs: dict[str, dict] = {}
         self._progress_running = False
+        self._refresh_job = None
+        self._rendered_report = None
+        self._rendered_controls = None
+        self._rendered_status_tile = None
         self._compact_layout = None
         self._tasks_expanded = True
         self.variables = {key: (tk.BooleanVar(root, value=value) if isinstance(value, bool)
@@ -221,6 +237,9 @@ class ManagerWindow:
         style.configure("Manager.Section.TLabel", background=surface, foreground=foreground, font=self._section_font)
         style.configure("Manager.TCheckbutton", background=surface, padding=(0, 4), font=self._body_font)
         style.map("Manager.TCheckbutton", background=[("active", surface)])
+        style.configure("Manager.Source.TRadiobutton", background=surface, foreground=foreground,
+                        font=self._body_font, padding=(0, 5))
+        style.map("Manager.Source.TRadiobutton", background=[("active", surface)], foreground=[("disabled", muted)])
         style.configure("Manager.Treeview", rowheight=max(32, self._body_font.metrics("linespace") + 14), font=self._body_font)
         style.configure("Manager.Treeview.Heading", font=self._small_font)
         style.configure("Manager.Treeview", background=surface, fieldbackground=surface,
@@ -237,18 +256,22 @@ class ManagerWindow:
                         tabmargins=(30, 0, 0, 0))
         self._tab_images = []
         for selected in (False, True):
-            image = tk.PhotoImage(master=self.root, width=8, height=8)
-            image.put(background, to=(0, 0, 8, 8))
+            image = tk.PhotoImage(master=self.root, width=256, height=48)
+            image.put(background, to=(0, 0, 256, 48))
             if selected:
-                image.put(accent, to=(0, 6, 8, 8))
+                image.put(accent, to=(0, 46, 256, 48))
             self._tab_images.append(image)
         tab_element = f"Manager.tab.{id(self)}"
         style.element_create(tab_element, "image", self._tab_images[0],
-                             ("selected", self._tab_images[1]), border=(0, 0, 0, 2), sticky="nsew")
+                             ("selected", self._tab_images[1]), border=(0, 0, 0, 2),
+                             width=0, height=0, sticky="nsew")
         spacer = tk.PhotoImage(master=self.root, width=1, height=1)
         self._tab_images.append(spacer)
         spacer_element = f"Manager.tabgap.{id(self)}"
-        style.element_create(spacer_element, "image", spacer, padding=(0, 0, round(25 * self._text_scale), 0))
+        # ttk tiles image elements; stretching this transparent 1px spacer
+        # produced thousands of native redraws for every tab repaint.
+        style.element_create(spacer_element, "image", spacer, sticky="",
+                             padding=(0, 0, round(25 * self._text_scale), 0))
         style.layout("Manager.TNotebook.Tab", [(spacer_element, {"sticky": "nsew", "children": [
             (tab_element, {"sticky": "nsew", "children": [
                 ("Notebook.padding", {"sticky": "nsew", "children": [
@@ -305,25 +328,26 @@ class ManagerWindow:
         self._build_actions()
         self._build_tasks(self.run_tab.body)
         self._build_error(shell)
-        footer = ttk.Frame(shell, padding=(30, 10, 30, 12), style="Manager.TFrame")
+        footer = ttk.Frame(shell, padding=(30, 8, 30, 10), style="Manager.TFrame")
         footer.grid(row=4, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         self.progress = ttk.Progressbar(footer, mode="indeterminate", takefocus=False)
         self.progress.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         self.progress.grid_remove()
         controls = ttk.Frame(footer, style="Manager.TFrame")
-        controls.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        controls.grid(row=1, column=0, sticky="ew")
         controls.columnconfigure(0, weight=1)
-        ttk.Label(controls, textvariable=self.task_count_var, style="Manager.Muted.TLabel").grid(row=0, column=0, sticky="w")
-        self.task_toggle_button = ttk.Button(controls, text="İşlemler", command=self._toggle_task_details)
+        self._label(controls, textvariable=self.status_var, style="Manager.Muted.TLabel").grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        self.task_toggle_button = ttk.Button(controls, text="İşlemler", command=self._toggle_task_details,
+                                             style="Manager.Footer.TButton")
         self.task_toggle_button.grid(row=0, column=1, padx=(8, 0))
-        ttk.Button(controls, text="Bildirimler", command=self._show_general).grid(row=0, column=2, padx=(8, 0))
+        ttk.Button(controls, text="Bildirimler", command=self._show_general,
+                   style="Manager.Footer.TButton").grid(row=0, column=2, padx=(8, 0))
         self.stop_button = ttk.Button(controls, text="Durdur", command=self._stop_selected, state="disabled")
         self.stop_button.grid(row=0, column=3, padx=(8, 0))
-        self._label(footer, textvariable=self.status_var, style="Manager.Muted.TLabel").grid(row=2, column=0, sticky="ew")
 
     def _build_tasks(self, parent):
-        tasks = _Card(parent, padding=20)
+        tasks = self.tasks_card = _Card(parent, padding=20)
         tasks.grid(row=3, column=0, sticky="ew", pady=(18, 0))
         tasks.columnconfigure(0, weight=1)
         bar = ttk.Frame(tasks, style="Manager.Panel.TFrame")
@@ -347,11 +371,14 @@ class ManagerWindow:
         self.task_tree.bind("<ButtonRelease-1>", self._open_task_report)
         links = self.task_links = ttk.Frame(tasks, style="Manager.Panel.TFrame")
         links.grid(row=2, column=0, sticky="ew")
+        tasks.grid_remove()
 
     def _tab_changed(self, _event=None):
         selected = self.tabs.select()
         for tab, (normal, active) in zip(self.tabs.tabs(), self._tab_icon_images):
             self.tabs.tab(tab, image=active if tab == selected else normal)
+        if hasattr(self, "report_text") and selected == str(self.report_tab):
+            self._render_report()
 
     def _set_task_details(self, expanded: bool):
         self._tasks_expanded = expanded
@@ -364,6 +391,7 @@ class ManagerWindow:
         self.tabs.select(self.run_tab)
         self._set_task_details(expanded)
         if expanded:
+            self.tasks_card.grid()
             self.root.update_idletasks()
             self.run_tab.canvas.yview_moveto(1)
 
@@ -376,6 +404,7 @@ class ManagerWindow:
             self._sync_task_selection()
             self._refresh()
             self.tabs.select(self.report_tab)
+            self._render_report()
 
     def _entry(self, parent, row, key, label, *, tab, picker=None, stacked=False):
         ttk.Label(parent, text=label, style="Manager.Panel.TLabel").grid(
@@ -495,7 +524,7 @@ class ManagerWindow:
         modes.grid(row=0, column=0, sticky="ew")
         ttk.Label(modes, text="Paket kaynakları", style="Manager.Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
         for column, (value, label) in enumerate((("online", "İnternet (Online)"), ("corporate", "Kurumsal (Corporate)"), ("offline", "Çevrimdışı (Offline)"))):
-            button = ttk.Radiobutton(modes, text=label, value=value, variable=self.variables["source_mode"], style="Manager.TRadiobutton")
+            button = ttk.Radiobutton(modes, text=label, value=value, variable=self.variables["source_mode"], style="Manager.Source.TRadiobutton")
             button.grid(row=1, column=column, sticky="w", padx=(0, 16))
             self._controls.append(button)
         self._label(modes, textvariable=self.source_help_var).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
@@ -669,6 +698,14 @@ class ManagerWindow:
         return summary + ("…" if summary != message else "")
 
     def _update_controls(self):
+        selected = self.task_states.tasks.get(self.selected_task_id(), {})
+        presentation = (self.variables["profile"].get(), self.variables["source_mode"].get(),
+                        selected.get("status"), bool(self.state.last_action), bool(self.state.ready_url))
+        if presentation == self._rendered_controls:
+            self._update_summary()
+            self._paint_status_tile()
+            return
+        self._rendered_controls = presentation
         for control in self._controls:
             control.configure(state="normal")
         profile = self.variables["profile"].get()
@@ -706,6 +743,12 @@ class ManagerWindow:
 
     def _paint_status_tile(self):
         """Decorative state icon; the adjacent text always explains its meaning."""
+        selected = self.task_states.tasks.get(self.selected_task_id(), {})
+        state = (bool(self.state.error_message), selected.get('status') == 'ready' and bool(self.state.ready_url),
+                 self.state.busy)
+        if state == self._rendered_status_tile:
+            return
+        self._rendered_status_tile = state
         tile, size = self.status_tile, round(42 * self._text_scale)
         tile.delete('all')
         r = size / 4
@@ -751,6 +794,9 @@ class ManagerWindow:
         self._refresh()
 
     def _refresh(self):
+        if self._refresh_job is not None:
+            self.root.after_cancel(self._refresh_job)
+            self._refresh_job = None
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
         # A ready server remains controller-owned, but its startup has finished.
         # Progress is presentation state and must not change lifecycle fencing.
@@ -771,17 +817,34 @@ class ManagerWindow:
         else:
             self.error_var.set("")
             self.error_frame.grid_remove()
-        self.report_text.configure(state="normal")
-        self.report_text.delete("1.0", "end")
-        self.report_text.insert("1.0", self.state.report())
-        self.report_text.configure(state="disabled")
+        if self.tabs.select() == str(self.report_tab):
+            self._render_report()
         self._update_controls()
         self._fit_layout()
 
+    def _render_report(self):
+        report = self.state.report()
+        identity = (self.selected_task_id(), report)
+        if identity == self._rendered_report:
+            return
+        same_task = self._rendered_report is not None and self._rendered_report[0] == identity[0]
+        position = self.report_text.yview()[0] if same_task else 0
+        self._rendered_report = identity
+        self.report_text.configure(state="normal")
+        self.report_text.delete("1.0", "end")
+        self.report_text.insert("1.0", report)
+        self.report_text.configure(state="disabled")
+        self.report_text.yview_moveto(position)
+
     def handle_event(self, event: dict):
         self.task_states.handle_event(event)
+        if event.get("task_id") is not None and event["task_id"] != self.selected_task_id():
+            return
         self._sync_task_selection()
-        self._refresh()
+        # The model consumes every event immediately. A poll's burst needs one
+        # paint, and hidden/background reports must not interrupt operator input.
+        if self._refresh_job is None:
+            self._refresh_job = self.root.after_idle(self._refresh)
 
     def selected_task_id(self) -> str | None:
         return self.task_states.selected_id
@@ -789,6 +852,7 @@ class ManagerWindow:
     def update_tasks(self, tasks: list[dict], selected_id: str | None = None):
         """Render controller-owned lifecycle rows without replacing task reports."""
         self.task_states.update_tasks(tasks, selected_id)
+        self.tasks_card.grid() if self.task_states.tasks else self.tasks_card.grid_remove()
         existing = set(self.task_tree.get_children())
         for task_id, task in self.task_states.tasks.items():
             values = (safe_text(task_id, limit=8),
@@ -796,17 +860,23 @@ class ManagerWindow:
                       safe_text(task["profile"], limit=30),
                       _TASK_STATUSES.get(task["status"], "Bilinmiyor"), "İncele →")
             if task_id in existing:
-                self.task_tree.item(task_id, values=values)
+                if tuple(self.task_tree.item(task_id, "values")) != values:
+                    self.task_tree.item(task_id, values=values)
             else:
                 self.task_tree.insert("", "end", iid=task_id, values=values)
         for task_id in existing - self.task_states.tasks.keys():
             self.task_tree.delete(task_id)
-        self.task_tree.configure(height=max(1, min(3, len(self.task_states.tasks))))
+        height = max(1, min(3, len(self.task_states.tasks)))
+        if int(self.task_tree.cget("height")) != height:
+            self.task_tree.configure(height=height)
         self._sync_task_selection()
         self._refresh()
 
     def _sync_task_selection(self):
         selected = self.selected_task_id()
+        current = tuple(self.task_tree.selection())
+        if current == ((selected,) if selected is not None else ()):
+            return
         if selected is not None:
             self.task_tree.selection_set(selected)
             self.task_tree.see(selected)
@@ -815,7 +885,10 @@ class ManagerWindow:
 
     def _select_task(self, _event=None):
         selected = self.task_tree.selection()
-        self.task_states.select(selected[0] if selected else None)
+        task_id = selected[0] if selected else None
+        if task_id == self.selected_task_id():
+            return
+        self.task_states.select(task_id)
         self._refresh()
 
     def _show_general(self):

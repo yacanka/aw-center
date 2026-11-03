@@ -96,3 +96,54 @@ the user explicitly chose to continue with available checks.
 - This is measured layout/control evidence, not a screenshot comparison. The
   available display clamps 1000x820 to 1000x762. Windows EXE rebuild and final
   Windows visual acceptance remain outstanding; no pixel-equality claim is made.
+
+## Responsiveness regression correction
+
+The user reports severe lag and poor visual quality. Keep the approved Sade
+layout and existing Tk/controller contracts while correcting measured work.
+
+- [x] Reproduce redundant native redraws with a selected-task event burst and
+  verify background events preserve the selected report's selection/scroll.
+- [x] Coalesce event rendering, avoid redundant tree selection and control
+  reconfiguration, and render reports when visible or explicitly selected.
+- [x] Normalize wheel movement to small pixel increments; retain keyboard
+  scrolling and access to advanced fields.
+- [x] Reduce duplicate footer information within the existing layout, keeping
+  selected-task stop accessible from every tab.
+- [x] Run native regressions, the complete Manager suite, related launcher
+  tests and the source startup smoke; record actual before/after measurements.
+
+Initial evidence: 200 status events caused 402 full refreshes and 201 synthetic
+selection callbacks. Removing skins, disabling card drawing, removing card
+Canvases, stopping progress, or disabling wrapping individually did not materially
+improve the native resize probe. Do not claim those decorations caused the lag.
+
+The idle-lag report led to a confirmed native rendering cause: ttk tiles image
+elements rather than scaling them. The new 1x1 transparent tab spacer was tiled
+across the whole tab. Nine identical tab interactions took 2.509 CPU seconds,
+versus 0.007 for built-in tabs. The new relative-cost regression failed first.
+The spacer now uses no fill; tab backgrounds have a large uniform centre.
+Rounded control skins likewise use a 63x63 centre instead of 3x3, preserving
+corners, focus states and minimum control sizes without thousands of tile calls.
+
+Same-host Tk 9.0.4 probe: construction 2.956 -> 0.279 seconds; initial two-second
+idle CPU 0.874 -> 0.046 seconds; 30 resize steps now complete in 1.290 seconds
+(the old version hit the 12-second watchdog before all steps completed).
+The combined task creation + 200-event burst now renders twice instead of 402
+times; status-only regression renders once, and background-event regression
+renders zero times while retaining all events. These are macOS native timings,
+not Windows EXE performance or screenshot acceptance.
+
+Independent review found no correctness/lifecycle/security blocker. Its scroll
+coverage suggestion was addressed with a long, visibly scrolled report fixture.
+A pending-refresh owner-switch regression also verifies report/error isolation.
+Explicitly expanding an initially empty list is covered by real widget mapping.
+
+Final verification: 165 Manager tests (161 passed, 4 Windows package skips),
+54 related launcher/release tests passed, Python compilation and diff checks
+passed. Source startup evidence reports ready=true and callback_error_count=0.
+Computer-use inventory still reports an unavailable native service and disabled
+browser access, so screenshot/visual equality is not claimed. GitHub workflow
+lookup returned HTTP 404 because manager-windows.yml is not yet on the default
+branch; no workflow was dispatched and no PR was opened. A rebuilt Windows EXE
+and visual acceptance remain required.

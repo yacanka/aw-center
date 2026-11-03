@@ -21,7 +21,8 @@ otomatik açılır.
 kaydırılan akıştadır. **İşlem / Profil / Durum / Rapor** sütunları kullanılır.
 Bir işlemin **İncele →** hücresi, Enter veya çift tıklama raporunu açar.
 Seçili işlem kimliği durum özetinde korunur. Alt çubuktaki **Durdur**, bildirim
-ve işlem listesi kontrolleri tüm sekmelerde erişilebilir.
+ve işlem listesi kontrolleri tek satırda, tüm sekmelerde erişilebilir. Henüz
+işlem yokken boş tablo gizlenir; işlem listesi düğmesiyle yine açılabilir.
 
 Küçük pencerede, büyük sistem fontunda veya hata gösterildiğinde işlem listesi
 başlık satırına küçülür; **Listeyi göster** ile tekrar açılabilir. Görevler ve
@@ -41,6 +42,14 @@ yuvarlatılmış kontrol yüzeyleri kullanılır; ek GUI bağımlılığı gerek
 sistem metniyle ölçeklenir. Düğme/alan köşeleri 7/6 pikseldir; hover, basılı,
 devre dışı ve klavye odağı durumları ayrı çizilir. Ana referans Sade yönetimdir;
 Advanced SystemCare yalnız durum vurgusu ve kontrol incelikleri için fikirdir.
+
+Durum olayları hemen görev modeline yazılır; aynı olay turundaki çizimler
+birleştirilir. Seçili olmayan işlemler açık raporun metin seçimini veya kaydırma
+konumunu değiştirmez. Gizli rapor, sekmesi açıldığında güncel modelden hazırlanır.
+Fare tekerleği görünüm yüksekliğine bağlı büyük sıçramalar yerine küçük adımlar
+kullanır. Sekme boşlukları çizilmeden bırakılır; kontrol yüzeylerinin tekrarlanan
+orta alanı geniş tutulur. Böylece [ttk resim elemanlarının döşeme davranışı](https://www.tcl-lang.org/man/tcl9.0/TkCmd/ttk_image.html)
+nedeniyle her yeniden çizimde binlerce küçük resim işlemi yapılması önlenir.
 
 Windows CI başlangıç kontrolü, yalnız pencerenin görünürlüğünü değil Tk callback
 hatalarını da denetler. `manager-ui-evidence` artifact'ında gerçek Tk sürümü,

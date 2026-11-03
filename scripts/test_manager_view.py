@@ -259,6 +259,7 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
                                       else tk.StringVar(interpreter, value=value))
                                  for key, value in view_model.DEFAULT_VALUES.items()}
         self.window._refresh = lambda: None  # Rendering alone needs a native display.
+        self.window._refresh_job = None
         self.actions = []
         self.window.on_action = lambda action, values: self.actions.append((action, values))
         self.window.on_open = None
@@ -553,7 +554,9 @@ class NativeWindowSmokeTests(unittest.TestCase):
         root.update()
         self.assertGreaterEqual(window.report_text.winfo_height(), 60)
         window.task_toggle_button.invoke()
+        root.update_idletasks()
         self.assertEqual(window.task_tree.winfo_manager(), "grid")
+        self.assertTrue(window.task_tree.winfo_ismapped())
         window.task_toggle_button.invoke()
         self.assertEqual(window.task_tree.winfo_manager(), "")
 
@@ -678,6 +681,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(actions[0][1]["source_root"], "C:/source")
         window.handle_event({"type": "error", "message": "Doğrulama başarısız.", "remedy": "Kaynakları değiştirin.", "code": "source_failed"})
         window.handle_event({"type": "done", "ok": False})
+        root.update_idletasks()
         self.assertIn("Doğrulama başarısız.", window.error_var.get())
         self.assertEqual(str(window.retry_button["state"]), "normal")
         window.variables["source_root"].set("D:/changed-source")
@@ -702,6 +706,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         ], selected_id="dev")
         window.handle_event({"task_id": "dev", "type": "error", "message": "Dev uyarısı", "remedy": "Dev adımı"})
         window.handle_event({"task_id": "prod", "type": "error", "message": "Prod uyarısı", "remedy": "Prod adımı"})
+        self.root.update_idletasks()
         self.assertIn("Dev uyarısı", window.error_var.get())
         self.assertNotIn("Prod uyarısı", window.report_text.get("1.0", "end"))
         window.task_tree.selection_set("prod")
@@ -786,6 +791,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         controller.events.put({"task_id": start_id, "type": "input", "kind": "admin"})
         controller.events.put({"task_id": source_id, "type": "status", "message": "Kaynak denetimi sürüyor"})
         controller.poll()
+        self.root.update_idletasks()
         self.assertIn(start_id, self.window._admin_dialogs)
         self.assertIsNone(self.root.grab_current())
         self.assertIn("Kaynak denetimi sürüyor", self.window.status_var.get())
