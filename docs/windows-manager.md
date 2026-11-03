@@ -142,6 +142,28 @@ Tk iş parçacığında ağ erişimi, süreç bekleme, pipe yazma veya tarayıc�
 
 Kaynak paylaşan işlemlerin güvenlik nedeniyle çakışması ile arayüzün kilitlenmesi farklı durumlardır. Python olmadan migration veya aynı veritabanı üzerinde eşzamanlı kurulum yapılmaz; gerekli sıralama ve transaction sınırları korunur. Ayrı Manager pencereleri arasındaki mevcut işletim sistemi kurulum kilidi de geçerlidir.
 
+### Yardımcı süreç hata kodları
+
+Kaynak testi için Windows yönetici yetkisi gerekmez. Kaynaklara HTTPS erişiminin
+başarısız olması kontrol satırlarında gösterilir. Yardımcı sürecin kendisi
+çalışamıyorsa raporda aşağıdaki ayrı kodlardan biri bulunur:
+
+| Kod | Anlamı |
+| --- | --- |
+| `worker_start_denied` | İşletim sistemi yardımcı sürecin başlatılmasına izin vermedi. |
+| `worker_start_failed` | Yardımcı süreç başlatılamadı; paket ve dosya erişimi kontrol edilmeli. |
+| `worker_containment_failed` | Windows süreç izolasyonu kurulamadı; işlem başlatılmadı. |
+| `worker_channel_failed` | Özel süreç iletişimi kurulamadı veya kesildi. |
+| `worker_protocol_invalid` | Yardımcı sürecin yanıtı beklenen biçimde okunamadı. |
+| `worker_exited` | Yardımcı süreç sonuç bildirmeden kapandı. |
+| `worker_request_invalid` | Form isteği aktarım için hazırlanamadı. |
+
+Rapor yalnız sabit açıklamalar ve varsa sayısal sistem/süreç çıkış kodlarını
+gösterir; ham exception, dosya yolu, worker çıktısı veya credential içermez.
+Süreç iletişiminin kodlaması, Windows'un metin kodlamasından bağımsız UTF-8'dir.
+Eski paketlerde bunların tamamı `worker_failed` olarak görünür; bu genel mesaj
+tek başına internet, yetki veya eksik dosya teşhisi koydurmaz.
+
 ## Windows üzerinde paket üretme
 
 Build için native Windows x64 ve Tk içeren CPython 3.11 gerekir. Bu gereksinimler son kullanıcıya ait değildir. Build aracı geçici, ayrı bir sanal ortam oluşturur ve yalnız `packaging/manager-requirements.txt` içindeki `PyInstaller==6.22.3` build bağımlılığını kurar; uygulamanın `requirements.in`, `requirements.txt` veya sanal ortamını değiştirmez. Build paketlerinin transitive sürümleri bu dosyada ayrıca kilitli değildir.

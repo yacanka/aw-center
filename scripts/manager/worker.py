@@ -26,6 +26,9 @@ class _Discard(io.TextIOBase):
 
 def main(argv=None):
     _restore_private_streams()
+    # Source/python.exe runs can use a Windows ANSI code page for pipes, while
+    # the owner decodes the protocol as UTF-8. Never use the host text encoding.
+    sys.stdout.reconfigure(encoding='utf-8', newline='\n')
     parser = argparse.ArgumentParser()
     parser.add_argument('--manager-gate', action='store_true')
     args = parser.parse_args(argv)

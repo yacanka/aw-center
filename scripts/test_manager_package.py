@@ -190,9 +190,9 @@ class NativeWindowsPackageTests(unittest.TestCase):
             self.assertIs(result['ready'], True)
             self.assertFalse((directory / 'local').exists(), 'Opening a window must not provision a runtime')
 
-    def test_packaged_worker_accepts_explicit_offline_and_corporate_source_choices(self):
+    def test_packaged_worker_checks_all_source_modes_without_installing_tools(self):
         executable = Path(os.environ['AWCENTER_MANAGER_EXE']).resolve()
-        for mode in ('offline', 'corporate'):
+        for mode in ('offline', 'corporate', 'online'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix='awcenter-manager-source-') as temporary:
                 directory = Path(temporary).resolve()
                 request = {'action': 'test-sources', 'source_root': str(executable.parent / 'source'),

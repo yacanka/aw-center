@@ -241,6 +241,25 @@ class WorkerTransportTests(unittest.TestCase):
         self.assertEqual(self.inputs[0].writes, [])
         self.assertIsNotNone(self.children[0].poll())
         self.assertEqual(events[-1], {'type': 'done', 'ok': False})
+        self.assertEqual(events[-2]['code'], 'worker_containment_failed')
+
+    def test_start_denied_reports_only_safe_stage_and_system_code(self):
+        events = []
+        with patch.object(transport.subprocess, 'Popen', side_effect=PermissionError(13, 'private-start-secret')):
+            transport.WorkerSession(events.append).run({'action': 'test-sources'})
+        self.assertEqual(events[-1], {'type': 'done', 'ok': False})
+        self.assertEqual(events[-2]['code'], 'worker_start_denied')
+        self.assertIn('13', events[-2]['message'])
+        self.assertNotIn('private-start-secret', json.dumps(events))
+
+    def test_worker_exit_without_result_reports_exit_code_without_raw_output(self):
+        events = []
+        program = "import sys; sys.stdin.buffer.readline(); sys.stdin.buffer.readline(); sys.exit(7)"
+        with patch.object(transport.subprocess, 'Popen', side_effect=self._spawn_worker(program=program)):
+            transport.WorkerSession(events.append).run({'action': 'test-sources'})
+        self.assertEqual(events[-2]['code'], 'worker_exited')
+        self.assertIn('7', events[-2]['message'])
+        self.assertEqual(events[-1], {'type': 'done', 'ok': False})
 
     def test_blocked_session_does_not_delay_an_independent_real_worker(self):
         events = queue.Queue()
@@ -356,6 +375,16 @@ class WorkerTransportTests(unittest.TestCase):
         checks = next(event['checks'] for event in events if event['type'] == 'checks')
         self.assertEqual([check['name'] for check in checks], ['Kaynaklar'])
         self.assertFalse(session.running)
+
+    def test_real_worker_protocol_is_utf8_with_legacy_windows_pipe_encoding(self):
+        events = []
+        # Windows pipes can inherit the system ANSI code page. The IPC wire
+        # format must remain UTF-8 even when operator-visible checks are Turkish.
+        with patch.dict('os.environ', {'PYTHONIOENCODING': 'cp1254'}):
+            transport.WorkerSession(events.append).run({'action': 'test-sources', 'source_mode': 'corporate'})
+        self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
+        checks = next(event['checks'] for event in events if event['type'] == 'checks')
+        self.assertIn('seçin', checks[0]['detail'])
 
 
 if __name__ == '__main__':

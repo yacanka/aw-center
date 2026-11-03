@@ -36,6 +36,30 @@ def _write_all(stream, encoded):
         remaining = remaining[written:]
 
 
+def _failure_event(stage, error, child):
+    """Expose fixed recovery text and numeric OS status, never exception data."""
+    failures = {
+        'request': ('worker_request_invalid', 'İşlem isteği hazırlanamadı.', 'Form alanlarını kontrol edip yeniden deneyin.'),
+        'start': ('worker_start_failed', 'Yardımcı süreç başlatılamadı.', 'ZIP paketinin tamamını yerel bir klasöre çıkarın; uygulama çalıştırma izinlerini ve güvenlik yazılımının engelleme kayıtlarını kontrol edin.'),
+        'containment': ('worker_containment_failed', 'Yardımcı süreç güvenli biçimde izole edilemedi.', 'Windows süreç kısıtlarını ve kurumun uygulama çalıştırma politikasını kontrol edin. Güvenli izolasyon kurulmadan işlem başlatılmaz.'),
+        'channel': ('worker_channel_failed', 'Yardımcı süreçle iletişim kurulamadı veya kesildi.', 'Manager paketini güncelleyin. Aynı hata diğer işlemlerde de oluyorsa hata kodunu ve sayısal sistem kodunu bildirin.'),
+        'protocol': ('worker_protocol_invalid', 'Yardımcı sürecin yanıtı okunamadı.', 'Manager paketini güncelleyin; EXE ve _internal dizini aynı pakete ait olmalı.'),
+        'exit': ('worker_exited', 'Yardımcı süreç sonuç bildirmeden kapandı.', 'Paket bileşenlerini ve güvenlik yazılımının engelleme kayıtlarını kontrol edin; süreç çıkış kodunu bildirin.'),
+    }
+    code, message, remedy = failures[stage]
+    if stage == 'start' and isinstance(error, PermissionError):
+        code, message = 'worker_start_denied', 'Windows veya işletim sistemi yardımcı sürecin başlatılmasına izin vermedi.'
+    system_code = getattr(error, 'winerror', None)
+    if type(system_code) is not int:
+        system_code = getattr(error, 'errno', None)
+    if type(system_code) is int:
+        message += f' Sistem hata kodu: {system_code}.'
+    exit_code = getattr(child, 'returncode', None)
+    if type(exit_code) is int:
+        message += f' Süreç çıkış kodu: {exit_code}.'
+    return {'type': 'error', 'code': code, 'message': message, 'remedy': remedy}
+
+
 class WorkerSession:
     """One contained worker. GUI callbacks only enqueue controls or set Stop.
 
@@ -114,6 +138,7 @@ class WorkerSession:
         done = False
         child = None
         threads = []
+        stage = 'request'
         try:
             encoded = _encode(request)
             frozen = getattr(sys, 'frozen', False)
@@ -122,10 +147,12 @@ class WorkerSession:
             options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
             # Raw pipes do not hold BufferedWriter locks while an OS write stalls;
             # closing them during cleanup cannot wait for the writer's Python lock.
+            stage = 'start'
             child = subprocess.Popen([*command, '--manager-gate'], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
                                      cwd=worker_directory(),
                                      **options)
+            stage = 'containment'
             if os.name == 'nt':
                 from scripts.launcher.windows_job import WindowsJob
                 child._launcher_job = WindowsJob(child._handle)
@@ -133,6 +160,7 @@ class WorkerSession:
                 child._launcher_group = child.pid
             # Containment and ownership exist before the writer opens the gate.
             self.child = child
+            stage = 'channel'
             lines = queue.Queue(maxsize=16)
             threads = [
                 threading.Thread(target=self._write_messages, args=(child, encoded),
@@ -144,6 +172,7 @@ class WorkerSession:
                 thread.start()
             cancel_deadline = None
             while True:
+                stage = 'channel'
                 if self._cancel.is_set() and not self._cancel_sent.is_set():
                     if cancel_deadline is None:
                         cancel_deadline = time.monotonic() + CANCEL_DELIVERY_TIMEOUT
@@ -159,6 +188,7 @@ class WorkerSession:
                     raise ValueError('Desktop worker output is unavailable')
                 if not line:
                     break
+                stage = 'protocol'
                 if len(line) > MAX_MESSAGE:
                     raise ValueError('Desktop event exceeds limit')
                 event = json.loads(line)
@@ -168,14 +198,13 @@ class WorkerSession:
                     raise ValueError('Unexpected event after task completion')
                 done = event['type'] == 'done'
                 self.emit(event)
+            stage = 'exit'
             child.wait(timeout=10)
             if not done:
                 raise ValueError('Worker exited without a result')
-        except Exception:
+        except Exception as error:
             if not done:
-                self.emit({'type': 'error', 'code': 'worker_failed',
-                           'message': 'Yönetim işlemi tamamlanamadı.',
-                           'remedy': 'Paketin tamamını yerel bir klasöre çıkarın. Kaynakları kontrol edip yeniden deneyin.'})
+                self.emit(_failure_event(stage, error, child))
                 self.emit({'type': 'done', 'ok': False})
         finally:
             self._closed.set()

@@ -12,6 +12,18 @@ from scripts.launcher.installation_sources import SourceSettings
 
 
 class WorkerProtocolTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'win32', 'Requires Windows pythonw and inherited native pipe handles')
+    def test_windowed_python_restores_private_pipes_and_emits_utf8(self):
+        pythonw = Path(sys.executable).with_name('pythonw.exe')
+        self.assertTrue(pythonw.is_file(), 'Native acceptance requires a full Python with pythonw.exe')
+        child = subprocess.run([str(pythonw), '-m', 'scripts.manager.worker', '--manager-gate'],
+                               input=b'go\n{"action":"invalid"}\n', capture_output=True, timeout=15)
+        self.assertEqual(child.returncode, 0)
+        events = [json.loads(line) for line in child.stdout.splitlines()]
+        self.assertEqual(events[-1], {'type': 'done', 'ok': False})
+        self.assertIn('İşlem', events[0]['message'])
+        self.assertEqual(child.stderr, b'')
+
     def test_source_probe_ignores_unrelated_lifecycle_options(self):
         events = []
         worker.execute({'action': 'test-sources', 'source_root': str(Path.cwd()),
