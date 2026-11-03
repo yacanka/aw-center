@@ -123,38 +123,59 @@ def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None
     return target / artifact.executable
 
 
-def ensure_toolchain(home: Path, settings: SourceSettings) -> dict[str, str]:
+def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable: Path | None = None) -> dict[str, str]:
     """Install reviewed native artifacts; return environment overrides only.
 
     Hosts do not receive global PATH, registry or dependency-lock modifications.
     The caller owns when to apply the returned process-local environment.
+    An explicit system Python is version/architecture-checked and reused; its
+    files are operator-trusted and are never installed from the managed archive.
     """
     home = Path(home)
     _no_symlink(home)
     catalog = load_catalog()
+    if python_executable is not None:
+        from .system_python import validate_python
+        python_executable = validate_python(python_executable)
     for directory in (home, home / "cache", home / "cache" / "runtimes", home / "runtimes"):
         private_directory(directory)
     paths = {}
     for name in ("python", "node", "npm"):
+        if name == "python" and python_executable is not None:
+            paths[name] = python_executable
+            continue
         artifact = catalog[name]
         archive = fetch_artifact(artifact, home / "cache" / "runtimes", settings)
         paths[name] = _install(home, artifact, archive, node=paths.get("node") if name == "npm" else None)
-    return _environment(home, catalog)
+    return _environment(home, catalog, python_executable=python_executable)
 
 
-def _environment(home: Path, catalog: dict[str, Artifact]) -> dict[str, str]:
+def _environment(home: Path, catalog: dict[str, Artifact], *, python_executable: Path | None = None) -> dict[str, str]:
     paths = {name: _directory(home, artifact) / artifact.executable for name, artifact in catalog.items()}
+    if python_executable is not None:
+        paths['python'] = python_executable
     directories = [paths["python"].parent, paths["python"].parent / "Scripts", paths["node"].parent, _directory(home, catalog["npm"]) / "bin"]
     # npm must precede the npm bundled by Node, preserving the repository pin.
     directories.insert(0, directories.pop())
     return {**MANAGED_RUNTIME_ENVIRONMENT, "PATH": os.pathsep.join([*(str(path) for path in directories), os.environ.get("PATH", "")]), "AWCENTER_MANAGED_PYTHON": str(paths["python"]), "AWCENTER_MANAGED_NODE": str(paths["node"]), "AWCENTER_MANAGED_NPM_CLI": str(paths["npm"])}
 
 
-def inspect_toolchain(home: Path) -> list[dict]:
-    """Inspect receipts and all installed artifact files without writes or execution."""
+def inspect_toolchain(home: Path, *, python_executable: Path | None = None) -> list[dict]:
+    """Inspect managed files and optionally probe system Python without writes."""
     checks = []
     catalog = load_catalog()
     for name, artifact in catalog.items():
+        if name == 'python' and python_executable is not None:
+            from .system_python import validate_python
+            try:
+                validate_python(python_executable)
+                checks.append({'name': 'python', 'status': 'ready', 'detail': 'Sistem CPython 3.11 x64 doğrulandı; yönetilen arşiv gerekmez.'})
+            except LauncherError as error:
+                from .process import OperationCancelled
+                if isinstance(error, OperationCancelled):
+                    raise
+                checks.append({'name': 'python', 'status': 'invalid', 'detail': 'Kayıtlı sistem Python 3.11 x64 kullanılamıyor; otomatik kurulum yapılmadı.'})
+            continue
         target = _directory(Path(home), artifact)
         check = {"name": name, "status": "missing", "detail": f"managed {name} {artifact.version} is missing"}
         if not target.exists():
@@ -175,8 +196,8 @@ def inspect_toolchain(home: Path) -> list[dict]:
     return checks
 
 
-def toolchain_environment(home: Path) -> dict[str, str]:
+def toolchain_environment(home: Path, *, python_executable: Path | None = None) -> dict[str, str]:
     """Return existing verified runtimes without retrieval, extraction or writes."""
-    if any(check["status"] != "ready" for check in inspect_toolchain(home)):
+    if any(check["status"] != "ready" for check in inspect_toolchain(home, **({'python_executable': python_executable} if python_executable is not None else {}))):
         raise LauncherError("managed toolchain is incomplete or invalid; run provision")
-    return _environment(Path(home), load_catalog())
+    return _environment(Path(home), load_catalog(), python_executable=python_executable)

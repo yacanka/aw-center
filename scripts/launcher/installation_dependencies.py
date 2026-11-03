@@ -78,7 +78,7 @@ def _offline_dependencies(project: Project, settings: SourceSettings) -> Path | 
     return None
 
 
-def _ensure_venv(project: Project, tool_env: dict) -> None:
+def _ensure_venv(project: Project, tool_env: dict, *, expected_python: Path | None = None) -> None:
     if not project.python.is_file():
         if project.venv.exists():
             raise LauncherError("Mevcut .venv eksik; otomatik silinmedi. Ayrı temiz kaynak dizini kullanın.")
@@ -87,6 +87,12 @@ def _ensure_venv(project: Project, tool_env: dict) -> None:
     result = capture([project.python, "-c", "import sys,struct; print(sys.version_info[:2] == (3,11) and struct.calcsize('P') == 8)"], project, tool_env)
     if result.returncode or result.stdout.strip() != "True":
         raise LauncherError("Mevcut .venv CPython 3.11 x64 ile oluşturulmalı; otomatik değiştirilmedi.")
+    if expected_python is not None:
+        base = capture([project.python, '-I', '-c',
+                        'import sys; print(getattr(sys, "_base_executable", sys.executable))'], project, tool_env)
+        if (base.returncode or not base.stdout.strip() or
+                Path(base.stdout.strip()).resolve() != Path(expected_python).resolve()):
+            raise LauncherError('Mevcut .venv farklı bir Python kullanıyor; otomatik değiştirilmedi. Ayrı temiz kaynak dizini kullanın.')
 
 
 def _python_packages(project: Project, settings: SourceSettings, tool_env: dict, stage: Path) -> None:
@@ -149,12 +155,12 @@ def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dic
                        "--no-audit", "--no-fund"], project, tool_env), "Frontend paket kurulumu")
 
 
-def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict) -> None:
+def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None) -> None:
     """Use one source per acquisition attempt; never fallback after installation fails."""
     if settings.ca_file:
         tool_env = {**tool_env, "PIP_CERT": str(settings.ca_file),
                     "NPM_CONFIG_CAFILE": str(settings.ca_file)}
-    _ensure_venv(project, tool_env)
+    _ensure_venv(project, tool_env, **({'expected_python': expected_python} if expected_python is not None else {}))
     with tempfile.TemporaryDirectory(prefix="awcenter-packages-") as temporary:
         stage = Path(temporary)
         print("Python paketleri hazırlanıyor…", flush=True)

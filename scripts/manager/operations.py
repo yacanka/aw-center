@@ -13,7 +13,7 @@ from scripts.launcher.model import LauncherError
 from scripts.launcher.process import OperationCancelled, check_cancelled, operation_control
 from .task_policy import ACTION_LABELS
 
-PATH_FIELDS = {'offline_dir', 'ca_file', 'assets', 'feature_catalog', 'tls_cert_file', 'tls_key_file', 'output'}
+PATH_FIELDS = {'offline_dir', 'ca_file', 'assets', 'feature_catalog', 'tls_cert_file', 'tls_key_file', 'output', 'env_file'}
 TEXT_FIELDS = {'repository', 'python_index_url', 'npm_registry_url', 'host', 'asset_set'}
 
 
@@ -27,9 +27,10 @@ def arguments(request):
     sources = {'repository', 'offline_dir', 'python_index_url', 'npm_registry_url', 'ca_file'}
     fields = (sources if action == 'test-sources' else
               sources | {'assets', 'feature_catalog', 'output'} if action == 'bundle' else
-              PATH_FIELDS | TEXT_FIELDS if action == 'provision' else set())
+              PATH_FIELDS | TEXT_FIELDS if action == 'provision' else {'env_file'} if action in {'start', 'doctor'} else set())
     values = {'profile': profile, 'source_mode': mode, 'no_admin': False, 'use_saved_sources': False,
-              'migrate': request.get('migrate') is True, 'exclude_doors': None}
+              'migrate': request.get('migrate') is True, 'exclude_doors': None,
+              'install_python': request.get('install_python') is True}
     for field in PATH_FIELDS | TEXT_FIELDS:
         value = request.get(field) if field in fields else None
         if value is not None and (not isinstance(value, str) or len(value) > 8192 or any(c in value for c in '\0\r\n')):
@@ -44,6 +45,15 @@ def arguments(request):
     return argparse.Namespace(**values)
 
 
+def _python_choice(args):
+    if args.install_python:
+        return {}
+    if not getattr(args, 'python_executable', None):
+        from scripts.launcher.system_python import discover_python
+        args.python_executable = discover_python()
+    return {'python_executable': args.python_executable}
+
+
 def _bundled_tools(args, emit):
     """Runtime archives ship beside EXE; package indexes need not host CPython."""
     from scripts.launcher.installation import source_settings
@@ -51,15 +61,18 @@ def _bundled_tools(args, emit):
     from scripts.launcher.installation_profiles import installation_home
     from scripts.launcher.installation_state import installation_lock
     from scripts.launcher.toolchain import ensure_toolchain
+    options = _python_choice(args)
+    if options:
+        emit({'type': 'phase', 'message': 'Sistem Python 3.11 x64 kullanılıyor; Python kurulmayacak'})
     if getattr(sys, 'frozen', False):
-        emit({'type': 'phase', 'message': 'Paket içindeki Python, Node ve npm doğrulanıyor'})
+        emit({'type': 'phase', 'message': 'Seçilen runtime ve Node/npm hazırlanıyor'})
         with installation_lock(installation_home()):
             ensure_toolchain(installation_home(), SourceSettings(
-                offline_dir=Path(sys.executable).parent, mode='offline'))
+                offline_dir=Path(sys.executable).parent, mode='offline'), **options)
     else:
         # Source development still uses the selected policy; no global install.
         with installation_lock(installation_home()):
-            ensure_toolchain(installation_home(), source_settings(args))
+            ensure_toolchain(installation_home(), source_settings(args), **options)
 
 
 def _remedy(phase):
@@ -78,6 +91,10 @@ def _failure_reason(error):
         return 'operation_failed', 'İşlem tamamlanamadı; yapılandırma veya sistem erişimi doğrulanamadı.'
     text = str(error).casefold()
     categories = (
+        (('uygulamak için kur ve başlat',), 'env_import_required', 'Seçilen .env profilin kayıtlı ayarlarından farklı. Uygulamak için Kur ve başlat kullanın.'),
+        (('.env', 'environment file is invalid'), 'env_file_invalid', 'Seçilen .env okunamadı, biçimi veya profil ile uyumu doğrulanamadı. Dosyayı ve mevcut anahtar/veri yolu uyumunu kontrol edin.'),
+        (('venv farklı',), 'venv_python_mismatch', 'Mevcut .venv seçilen Python’a bağlı değil; otomatik değiştirilmedi. Ayrı temiz kaynak dizini kullanın.'),
+        (('uygun sistem python',), 'system_python_missing', 'Uygun sistem Python 3.11 x64 bulunamadı; Python 3.11 x64 kurun veya “Python çalışma zamanını kur” seçeneğini işaretleyin.'),
         (('yalnız windows',), 'windows_required', 'Bu kurulum işlemi Windows x64 gerektirir.'),
         (('sha-256', 'checksum', 'hash', 'integrity', 'differ', 'değişmiş'), 'integrity_failed', 'Dosya bütünlüğü doğrulanamadı; değiştirilmiş paket kullanılmadı.'),
         (('tls', 'certificate', 'certification', 'ssl'), 'tls_failed', 'TLS sertifikası veya güvenli bağlantı doğrulanamadı.'),
@@ -122,7 +139,13 @@ def execute(request, emit, admin_provider, stop):
         emit({'type': 'done', 'ok': True, 'cancelled': True})
     except Exception as error:
         code, reason = _failure_reason(error)
-        emit({'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': _remedy(phase)})
+        remedies = {
+            'system_python_missing': 'Sisteme tam CPython 3.11 x64 kurun veya Çalışma sekmesindeki Python kurulumu kutusunu seçip yeniden deneyin.',
+            'env_import_required': 'Çalışan ilgili görevi durdurun; seçilen dosyayı Kur ve başlat ile uygulayın. Mevcut anahtar ve veri yolları korunmalıdır.',
+            'env_file_invalid': 'Çalışma sekmesindeki .env dosyasını kontrol edin; yalnız uygulama ayarlarını içeren, profilin anahtarları ve veri yollarıyla uyumlu bir dosya seçin.',
+        }
+        remedy = remedies.get(code, _remedy(phase))
+        emit({'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy})
         emit({'type': 'done', 'ok': False})
 
 
@@ -149,6 +172,10 @@ def _dispatch(action, args, emit):
         run(args, emit)
         return
     project = _project_for(action, args)
+    if args.env_file and action in {'start', 'doctor'}:
+        from scripts.launcher.installation_profiles import load_profile
+        from scripts.launcher.installation_env import check_selected_environment
+        check_selected_environment(project, load_profile(project, args.profile), args.env_file)
     if action == 'doctor':
         from scripts.launcher.installation import doctor
         emit({'type': 'checks', 'checks': doctor(project, args.profile)})
@@ -168,11 +195,12 @@ def _bundle(project, args, emit):
         raise LauncherError('Offline paket hedefi gerekli.')
     # A running app already has verified tools. Bundling then uses them read-only
     # and touches only isolated staging/cache/output, never the live .venv.
-    if any(check['status'] != 'ready' for check in inspect_toolchain(installation_home())):
+    options = _python_choice(args)
+    if any(check['status'] != 'ready' for check in inspect_toolchain(installation_home(), **options)):
         args.progress('Yönetilen runtime hazırlığı')
         _bundled_tools(args, emit)
     args.progress('Offline paket hazırlanıyor')
-    with process_environment(toolchain_environment(installation_home())):
+    with process_environment(toolchain_environment(installation_home(), **options)):
         prepare_install_bundle(project, args.output, source_settings(args, project),
                                assets=args.assets, feature_catalog=args.feature_catalog)
 
@@ -180,6 +208,9 @@ def _bundle(project, args, emit):
 def _lifecycle(project, action, args, emit):
     from scripts.launcher.installation import provision, start_profile
     if action == 'provision':
+        if args.env_file:
+            from scripts.launcher.installation_env import read_selected_environment
+            read_selected_environment(project, args.profile, args.env_file)
         args.progress('Yönetilen runtime hazırlığı')
         _bundled_tools(args, emit)
         emit({'type': 'checks', 'checks': provision(project, args)})

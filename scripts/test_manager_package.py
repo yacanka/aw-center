@@ -226,6 +226,7 @@ class NativeWindowsPackageTests(unittest.TestCase):
             frontend = unused_port()
         return {'action': 'provision', 'source_root': str(source),
                 'profile': 'dev', 'source_mode': mode,
+                'install_python': True,
                 'backend_port': backend, 'frontend_port': frontend}
 
     def exercise_lifecycle(self, executable, directory, request, *, network, timeout):

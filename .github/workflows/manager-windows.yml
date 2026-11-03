@@ -32,6 +32,8 @@ jobs:
           architecture: x64
       - name: Verify source payload, package and manager contracts
         run: python -m unittest discover -s scripts -p "test_manager*.py"
+      - name: Verify optional Python and environment file selections
+        run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_env_selection
       - name: Build portable windowed ZIP with reviewed runtime archives
         run: python scripts/build_manager.py --output "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip"
       - name: Extract the complete portable ZIP

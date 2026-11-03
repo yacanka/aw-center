@@ -106,7 +106,7 @@ def doctor(project: Project, name: str) -> list[dict]:
         profile = load_profile(project, name, home)
     except (LauncherError, OSError):
         return [{"name": "profile", "status": "blocked", "detail": "Profil eksik veya güvenli biçimde okunamıyor; provision çalıştırın."}]
-    checks = inspect_toolchain(home)
+    checks = inspect_toolchain(home, **_python_options(profile))
     for check in checks:
         if check["status"] != "ready":
             check["status"] = "blocked"
@@ -122,6 +122,11 @@ def _django(project: Project, profile: dict, arguments: list[str], tool_env: dic
                      {**tool_env, **profile_environment(profile), **role})
     if result.returncode:
         raise LauncherError("Django kurulum kontrolü başarısız; yapılandırma değerleri ve komut çıktısı gizlendi.")
+
+
+def _python_options(profile: dict) -> dict:
+    value = profile.get('python_executable')
+    return {'python_executable': Path(value)} if value else {}
 
 
 def _initialize_schema(project: Project, profile: dict, args, tool_env: dict) -> None:
@@ -197,7 +202,7 @@ def provision(project: Project, args) -> list[dict]:
 
         phase("özel profil")
         options = {name: getattr(args, name, None) for name in (
-            "host", "backend_port", "frontend_port", "tls_cert_file", "tls_key_file", "asset_set", "exclude_doors")}
+            "host", "backend_port", "frontend_port", "tls_cert_file", "tls_key_file", "asset_set", "exclude_doors", "env_file")}
         assets = getattr(args, "assets", None)
         if bundle and bundle.get("asset_set") and not assets:
             assets = settings.offline_dir / "assets" / bundle["asset_set"]
@@ -209,9 +214,20 @@ def provision(project: Project, args) -> list[dict]:
         profile_environment(profile)  # Reject inherited application overrides before package changes.
         save_sources(home, settings)
         phase("runtime hazırlığı")
-        tool_env = ensure_toolchain(home, settings)
+        python = getattr(args, 'python_executable', None)
+        if not hasattr(args, 'install_python') and profile.get('python_executable'):
+            python = Path(profile['python_executable'])
+        if getattr(args, 'install_python', True) is False and python is None:
+            from .system_python import discover_python
+            python = discover_python()
+        tool_env = ensure_toolchain(home, settings, **({'python_executable': python} if python is not None else {}))
         phase("kilitli bağımlılıklar")
-        install_dependencies(project, settings, tool_env)
+        explicit_python = hasattr(args, 'install_python') or python is not None
+        install_dependencies(project, settings, tool_env,
+                             **({'expected_python': Path(tool_env['AWCENTER_MANAGED_PYTHON'])} if explicit_python else {}))
+        if explicit_python:
+            from .installation_profiles import update_python_runtime
+            profile = update_python_runtime(project, profile, python)
         phase("veritabanı şeması")
         _initialize_schema(project, profile, args, tool_env)
         phase("ilk yönetici")
@@ -270,12 +286,12 @@ def start_profile(project: Project, name: str, *, on_ready=None) -> None:
     require_windows()
     profile = load_profile(project, name)
     home = Path(profile.get("installation_home", Path(profile["env_file"]).parent.parent))
-    checks = inspect_toolchain(home)
+    checks = inspect_toolchain(home, **_python_options(profile))
     if any(check["status"] != "ready" for check in checks):
         raise LauncherError("Managed runtime eksik veya değişmiş; açık provision gerekli.")
     from .toolchain import toolchain_environment
     from .installation_features import feature_environment
-    tools = toolchain_environment(home)
+    tools = toolchain_environment(home, **_python_options(profile))
     with process_environment(tools):
         selected = profile_environment(profile)
         pointers = {key: selected[key] for key in ("AWCENTER_ENV_FILE", "DJANGO_SETTINGS_MODULE") if key in selected}

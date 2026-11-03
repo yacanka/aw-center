@@ -4,6 +4,53 @@ Taşınabilir paket Windows x64 içindir. ZIP'in tamamını kullanıcıya ait ye
 
 Pencerenin açılması uygulamanın kurulduğu veya servisin hazır olduğu anlamına gelmez. Durum ve ilerleme gerçek kurulum, HTTP ve worker kontrollerinden gelir. İlk kurulumun Python ve frontend bağımlılıkları için erişilebilir paket kaynakları gerekir. Runtime arşivleri, uygulamanın tüm bağımlılıklarının çevrimdışı kopyası değildir.
 
+## Sade yönetim ekranı
+
+**Çalışma (Ctrl+1)** sekmesi seçili işlemin durum özetini, çalışma profilini,
+kaynak dizinini, host ve backend portunu gösterir. **Başlat**, **Kur ve başlat**
+ve **Durumu denetle** burada bulunur. **Gelişmiş ayarları göster** ile frontend
+portu, TLS dosyaları, isteğe bağlı Python kurulumu, `.env` seçimi ve migration
+seçeneği açılır. Bu bölümü kapatmak girilen değerleri silmez. Üretim profili
+seçildiğinde veya kapalı bölümdeki bir alan doğrulama hatası verdiğinde bölüm
+otomatik açılır.
+
+**Paket kaynakları (Ctrl+2)** kaynak politikasını, ilgili dizin ve depoları,
+**Kaynakları dene** ve **Çevrimdışı paket hazırla** işlemlerini içerir.
+**Durum ve rapor (Ctrl+3)** seçili işlemin temizlenmiş raporunu gösterir.
+Sekmelerin altındaki işlem listesi ve **Seçili işlemi durdur** düğmesi tüm
+sekmelerde erişilebilir. Bir işlemi seçip **Raporu incele**, Enter veya çift
+tıklama ile raporuna geçebilirsiniz.
+
+Küçük pencerede, büyük sistem fontunda veya hata gösterildiğinde işlem listesi
+başlık satırına küçülür; **Listeyi göster** ile tekrar açılabilir. Görevler ve
+seçim korunur. Hata kartı kısa özet gösterir; **Çözümü incele** tam hata, çözüm
+ve hata kodunu içeren raporu açar. Yeniden deneme kısayolu **Ctrl+R** olarak kalır.
+
+Durum özeti formdaki profil seçiminden bağımsızdır; yalnız seçili görevin
+kayıtlı profilini ve controller tarafından bildirilen durumunu gösterir.
+Henüz işlem yokken uygulama çalışıyor gibi gösterilmez. Arayüz mevcut
+Tkinter/ttk temasını ve sistem fontunu kullanır; ek GUI bağımlılığı gerektirmez.
+
+## İsteğe bağlı Python kurulumu
+
+Çalışma sekmesindeki **Python çalışma zamanını kur (isteğe bağlı)** kutusu varsayılan olarak seçili değildir. Seçilmezse Manager mevcut CPython, `py -3.11`, PATH ve Windows Python kayıtları üzerinden tam **CPython 3.11 x64** arar. `venv` ve `ensurepip` desteği de doğrulanır. Uygun Python bulunmazsa açık uyarı verir; kendi kendine Python kurulumuna geçmez. Store yürütme alias'ı başlatılmaz; Python launcher'ın otomatik kurulum seçeneği de sorgu sürecinde kapatılır. [Python Windows launcher ayarları](https://docs.python.org/3/using/windows.html) bu davranışın ortam seçeneklerini açıklar.
+
+Kutu seçilirse paketteki veya seçilen kaynaklardaki SHA-256 sabitlenmiş yönetilen Python kullanılır. Bu seçim Node/npm hazırlığından ayrıdır. Her iki durumda da uygulamanın kilitli pip paketleri proje `.venv` dizinine kurulur; sistem Python paketleri değiştirilmez. Sistem modu işletim sistemindeki mevcut Python'a güvenir, onun dosyalarına yönetilen arşivin hash pinini uygulamaz.
+
+Başarılı bağımlılık hazırlığından sonra seçilen sistem yorumlayıcısı dev/prod profil metadata'sına ayrı ayrı kaydedilir; Başlat ve Kontrol et aynı seçimi kullanır. Özel env, anahtarlar ve mevcut hesaplar değişmez. Mevcut `.venv` farklı bir Python'a bağlıysa Manager onu otomatik silmez veya yeniden bağlamaz; ayrı temiz kaynak dizini kullanın ya da mevcut ortamın Python seçimini koruyun. Profil değişimi sonradan sistem Python'unu kaldırmaz veya güncellemez.
+
+Offline paket üretiminde üreticinin seçtiği Python kullanılabilir; taşınabilir çıktı, başka bilgisayarda isteğe bağlı yönetilen kurulum için Python arşivini içermeye devam eder. Kaynak `.pyw` dosyasını çalıştırmak için Python/Tk gerekir; paketli EXE'nin ilk penceresi kendi gömülü Python/Tk'sini kullanır. Mevcut düşük seviyeli CLI akışının yönetilen Python varsayılanı korunur; kayıtlı sistem profiliyle Başlat sistem yorumlayıcısını kullanır.
+
+## .env dosyası seçimi
+
+Çalışma sekmesindeki **.env dosyası (isteğe bağlı)** alanının **Seç…** düğmesiyle kendi dosyanızı seçebilirsiniz. Boş bırakılırsa mevcut profil kullanılır; yeni profilde varsayılan özel yapılandırma üretilir. Seçilen dosyanın yolu görev seçeneklerine alınır; içeriği arayüz veya rapora aktarılmaz.
+
+**Kur ve başlat**, literal `KEY=value` biçimindeki dosyayı doğrular ve ayarlarını `%LOCALAPPDATA%\AWCenter\config\dev.env` veya `prod.env` içindeki owner-only kopyaya aktarır. Kaynak dosyanın içeriği ve izinleri değiştirilmez. Kaynak dosyanızın izinlerini ayrıca koruyun; uygulama yalnız özel profil kopyasını kullanır. UTF-8/BOM desteklenir; yinelenen anahtar, symlink/junction, normal dosya olmayan yol, geçersiz sözdizimi veya 128 KiB üzeri dosya reddedilir. Shell komutu/variable interpolation yapılmaz; süreç başlatma ve başka env dosyasına yönlendirme ayarları kabul edilmez.
+
+Mevcut profilin `SECRET_KEY` / `JIRA_SESSION_ENCRYPTION_KEY` değerleri değiştirilemez. Profilin ayrı veritabanı, özel dosya ve bind/model yollarıyla çelişen ayarlar reddedilir; dosyadan bu alanları çıkarmak mevcut güvenli değerleri korur. İlk kez eski bir geliştirme veritabanı açıkça sahiplenilecekse seçilen dosya her iki özgün anahtarı da içermelidir; veritabanı resetlenmez. Production için seçilen dosya kaynak ağacının dışında olmalıdır. İlk kurulumda eksik anahtarlar yalnız yeni/boş ortam için oluşturulur.
+
+**Başlat** ve **Durumu denetle** salt okunur davranır. Alan boşken kayıtlı profil kopyasını kullanırlar. Dosya seçiliyse aynı ayarlara karşılık geldiğini doğrularlar; farklı ayarlar varsa bunları önce **Kur ve başlat** ile uygulamanız istenir. Bu seçim, iki profilin aynı state veya anahtarları paylaşmasına izin vermez.
+
 ## Geliştirme ve üretim
 
 Varsayılan kaynak dizini EXE'nin yanındaki `source/` dizinidir. Başka bir kaynak için arayüzde dizin seçin veya CMD içinden açıkça belirtin:

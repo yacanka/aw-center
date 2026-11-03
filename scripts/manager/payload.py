@@ -29,6 +29,8 @@ SOURCE_MANIFEST = 'manager-source-manifest.json'
 MANAGER_SOURCE_FILES = (
     'AWCenterManager.pyw',
     'backend/users/initial_admin.py',
+    'scripts/launcher/system_python.py',
+    'scripts/launcher/installation_env.py',
     *(f'scripts/manager/{name}.py' for name in (
         '__init__', 'main', 'controller', 'worker', 'transport', 'payload', 'view', 'view_model',
         'paths', 'task_policy', 'operations', 'source_checks')),

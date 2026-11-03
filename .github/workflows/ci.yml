@@ -239,6 +239,8 @@ jobs:
           scripts.test_launcher_features
           scripts.test_launcher_install_dependencies
           scripts.test_launcher_installation
+          scripts.test_launcher_system_python
+          scripts.test_launcher_env_selection
 
       - name: Run native CMD bootstrap and owner-only ACL smoke
         shell: cmd

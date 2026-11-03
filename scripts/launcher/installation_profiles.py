@@ -60,11 +60,19 @@ def _paths(project, name, home):
 
 
 def read_environment(path: Path) -> dict[str, str]:
-    """Read the deliberately simple dotenv format, without modifying os.environ."""
+    """Read private runtime dotenv data, without modifying os.environ."""
     require_private(path)
+    try:
+        return parse_environment(path.read_text(encoding='utf-8'))
+    except UnicodeError:
+        raise LauncherError('Private environment file is invalid; values have been withheld') from None
+
+
+def parse_environment(content: str) -> dict[str, str]:
+    """Parse literal dotenv values; never interpolate variables or execute code."""
     result = {}
     try:
-        lines = path.read_text(encoding='utf-8').splitlines()
+        lines = content.splitlines()
         for line in lines:
             line = line.strip()
             if not line or line.startswith('#'):
@@ -138,6 +146,10 @@ def _configuration(profile):
 
 
 def _validate_options(profile):
+    python = profile.get('python_executable')
+    if python is not None and (not isinstance(python, str) or not Path(python).is_absolute()
+                               or any(char in python for char in '\r\n\0')):
+        raise LauncherError('System Python pointer must be an absolute executable path')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', profile['asset_set']) or profile['asset_set'] in {'.', '..'}:
         raise LauncherError('Asset set must be a simple reviewed identifier')
     for key in ('backend_port', 'frontend_port'):
@@ -383,16 +395,27 @@ def _reject_existing_manual_configuration(project):
 def provision_profile(project, name, home=None, **options) -> dict:
     """Create private keys/config once. Existing configuration is never overwritten."""
     home, path, env = _paths(project, name, home)
+    selected = None
+    if options.get('env_file'):
+        from .installation_env import read_selected_environment
+        selected = read_selected_environment(project, name, Path(options['env_file']))
     require_unlinked(path)
     require_unlinked(env)
     pending = path.with_name(name + '.pending.json')
     require_unlinked(pending)
     recovered = _recover_pending(project, name, home, path, env, pending)
     if path.exists():
+        profile = load_profile(project, name, home)
+        if selected is not None:
+            from .installation_env import import_selected_environment
+            import_selected_environment(profile, selected)
         return load_profile(project, name, home)
     if env.exists():
         raise LauncherError('An existing environment has no profile; recover it manually without replacing keys')
-    _reject_existing_manual_configuration(project)
+    if selected is None:
+        _reject_existing_manual_configuration(project)
+    elif (project.backend / 'db.sqlite3').exists() and not all(selected.get(key, '').strip() for key in ('SECRET_KEY', 'JIRA_SESSION_ENCRYPTION_KEY')):
+        raise LauncherError('Mevcut veritabanının .env dosyası her iki mevcut anahtarı da içermelidir; yeni anahtar üretilmedi.')
     profile = recovered or {
         'version': PROFILE_VERSION, 'name': name, 'source_root': str(project.root.resolve()),
         'installation_home': str(home), 'env_file': str(env),
@@ -408,6 +431,9 @@ def provision_profile(project, name, home=None, **options) -> dict:
     values = _configuration(profile)
     values['SECRET_KEY'] = secrets.token_urlsafe(64)
     values['JIRA_SESSION_ENCRYPTION_KEY'] = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('ascii')
+    if selected is not None:
+        from .installation_env import merge_selected_environment
+        values = merge_selected_environment(profile, values, selected, existing=False)
     _validate_environment(profile, values)
     _require_separate(home, name, values, profile['source_root'])
     # Conflict detection happens before any private files or directories are created.
@@ -428,6 +454,27 @@ def provision_profile(project, name, home=None, **options) -> dict:
     _write_new(path, json.dumps(profile, indent=2) + '\n')
     pending.unlink()
     return load_profile(project, name, home)
+
+
+def update_python_runtime(project, profile, python_executable: Path | None) -> dict:
+    """Persist the explicitly selected interpreter without rewriting env/keys.
+
+    Caller holds the installation lock and has verified the venv's base. Older
+    profiles without this field retain their reviewed managed Python contract.
+    """
+    home, path, _ = _paths(project, profile['name'], profile['installation_home'])
+    current = load_profile(project, profile['name'], home)
+    if current != profile:
+        raise LauncherError('Installation profile changed; reload before updating Python')
+    updated = dict(current)
+    if python_executable is None:
+        updated.pop('python_executable', None)
+    else:
+        updated['python_executable'] = str(python_executable)
+    _validate_options(updated)
+    if updated != current:
+        _write_replace(path, json.dumps(updated, indent=2) + '\n')
+    return load_profile(project, profile['name'], home)
 
 
 def update_asset_set(project, profile, asset_set) -> dict:

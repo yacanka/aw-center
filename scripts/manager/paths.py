@@ -24,7 +24,7 @@ def normalize_task_paths(values: dict) -> dict:
     """
     result = dict(values)
     fields = {'source_root', 'offline_dir', 'ca_file', 'assets', 'feature_catalog',
-              'tls_cert_file', 'tls_key_file', 'output'}
+              'tls_cert_file', 'tls_key_file', 'output', 'env_file'}
     repository = result.get('repository')
     if repository and '://' not in str(repository):
         fields.add('repository')

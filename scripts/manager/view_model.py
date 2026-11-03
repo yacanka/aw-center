@@ -13,7 +13,7 @@ DEFAULT_VALUES = {
     "npm_registry_url": "", "ca_file": "", "assets": "",
     "feature_catalog": "", "host": "", "backend_port": "",
     "frontend_port": "", "tls_cert_file": "", "tls_key_file": "",
-    "migrate": False, "output": "",
+    "migrate": False, "install_python": False, "output": "", "env_file": "",
 }
 SOURCE_ACTIONS = {"provision", "test-sources", "bundle"}
 CHECK_LABELS = {
@@ -86,9 +86,8 @@ def normalize_values(action: str, values: dict) -> dict[str, str | bool]:
     """Return only non-secret supported fields; never perform disk or network I/O."""
     if action not in SOURCE_ACTIONS | {"start", "doctor"}:
         raise FormError("profile", "Geçersiz işlem.")
-    result = {key: str(values.get(key, default)).strip()
-              for key, default in DEFAULT_VALUES.items() if key != "migrate"}
-    result["migrate"] = values.get("migrate") is True
+    result = {key: (values.get(key) is True if isinstance(default, bool) else str(values.get(key, default)).strip())
+              for key, default in DEFAULT_VALUES.items()}
     if result["profile"] not in {"dev", "prod"}:
         raise FormError("profile", "Geliştirme veya üretim profilini seçin.")
     if result["source_mode"] not in {"online", "corporate", "offline"}:
