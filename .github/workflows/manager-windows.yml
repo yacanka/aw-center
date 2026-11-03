@@ -30,6 +30,12 @@ jobs:
         with:
           python-version: '3.11'
           architecture: x64
+      - name: Require a working native Tk display
+        run: python -c "import tkinter as tk; root = tk.Tk(); root.update(); root.destroy()"
+      - name: Record source manager startup evidence
+        run: |
+          if not exist "%RUNNER_TEMP%\manager-ui-evidence" mkdir "%RUNNER_TEMP%\manager-ui-evidence"
+          python -m scripts.manager.main --smoke-test "%RUNNER_TEMP%\manager-ui-evidence\startup.json"
       - name: Verify source payload, package and manager contracts
         run: python -m unittest discover -s scripts -p "test_manager*.py"
       - name: Verify optional Python and environment file selections
@@ -52,3 +58,10 @@ jobs:
             ${{ runner.temp }}/AWCenterManager-windows-x64.zip.sha256
             ${{ runner.temp }}/AWCenterManager-windows-x64.zip.inventory.json
           if-no-files-found: error
+      - name: Upload manager startup evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: AWCenterManager-ui-evidence
+          path: ${{ runner.temp }}/manager-ui-evidence
+          if-no-files-found: warn

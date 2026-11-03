@@ -17,9 +17,11 @@ otomatik açılır.
 **Paket kaynakları (Ctrl+2)** kaynak politikasını, ilgili dizin ve depoları,
 **Kaynakları dene** ve **Çevrimdışı paket hazırla** işlemlerini içerir.
 **Durum ve rapor (Ctrl+3)** seçili işlemin temizlenmiş raporunu gösterir.
-Sekmelerin altındaki işlem listesi ve **Seçili işlemi durdur** düğmesi tüm
-sekmelerde erişilebilir. Bir işlemi seçip **Raporu incele**, Enter veya çift
-tıklama ile raporuna geçebilirsiniz.
+İşlem listesi, örnekteki gibi Çalışma sekmesinde ayar kartının altında aynı
+kaydırılan akıştadır. **İşlem / Profil / Durum / Rapor** sütunları kullanılır.
+Bir işlemin **İncele →** hücresi, Enter veya çift tıklama raporunu açar.
+Seçili işlem kimliği durum özetinde korunur. Alt çubuktaki **Durdur**, bildirim
+ve işlem listesi kontrolleri tüm sekmelerde erişilebilir.
 
 Küçük pencerede, büyük sistem fontunda veya hata gösterildiğinde işlem listesi
 başlık satırına küçülür; **Listeyi göster** ile tekrar açılabilir. Görevler ve
@@ -33,8 +35,18 @@ Tkinter/ttk üzerinde onaylanan Sade yönetim örneğinin açık/koyu paletini,
 yuvarlatılmış kartlarını, çizgi sekmelerini ve yan yana bağlantı alanlarını
 kullanır. İlk görünüm sistemin açık/koyu yüzeyinden çözülür; kontroller standart
 ttk bileşenleri olarak kalır. Windows'un yerel düğme çizimi özel renkleri
-yok sayabildiğinden paint edilebilir standart Clam elemanları kullanılır;
-ek GUI bağımlılığı gerekmez. Sistem fontu, görev seçimi ve klavye kısayolları korunur.
+yok sayabildiğinden boyanabilir standart Clam elemanları ve yerel üretilen
+yuvarlatılmış kontrol yüzeyleri kullanılır; ek GUI bağımlılığı gerekmez.
+Örnekteki 13/25/16 piksel metin rolleri sistem font ailesi, DPI ve büyütülmüş
+sistem metniyle ölçeklenir. Düğme/alan köşeleri 7/6 pikseldir; hover, basılı,
+devre dışı ve klavye odağı durumları ayrı çizilir. Ana referans Sade yönetimdir;
+Advanced SystemCare yalnız durum vurgusu ve kontrol incelikleri için fikirdir.
+
+Windows CI başlangıç kontrolü, yalnız pencerenin görünürlüğünü değil Tk callback
+hatalarını da denetler. `manager-ui-evidence` artifact'ında gerçek Tk sürümü,
+ölçek, font, tema ve pencere boyutu saklanır; Tk görüntü servisi açılamazsa kapı
+başarısız olur. Bu kayıt ekran görüntüsü veya görsel eşitlik kanıtı değildir;
+son Windows görsel kabulü ayrıca gerekir.
 
 ## İsteğe bağlı Python kurulumu
 

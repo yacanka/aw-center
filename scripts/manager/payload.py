@@ -32,7 +32,7 @@ MANAGER_SOURCE_FILES = (
     'scripts/launcher/system_python.py',
     'scripts/launcher/installation_env.py',
     *(f'scripts/manager/{name}.py' for name in (
-        '__init__', 'main', 'controller', 'worker', 'transport', 'payload', 'view', 'view_model',
+        '__init__', 'main', 'controller', 'worker', 'transport', 'payload', 'view', 'view_model', 'view_theme',
         'paths', 'task_policy', 'operations', 'source_checks')),
 )
 REQUIRED_SOURCE_FILES = {

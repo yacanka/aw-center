@@ -379,6 +379,21 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.assertIn("1234abcd", window.summary_context_var.get())
         self.assertTrue(window.state.busy)
 
+    def test_ready_heading_uses_task_profile_and_actual_endpoint_until_task_stops(self):
+        window = self.window
+        window.task_states.handle_event({'task_id': 'dev', 'type': 'ready',
+                                          'url': 'http://127.0.0.1:8000/app/'})
+        window.variables['profile'].set('prod')
+        window._update_summary()
+        self.assertEqual(window.summary_title_var.get(), 'Geliştirme ortamı çalışıyor')
+        self.assertIn('http://127.0.0.1:8000', window.summary_context_var.get())
+        window.task_states.update_tasks([
+            {'id': 'dev', 'action': 'start', 'profile': 'dev', 'status': 'cancelled', 'values': {}},
+        ])
+        window._update_summary()
+        self.assertIn('Durduruldu', window.summary_title_var.get())
+        self.assertNotIn('ortamı çalışıyor', window.summary_title_var.get())
+
     def test_summary_isolates_other_tasks_and_counts_controller_rows(self):
         window = self.window
         window.task_states.update_tasks([
@@ -432,6 +447,86 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(host_group.grid_info()['row'], port_group.grid_info()['row'])
         self.assertNotEqual(host_group.grid_info()['column'], port_group.grid_info()['column'])
         self.assertEqual(window.tabs.cget('style'), 'Manager.TNotebook')
+
+    def test_settings_fill_card_width_and_main_actions_are_initially_visible(self):
+        root, window = self.root, self.window
+        root.geometry('1000x820')
+        root.deiconify()
+        root.update()
+        card = window.run_settings
+        host, port = window._fields['host'], window._fields['backend_port']
+        picker = window._pickers['source_root']
+        right = card.winfo_rootx() + card.winfo_width() - 20
+        self.assertAlmostEqual(port.winfo_rootx() + port.winfo_width(), right, delta=3)
+        self.assertAlmostEqual(picker.winfo_rootx() + picker.winfo_width(), right, delta=3)
+        self.assertAlmostEqual(host.winfo_width(), port.winfo_width(), delta=3)
+        action = window.action_buttons['provision']
+        self.assertLessEqual(action.winfo_rooty() + action.winfo_height(),
+                             window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height())
+
+    def test_task_table_follows_settings_in_the_same_scroll_stack(self):
+        window = self.window
+        self.assertIs(window.task_tree.master.master, window.run_tab.body)
+        self.assertEqual(tuple(window.task_tree.cget('displaycolumns')), ('action', 'profile', 'status', 'report'))
+
+    def test_ready_server_keeps_task_active_without_startup_progress_or_clipped_actions(self):
+        root, window = self.root, self.window
+        window.update_tasks([
+            {'id': 'server', 'action': 'start', 'profile': 'dev', 'status': 'ready', 'values': {}},
+        ], selected_id='server')
+        window.handle_event({'task_id': 'server', 'type': 'ready', 'url': 'http://127.0.0.1:8000/app/'})
+        self.assertTrue(window.state.busy, 'The controller still owns the running server')
+        self.assertFalse(window._progress_running, 'A ready server is no longer starting up')
+        root.geometry('1000x820')
+        root.deiconify()
+        root.update()
+        bottom = window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height()
+        for name in ('doctor', 'provision'):
+            action = window.action_buttons[name]
+            self.assertLessEqual(action.winfo_rooty() + action.winfo_height(), bottom)
+
+    def test_reference_type_and_icon_sizes_follow_dpi_and_enlarged_system_text(self):
+        import tkinter as tk
+        from tkinter import font
+        from scripts.manager.view import ManagerWindow
+        default = font.nametofont('TkDefaultFont', root=self.root)
+        text = font.nametofont('TkTextFont', root=self.root)
+        old_default, old_text = default.cget('size'), text.cget('size')
+        old_scaling = self.root.tk.call('tk', 'scaling')
+        self.addCleanup(lambda: default.configure(size=old_default))
+        self.addCleanup(lambda: text.configure(size=old_text))
+        self.addCleanup(lambda: self.root.tk.call('tk', 'scaling', old_scaling))
+        self.root.tk.call('tk', 'scaling', 4 / 3)
+        text.configure(size=10)
+        for system_size, body_pixels, heading_pixels, icon_pixels in ((10, 13, 25, 42), (15, 20, 38, 63)):
+            with self.subTest(system_size=system_size):
+                default.configure(size=system_size)
+                top = tk.Toplevel(self.root)
+                top.withdraw()
+                try:
+                    window = ManagerWindow(top, lambda *_: None, lambda: None, lambda: None)
+                    self.assertAlmostEqual(abs(window._body_font.cget('size')), body_pixels, delta=1)
+                    self.assertAlmostEqual(abs(window._heading_font.cget('size')), heading_pixels, delta=1)
+                    self.assertAlmostEqual(int(window.status_tile.cget('width')), icon_pixels, delta=1)
+                finally:
+                    top.destroy()
+
+    def test_report_cell_opens_only_the_clicked_tasks_report(self):
+        window = self.window
+        window.update_tasks([
+            {'id': 'dev', 'action': 'start', 'profile': 'dev', 'status': 'running', 'values': {}},
+            {'id': 'prod', 'action': 'doctor', 'profile': 'prod', 'status': 'done', 'values': {}},
+        ], selected_id='dev')
+        window.handle_event({'task_id': 'dev', 'type': 'status', 'message': 'Dev test kaydı'})
+        window.handle_event({'task_id': 'prod', 'type': 'status', 'message': 'Prod test kaydı'})
+        with patch.object(window.task_tree, 'identify_region', return_value='cell'), \
+             patch.object(window.task_tree, 'identify_column', return_value='#4'), \
+             patch.object(window.task_tree, 'identify_row', return_value='prod'):
+            window._open_task_report(Mock(x=1, y=1))
+        self.assertEqual(window.selected_task_id(), 'prod')
+        self.assertEqual(window.tabs.select(), str(window.report_tab))
+        self.assertIn('Prod test kaydı', window.report_text.get('1.0', 'end'))
+        self.assertNotIn('Dev test kaydı', window.report_text.get('1.0', 'end'))
 
     def test_labels_wrap_to_their_allocated_width_after_first_layout_and_resize(self):
         root, window = self.root, self.window

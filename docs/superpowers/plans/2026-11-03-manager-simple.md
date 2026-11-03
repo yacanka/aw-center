@@ -67,3 +67,32 @@ five `action_buttons`. Add `_set_advanced(bool)`, `_toggle_advanced()` and
 - Python compilation and `git diff --check` passed.
 - Windows EXE build and Windows visual acceptance require native Windows.
   Screenshot inspection was unavailable because computer-use services were disabled.
+
+## Reference-fidelity acceptance pass
+
+The user reaffirmed the original Sade yönetim example and allowed Advanced
+SystemCare as secondary inspiration. Computer access remained unavailable;
+the user explicitly chose to continue with available checks.
+
+- Independent native measurements exposed the half-width settings grid and the
+  fixed task panel that clipped primary controls. New tests reproduced both.
+- Settings now fill their card, use symmetric 16px field spacing, and share one
+  scrolling stack with the task table. Its visible columns match the reference;
+  task-ID-bound report and stop behavior remain covered.
+- Native measured targets: 30px content alignment, 49px header, 13/25/16px text,
+  42px status tile, 16px tab icons, 7/6px control corners. DPI and 150% system
+  text scale these roles; an incorrect platform font-size assumption was caught
+  and fixed with normal/enlarged-text regression coverage.
+- Rounded RGBA control skins and tab icons are generated with standard-library
+  code, retained for widget lifetime, and cover light/dark, hover, pressed,
+  disabled, readonly and keyboard-focus states. No dependency was added.
+- Ready servers stay controller-owned without showing startup progress; a
+  dedicated test protects ready-state action visibility at the available size.
+- Windows CI now requires a Tk display, rejects startup callback failures,
+  and retains non-sensitive startup metadata even on failure.
+- Final verification: 157 Manager tests, 153 passed / 4 Windows package skips;
+  54 launcher/release tests passed. Source smoke: ready=true, callback errors=0.
+  Compile and diff checks passed.
+- This is measured layout/control evidence, not a screenshot comparison. The
+  available display clamps 1000x820 to 1000x762. Windows EXE rebuild and final
+  Windows visual acceptance remain outstanding; no pixel-equality claim is made.
