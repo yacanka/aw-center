@@ -424,6 +424,15 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.stops = []
         self.window = ManagerWindow(root, lambda action, values: self.actions.append((action, values)), lambda: self.stops.append(self.window.selected_task_id()), lambda: None, source_root="C:/source")
 
+    def test_simple_mockup_uses_horizontal_basic_fields_and_custom_tabs(self):
+        window = self.window
+        host_group = window._fields['host'].master
+        port_group = window._fields['backend_port'].master
+        self.assertIs(host_group.master, port_group.master)
+        self.assertEqual(host_group.grid_info()['row'], port_group.grid_info()['row'])
+        self.assertNotEqual(host_group.grid_info()['column'], port_group.grid_info()['column'])
+        self.assertEqual(window.tabs.cget('style'), 'Manager.TNotebook')
+
     def test_labels_wrap_to_their_allocated_width_after_first_layout_and_resize(self):
         root, window = self.root, self.window
         label = next(label for label in window._wrapping

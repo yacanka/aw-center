@@ -19,6 +19,30 @@ _TASK_STATUSES = {"running": "Çalışıyor", "ready": "Hazır / çalışıyor",
                   "cancelled": "Durduruldu"}
 
 
+class _Card(ttk.Frame):
+    """Rounded presentation surface; children remain native accessible widgets."""
+
+    def __init__(self, parent, *, padding=16):
+        super().__init__(parent, padding=padding, style="Manager.TFrame")
+        style = ttk.Style(self)
+        self._fill = style.lookup("Manager.Panel.TFrame", "background")
+        self._border = style.lookup("Manager.Card.TFrame", "bordercolor")
+        self._backdrop = tk.Canvas(self, borderwidth=0, highlightthickness=0, takefocus=False,
+                                  background=style.lookup("Manager.TFrame", "background"))
+        self._backdrop.place(x=0, y=0, relwidth=1, relheight=1)
+        tk.Misc.lower(self._backdrop)
+        self.bind("<Configure>", self._draw, add=True)
+
+    def _draw(self, event):
+        width, height, radius = event.width - 1, event.height - 1, 10
+        self._backdrop.delete("surface")
+        self._backdrop.create_polygon(
+            radius, 1, width-radius, 1, width, 1, width, radius,
+            width, height-radius, width, height, width-radius, height,
+            radius, height, 1, height, 1, height-radius, 1, radius, 1, 1,
+            smooth=True, splinesteps=24, fill=self._fill, outline=self._border, tags="surface")
+
+
 class _ScrollPanel(ttk.Frame):
     """Keep form fields reachable with system text scaling and smaller displays."""
 
@@ -139,21 +163,41 @@ class ManagerWindow:
         return label
 
     def _configure_styles(self):
-        """Keep native surfaces/text; only the primary action uses brand color."""
+        """Apply the approved mockup palette, following the native appearance."""
         style = ttk.Style(self.root)
-        background = style.lookup("TFrame", "background") or self.root.cget("background")
-        foreground = style.lookup("TLabel", "foreground")
-        surface = style.lookup("TEntry", "fieldbackground") or background
+        native_surface = style.lookup("TEntry", "fieldbackground") or self.root.cget("background")
+        dark_surface = sum(self.root.winfo_rgb(native_surface)) < 3 * 32768
+        background, surface, foreground, muted, border = (
+            ("#17191c", "#212428", "#edf0f2", "#aab2ba", "#363b40") if dark_surface else
+            ("#f5f6f7", "#ffffff", "#20262c", "#626c76", "#e3e7e9"))
+        accent = "#63d8a7" if dark_surface else "#147d53"
+        soft = "#1d382c" if dark_surface else "#eaf6f0"
+        # Clam provides paintable ttk elements on Windows too; native Vista
+        # elements otherwise ignore the mockup's surfaces and control colors.
+        style.theme_use("clam")
+        style.configure("TFrame", background=background)
+        style.configure("TLabel", background=background, foreground=foreground)
+        style.configure("TButton", background=surface, foreground=foreground, bordercolor=border,
+                        lightcolor=surface, darkcolor=surface, padding=(12, 4))
+        style.map("TButton", background=[("active", soft)], bordercolor=[("focus", accent)])
+        style.configure("TEntry", fieldbackground=surface, foreground=foreground, bordercolor=border,
+                        lightcolor=surface, darkcolor=surface, padding=(9, 7), insertcolor=foreground)
+        style.map("TEntry", bordercolor=[("focus", accent)])
         self._heading_font = font.nametofont("TkDefaultFont").copy()
         self._heading_font.configure(size=self._heading_font.cget("size") + 6, weight="bold")
         self._section_font = font.nametofont("TkDefaultFont").copy()
         self._section_font.configure(weight="bold")
         for name, color in (("Manager.TFrame", background), ("Manager.Panel.TFrame", surface)):
             style.configure(name, background=color)
-        style.configure("Manager.Card.TFrame", background=surface, relief="solid", borderwidth=1)
+        style.configure("Manager.Card.TFrame", background=surface, bordercolor=border)
         style.configure("Manager.TLabel", background=background, foreground=foreground)
         style.configure("Manager.Title.TLabel", background=background, foreground=foreground, font=self._heading_font)
         style.configure("Manager.Panel.TLabel", background=surface, foreground=foreground)
+        style.configure("Manager.Muted.TLabel", background=background, foreground=muted)
+        style.configure("Manager.PanelMuted.TLabel", background=surface, foreground=muted)
+        style.configure("Manager.Brand.TLabel", background=background, foreground=foreground, font=self._section_font)
+        style.configure("Manager.Logo.TLabel", background=accent, foreground=background if dark_surface else surface,
+                        padding=(8, 4), font=self._section_font)
         style.configure("Manager.Section.TLabel", background=surface, foreground=foreground, font=self._section_font)
         style.configure("Manager.TRadiobutton", background=surface, padding=(0, 5))
         style.map("Manager.TRadiobutton", background=[("active", surface)])
@@ -163,6 +207,26 @@ class ManagerWindow:
         style.configure("Manager.Link.TButton", padding=(8, 5))
         style.configure("Manager.Treeview", rowheight=max(28, self._section_font.metrics("linespace") + 10))
         style.configure("Manager.Treeview.Heading", font=self._section_font)
+        style.configure("Manager.Treeview", background=surface, fieldbackground=surface,
+                        foreground=foreground, borderwidth=0)
+        style.configure("Manager.Treeview.Heading", background=surface, foreground=muted,
+                        relief="flat", padding=(10, 8))
+        style.map("Manager.Treeview", background=[("selected", soft)], foreground=[("selected", foreground)])
+        style.configure("Manager.TNotebook", background=background, borderwidth=0, tabmargins=0)
+        self._tab_images = []
+        for selected in (False, True):
+            image = tk.PhotoImage(master=self.root, width=8, height=8)
+            image.put(background, to=(0, 0, 8, 8))
+            if selected:
+                image.put(accent, to=(0, 6, 8, 8))
+            self._tab_images.append(image)
+        tab_element = f"Manager.tab.{id(self)}"
+        style.element_create(tab_element, "image", self._tab_images[0],
+                             ("selected", self._tab_images[1]), border=(0, 0, 0, 2), sticky="nsew")
+        style.layout("Manager.TNotebook.Tab", [(tab_element, {"sticky": "nsew", "children": [
+            ("Notebook.padding", {"sticky": "nsew", "children": [("Notebook.label", {"sticky": "nsew"})]})]})])
+        style.configure("Manager.TNotebook.Tab", padding=(16, 9), foreground=muted, background=background)
+        style.map("Manager.TNotebook.Tab", foreground=[("selected", accent)])
         # Native Windows button elements ignore background colors. Clam's border
         # gives this one ttk button a reliable accent without changing the theme.
         element = "Manager.Button.border"
@@ -170,8 +234,6 @@ class ManagerWindow:
             style.element_create(element, "from", "clam", "Button.border")
         style.layout("Manager.Primary.TButton", [(element, {"sticky": "nswe", "children": [
             ("Button.padding", {"sticky": "nswe", "children": [("Button.label", {"sticky": "nswe"})]})]})])
-        dark_surface = sum(self.root.winfo_rgb(surface)) < 3 * 32768
-        accent = "#63d8a7" if dark_surface else "#147d53"
         style.configure("Manager.Primary.TButton", background=accent,
                         foreground=background if dark_surface else surface,
                         bordercolor=accent, lightcolor=accent, darkcolor=accent,
@@ -180,6 +242,11 @@ class ManagerWindow:
                   foreground=[("disabled", foreground)],
                   bordercolor=[("disabled", background), ("focus", foreground)],
                   lightcolor=[("focus", foreground)], darkcolor=[("focus", foreground)])
+        style.layout("Manager.TRadiobutton", style.layout("Manager.Primary.TButton"))
+        style.configure("Manager.TRadiobutton", background=surface, foreground=muted,
+                        bordercolor=border, lightcolor=surface, darkcolor=surface, padding=(12, 6))
+        style.map("Manager.TRadiobutton", background=[("selected", soft), ("active", soft)],
+                  foreground=[("selected", accent)], bordercolor=[("focus", accent), ("selected", accent)])
 
     def _build(self):
         self._configure_styles()
@@ -190,17 +257,20 @@ class ManagerWindow:
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(1, weight=1)
         header = ttk.Frame(shell, style="Manager.TFrame")
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, text="AW Center Manager", style="Manager.Title.TLabel").grid(row=0, column=0, sticky="w")
-        self.tabs = ttk.Notebook(shell)
+        header.columnconfigure(0, weight=0)
+        header.columnconfigure(1, weight=1)
+        ttk.Label(header, text="AW", style="Manager.Logo.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        ttk.Label(header, text="Center Manager", style="Manager.Brand.TLabel").grid(row=0, column=1, sticky="w")
+        self.tabs = ttk.Notebook(shell, style="Manager.TNotebook")
         self.tabs.grid(row=1, column=0, sticky="nsew")
         self.run_tab = _ScrollPanel(self.tabs)
         self.source_tab = _ScrollPanel(self.tabs)
         self.report_tab = ttk.Frame(self.tabs, padding=14, style="Manager.Panel.TFrame")
-        self.tabs.add(self.run_tab, text="Çalışma (Ctrl+1)")
-        self.tabs.add(self.source_tab, text="Paket kaynakları (Ctrl+2)")
-        self.tabs.add(self.report_tab, text="Durum ve rapor (Ctrl+3)")
+        self.tabs.add(self.run_tab, text="Çalışma")
+        self.tabs.add(self.source_tab, text="Paket kaynakları")
+        self.tabs.add(self.report_tab, text="Durum ve rapor")
         self._build_run(self.run_tab.body)
         self._build_sources(self.source_tab.body)
         self._build_report(self.report_tab)
@@ -216,7 +286,7 @@ class ManagerWindow:
         self._label(footer, textvariable=self.status_var, style="Manager.TLabel").grid(row=1, column=0, sticky="ew")
 
     def _build_tasks(self, parent):
-        tasks = ttk.Frame(parent, padding=14, style="Manager.Card.TFrame")
+        tasks = _Card(parent, padding=14)
         tasks.grid(row=2, column=0, sticky="ew", pady=(14, 0))
         tasks.columnconfigure(0, weight=1)
         bar = ttk.Frame(tasks, style="Manager.Panel.TFrame")
@@ -255,10 +325,12 @@ class ManagerWindow:
     def _toggle_task_details(self):
         self._set_task_details(not self._tasks_expanded)
 
-    def _entry(self, parent, row, key, label, *, tab, picker=None):
-        ttk.Label(parent, text=label, style="Manager.Panel.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 12), pady=7)
+    def _entry(self, parent, row, key, label, *, tab, picker=None, stacked=False):
+        ttk.Label(parent, text=label, style="Manager.Panel.TLabel").grid(
+            row=row-1 if stacked else row, column=0, columnspan=3 if stacked else 1,
+            sticky="w", padx=(0, 12), pady=(0, 6) if stacked else 7)
         entry = ttk.Entry(parent, textvariable=self.variables[key], width=32)
-        entry.grid(row=row, column=1, sticky="ew", pady=7)
+        entry.grid(row=row, column=0 if stacked else 1, columnspan=2 if stacked else 1, sticky="ew", pady=7)
         self._fields[key] = entry
         self._field_titles[key] = label
         self._field_tabs[key] = tab
@@ -273,16 +345,27 @@ class ManagerWindow:
 
     def _build_run(self, parent):
         parent.columnconfigure(0, weight=1)
-        summary = ttk.Frame(parent, padding=16, style="Manager.Card.TFrame")
-        summary.grid(row=0, column=0, sticky="ew", pady=(0, 16))
+        intro = ttk.Frame(parent, style="Manager.TFrame")
+        intro.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        intro.columnconfigure(0, weight=1)
+        self._label(intro, "ÇALIŞMA ALANI", style="Manager.Muted.TLabel").grid(row=0, column=0, sticky="ew")
+        self._label(intro, "Çalışma ortamınızı yönetin.", style="Manager.Title.TLabel").grid(row=1, column=0, sticky="ew", pady=(5, 0))
+        self._label(intro, "Ortamı yönetin, işlemleri tek yerden izleyin.", style="Manager.Muted.TLabel").grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        summary = _Card(parent)
+        summary.grid(row=1, column=0, sticky="ew", pady=(0, 18))
         summary.columnconfigure(0, weight=1)
         self._label(summary, textvariable=self.summary_title_var, style="Manager.Section.TLabel").grid(row=0, column=0, sticky="ew")
         self._label(summary, textvariable=self.summary_context_var).grid(row=1, column=0, sticky="ew", pady=(5, 0))
-        self.open_button = ttk.Button(summary, text="Tarayıcıda aç", command=self._open_ready,
+        self.banner_actions = ttk.Frame(summary, style="Manager.Panel.TFrame")
+        self.banner_actions.grid(row=0, column=1, rowspan=2, sticky="e", padx=(18, 0))
+        self.open_button = ttk.Button(self.banner_actions, text="Tarayıcıda aç", command=self._open_ready,
                                       style="Manager.Primary.TButton", state="disabled")
-        self.open_button.grid(row=0, column=1, rowspan=2, sticky="e", padx=(18, 0))
-        paths = ttk.Frame(parent, padding=16, style="Manager.Card.TFrame")
-        paths.grid(row=1, column=0, sticky="ew")
+        self.open_button.grid(row=0, column=0)
+        self.banner_stop_button = ttk.Button(self.banner_actions, text="Durdur", command=self._stop_selected,
+                                             style="Manager.TButton", state="disabled")
+        self.banner_stop_button.grid(row=0, column=1, padx=(8, 0))
+        paths = self.run_settings = _Card(parent, padding=20)
+        paths.grid(row=2, column=0, sticky="ew")
         ttk.Label(paths, text="Çalışma ayarları", style="Manager.Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
         profile = ttk.Frame(paths, style="Manager.Panel.TFrame")
         profile.grid(row=0, column=1, columnspan=2, sticky="e")
@@ -291,9 +374,22 @@ class ManagerWindow:
             button.grid(row=0, column=column, sticky="w", padx=(12, 0))
             self._controls.append(button)
         self._label(paths, textvariable=self.profile_help_var).grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 12))
-        self._entry(paths, 2, "source_root", "Proje kaynak dizini", tab=self.run_tab, picker="directory")
-        self._entry(paths, 3, "host", "Host / statik IPv4", tab=self.run_tab)
-        self._entry(paths, 4, "backend_port", "Backend / HTTPS portu", tab=self.run_tab)
+        source = ttk.Frame(paths, style="Manager.Panel.TFrame")
+        source.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        source.columnconfigure(1, weight=1)
+        self._entry(source, 1, "source_root", "Proje kaynak dizini", tab=self.run_tab, picker="directory", stacked=True)
+        connection = ttk.Frame(paths, style="Manager.Panel.TFrame")
+        connection.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        for column, (key, title) in enumerate((("host", "Host / statik IPv4"), ("backend_port", "Backend / HTTPS portu"))):
+            connection.columnconfigure(column, weight=1, uniform="connection")
+            field = ttk.Frame(connection, style="Manager.Panel.TFrame")
+            field.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 10, 0))
+            field.columnconfigure(0, weight=1)
+            ttk.Label(field, text=title, style="Manager.Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+            entry = ttk.Entry(field, textvariable=self.variables[key], width=12)
+            entry.grid(row=1, column=0, sticky="ew")
+            self._fields[key], self._field_titles[key], self._field_tabs[key] = entry, title, self.run_tab
+            self._controls.append(entry)
         self._label(paths, "Boş alanlar mevcut profili korur. Yeni dev profili: 127.0.0.1, backend 8000, frontend 5173.").grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 12))
         ttk.Separator(paths).grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 8))
         self.advanced_button = ttk.Button(paths, text="Gelişmiş ayarları göster", command=self._toggle_advanced,
@@ -336,7 +432,7 @@ class ManagerWindow:
 
     def _build_sources(self, parent):
         parent.columnconfigure(0, weight=1)
-        modes = ttk.Frame(parent, padding=16, style="Manager.Card.TFrame")
+        modes = _Card(parent)
         modes.grid(row=0, column=0, sticky="ew")
         ttk.Label(modes, text="Paket kaynakları", style="Manager.Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
         for column, (value, label) in enumerate((("online", "İnternet (Online)"), ("corporate", "Kurumsal (Corporate)"), ("offline", "Çevrimdışı (Offline)"))):
@@ -344,7 +440,7 @@ class ManagerWindow:
             button.grid(row=1, column=column, sticky="w", padx=(0, 16))
             self._controls.append(button)
         self._label(modes, textvariable=self.source_help_var).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        fields = ttk.Frame(parent, padding=16, style="Manager.Card.TFrame")
+        fields = _Card(parent)
         fields.grid(row=1, column=0, sticky="ew", pady=(16, 0))
         for row, (key, label, picker) in enumerate((
             ("repository", "Arşiv deposu / yerel dizin", "directory"),
@@ -382,11 +478,13 @@ class ManagerWindow:
 
     def _build_actions(self):
         """Place each operation with its inputs; stopping remains task-scoped."""
-        self.action_buttons = {}
-        for parent, row, names in ((self.run_tab.body, 2, ("start", "provision", "doctor")),
+        self.action_buttons = {"start": ttk.Button(self.banner_actions, text="Başlat", style="Manager.Primary.TButton",
+                                                   command=lambda: self._dispatch("start"))}
+        self.action_buttons["start"].grid(row=0, column=0)
+        for parent, row, names in ((self.run_settings, 9, ("doctor", "provision")),
                                    (self.source_tab.body, 3, ("test-sources", "bundle"))):
-            actions = ttk.Frame(parent, style="Manager.TFrame")
-            actions.grid(row=row, column=0, sticky="ew", pady=(16, 0))
+            actions = ttk.Frame(parent, style="Manager.Panel.TFrame" if parent is self.run_settings else "Manager.TFrame")
+            actions.grid(row=row, column=0, columnspan=3 if parent is self.run_settings else 1, sticky="e", pady=(16, 0))
             for column, action in enumerate(names):
                 style = "Manager.Primary.TButton" if action in {"start", "test-sources"} else "Manager.TButton"
                 button = ttk.Button(actions, text=_ACTION_LABELS[action], style=style,
@@ -527,9 +625,16 @@ class ManagerWindow:
             button.configure(state="normal")
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
         self.stop_button.configure(state="normal" if selected.get("status") in ManagerTaskStates.ACTIVE_STATUSES else "disabled")
+        self.banner_stop_button.configure(state=str(self.stop_button['state']))
         self.retry_button.configure(state="normal" if self.state.last_action else "disabled")
         self.open_button.configure(state="normal" if self.state.ready_url else "disabled")
         self.report_open_button.configure(state="normal" if self.state.ready_url else "disabled")
+        if self.state.ready_url:
+            self.open_button.grid()
+            self.action_buttons['start'].grid_remove()
+        else:
+            self.open_button.grid_remove()
+            self.action_buttons['start'].grid()
         self.profile_help_var.set("Dev: yerel geliştirme sunucuları; host 127.0.0.1 ile sınırlıdır." if profile == "dev" else "Prod: HTTPS, sabit IPv4 ve ayrı özel veritabanı / artifact dizinleri.")
         self.source_help_var.set({
             "online": "İnternet kaynakları kullanılır. İsteğe bağlı kurumsal ve çevrimdışı yedek kaynaklar aşağıdan seçilebilir.",

@@ -29,7 +29,12 @@ ve hata kodunu içeren raporu açar. Yeniden deneme kısayolu **Ctrl+R** olarak 
 Durum özeti formdaki profil seçiminden bağımsızdır; yalnız seçili görevin
 kayıtlı profilini ve controller tarafından bildirilen durumunu gösterir.
 Henüz işlem yokken uygulama çalışıyor gibi gösterilmez. Arayüz mevcut
-Tkinter/ttk temasını ve sistem fontunu kullanır; ek GUI bağımlılığı gerektirmez.
+Tkinter/ttk üzerinde onaylanan Sade yönetim örneğinin açık/koyu paletini,
+yuvarlatılmış kartlarını, çizgi sekmelerini ve yan yana bağlantı alanlarını
+kullanır. İlk görünüm sistemin açık/koyu yüzeyinden çözülür; kontroller standart
+ttk bileşenleri olarak kalır. Windows'un yerel düğme çizimi özel renkleri
+yok sayabildiğinden paint edilebilir standart Clam elemanları kullanılır;
+ek GUI bağımlılığı gerekmez. Sistem fontu, görev seçimi ve klavye kısayolları korunur.
 
 ## İsteğe bağlı Python kurulumu
 
