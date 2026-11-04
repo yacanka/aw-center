@@ -28,7 +28,8 @@ def deny_external_network(host):
     for exclusion in (ipaddress.ip_network('127.0.0.0/8'), ipaddress.ip_network(host + '/32')):
         networks = [part for network in networks for part in
                     (network.address_exclude(exclusion) if exclusion.subnet_of(network) else [network])]
-    remote = ','.join(map(str, networks)) + ',::/0'
+    # netsh rejects a /0 prefix; two /1 networks cover the IPv6 space.
+    remote = ','.join(map(str, networks)) + ',::/1,8000::/1'
     names = []
     try:
         name = 'AWC-acceptance-' + uuid.uuid4().hex
