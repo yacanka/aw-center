@@ -96,6 +96,11 @@ Bearer auth açıkça uygulanır; `.netrc` dosyası bu kimliği değiştiremez. 
 mevcut proxy ve CA desteği korunur: Requests'in `HTTPS_PROXY`/`NO_PROXY` ve
 `REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` davranışı sürer. Bu process environment
 ayarları da kurumun onaylı ağ yapılandırmasının parçası olmalıdır.
+HTTPS bağlantısı, Windows'un güvenilen CA/ROOT depolarını, OpenSSL sistem
+varsayılanlarını ve Requests'in genel CA deposunu birlikte kullanır. Ortamdan
+seçilen CA paketi bu depolara eklenir; varsayılan güveni değiştirmez. Aynı güven
+HTTPS proxy bağlantısında da uygulanır; sertifika geçerliliği ve SAN/hostname
+doğrulaması korunur. Her istek kendi session ve TLS bağlamlarını kullanır.
 
 Uygulamada kalıcı içerik kaydı yapılmaması, sağlayıcının veriyi saklamadığını veya
 eğitimde kullanmadığını kanıtlamaz. Sağlayıcının erişim, saklama, silme ve eğitim

@@ -10,6 +10,7 @@ from requests import Session
 from requests.exceptions import RequestException
 
 from awcenter.outbound_urls import normalize_outbound_base_url
+from integrations.tls import configure_session_tls
 
 LOGGER = logging.getLogger(__name__)
 REQUEST_TIMEOUT_SECONDS = 10
@@ -84,6 +85,7 @@ def search_document_issue(document_number: str) -> tuple[int | None, str | None]
         raise RequestException("DocProof is disabled.")
     with requests.Session() as client:
         client.verify = tls_verification()
+        configure_session_tls(client, client.verify)
         if not login(client):
             raise RequestException("DocProof authentication failed.")
         return search_issue_number(document_number, client)

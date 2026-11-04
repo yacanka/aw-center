@@ -24,7 +24,7 @@ class IntegrationProbeAdapterTests(SimpleTestCase):
         INTEGRATION_PROBE_CONNECT_TIMEOUT_SECONDS=1.5,
         INTEGRATION_PROBE_READ_TIMEOUT_SECONDS=2.5,
     )
-    @patch("integrations.probe_adapters.requests.head")
+    @patch("integrations.probe_adapters.tls_head")
     def test_http_probe_sends_no_credentials(self, get_mock):
         """Reachability checks never forward application credentials or cookies."""
 
@@ -41,7 +41,7 @@ class IntegrationProbeAdapterTests(SimpleTestCase):
         self.assertFalse(keyword_arguments["allow_redirects"])
 
     @override_settings(DEBUG=False, JIRA_ENABLED=True, JIRA_URL="http://jira.internal.example")
-    @patch("integrations.probe_adapters.requests.head")
+    @patch("integrations.probe_adapters.tls_head")
     def test_insecure_production_transport_is_not_called(self, get_mock):
         """Production probes fail closed before contacting an insecure origin."""
 
@@ -51,7 +51,7 @@ class IntegrationProbeAdapterTests(SimpleTestCase):
         get_mock.assert_not_called()
 
     @override_settings(DEBUG=True, JIRA_ENABLED=True, JIRA_URL="http://localhost:8080")
-    @patch("integrations.probe_adapters.requests.head")
+    @patch("integrations.probe_adapters.tls_head")
     def test_network_exception_returns_sanitized_result(self, get_mock):
         """Connection exceptions never expose hostnames or library diagnostics."""
 
@@ -68,7 +68,7 @@ class IntegrationProbeAdapterTests(SimpleTestCase):
         JIRA_ENABLED=True,
         JIRA_URL="https://user:password@jira.example",
     )
-    @patch("integrations.probe_adapters.requests.head")
+    @patch("integrations.probe_adapters.tls_head")
     def test_url_embedded_credentials_are_rejected(self, head_mock):
         """Probe URLs cannot smuggle Basic credentials into the HTTP client."""
 

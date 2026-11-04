@@ -1,6 +1,7 @@
 """Source fallback must not disguise installation or integrity failures."""
 
 import subprocess
+import ssl
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,39 @@ from scripts.test_launcher import create_project
 
 
 class AcquisitionFailureTests(unittest.TestCase):
+    def test_install_adds_system_trust_with_and_without_selected_ca(self):
+        from scripts.launcher import installation_dependencies as dependencies
+
+        roots = ssl.create_default_context().get_ca_certs(binary_form=True)
+        if not roots:
+            self.skipTest('Requires a default trusted CA')
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            ca_file = Path(temporary) / 'corporate.pem'
+            ca_file.write_text(ssl.DER_cert_to_PEM_cert(roots[0]), encoding='ascii')
+            for selected in (None, ca_file):
+                observed = []
+                def packages(project, settings, tool_env, stage):
+                    bundle = Path(tool_env['NODE_EXTRA_CA_CERTS'])
+                    self.assertTrue(bundle.is_file())
+                    self.assertEqual(tool_env['PIP_CERT'], str(bundle))
+                    self.assertNotEqual(bundle, ca_file)
+                    self.assertEqual(tool_env['NPM_CONFIG_CAFILE'], str(bundle))
+                    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                    context.load_verify_locations(cafile=str(bundle))
+                    self.assertTrue(set(roots).issubset(context.get_ca_certs(binary_form=True)))
+                    observed.append(bundle)
+                with self.subTest(selected=selected), \
+                     mock.patch.object(dependencies, '_ensure_venv'), \
+                     mock.patch('scripts.launcher.certificates._python_roots', return_value=ssl.DER_cert_to_PEM_cert(roots[0])), \
+                     mock.patch.object(dependencies, '_python_packages', side_effect=packages), \
+                     mock.patch.object(dependencies, '_frontend_packages', side_effect=packages):
+                    import sys
+                    dependencies.install_dependencies(project, SourceSettings(ca_file=selected),
+                                                       {'AWCENTER_MANAGED_PYTHON': sys.executable})
+                self.assertEqual(len(observed), 2)
+                self.assertFalse(observed[0].exists())
+
     def test_only_availability_failures_allow_package_source_fallback(self):
         from scripts.launcher.installation_dependencies import availability_failure
 

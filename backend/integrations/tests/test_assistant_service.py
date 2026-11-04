@@ -35,7 +35,7 @@ def provider_response(result=None, *, content=None):
 class AssistantServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="assistant-service")
-        self.network = patch("integrations.ai.transport.requests.post")
+        self.network = patch("integrations.ai.transport.tls_post")
         self.post = self.network.start()
         self.addCleanup(self.network.stop)
         self.post.return_value = provider_response()

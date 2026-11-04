@@ -419,20 +419,22 @@ def _dependency_toolchain(project: Project, overrides: dict) -> dict:
 
 def _prepare_dependencies(project: Project, directory: Path, settings) -> None:
     """Acquire complete caches without Git, workspace installs or raw diagnostics."""
+    from .certificates import package_trust_environment
+    from .process import required_tool
     overrides = {key: os.environ[key] for key in ('PATH', 'AWCENTER_MANAGED_PYTHON', 'AWCENTER_MANAGED_NODE', 'AWCENTER_MANAGED_NPM_CLI') if key in os.environ}
     overrides.update(NODE_TLS_REJECT_UNAUTHORIZED='1', NPM_CONFIG_STRICT_SSL='true',
                      PIP_NO_CACHE_DIR='1')
-    if settings.ca_file:
-        overrides.update(PIP_CERT=str(settings.ca_file), NPM_CONFIG_CAFILE=str(settings.ca_file),
-                         NODE_EXTRA_CA_CERTS=str(settings.ca_file))
-    directory.mkdir(parents=True)
-    _acquire_wheels(project, directory / 'wheels', settings, overrides)
-    _acquire_npm(project, directory / 'npm-cache', settings, overrides)
-    _verify_npm_offline(project, directory / 'npm-cache', overrides)
-    manifest = {'format_version': 1, 'commit': source_provenance(project),
-                'target': target_metadata(), 'toolchain': _dependency_toolchain(project, overrides),
-                'locks': lock_metadata(project, Scope()), 'artifacts': artifact_metadata(directory)}
-    (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+    with package_trust_environment(overrides, ca_file=settings.ca_file,
+                                   python=overrides.get('AWCENTER_MANAGED_PYTHON', sys.executable),
+                                   node=overrides.get('AWCENTER_MANAGED_NODE') or required_tool('node')) as trusted_env:
+        directory.mkdir(parents=True)
+        _acquire_wheels(project, directory / 'wheels', settings, trusted_env)
+        _acquire_npm(project, directory / 'npm-cache', settings, trusted_env)
+        _verify_npm_offline(project, directory / 'npm-cache', trusted_env)
+        manifest = {'format_version': 1, 'commit': source_provenance(project),
+                    'target': target_metadata(), 'toolchain': _dependency_toolchain(project, trusted_env),
+                    'locks': lock_metadata(project, Scope()), 'artifacts': artifact_metadata(directory)}
+        (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
     verify_offline_manifest(project, Scope(), directory)
 
 

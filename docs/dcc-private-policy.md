@@ -110,5 +110,11 @@ unchanged. Historical branches, backups and Git history are separate findings.
 
 Explicit DocProof CA selection is passed to both login and search requests.
 `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` cannot replace an explicitly selected
-CA file. When no custom CA is selected, the existing system/environment trust
-behavior is retained.
+CA file. Integration HTTPS clients (JIRA, Teamcenter, Numarator, DocProof and AI),
+including anonymous probes and HTTPS proxy connections, use additive trust:
+Windows CA/ROOT and OpenSSL system defaults plus Requests' public CA roots remain
+trusted when a custom CA is selected. With no custom CA, those defaults are used;
+the existing Requests environment-bundle precedence is retained and the resolved
+environment bundle also supplements default trust. Trust contexts are isolated
+per session and client-certificate identity. TLS validity and SAN hostname
+verification remain enabled; a malformed selected CA fails before connection.

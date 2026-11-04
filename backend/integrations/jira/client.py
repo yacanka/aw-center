@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 from django.conf import settings
 from jira import JIRA, JIRAError
 
+from integrations.tls import configure_session_tls
+
 ISSUE_KEY_PATTERN = re.compile(r"(?<![A-Z0-9_])[A-Z][A-Z0-9_]*-\d+(?![A-Z0-9_])")
 logger = logging.getLogger(__name__)
 
@@ -82,6 +84,7 @@ class JiraConnector:
         except JIRAError:
             logger.warning("JIRA client initialization was rejected.")
             raise
+        configure_session_tls(self.jira._session, certificate)
         if jira_session_id is not None:
             self.jira._session.cookies.set(
                 "JSESSIONID",

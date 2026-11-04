@@ -251,7 +251,13 @@ class BundleSafetyTests(unittest.TestCase):
 
     def test_dedicated_dependency_preparation_is_git_free_and_never_distributes_logs(self):
         from scripts.launcher.installation_sources import SourceSettings
+        trust_paths = set()
         def capture(command, project, overrides):
+            bundle = Path(overrides['PIP_CERT'])
+            self.assertTrue(bundle.is_file())
+            self.assertEqual(overrides['NPM_CONFIG_CAFILE'], str(bundle))
+            self.assertEqual(overrides['NODE_EXTRA_CA_CERTS'], str(bundle))
+            trust_paths.add(bundle)
             stdout = ''
             if 'wheel' in command:
                 wheelhouse = Path(command[command.index('--wheel-dir') + 1])
@@ -285,6 +291,9 @@ class BundleSafetyTests(unittest.TestCase):
         self.assertTrue((directory / 'wheels/approved.whl').exists())
         self.assertTrue((directory / 'npm-cache/_cacache/package').exists())
         self.assertFalse((directory / 'npm-cache/_logs').exists())
+        self.assertTrue(trust_paths)
+        self.assertTrue(all(not path.exists() for path in trust_paths))
+        self.assertFalse(list(directory.rglob('*.pem')))
         self.assertNotIn('private-path', json.dumps(manifest))
         self.assertFalse(self.project.venv.exists())
         self.assertFalse((self.project.frontend / 'node_modules').exists())

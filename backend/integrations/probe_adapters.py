@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 from django.conf import settings
 import requests
 
+from integrations.tls import tls_head
+
 from integrations.numarator.client import tls_verification as numarator_tls_verification
 from integrations.doors.services import integration_status as doors_status
 from integrations.teamcenter.services import tls_verification as teamcenter_tls_verification
@@ -128,7 +130,7 @@ def _http_probe(url: str, verify_ssl: bool | str) -> ProbeOutcome:
     if not _transport_is_allowed(url, verify_ssl):
         return ProbeOutcome("degraded", "The endpoint does not satisfy secure transport policy.")
     try:
-        response = requests.head(
+        response = tls_head(
             url,
             allow_redirects=False,
             headers={"User-Agent": "AW-Center-Integration-Probe"},

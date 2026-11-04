@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from .certificates import package_trust_environment
 from .installation_sources import SourceSettings, acquisition_urls
 from .model import LauncherError, Project, Scope
 from .offline_manifest import verify_offline_manifest
@@ -157,13 +158,14 @@ def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dic
 
 def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None) -> None:
     """Use one source per acquisition attempt; never fallback after installation fails."""
-    if settings.ca_file:
-        tool_env = {**tool_env, "PIP_CERT": str(settings.ca_file),
-                    "NPM_CONFIG_CAFILE": str(settings.ca_file)}
     _ensure_venv(project, tool_env, **({'expected_python': expected_python} if expected_python is not None else {}))
-    with tempfile.TemporaryDirectory(prefix="awcenter-packages-") as temporary:
+    node = tool_env.get('AWCENTER_MANAGED_NODE') or shutil.which('node', path=tool_env.get('PATH'))
+    if not node:
+        raise LauncherError('Node bulunamadı; paket güven deposu hazırlanamadı.')
+    with package_trust_environment(tool_env, ca_file=settings.ca_file, python=project.python, node=node) as trusted_env, \
+         tempfile.TemporaryDirectory(prefix="awcenter-packages-") as temporary:
         stage = Path(temporary)
         print("Python paketleri hazırlanıyor…", flush=True)
-        _python_packages(project, settings, tool_env, stage)
+        _python_packages(project, settings, trusted_env, stage)
         print("Frontend paketleri hazırlanıyor…", flush=True)
-        _frontend_packages(project, settings, tool_env, stage)
+        _frontend_packages(project, settings, trusted_env, stage)

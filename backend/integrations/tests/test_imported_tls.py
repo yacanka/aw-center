@@ -21,7 +21,7 @@ class ImportedTlsTests(SimpleTestCase):
                 JIRA_URL="https://jira.example.invalid", TEAMCENTER_BASE_URL="https://tc.example.invalid",
                 DOCPROOF_URL="https://doc.example.invalid", DOCPROOF_USERNAME="fixture", DOCPROOF_PASSWORD="fixture",
                 JIRA_CERTIFICATE_FILE=certificate, TEAMCENTER_CERTIFICATE_FILE=certificate, DOCPROOF_CERTIFICATE_FILE=certificate,
-            ), patch("integrations.probe_adapters.requests.head", return_value=Mock(status_code=200)) as head:
+            ), patch("integrations.probe_adapters.tls_head", return_value=Mock(status_code=200)) as head:
                 for probe in (probe_jira, probe_teamcenter, probe_docproof, probe_numarator):
                     self.assertEqual(probe().status, "available")
                     self.assertEqual(head.call_args.kwargs["verify"], str(certificate))
@@ -82,7 +82,7 @@ class DocProofExplicitCaTests(SimpleTestCase):
                        DOCPROOF_USERNAME="fixture", DOCPROOF_PASSWORD="fixture",
                        DOCPROOF_CERTIFICATE_FILE=Path("/missing-explicit-ca.pem"))
     def test_invalid_ca_probe_is_sanitized_without_network(self):
-        with patch("integrations.probe_adapters.requests.head") as head:
+        with patch("integrations.probe_adapters.tls_head") as head:
             outcome = probe_docproof()
         self.assertEqual(outcome.status, "degraded")
         self.assertNotIn("missing-explicit-ca", outcome.detail)

@@ -23,7 +23,7 @@ class AssessmentClientTests(SimpleTestCase):
     """Verify assessment traffic is bounded and restricted to explicit HTTPS hosts."""
 
     @patch("integrations.assistant.service.authorized_guides", return_value=())
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_assistant_and_assessment_use_the_same_configured_service(self, post, _guides):
         from integrations.assistant.service import answer_question
 
@@ -47,7 +47,7 @@ class AssessmentClientTests(SimpleTestCase):
 
     @override_settings(AI_API_URL="http://assessment.internal.example/ask")
     def test_plain_http_configuration_is_rejected_before_network_access(self):
-        with patch("integrations.ai.transport.requests.post") as post:
+        with patch("integrations.ai.transport.tls_post") as post:
             with self.assertRaises(AssessmentServiceError) as raised:
                 request_assessment("safe")
 
@@ -56,14 +56,14 @@ class AssessmentClientTests(SimpleTestCase):
 
     @override_settings(AI_API_URL="https://unexpected.example/ask")
     def test_unallowlisted_host_is_rejected_before_network_access(self):
-        with patch("integrations.ai.transport.requests.post") as post:
+        with patch("integrations.ai.transport.tls_post") as post:
             with self.assertRaises(AssessmentServiceError) as raised:
                 request_assessment("safe")
 
         self.assertEqual(raised.exception.code, "ASSESSMENT_CONFIGURATION_ERROR")
         post.assert_not_called()
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_chat_request_uses_bounded_transport_and_explicit_timeouts(self, post):
         response = Mock(status_code=200, headers={"Content-Type": "application/json"})
         response.iter_content.return_value = [json.dumps({"choices": [{"message": {"content": "first\nsecond"}}]}).encode()]
@@ -87,7 +87,7 @@ class AssessmentClientTests(SimpleTestCase):
         )
 
     @patch(
-        "integrations.ai.transport.requests.post",
+        "integrations.ai.transport.tls_post",
         side_effect=requests.Timeout("internal connection detail"),
     )
     def test_network_failures_expose_only_sanitized_error(self, _post):
@@ -98,7 +98,7 @@ class AssessmentClientTests(SimpleTestCase):
         self.assertNotIn("internal connection detail", raised.exception.detail)
 
     @override_settings(AI_API_MAX_RESPONSE_BYTES=1024)
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_oversized_response_is_rejected(self, post):
         response = Mock(status_code=200, headers={"Content-Type": "application/json"})
         response.iter_content.return_value = [b"x" * 1025]
@@ -109,7 +109,7 @@ class AssessmentClientTests(SimpleTestCase):
 
         self.assertEqual(raised.exception.code, "ASSESSMENT_RESPONSE_INVALID")
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_invalid_responses_are_rejected(self, post):
         for payload in ({"task_id": "pending"}, {"error": "private detail"}, {},
                         {"choices": []}, {"choices": [None]},
@@ -124,7 +124,7 @@ class AssessmentClientTests(SimpleTestCase):
                 self.assertEqual(raised.exception.code, "ASSESSMENT_RESPONSE_INVALID")
                 self.assertNotIn("private detail", str(raised.exception))
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_missing_credentials_and_model_fail_before_network(self, post):
         for setting in ("AI_API_TOKEN", "AI_API_MODEL_ID"):
             with self.subTest(setting=setting), override_settings(**{setting: ""}):
@@ -133,7 +133,7 @@ class AssessmentClientTests(SimpleTestCase):
                 self.assertEqual(raised.exception.code, "ASSESSMENT_CONFIGURATION_ERROR")
         post.assert_not_called()
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_redirects_and_http_errors_are_rejected(self, post):
         for status in (302, 401, 500):
             response = Mock(status_code=status)
@@ -143,7 +143,7 @@ class AssessmentClientTests(SimpleTestCase):
             self.assertEqual(raised.exception.code, "ASSESSMENT_UPSTREAM_REJECTED")
             response.iter_content.assert_not_called()
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_invalid_encoding_json_and_content_type_are_rejected(self, post):
         for content_type, body in (("text/html", b"private"),
                                    ("text/event-stream", b"data: private"),
@@ -160,7 +160,7 @@ class AssessmentClientTests(SimpleTestCase):
         AI_API_URL="https://central.internal.example/chat", AI_API_MODEL_ID="central-model",
         AI_API_TOKEN="central-test-only-token", AI_API_ALLOWED_HOSTS=["central.internal.example"],
     )
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_assessment_delegates_to_central_client(self, post):
         response = Mock(status_code=200, headers={"Content-Type": "application/json"})
         response.iter_content.return_value = [b'{"choices":[{"message":{"content":"assessment"}}]}']
@@ -179,7 +179,7 @@ class AssessmentClientTests(SimpleTestCase):
             "model": "central-model", "messages": [{"role": "user", "content": prompt}], "stream": False,
         })
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_ai_error_maps_to_existing_assessment_error(self, post):
         response = Mock(status_code=200, headers={"Content-Type": "application/json"})
         response.iter_content.return_value = [b'{"choices":[{"message":{"content":"assessment"}}]}']
@@ -201,7 +201,7 @@ class AssessmentClientTests(SimpleTestCase):
                                  (expected_code, detail, status))
                 self.assertIsNone(raised.exception.__cause__)
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_invalid_prompt_fails_safely_before_network(self, post):
         for prompt in (None, 42, [], "", " ", "\ud800"):
             with self.subTest(prompt=prompt):
@@ -218,7 +218,7 @@ class AssessmentClientTests(SimpleTestCase):
         AI_API_CONNECT_TIMEOUT_SECONDS=7, AI_API_READ_TIMEOUT_SECONDS=80,
         AI_API_MAX_RESPONSE_BYTES=8192,
     )
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_assessment_uses_central_provider_and_limits(self, post):
         response = Mock(status_code=200, headers={"Content-Type": "application/json"})
         response.iter_content.return_value = [b'{"choices":[{"message":{"content":"assessment"}}]}']
@@ -229,7 +229,7 @@ class AssessmentClientTests(SimpleTestCase):
         self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer central-test-only-token")
         self.assertEqual(post.call_args.kwargs["json"]["model"], "central-model")
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_large_document_prompt_remains_supported(self, post):
         response = Mock(status_code=200, headers={"Content-Type": "application/json"})
         response.iter_content.return_value = [b'{"choices":[{"message":{"content":"assessment"}}]}']
@@ -238,7 +238,7 @@ class AssessmentClientTests(SimpleTestCase):
         self.assertEqual(request_assessment(prompt), "assessment")
         self.assertEqual(post.call_args.kwargs["json"]["messages"][0]["content"], prompt)
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_oversized_document_prompt_fails_before_network(self, post):
         with self.assertRaises(AssessmentServiceError) as raised:
             request_assessment("x" * (16 * 1024 * 1024))

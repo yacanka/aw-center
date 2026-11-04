@@ -6,6 +6,8 @@ from urllib.parse import unquote, urljoin, urlsplit
 
 import requests
 
+from integrations.tls import configure_session_tls
+
 from .config import TeamcenterClientConfig
 from .exceptions import (
     TeamcenterAuthenticationError,
@@ -22,6 +24,7 @@ class TeamcenterTransport:
     def __init__(self, config: TeamcenterClientConfig, session=None) -> None:
         self.config = config
         self.session = session or requests.Session()
+        configure_session_tls(self.session, config.verify_ssl)
         self.session.headers.update(self.default_headers())
         if config.csrf_token:
             self.set_csrf_token(config.csrf_token)

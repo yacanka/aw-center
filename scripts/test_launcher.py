@@ -10,7 +10,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -120,6 +120,46 @@ class DiscoveryTests(unittest.TestCase):
 class DependencyTests(unittest.TestCase):
     """Validate explicit online and offline dependency behavior."""
 
+    def test_cli_backend_install_uses_scoped_package_trust(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            trust = {"PIP_CERT": "scoped-trust.pem", "NODE_TLS_REJECT_UNAUTHORIZED": "1"}
+            with mock.patch("scripts.launcher.dependencies.ensure_virtual_environment"), \
+                 mock.patch("scripts.launcher.dependencies.package_trust_environment",
+                            return_value=nullcontext(trust)) as trusted, \
+                 mock.patch("scripts.launcher.dependencies.run") as run_mock:
+                install_backend(project, "online", project.root / "offline")
+            self.assertTrue(all(call.kwargs.get("extra_env") == trust for call in run_mock.call_args_list))
+            self.assertEqual(trusted.call_args.kwargs["python"], project.python)
+
+    def test_cli_frontend_install_uses_scoped_package_trust_without_python(self):
+        from scripts.launcher.dependencies import install_frontend
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            trust = {"NODE_EXTRA_CA_CERTS": "scoped-trust.pem", "NPM_CONFIG_STRICT_SSL": "true"}
+            with mock.patch("scripts.launcher.dependencies.required_tool", side_effect=lambda name: name), \
+                 mock.patch("scripts.launcher.dependencies.package_trust_environment",
+                            return_value=nullcontext(trust)) as trusted, \
+                 mock.patch("scripts.launcher.dependencies.run") as run_mock:
+                install_frontend(project, "online", project.root / "offline")
+            self.assertEqual(run_mock.call_args.kwargs.get("extra_env"), trust)
+            self.assertIsNone(trusted.call_args.kwargs.get("python"))
+            self.assertEqual(trusted.call_args.kwargs["node"], "node")
+
+    def test_cli_offline_preparation_scopes_both_package_managers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            trust = {"PIP_CERT": "scoped-trust.pem", "NODE_EXTRA_CA_CERTS": "scoped-trust.pem"}
+            with mock.patch("scripts.launcher.dependencies.package_trust_environment",
+                            side_effect=lambda *args, **kwargs: nullcontext(trust)), \
+                 mock.patch("scripts.launcher.dependencies.required_tool", side_effect=lambda name: name), \
+                 mock.patch("scripts.launcher.dependencies.run") as run_mock, \
+                 mock.patch("scripts.launcher.dependencies.write_offline_manifest"):
+                prepare_offline(project, Scope(), project.root / "offline")
+            self.assertEqual(len(run_mock.call_args_list), 3)
+            self.assertTrue(all(call.kwargs.get("extra_env") == trust for call in run_mock.call_args_list))
+
     def test_cli_help_does_not_require_installed_application_packages(self):
         root = Path(__file__).resolve().parent.parent
         for arguments in (("--help",), ("setup", "--help"), ("prod", "--help")):
@@ -206,7 +246,9 @@ class DependencyTests(unittest.TestCase):
         self, ensure_mock: mock.Mock, run_mock: mock.Mock
     ) -> None:
         """Offline pip installation must disable all package indexes."""
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch(
+            "scripts.launcher.dependencies.package_trust_environment", return_value=nullcontext({})
+        ):
             project = create_project(Path(temporary))
             wheels = project.root / "offline/wheels"
             wheels.mkdir(parents=True)
@@ -225,7 +267,9 @@ class DependencyTests(unittest.TestCase):
         """Cache preparation should use an isolated tree and disable lifecycle scripts."""
         from scripts.launcher.dependencies import populate_npm_cache
 
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch(
+            "scripts.launcher.dependencies.package_trust_environment", return_value=nullcontext({})
+        ):
             project = create_project(Path(temporary))
             (project.frontend / "package-lock.json").write_text("{}\n", encoding="utf-8")
             populate_npm_cache(project, project.root / "offline/npm-cache")

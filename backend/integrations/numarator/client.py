@@ -10,6 +10,8 @@ import requests
 from django.conf import settings
 from requests.exceptions import RequestException, SSLError
 
+from integrations.tls import configure_session_tls
+
 from awcenter.outbound_urls import normalize_outbound_base_url
 
 FORMAT_CODE_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
@@ -112,6 +114,7 @@ class NumaratorClient:
             raise NumaratorConfigurationError("Numarator URL is invalid.") from error
         self.session = session or requests.Session()
         self.session.verify = tls_verification()
+        configure_session_tls(self.session, self.session.verify)
         self.session.headers.update(
             {
                 "Accept": "application/json",

@@ -103,7 +103,10 @@ Job mesajındaki güvenli hata nedenine göre kontrol et:
 - **TLS:** Worker'ın `NUMARATOR_CERTIFICATE_FILE` dosyasına erişimini ve
   sertifikanın bağlantıda kullanılan hostname/IP ile eşleşmesini kontrol et.
   Mevcut özel CA dosyası, process genelindeki `REQUESTS_CA_BUNDLE` veya
-  `CURL_CA_BUNDLE` değerlerinden önce gelir; TLS doğrulamasını kapatma.
+  `CURL_CA_BUNDLE` değerlerinden önce gelir ve Windows CA/ROOT, OpenSSL sistem
+  varsayılanları ile Requests'in genel CA deposuna eklenir. CA seçilmezse bu
+  varsayılan depolar kullanılır; ortamdan çözümlenen CA da bunlara eklenir.
+  Sertifikanın geçerlilik ve SAN/hostname denetimleri sürer; TLS doğrulamasını kapatma.
 - **HTTP 401:** Worker'ın API anahtarının Numarator'de geçerli ve aktif olduğunu
   kontrol et.
 - **HTTP 403:** Anahtarın gerekli scope'larını ve format erişimini kontrol et.

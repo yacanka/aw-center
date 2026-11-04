@@ -53,7 +53,7 @@ class AIClientTests(SimpleTestCase):
             configuration=self.configuration if configuration is None else configuration,
         )
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_text_request_is_bounded(self, post):
         context = self.response("first\nsecond")
         post.return_value = context
@@ -93,7 +93,7 @@ class AIClientTests(SimpleTestCase):
         self.assertEqual(send.call_args.kwargs["verify"], "/synthetic/approved-ca.pem")
         self.assertFalse(send.call_args.kwargs["allow_redirects"])
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_transport_does_not_log_prompt_reply_or_credentials(self, post):
         post.return_value = self.response("synthetic-private-reply")
         messages = [ChatMessage("user", "synthetic-private-document")]
@@ -105,7 +105,7 @@ class AIClientTests(SimpleTestCase):
         self.assertNotIn("synthetic-private-document", str(caught.exception))
         self.assertNotIn("test-only-secret", str(caught.exception))
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_utf8_limit_applies_to_encoded_payload(self, post):
         post.return_value = self.response()
         messages = [ChatMessage("user", "ğ🙂")]
@@ -120,7 +120,7 @@ class AIClientTests(SimpleTestCase):
         self.assertEqual(raised.exception.code, "AI_INVALID_INPUT")
         self.assertEqual(post.call_count, 0)
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_invalid_messages_fail_before_network(self, post):
         cases = [[], "text", [None], [ChatMessage("tool", "safe")],
                  [ChatMessage("user", None)], [ChatMessage("user", " ")],
@@ -131,7 +131,7 @@ class AIClientTests(SimpleTestCase):
             self.assertEqual(raised.exception.code, "AI_INVALID_INPUT")
         self.assertEqual(post.call_count, 0)
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_invalid_configuration_fails_before_network(self, post):
         invalid = [
             {"url": "http://ai.internal.example/ask"},
@@ -159,7 +159,7 @@ class AIClientTests(SimpleTestCase):
             self.assertNotIn("private", str(raised.exception))
         self.assertEqual(post.call_count, 0)
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_invalid_policy_fails_before_network(self, post):
         for values in ({"purpose": ""}, {"max_request_bytes": 0}, {"max_response_bytes": -1},
                        {"max_response_bytes": True}, {"connect_timeout": float("nan")},
@@ -169,14 +169,14 @@ class AIClientTests(SimpleTestCase):
             self.assertEqual(raised.exception.code, "AI_INVALID_INPUT")
         self.assertEqual(post.call_count, 0)
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_non_ascii_header_credential_fails_before_network(self, post):
         with self.assertRaises(AIServiceError) as raised:
             self.call(configuration=replace(self.configuration, token="invalid-🙂"))
         self.assertEqual(raised.exception.code, "AI_CONFIGURATION_ERROR")
         self.assertEqual(post.call_count, 0)
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_response_limit_uses_lower_configuration_or_policy_bound(self, post):
         for configuration, policy in (
             (self.configuration, replace(self.policy, max_response_bytes=128)),
@@ -189,7 +189,7 @@ class AIClientTests(SimpleTestCase):
             self.assertEqual(raised.exception.code, "AI_RESPONSE_INVALID")
             post.return_value.__exit__.assert_called_once()
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_json_requires_object(self, post):
         for content in ("[]", "null", "not-json", '{"a": 1, "a": 2}', '{"nested": {"a": 1, "a": 2}}',
                         '{"value": NaN}', '{"value": Infinity}', '{"value": 1e400}'):
@@ -204,7 +204,7 @@ class AIClientTests(SimpleTestCase):
         self.assertEqual(complete_json(self.messages, policy=self.policy, configuration=self.configuration),
                          {"answer": [1, "safe"]})
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_invalid_upstream_responses_are_sanitized(self, post):
         invalid = [b"", b"not-json", b"\xff", b"[]", b'{}', b'{"choices": []}',
                    b'{"choices": [null]}', b'{"choices": [1]}', b'{"choices": [{"message": null}]}',
@@ -221,7 +221,7 @@ class AIClientTests(SimpleTestCase):
             self.assertNotIn("private upstream", repr(raised.exception))
             self.assertNotIn(self.configuration.token, repr(raised.exception))
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_wrong_content_type_is_rejected(self, post):
         for content_type in ("text/html", "text/event-stream", ""):
             post.return_value = self.response(content_type=content_type)
@@ -229,7 +229,7 @@ class AIClientTests(SimpleTestCase):
                 self.call()
             self.assertEqual(raised.exception.code, "AI_RESPONSE_INVALID")
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_redirects_and_http_errors_are_rejected_without_reading_body(self, post):
         for status in (302, 401, 500):
             context = self.response(status=status, body=b"private upstream")
@@ -241,7 +241,7 @@ class AIClientTests(SimpleTestCase):
             context.__enter__.return_value.iter_content.assert_not_called()
             context.__exit__.assert_called_once()
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_network_and_stream_failures_are_sanitized_without_retry(self, post):
         for error in (requests.Timeout("private upstream test-only-secret"),
                       requests.ConnectionError("private upstream test-only-secret")):
@@ -270,7 +270,7 @@ class AIClientTests(SimpleTestCase):
         with self.assertRaises(FrozenInstanceError):
             self.policy.purpose = "replacement"
 
-    @patch("integrations.ai.transport.requests.post")
+    @patch("integrations.ai.transport.tls_post")
     def test_concurrent_calls_keep_separate_messages_and_policies(self, post):
         barrier = Barrier(2)
         observed = {}

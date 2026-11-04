@@ -6,6 +6,8 @@ from typing import Any
 
 import requests
 
+from integrations.tls import tls_post
+
 from .contracts import AIConfiguration, AIRequestPolicy, AIServiceError
 
 
@@ -91,7 +93,7 @@ def request_text(payload: dict[str, Any], *, policy: AIRequestPolicy, configurat
                min(policy.read_timeout, configuration.read_timeout))
     maximum_bytes = min(policy.max_response_bytes, configuration.max_response_bytes)
     try:
-        with requests.post(
+        with tls_post(
             configuration.url,
             json=payload,
             headers={"Accept": "application/json", "Content-Type": "application/json; charset=utf-8",

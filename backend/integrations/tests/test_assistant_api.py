@@ -29,7 +29,7 @@ class AssistantAPITests(TestCase):
         self.user = get_user_model().objects.create_user(username="assistant-api")
         self.client = APIClient()
         self.client.force_login(self.user)
-        network = patch("integrations.ai.transport.requests.post")
+        network = patch("integrations.ai.transport.tls_post")
         self.post = network.start()
         self.addCleanup(network.stop)
         self.post.return_value = provider_response()
