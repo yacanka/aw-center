@@ -59,6 +59,10 @@ def test(project: Project, scope: Scope) -> None:
     print("[ok] tests completed")
 
 
+from .resource_locks import windows_lifecycle
+
+
+@windows_lifecycle('dev')
 def dev(
     project: Project,
     scope: Scope,
@@ -72,6 +76,7 @@ def dev(
     ready: Callable[[list[subprocess.Popen]], None] | None = None,
     worker_heartbeat_dir: Path | None = None,
     protect_credentials: bool = False,
+    health=None,
 ) -> None:
     """Run Django and Vite as launcher-owned foreground children."""
     scope.require_any()
@@ -104,9 +109,10 @@ def dev(
         if ready is not None:
             ready(processes)
         print_urls(scope, host, backend_port, frontend_port)
-    supervise(processes)
+    supervise(processes, **({'health': health} if health is not None else {}))
 
 
+@windows_lifecycle('prod')
 def prod(
     project: Project,
     *,
@@ -121,6 +127,7 @@ def prod(
     ready: Callable[[list[subprocess.Popen]], None] | None = None,
     worker_heartbeat_dir: Path | None = None,
     protect_credentials: bool = False,
+    health=None,
 ) -> None:
     """Run the single-host Windows HTTPS production lifecycle."""
 
@@ -172,7 +179,7 @@ def prod(
             ready(processes)
         print(f"Production: {production_url(host, port)}")
         print("Press Ctrl+C to stop.")
-    supervise(processes)
+    supervise(processes, **({'health': health} if health is not None else {}))
 
 
 def start_production_backend(

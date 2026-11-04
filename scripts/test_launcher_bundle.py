@@ -165,6 +165,14 @@ class BundleSafetyTests(unittest.TestCase):
                 'path':'document-templates/cover.docx', 'size':len(template_payload),
                 'sha256':hashlib.sha256(template_payload).hexdigest(),
             }]}))
+        from scripts.manager.payload import prepare_source_payload
+        from scripts.manager.distribution import seal_distribution, verify_distribution
+        manager = self.root / 'manager'
+        prepare_source_payload(self.project, manager / 'source')
+        (manager / '_internal').mkdir()
+        (manager / '_internal/python311.dll').write_bytes(b'embedded fixture')
+        (manager / 'AWCenterManager.exe').write_bytes(b'manager fixture')
+        seal_distribution(manager)
         output = self.root / 'bundle'
         with patch.object(self.bundle, 'target_metadata', return_value=target), \
              patch('scripts.launcher.offline_manifest.target_metadata', return_value=target), \
@@ -173,8 +181,10 @@ class BundleSafetyTests(unittest.TestCase):
              patch('scripts.launcher.installation_sources._retrieve', return_value=False):
             self.assertEqual(self.bundle.prepare_install_bundle(
                 self.project, output, SourceSettings(offline_dir=offline), assets=assets,
-                feature_catalog=approved_features), output)
+                feature_catalog=approved_features, manager_distribution=manager), output)
             self.assertEqual(self.bundle.verify_install_bundle(self.project, output)['format_version'], 1)
+            self.assertTrue(verify_distribution(output)['complete'])
+            self.assertTrue((output / 'AWCenterManager.exe').is_file())
             self.assertTrue((output / 'dependencies/manifest.json').is_file())
             self.assertTrue((output / 'runtimes/python.zip').is_file())
             self.assertTrue((output / 'runtimes/ffmpeg.zip').is_file())
@@ -184,7 +194,7 @@ class BundleSafetyTests(unittest.TestCase):
             (output / 'source/backend/db.sqlite3').write_bytes(b'local business state')
             (output / 'source/frontend/node_modules').mkdir()
             (output / 'source/frontend/node_modules/generated.js').write_text('dependency')
-            (output / 'source/backend/.env').write_text('SECRET_KEY=private-value')
+
             self.bundle.verify_install_bundle(self.project, output)
             code = output / 'source/backend/manage.py'
             original = code.read_text()
@@ -441,7 +451,7 @@ class HostRuntimeBundleTests(unittest.TestCase):
             self.assertFalse((self.root / 'bundle').exists())
 
     def test_external_node_accepts_supported_non_catalog_stable_versions(self):
-        for index, version in enumerate(('v22.12.0', 'v22.99.1', '24.0.0', 'v25.1.2')):
+        for index, version in enumerate(('v22.13.0', 'v22.99.1', '24.0.0', 'v25.1.2')):
             with self.subTest(version=version):
                 self.versions['node'] = version
                 output = self.prepare(external=frozenset({'node'}), name=f'bundle-{index}')

@@ -121,6 +121,7 @@ class AcquisitionFailureTests(unittest.TestCase):
                     observed.append(bundle)
                 with self.subTest(selected=selected), \
                      mock.patch.object(dependencies, '_ensure_venv'), \
+                     mock.patch.object(dependencies, 'dependency_stage', side_effect=lambda target, lock, install: install() or True), \
                      mock.patch('scripts.launcher.certificates._python_roots', return_value=ssl.DER_cert_to_PEM_cert(roots[0])), \
                      mock.patch.object(dependencies, '_python_packages', side_effect=packages), \
                      mock.patch.object(dependencies, '_frontend_packages', side_effect=packages):

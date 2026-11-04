@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 from .model import LauncherError
+from .probe_budget import bounded, remaining
 from .process import controlled_run, environment
 from .process import OperationCancelled
 
@@ -111,7 +112,8 @@ def _probe(command, *, failures=None):
     values.pop('PYLAUNCHER_ALLOW_INSTALL', None)
     try:
         result = controlled_run([*map(str, command), '-I', '-S', '-B', '-X', 'utf8', '-c', _PROBE],
-                                env=values, capture_output=True, text=True, timeout=PROBE_TIMEOUT_SECONDS, check=False)
+                                env=values, capture_output=True, text=True,
+                                timeout=remaining(PROBE_TIMEOUT_SECONDS, SystemPythonError), check=False)
         if result.returncode:
             raise SystemPythonError('process_failed', returncode=result.returncode)
         if len(result.stdout) > 4096:
@@ -140,6 +142,7 @@ def _excluded(path):
     return False
 
 
+@bounded(120, SystemPythonError)
 def validate_python(executable: Path) -> Path:
     """Require full CPython 3.11 x64 with venv/ensurepip; never use a frozen EXE."""
     path = Path(executable)
@@ -221,6 +224,7 @@ def _selected_candidates(selection):
         yield from _path_candidates(value)
 
 
+@bounded(120, SystemPythonError)
 def discover_python(selection: str | None = None) -> Path:
     """Validate a command/file/directory, or discover CPython without installing.
 
@@ -230,6 +234,7 @@ def discover_python(selection: str | None = None) -> Path:
     seen = set()
     failures = []
     for command in (_selected_candidates(selection) if selection else _candidates()):
+        remaining(PROBE_TIMEOUT_SECONDS, SystemPythonError)
         executable = Path(command[0])
         if _excluded(executable):
             failures.append(SystemPythonError('excluded'))
@@ -265,10 +270,10 @@ def _discovery_failure(failures, selection):
     execution_failures = [error for error in failures if error.reason in {
         'start_failed', 'process_failed', 'timeout', 'invalid_response'}]
     meaningful = [error for error in failures if error.reason not in {'path_missing', 'excluded'}]
-    if component_failure:
-        return component_failure
     if execution_failures:
         return execution_failures[-1]
+    if component_failure:
+        return component_failure
     if meaningful:
         return meaningful[-1]
     if failures:

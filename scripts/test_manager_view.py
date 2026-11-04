@@ -300,13 +300,13 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.assertEqual(self.window.state.last_values["source_root"], "C:/dev")
         self.assertIn("Dev çalışıyor", self.window.state.report())
 
-    def test_retry_while_task_busy_submits_current_form_as_new_snapshot(self):
+    def test_retry_uses_original_snapshot_even_when_form_changes(self):
         self.window.variables["source_root"].set("D:/edited")
         self.window.variables["profile"].set("prod")
         self.window._retry()
         self.assertEqual(self.actions[0][0], "start")
-        self.assertEqual(self.actions[0][1]["profile"], "prod")
-        self.assertEqual(self.actions[0][1]["source_root"], "D:/edited")
+        self.assertEqual(self.actions[0][1]["profile"], "dev")
+        self.assertEqual(self.actions[0][1]["source_root"], "C:/dev")
         self.assertEqual(self.window.state.last_values["source_root"], "C:/dev")
 
     def test_default_browser_helper_runs_off_tk_thread(self):
@@ -380,19 +380,15 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
                 self.assertIs(window.advanced_var.get(), False)
         self.window.advanced_frame.grid.assert_not_called()
 
-    def test_summary_uses_selected_task_metadata_when_form_profile_changes(self):
+    def test_summary_follows_selected_profile_without_private_form_paths(self):
         window = self.window
         window._update_summary()
-        title, context = window.summary_title_var.get(), window.summary_context_var.get()
-        self.assertIn("Başlat", title)
-        self.assertIn("dev", context)
-        self.assertIn("dev", window.task_states.tasks)
+        self.assertIn("Geliştirme", window.summary_title_var.get())
         window.variables["profile"].set("prod")
         window.variables["env_file"].set("C:/private/not-task-metadata.env")
         window._update_summary()
-        self.assertEqual(window.summary_title_var.get(), title)
-        self.assertEqual(window.summary_context_var.get(), context)
-        self.assertNotIn("not-task-metadata", context)
+        self.assertIn("Üretim", window.summary_title_var.get())
+        self.assertNotIn("not-task-metadata", window.summary_context_var.get())
 
     def test_summary_retains_controller_finishing_status_after_done_event(self):
         window = self.window
@@ -401,26 +397,28 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         ], selected_id="1234abcd-task")
         window.task_states.handle_event({"task_id": "1234abcd-task", "type": "done", "ok": True})
         window._update_summary()
-        self.assertIn("Başlat", window.summary_title_var.get())
-        self.assertIn("Tamamlanıyor", window.summary_title_var.get())
-        self.assertNotIn("Tamamlandı", window.summary_title_var.get())
-        self.assertIn("1234abcd", window.summary_context_var.get())
+        self.assertIn("tamamlanıyor", window.summary_title_var.get())
+        self.assertNotIn("tamamlandı", window.summary_title_var.get())
         self.assertTrue(window.state.busy)
 
-    def test_ready_heading_uses_task_profile_and_actual_endpoint_until_task_stops(self):
+    def test_ready_heading_is_profile_specific_and_drops_stopped_endpoint(self):
         window = self.window
         window.task_states.handle_event({'task_id': 'dev', 'type': 'ready',
                                           'url': 'http://127.0.0.1:8000/app/'})
-        window.variables['profile'].set('prod')
         window._update_summary()
         self.assertEqual(window.summary_title_var.get(), 'Geliştirme ortamı çalışıyor')
         self.assertIn('http://127.0.0.1:8000', window.summary_context_var.get())
+        window.variables['profile'].set('prod')
+        window._update_summary()
+        self.assertIn('Üretim', window.summary_title_var.get())
+        self.assertNotIn('127.0.0.1', window.summary_context_var.get())
+        window.variables['profile'].set('dev')
         window.task_states.update_tasks([
             {'id': 'dev', 'action': 'start', 'profile': 'dev', 'status': 'cancelled', 'values': {}},
         ])
         window._update_summary()
-        self.assertIn('Durduruldu', window.summary_title_var.get())
         self.assertNotIn('ortamı çalışıyor', window.summary_title_var.get())
+        self.assertNotIn('127.0.0.1', window.summary_context_var.get())
 
     def test_summary_isolates_other_tasks_and_counts_controller_rows(self):
         window = self.window
@@ -436,16 +434,16 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.assertEqual((window.summary_title_var.get(), window.summary_context_var.get()), summary)
         self.assertNotIn("Prod uyarısı", " ".join(summary))
 
-    def test_general_feedback_summary_does_not_reuse_selected_task_metadata(self):
+    def test_general_feedback_does_not_replace_live_profile_summary(self):
         window = self.window
         window.task_states.handle_event({"task_id": "dev", "type": "ready", "url": "http://127.0.0.1:8000/app/"})
         window.task_states.handle_event({"type": "error", "message": "token=private-general-value", "code": "invalid_form"})
         window._update_summary()
         summary = window.summary_title_var.get() + " " + window.summary_context_var.get()
         self.assertIsNone(window.selected_task_id())
-        self.assertIn("Genel", summary)
+        self.assertIn("Geliştirme ortamı çalışıyor", summary)
         self.assertNotIn("private-general-value", summary)
-        self.assertNotIn("127.0.0.1", summary)
+        self.assertIn("127.0.0.1", summary)
         self.assertNotIn("Başlat", window.summary_title_var.get())
 
 
@@ -474,7 +472,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertIs(host_group.master, port_group.master)
         self.assertEqual(host_group.grid_info()['row'], port_group.grid_info()['row'])
         self.assertNotEqual(host_group.grid_info()['column'], port_group.grid_info()['column'])
-        self.assertEqual(window.tabs.cget('style'), 'Manager.TNotebook')
+        self.assertEqual(window.tabs.cget('style'), 'Manager.Single.TNotebook')
 
     def test_settings_fill_card_width_and_main_actions_are_initially_visible(self):
         root, window = self.root, self.window
@@ -488,7 +486,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertAlmostEqual(port.winfo_rootx() + port.winfo_width(), right, delta=3)
         self.assertAlmostEqual(picker.winfo_rootx() + picker.winfo_width(), right, delta=3)
         self.assertAlmostEqual(host.winfo_width(), port.winfo_width(), delta=3)
-        action = window.action_buttons['provision']
+        action = window.action_buttons['start']
         self.assertLessEqual(action.winfo_rooty() + action.winfo_height(),
                              window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height())
 
@@ -509,7 +507,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         root.deiconify()
         root.update()
         bottom = window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height()
-        for name in ('doctor', 'provision'):
+        for name in ('start',):
             action = window.action_buttons[name]
             self.assertLessEqual(action.winfo_rooty() + action.winfo_height(), bottom)
 
@@ -659,13 +657,13 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(window.advanced_frame.winfo_manager(), "grid")
         self.assertEqual(window.state.error_code, "invalid_form")
 
-    def test_selecting_prod_reveals_advanced_settings_and_dev_preserves_values(self):
+    def test_selecting_prod_reveals_tls_without_expanding_advanced_settings(self):
         window = self.window
         window.variables["tls_cert_file"].set("C:/private/server.crt")
         window.variables["env_file"].set("C:/private/selected.env")
         window.variables["profile"].set("prod")
-        self.assertIs(window.advanced_var.get(), True)
-        self.assertEqual(window.advanced_frame.winfo_manager(), "grid")
+        self.assertIs(window.advanced_var.get(), False)
+        self.assertEqual(window.tls_frame.winfo_manager(), "grid")
         self.assertEqual(str(window._fields["tls_cert_file"]["state"]), "normal")
         window.variables["profile"].set("dev")
         self.assertEqual(window.variables["tls_cert_file"].get(), "C:/private/server.crt")

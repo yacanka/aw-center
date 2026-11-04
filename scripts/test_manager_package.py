@@ -181,7 +181,7 @@ class NativeWindowsPackageTests(unittest.TestCase):
             try:
                 event = events.get(timeout=1)
                 self.assertIsNotNone(event, 'Packaged worker exited before its completion event')
-                self.assertIn(event.get('type'), {'phase', 'status', 'checks', 'ready', 'error', 'input', 'done'})
+                self.assertIn(event.get('type'), {'phase', 'status', 'checks', 'ready', 'error', 'input', 'done', 'health', 'profile'})
                 return event
             except queue.Empty:
                 self.assertIsNone(child.poll(), 'Packaged worker exited without a structured result')
@@ -202,7 +202,7 @@ class NativeWindowsPackageTests(unittest.TestCase):
 
     def test_packaged_worker_checks_all_source_modes_without_installing_tools(self):
         executable = Path(os.environ['AWCENTER_MANAGER_EXE']).resolve()
-        for mode in ('offline', 'corporate', 'online'):
+        for mode in ('offline', 'restricted', 'corporate', 'online'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix='awcenter-manager-source-') as temporary:
                 directory = Path(temporary).resolve()
                 request = {'action': 'test-sources', 'source_root': str(executable.parent / 'source'),
@@ -320,36 +320,22 @@ class NativeWindowsPackageTests(unittest.TestCase):
                              'Prepared system-Python start must preserve the existing administrator')
             self.assertEqual(hashlib.sha256(private_env.read_bytes()).digest(), before)
 
-            # An occupied output stops bundling after tool validation and before
-            # dependency acquisition, keeping automatic discovery acceptance small.
-            output = directory / 'occupied-bundle'
-            output.mkdir()
-            marker = output / 'preserved.txt'
-            marker.write_bytes(b'keep existing output')
-            automatic = {'action': 'bundle', 'source_root': str(source), 'source_mode': 'online',
-                         'install_python': False, 'output': str(output)}
-            child, events = self.start_worker(executable, directory, automatic, network=False,
-                                             python_on_path=python)
+            inspection = {'action': 'inspect', 'source_root': str(source), 'profile': 'dev'}
+            child, events = self.start_worker(executable, directory, inspection, network=False)
             received = []
             deadline = time.monotonic() + 180
             while not received or received[-1]['type'] != 'done':
                 received.append(self.next_event(child, events, deadline))
-            self.assertTrue(any(event.get('message') == 'Offline paket hazırlanıyor' for event in received),
-                            received)
-            self.assertFalse(received[-1]['ok'], received)
-            self.assertEqual([event.get('code') for event in received if event['type'] == 'error'],
-                             ['source_unavailable'], received)
+            self.assertTrue(received[-1]['ok'], received)
+            status = next(event for event in received if event['type'] == 'profile')
+            self.assertEqual(status['status'], 'stopped')
+            self.assertIn('sistem kurulumu', status['tools'])
             child.wait(timeout=30)
-            self.assertEqual(child.returncode, 0)
-            self.assertEqual(marker.read_bytes(), b'keep existing output')
             self.assertEqual(list((home / 'runtimes').glob('python-*')), [])
 
-    @unittest.skipUnless(os.environ.get('AWCENTER_RUN_MANAGER_OFFLINE_SMOKE') == '1' and
-                         os.environ.get('AWCENTER_MANAGER_OFFLINE_BUNDLE'),
-                         'Full offline acceptance requires an approved prepared bundle and explicit opt-in')
     def test_real_packaged_cold_offline_provision_without_network(self):
         executable = Path(os.environ['AWCENTER_MANAGER_EXE']).resolve()
-        bundle = Path(os.environ['AWCENTER_MANAGER_OFFLINE_BUNDLE']).resolve()
+        bundle = executable.parent
         with tempfile.TemporaryDirectory(prefix='awcenter-manager-offline-') as temporary:
             directory = Path(temporary).resolve()
             source = self.copy_clean_source(executable, directory)

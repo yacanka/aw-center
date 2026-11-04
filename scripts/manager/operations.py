@@ -13,7 +13,7 @@ from scripts.launcher.model import LauncherError
 from scripts.launcher.process import OperationCancelled, check_cancelled, operation_control
 from .task_policy import ACTION_LABELS
 
-PATH_FIELDS = {'offline_dir', 'ca_file', 'assets', 'feature_catalog', 'tls_cert_file', 'tls_key_file', 'output', 'env_file'}
+PATH_FIELDS = {'offline_dir', 'ca_file', 'assets', 'feature_catalog', 'tls_cert_file', 'tls_key_file', 'output', 'env_file', 'manager_distribution'}
 TEXT_FIELDS = {'repository', 'python_index_url', 'npm_registry_url', 'host', 'asset_set', 'python_command', 'node_command'}
 
 
@@ -21,16 +21,17 @@ def arguments(request):
     """Convert only declared form values; paths remain argv elements, never shell."""
     profile = request.get('profile', 'dev')
     mode = request.get('source_mode', 'online')
-    if profile not in {'dev', 'prod'} or mode not in {'online', 'corporate', 'offline'}:
+    if profile not in {'dev', 'prod'} or mode not in {'online', 'restricted', 'corporate', 'offline'}:
         raise LauncherError('Geçersiz profil veya kaynak modu.')
     action = request.get('action', 'provision')
     sources = {'repository', 'offline_dir', 'python_index_url', 'npm_registry_url', 'ca_file'}
     fields = (sources if action == 'test-sources' else
-              sources | {'assets', 'feature_catalog', 'output', 'python_command', 'node_command'} if action == 'bundle' else
-              PATH_FIELDS | TEXT_FIELDS if action == 'provision' else {'env_file'} if action in {'start', 'doctor'} else set())
+              sources | {'assets', 'feature_catalog', 'output', 'python_command', 'node_command', 'manager_distribution'} if action == 'bundle' else
+              PATH_FIELDS | TEXT_FIELDS if action == 'provision' else {'python_command', 'node_command'} if action == 'inspect' else {'env_file'} if action in {'start', 'doctor'} else set())
     values = {'profile': profile, 'source_mode': mode, 'no_admin': False, 'use_saved_sources': False,
               'migrate': request.get('migrate') is True, 'exclude_doors': None,
               'install_python': request.get('install_python') is True}
+    values['install_node'] = request.get('install_node') is True
     for field in PATH_FIELDS | TEXT_FIELDS:
         value = request.get(field) if field in fields else None
         if value is not None and (not isinstance(value, str) or len(value) > 8192 or any(c in value for c in '\0\r\n')):
@@ -45,66 +46,20 @@ def arguments(request):
     return argparse.Namespace(**values)
 
 
-def _python_choice(args):
-    if args.install_python:
-        return {}
-    if not getattr(args, 'python_executable', None):
-        from scripts.launcher.system_python import PROBE_TIMEOUT_SECONDS, SystemPythonError, discover_python
-        progress = getattr(args, 'progress', None)
-        if callable(progress):
-            progress(f'Sistem Python’u denetleniyor; her aday için en fazla {PROBE_TIMEOUT_SECONDS} saniye beklenir')
-        selection = getattr(args, 'python_command', None)
-        try:
-            args.python_executable = discover_python(selection) if selection else discover_python()
-        except SystemPythonError:
-            if selection:
-                raise
-            # Resolve the choice once so later provisioning cannot repeat a
-            # failed automatic search or accidentally ignore managed fallback.
-            args.install_python = True
-            if callable(progress):
-                progress('Uygun sistem Python bulunamadı; yönetilen Python hazırlanacak')
-            return {}
-    return {'python_executable': args.python_executable}
-
-
-def _node_choice(args):
-    if getattr(args, 'node_executable', None):
-        return {'node_executable': args.node_executable}
-    if getattr(args, '_node_checked', False):
-        return {}
-    from scripts.launcher.system_node import SystemNodeError, discover_node
-    progress = getattr(args, 'progress', None)
-    if callable(progress):
-        progress('Sistem Node.js kurulumu denetleniyor')
-    selection = getattr(args, 'node_command', None)
-    try:
-        args.node_executable = discover_node(selection) if selection else discover_node()
-    except SystemNodeError:
-        if selection:
-            raise
-        if callable(progress):
-            progress('Uygun sistem Node.js bulunamadı; yönetilen Node.js hazırlanacak')
-        args._node_checked = True
-        return {}
-    args._node_checked = True
-    return {'node_executable': args.node_executable}
-
-
-def _tool_choices(args):
-    return {**_python_choice(args), **_node_choice(args)}
+from scripts.launcher.runtime_selection import _python_choice, _node_choice, tool_choices as _tool_choices
 
 
 def _bundled_tools(args, emit, *, project=None):
     """Runtime archives ship beside EXE; package indexes need not host CPython."""
     from scripts.launcher.installation import source_settings
-    from scripts.launcher.installation_sources import SourceSettings
     from scripts.launcher.installation_profiles import installation_home
     from scripts.launcher.installation_state import installation_lock
     from scripts.launcher.toolchain import ensure_toolchain
     options = _tool_choices(args)
     preparation_options = {**options, 'progress': getattr(args, 'progress', None)}
-    settings = source_settings(args, project) if project is not None else None
+    if getattr(sys, 'frozen', False):
+        args.runtime_dirs = (Path(sys.executable).parent,)
+    settings = source_settings(args, project)
     if project is not None:
         from scripts.launcher.installation_bundle import require_bundle_host_runtimes
         require_bundle_host_runtimes(project, settings, **options)
@@ -112,15 +67,9 @@ def _bundled_tools(args, emit, *, project=None):
         emit({'type': 'phase', 'message': 'Sistem Python 3.11 x64 kullanılıyor; Python kurulmayacak'})
     if options.get('node_executable'):
         emit({'type': 'phase', 'message': 'Sistem Node.js kullanılıyor; Node.js arşivi indirilmeyecek'})
-    if getattr(sys, 'frozen', False):
-        emit({'type': 'phase', 'message': 'Seçilen runtime ve Node/npm hazırlanıyor'})
-        with installation_lock(installation_home()):
-            ensure_toolchain(installation_home(), SourceSettings(
-                offline_dir=Path(sys.executable).parent, mode='offline'), **preparation_options)
-    else:
-        # Source development still uses the selected policy; no global install.
-        with installation_lock(installation_home()):
-            ensure_toolchain(installation_home(), settings or source_settings(args), **preparation_options)
+    emit({'type': 'phase', 'message': 'Seçilen runtime ve Node/npm hazırlanıyor'})
+    with installation_lock(installation_home()):
+        ensure_toolchain(installation_home(), settings, **preparation_options)
 
 
 def _remedy(phase):
@@ -176,6 +125,8 @@ def execute(request, emit, admin_provider, stop):
         if not isinstance(request, dict) or request.get('action') not in ACTION_LABELS:
             raise LauncherError('Geçersiz işlem.')
         args = arguments(request)
+        if getattr(sys, 'frozen', False):
+            args.runtime_dirs = (Path(sys.executable).parent,)
         from .paths import default_source_root
         args.source_root = request.get('source_root') or str(default_source_root())
         args.admin_provider = admin_provider
@@ -227,6 +178,28 @@ def _project_for(action, args):
 
 
 def _dispatch(action, args, emit):
+    if action in {'provision', 'start', 'bundle'}:
+        from scripts.launcher.resource_locks import path_claims, resource_locks
+        from scripts.launcher.installation_profiles import installation_home
+        home, source = installation_home(), Path(args.source_root).absolute()
+        # A selected canonical release is also the mutable destination. Claim
+        # it upfront: leases deliberately never upgrade an existing read claim.
+        mutable_source = args.profile == 'dev' or source.is_relative_to(home / 'releases')
+        claims = path_claims(source, write=action == 'provision' and mutable_source)
+        if action == 'bundle':
+            claims.update(path_claims(args.output, write=True))
+        else:
+            claims.update({'profile:' + args.profile: True, 'runtime': action == 'provision'})
+        with resource_locks(home, claims):
+            return _dispatch_claimed(action, args, emit)
+    return _dispatch_claimed(action, args, emit)
+
+
+def _dispatch_claimed(action, args, emit):
+    if action == 'inspect':
+        from .inspection import inspect_profile
+        inspect_profile(args, emit)
+        return
     if action == 'test-sources':
         from .source_checks import run
         run(args, emit)
@@ -247,41 +220,30 @@ def _dispatch(action, args, emit):
 
 def _bundle(project, args, emit):
     from scripts.launcher.installation import source_settings
-    from scripts.launcher.installation_bundle import prepare_install_bundle, require_bundle_host_runtimes
-    from scripts.launcher.installation_profiles import installation_home
-    from scripts.launcher.installation_state import process_environment
-    from scripts.launcher.toolchain import inspect_toolchain, toolchain_environment
-    if not args.output:
-        raise LauncherError('Offline paket hedefi gerekli.')
-    # A running app already has verified tools. Bundling then uses them read-only
-    # and touches only isolated staging/cache/output, never the live .venv.
-    options = _tool_choices(args)
-    settings = source_settings(args, project)
-    require_bundle_host_runtimes(project, settings, **options)
-    if any(check['status'] != 'ready' for check in inspect_toolchain(installation_home(), **options)):
-        args.progress('Yönetilen runtime hazırlığı')
-        _bundled_tools(args, emit, project=project)
-    args.progress('Offline paket hazırlanıyor')
-    home = installation_home()
-    tools = toolchain_environment(home, **options)
-    external = {name for name in ('python', 'node') if options.get(name + '_executable')}
-    npm_cli = tools.get('AWCENTER_MANAGED_NPM_CLI')
-    if options.get('node_executable') and npm_cli and not Path(npm_cli).resolve().is_relative_to((home / 'runtimes').resolve()):
-        external.add('npm')
-    with process_environment(tools):
-        prepare_install_bundle(project, args.output, settings,
-                               assets=args.assets, feature_catalog=args.feature_catalog,
-                               external_runtimes=frozenset(external))
+    from .distribution import prepare_full_manager
+    distribution = Path(sys.executable).parent if getattr(sys, 'frozen', False) else args.manager_distribution
+    if not args.output or not distribution:
+        raise LauncherError('Çıktı klasörü ve aynı sürümden Windows Manager paketi seçin.')
+    args.progress('Tam çevrimdışı Manager paketi hazırlanıyor')
+    prepare_full_manager(project, args.output, source_settings(args, project), distribution,
+                         assets=args.assets, feature_catalog=args.feature_catalog)
 
 
 def _lifecycle(project, action, args, emit):
+    from scripts.launcher.resource_locks import lifecycle_locks
+    from scripts.launcher.installation_profiles import installation_home
+    with lifecycle_locks(installation_home(), project, args.profile, write=action == 'provision'):
+        _run_lifecycle(project, action, args, emit)
+
+
+def _run_lifecycle(project, action, args, emit):
     from scripts.launcher.installation import provision, start_profile
     if action == 'provision':
         if args.env_file:
             from scripts.launcher.installation_env import read_selected_environment
             read_selected_environment(project, args.profile, args.env_file)
-        args.progress('Yönetilen runtime hazırlığı')
-        _bundled_tools(args, emit, project=project)
+        if getattr(sys, 'frozen', False):
+            args.runtime_dirs = (Path(sys.executable).parent,)
         emit({'type': 'checks', 'checks': provision(project, args)})
     args.progress('Uygulama ve worker süreçleri başlatılıyor')
     def ready(profile):
@@ -289,4 +251,4 @@ def _lifecycle(project, action, args, emit):
         url = (f"https://{profile['host']}:{profile['backend_port']}/app/" if profile['name'] == 'prod' else
                f"http://{profile['host']}:{profile['frontend_port']}/app/")
         emit({'type': 'ready', 'url': url})
-    start_profile(project, args.profile, on_ready=ready)
+    start_profile(project, args.profile, on_ready=ready, on_health=emit)

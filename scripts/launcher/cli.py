@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -31,6 +32,15 @@ def main(arguments: list[str] | None = None) -> int:
 
 def dispatch(project: Project, args: argparse.Namespace) -> int | None:
     """Dispatch one parsed command to its focused workflow."""
+    if os.name == 'nt' and args.command in {'setup', 'prepare-offline'}:
+        from .installation_profiles import installation_home
+        from .resource_locks import path_claims, resource_locks
+        with resource_locks(installation_home(), path_claims(project.root, write=True)):
+            return _dispatch(project, args)
+    return _dispatch(project, args)
+
+
+def _dispatch(project: Project, args: argparse.Namespace) -> int | None:
     scope = scope_from(args)
     if args.command == "setup":
         install(project, scope, args.mode, project_path(project, args.offline_dir))

@@ -26,7 +26,7 @@ class SystemNodeTests(unittest.TestCase):
         self.node = Path(HOST_NODE).resolve()
 
     def probe(self, **changes):
-        value = {'execPath': str(self.node), 'version': 'v22.12.0', 'arch': 'x64',
+        value = {'execPath': str(self.node), 'version': 'v22.13.0', 'arch': 'x64',
                  'platform': 'win32' if sys.platform == 'win32' else sys.platform}
         value.update(changes)
         return 'console.log(JSON.stringify(' + json.dumps(value) + '))'
@@ -65,7 +65,7 @@ class SystemNodeTests(unittest.TestCase):
             executable = Path(temporary).resolve() / 'İş araçları' / 'node.exe'
             executable.parent.mkdir()
             executable.write_bytes(b'operator executable fixture')
-            value = {'execPath': str(executable), 'version': 'v22.12.0',
+            value = {'execPath': str(executable), 'version': 'v22.13.0',
                      'arch': 'x64', 'platform': 'win32'}
             program = 'console.log(' + json.dumps(json.dumps(value, ensure_ascii=False)) + ')'
             def ansi_host_run(command, **options):
@@ -76,10 +76,10 @@ class SystemNodeTests(unittest.TestCase):
 
     def test_supported_versions_and_architecture_are_checked_with_real_processes(self):
         from scripts.launcher import system_node
-        for version in ('v22.12.0', 'v22.99.2', 'v24.0.0', 'v25.1.2'):
+        for version in ('v22.13.0', 'v22.99.2', 'v24.0.0', 'v25.1.2'):
             with self.subTest(version=version), patch.object(system_node, '_PROBE', self.probe(version=version)):
                 self.assertEqual(system_node.validate_node(self.node), self.node)
-        for version in ('v20.19.0', 'v22.11.9', 'v23.9.0', 'v24.0.0-rc.1', 'v24.0.0+private'):
+        for version in ('v20.19.0', 'v22.11.9', 'v22.12.0', 'v22.12.9', 'v23.9.0', 'v24.0.0-rc.1', 'v24.0.0+private'):
             with self.subTest(version=version), patch.object(system_node, '_PROBE', self.probe(version=version)):
                 with self.assertRaises(system_node.SystemNodeError) as caught:
                     system_node.validate_node(self.node)
@@ -185,10 +185,22 @@ class SystemNodeTests(unittest.TestCase):
             cli = Path(temporary).resolve() / 'npm-cli.js'
             with patch.object(system_node, '_npm_candidates', return_value=[cli]):
                 for version in ('9.9.9', '10.8.99', '10.9.3', '12.0.0', '11.18.0-rc.1',
-                                '11.18.0+private', 'v11.18.0', '11.018.0', '/private/npm'):
+                                '11.18.0+private', '11.018.0'):
                     with self.subTest(version=version):
                         cli.write_text('console.log(' + json.dumps(version) + ')')
                         self.assertIsNone(system_node.find_npm_cli(self.node, '10.9.4', compatible=True))
+
+    def test_malformed_npm_version_requires_operator_action(self):
+        from scripts.launcher import system_node
+        with tempfile.TemporaryDirectory() as temporary:
+            cli = Path(temporary).resolve() / 'npm-cli.js'
+            with patch.object(system_node, '_npm_candidates', return_value=[cli]):
+                for version in ('v11.18.0', '/private/npm'):
+                    with self.subTest(version=version):
+                        cli.write_text('console.log(' + json.dumps(version) + ')')
+                        with self.assertRaises(system_node.SystemNodeError) as caught:
+                            system_node.find_npm_cli(self.node, '10.9.4', compatible=True)
+                        self.assertEqual(caught.exception.reason, 'invalid_response')
 
 
 class SystemNodeDiscoveryTests(unittest.TestCase):

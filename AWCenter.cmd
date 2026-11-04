@@ -68,6 +68,7 @@ goto validate_source_mode
 set "AWC_SOURCE_MODE=%AWC_ARGUMENT:~14%"
 :validate_source_mode
 if "%AWC_SOURCE_MODE%"=="online" goto source_mode_valid
+if "%AWC_SOURCE_MODE%"=="restricted" goto source_mode_valid
 if "%AWC_SOURCE_MODE%"=="corporate" goto source_mode_valid
 if "%AWC_SOURCE_MODE%"=="offline" goto source_mode_valid
 goto source_mode_error
@@ -133,6 +134,7 @@ if errorlevel 1 goto failed
 "%SystemRoot%\System32\icacls.exe" "%AWC_STAGE%" /setowner "*%AWC_SID%" >nul 2>nul
 if errorlevel 1 goto failed
 if exist "%AWC_ARCHIVE%" goto cached_bootstrap
+if "%AWC_SOURCE_MODE%"=="restricted" goto restricted_local
 if "%AWC_SOURCE_MODE%"=="offline" goto local_repository
 if "%AWC_SOURCE_MODE%"=="corporate" goto repository_fallback
 set "AWC_FETCH_URL=%AWC_PY_URL%"
@@ -172,10 +174,12 @@ if errorlevel 2 goto download_failed
 if errorlevel 1 goto offline_fallback
 goto accept_download
 :offline_fallback
+if "%AWC_SOURCE_MODE%"=="restricted" goto restricted_public
 set "AWC_LOCAL_FILE=%AWC_OFFLINE%\%AWC_PY_FILE%"
 if exist "%AWC_LOCAL_FILE%" goto accept_local
 set "AWC_LOCAL_FILE=%AWC_OFFLINE%\runtimes\%AWC_PY_FILE%"
 if exist "%AWC_LOCAL_FILE%" goto accept_local
+:sources_missing
 echo [error] Verified Python archive unavailable from sources permitted by %AWC_SOURCE_MODE% mode.
 echo [info] Required file: %AWC_PY_FILE%
 echo [info] Use --repository for a package mirror or --offline-dir for a directory containing this file.
@@ -183,6 +187,26 @@ if defined AWC_SOURCE_PROMPTED goto failed
 if "%AWC_COMMAND%"=="" goto choose_bootstrap_sources
 if /i "%AWC_COMMAND%"=="wizard" goto choose_bootstrap_sources
 goto failed
+:restricted_local
+if not defined AWC_REPOSITORY goto restricted_offline
+if /i "%AWC_REPOSITORY:~0,8%"=="https://" goto restricted_offline
+if /i "%AWC_REPOSITORY:~0,7%"=="http://" goto insecure_repository
+set "AWC_LOCAL_FILE=%AWC_REPOSITORY%\%AWC_PY_FILE%"
+if exist "%AWC_LOCAL_FILE%" goto accept_local
+set "AWC_LOCAL_FILE=%AWC_REPOSITORY%\runtimes\%AWC_PY_FILE%"
+if exist "%AWC_LOCAL_FILE%" goto accept_local
+:restricted_offline
+set "AWC_LOCAL_FILE=%AWC_OFFLINE%\%AWC_PY_FILE%"
+if exist "%AWC_LOCAL_FILE%" goto accept_local
+set "AWC_LOCAL_FILE=%AWC_OFFLINE%\runtimes\%AWC_PY_FILE%"
+if exist "%AWC_LOCAL_FILE%" goto accept_local
+if defined AWC_REPOSITORY if /i "%AWC_REPOSITORY:~0,8%"=="https://" goto remote_repository
+:restricted_public
+set "AWC_FETCH_URL=%AWC_PY_URL%"
+call :download
+if errorlevel 2 goto download_failed
+if errorlevel 1 goto sources_missing
+goto accept_download
 :choose_bootstrap_sources
 rem This prompt must work before Python/the wizard can be installed.
 set "AWC_SOURCE_PROMPTED=1"
@@ -351,6 +375,9 @@ if "%AWC_FETCH_STATUS%"=="52" exit /b 1
 if "%AWC_FETCH_STATUS%"=="55" exit /b 1
 if "%AWC_FETCH_STATUS%"=="56" exit /b 1
 if not "%AWC_FETCH_STATUS%"=="22" exit /b 2
+if "%AWC_SOURCE_MODE%"=="restricted" if "%AWC_HTTP_STATUS%"=="401" exit /b 1
+if "%AWC_SOURCE_MODE%"=="restricted" if "%AWC_HTTP_STATUS%"=="403" exit /b 1
+if "%AWC_SOURCE_MODE%"=="restricted" if "%AWC_HTTP_STATUS%"=="407" exit /b 1
 "%SystemRoot%\System32\findstr.exe" /x "404 408 429 500 502 503 504" "%AWC_STAGE%\http-status" >nul
 if errorlevel 1 exit /b 2
 exit /b 1
@@ -364,14 +391,14 @@ echo   prepare-install-bundle --output PATH
 echo   --repository HTTPS_URL_OR_DIR    Secondary reviewed-artifact mirror.
 echo   --offline-dir DIR                Final fallback, including DIR\runtimes.
 echo   --ca-file FILE                   Trusted CA certificate bundle.
-echo   --source-mode online^|corporate^|offline  Allowed acquisition sources; default online.
+echo   --source-mode online^|restricted^|corporate^|offline  Allowed acquisition sources; default online.
 echo HTTPS_PROXY may be inherited from the process. URL credentials are not supported.
 exit /b 0
 :usage_error
 echo [error] --repository, --offline-dir, --ca-file and --source-mode require a value.
 exit /b 1
 :source_mode_error
-echo [error] --source-mode must be online, corporate or offline.
+echo [error] --source-mode must be online, restricted, corporate or offline.
 exit /b 1
 :no_home
 echo [error] LOCALAPPDATA is required for a user-scoped installation.

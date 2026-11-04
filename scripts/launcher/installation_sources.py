@@ -17,7 +17,8 @@ import stat
 import tarfile
 import tempfile
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -69,10 +70,16 @@ class SourceSettings:
     npm_registry_url: str | None = None
     ca_file: Path | None = None
     mode: str = "online"
+    runtime_dirs: tuple[Path, ...] = ()
+    progress: Callable[[str], None] | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.mode not in {"online", "corporate", "offline"}:
-            raise LauncherError("Kaynak modu online, corporate veya offline olmalıdır.")
+        if self.mode not in {"online", "restricted", "corporate", "offline"}:
+            raise LauncherError("Kaynak modu online, restricted, corporate veya offline olmalıdır.")
+
+    def report(self, message: str) -> None:
+        if self.progress:
+            self.progress(message)
 
 
 def acquisition_urls(settings: SourceSettings, public: str, selected: str | None) -> list[str]:
@@ -82,6 +89,8 @@ def acquisition_urls(settings: SourceSettings, public: str, selected: str | None
     urls = [public] if settings.mode == "online" else []
     if selected:
         urls.append(_https_url(selected))
+    if settings.mode == "restricted" and public not in urls:
+        urls.append(public)
     return urls
 
 
@@ -204,12 +213,6 @@ def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) ->
     remote_repository = isinstance(repository, str) and repository.lower().startswith(("http:", "https:"))
     if remote_repository:
         _https_url(repository)
-    context = ssl.create_default_context() if settings.mode != "offline" else None
-    if settings.ca_file and context is not None:
-        try:
-            context.load_verify_locations(cafile=str(settings.ca_file))
-        except (OSError, ssl.SSLError):
-            raise LauncherError("configured artifact CA bundle could not be loaded") from None
     cache = Path(cache)
     _no_symlink(cache)
     destination = cache / artifact.filename
@@ -219,33 +222,59 @@ def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) ->
     cache.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".download-", dir=cache) as temporary:
         stage = Path(temporary) / artifact.filename
-        selected = str(repository).rstrip("/") + "/" + artifact.filename if remote_repository else None
-        urls = acquisition_urls(settings, artifact.url, selected)
-        if remote_repository and settings.mode != "offline":
-            urls.append(str(repository).rstrip("/") + "/runtimes/" + artifact.filename)
-        for url in urls:
-            try:
-                retrieved = _retrieve(url, stage, context)
-            except ArtifactDownloadError as error:
-                raise ArtifactDownloadError(error.status, artifact=artifact.name) from None
-            if retrieved:
-                _verify(stage, artifact)
-                os.replace(stage, destination)
-                return destination
-        directories = []
+        directories = list(settings.runtime_dirs)
         if repository and not remote_repository:
             directories.append(Path(repository))
         if settings.offline_dir:
             directories.append(Path(settings.offline_dir))
-        for directory in directories:
-            for source in (directory / artifact.filename, directory / "runtimes" / artifact.filename):
-                if source.exists():
-                    _verify(source, artifact)
-                    shutil.copyfile(source, stage)
-                    _verify(stage, artifact)
-                    os.replace(stage, destination)
-                    return destination
+        # Sidecar runtime archives are usable in every mode, just like cache.
+        early = directories if settings.mode in {"restricted", "offline"} else settings.runtime_dirs
+        if _copy_local_artifact(artifact, early, stage, destination):
+            settings.report(f'{artifact.name}: doğrulanmış yerel arşiv kullanılıyor')
+            return destination
+        context = ssl.create_default_context() if settings.mode != "offline" else None
+        if settings.ca_file and context is not None:
+            try:
+                context.load_verify_locations(cafile=str(settings.ca_file))
+            except (OSError, ssl.SSLError):
+                raise LauncherError("configured artifact CA bundle could not be loaded") from None
+        selected = str(repository).rstrip("/") + "/" + artifact.filename if remote_repository else None
+        urls = acquisition_urls(settings, artifact.url, selected)
+        if remote_repository and settings.mode != "offline":
+            nested = str(repository).rstrip("/") + "/runtimes/" + artifact.filename
+            urls.insert(1, nested) if settings.mode == 'restricted' else urls.append(nested)
+        for index, url in enumerate(urls):
+            attempt = Path(temporary) / str(index)
+            attempt.mkdir()
+            stage = attempt / artifact.filename
+            try:
+                retrieved = _retrieve(url, stage, context)
+            except ArtifactDownloadError as error:
+                if settings.mode != 'restricted' or error.status not in {401, 403, 407}:
+                    raise ArtifactDownloadError(error.status, artifact=artifact.name) from None
+                settings.report(f'{artifact.name}: HTTP {error.status}; sıradaki izinli kaynak deneniyor')
+                continue
+            if retrieved:
+                _verify(stage, artifact)
+                os.replace(stage, destination)
+                return destination
+            settings.report(f'{artifact.name}: kaynak erişilemiyor; sıradaki izinli kaynak deneniyor')
+        if settings.mode not in {'restricted', 'offline'} and _copy_local_artifact(artifact, directories, stage, destination):
+            return destination
     raise LauncherError(f"verified {artifact.name} artifact unavailable from configured sources")
+
+
+def _copy_local_artifact(artifact, directories, stage, destination) -> bool:
+    for directory in dict.fromkeys(map(Path, directories)):
+        for source in (directory / artifact.filename, directory / 'runtimes' / artifact.filename):
+            check_cancelled()
+            if source.exists():
+                _verify(source, artifact)
+                shutil.copyfile(source, stage)
+                _verify(stage, artifact)
+                os.replace(stage, destination)
+                return True
+    return False
 
 
 def _safe_member(name: str) -> PurePosixPath:

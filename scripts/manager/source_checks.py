@@ -1,5 +1,6 @@
 """Read-only source diagnostics, independent of provisioning and runtime startup."""
 from pathlib import Path
+import json
 import re
 import socket
 import ssl
@@ -73,7 +74,7 @@ def _probe(url, opener, proxies):
         return 'missing', 'Kaynak kontrolü tamamlanamadı. Depo yapılandırmasını kontrol edip yeniden deneyin.'
 
 
-def _remote_checks(settings):
+def _remote_checks(settings, project=None):
     from scripts.launcher.installation_sources import _SecureRedirect
     from urllib.request import HTTPSHandler, ProxyHandler, build_opener, getproxies
     try:
@@ -88,18 +89,41 @@ def _remote_checks(settings):
         except (OSError, ValueError):
             return [{'name': 'CA dosyası', 'status': 'missing',
                      'detail': 'Seçilen CA dosyası okunamadı veya geçerli bir PEM CA paketi değil. Dosyanın mevcut, okunabilir ve PEM biçiminde olduğunu kontrol edin.'}]
+    from scripts.launcher.installation_sources import acquisition_urls, load_catalog
+    from urllib.parse import quote
     endpoints = []
-    if settings.mode == 'online':
-        endpoints.extend([('PyPI', 'https://pypi.org/simple/'), ('npm', 'https://registry.npmjs.org/-/ping')])
-    endpoints.extend((name, url) for name, url in (
-        ('Kurumsal Python', settings.python_index_url), ('Kurumsal npm', settings.npm_registry_url),
-        ('Runtime deposu', str(settings.repository) if settings.repository and str(settings.repository).startswith('https://') else None)) if url)
+    python_package = 'django'
+    npm_package = 'vue'
+    if project is not None:
+        locks = json.loads((project.frontend / 'package-lock.json').read_text(encoding='utf-8'))
+        package = next(((name.removeprefix('node_modules/'), value['version'])
+                        for name, value in locks.get('packages', {}).items()
+                        if name.startswith('node_modules/') and value.get('version')), None)
+        if package:
+            npm_package = quote(package[0], safe='') + '/' + quote(package[1], safe='')
+        match = re.search(r'^([a-zA-Z0-9_.-]+)==', project.requirements.read_text(encoding='utf-8'), re.MULTILINE)
+        if match:
+            python_package = match[1].lower().replace('_', '-')
+    for base in acquisition_urls(settings, 'https://pypi.org/simple', settings.python_index_url):
+        endpoints.append(('Python wheel indeksi (örnek paket)', base.rstrip('/') + '/' + python_package + '/'))
+    for base in acquisition_urls(settings, 'https://registry.npmjs.org', settings.npm_registry_url):
+        endpoints.append(('npm kilitli paket (örnek)', base.rstrip('/') + '/' + npm_package))
+    repository = str(settings.repository) if settings.repository and str(settings.repository).startswith('https://') else None
+    for artifact in load_catalog().values():
+        selected = repository.rstrip('/') + '/' + artifact.filename if repository else None
+        for url in acquisition_urls(settings, artifact.url, selected):
+            endpoints.append((artifact.name + ' runtime arşivi', url))
+            if repository and url == selected:
+                endpoints.append((artifact.name + ' runtime arşivi (runtimes)', repository.rstrip('/') + '/runtimes/' + artifact.filename))
     proxies = getproxies()
     opener = build_opener(_SecureRedirect(), ProxyHandler(proxies), HTTPSHandler(context=context))
     checks = []
     for name, url in endpoints:
         check_cancelled()
         status, detail = _probe(url, opener, proxies)
+        if status == 'available':
+            status = 'unverified'
+            detail = 'Gerekli içerik adresine erişildi; tüm paketlerin kapsamı ve hash doğrulaması henüz tamamlanmadı.'
         checks.append({'name': name, 'status': status, 'detail': detail})
     return checks
 
@@ -107,15 +131,31 @@ def _remote_checks(settings):
 def run(args, emit):
     from scripts.launcher.installation import source_settings
     settings = source_settings(args)
+    project = discover_project(Path(args.source_root))
     checks = []
     local_source = settings.offline_dir or (settings.repository and not str(settings.repository).startswith('https://'))
     if settings.mode == 'offline' or local_source:
         from scripts.launcher.installation_dependencies import _offline_dependencies
-        source = _offline_dependencies(discover_project(Path(args.source_root)), settings)
-        checks.append({'name': 'Offline paket', 'status': 'ready' if source else 'missing',
-                       'detail': 'Kilitli bağımlılık envanteri doğrulandı.' if source else 'Doğrulanmış bağımlılık paketi seçin.'})
+        source = _offline_dependencies(project, settings)
+        for label in ('Python wheel paketi', 'npm cache paketi'):
+            checks.append({'name': label, 'status': 'ready' if source else 'missing',
+                           'detail': 'Kilitli bağımlılık envanteri doğrulandı.' if source else 'Doğrulanmış bağımlılık paketi seçin.'})
+    from scripts.launcher.installation_sources import load_catalog, _verify
+    roots = list(settings.runtime_dirs)
+    if settings.offline_dir:
+        roots.append(settings.offline_dir)
+    if settings.repository and not str(settings.repository).startswith('https://'):
+        roots.append(Path(settings.repository))
+    for artifact in load_catalog().values():
+        files = [base / relative / artifact.filename for base in roots for relative in ('', 'runtimes')]
+        candidate = next((path for path in files if path.exists()), None)
+        if candidate:
+            _verify(candidate, artifact)
+        if candidate or settings.mode == 'offline':
+            checks.append({'name': artifact.name + ' yerel runtime', 'status': 'ready' if candidate else 'missing',
+                           'detail': 'SHA-256 doğrulandı.' if candidate else 'Yerel arşiv yok; uyumlu sistem aracı varsa kullanılabilir.'})
     if settings.mode != 'offline':
-        checks.extend(_remote_checks(settings))
+        checks.extend(_remote_checks(settings, project))
         if not checks:
             checks.append({'name': 'Kaynaklar', 'status': 'missing', 'detail': 'Kurumsal paket adreslerini veya yerel offline paketi seçin.'})
     emit({'type': 'checks', 'checks': checks})

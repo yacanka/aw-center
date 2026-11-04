@@ -120,7 +120,7 @@ def load_sources(home: Path) -> dict:
             raise ValueError
         if any(not isinstance(value, str) or any(char in value for char in "\r\n\0") for value in content.values()):
             raise ValueError
-        if content.get("mode", "online") not in {"online", "corporate", "offline"}:
+        if content.get("mode", "online") not in {"online", "restricted", "corporate", "offline"}:
             raise ValueError
         return content
     except (ValueError, UnicodeError):

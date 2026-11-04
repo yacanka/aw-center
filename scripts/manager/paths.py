@@ -2,6 +2,29 @@
 from pathlib import Path
 import os
 import sys
+import json
+
+
+def startup_values(saved: dict, explicit_root: Path | None) -> dict:
+    """Read only bounded media metadata here; the worker verifies every byte."""
+    values = dict(saved)
+    if getattr(sys, 'frozen', False):
+        directory = Path(sys.executable).resolve().parent
+        manifest = directory / 'manager-manifest.json'
+        try:
+            if manifest.stat().st_size <= 8 * 1024 * 1024:
+                metadata = json.loads(manifest.read_text(encoding='utf-8'))
+                if metadata.get('format_version') == 2 and metadata.get('complete') is True:
+                    for field in ('python_command', 'node_command', 'assets', 'feature_catalog', 'ca_file',
+                                  'output', 'env_file', 'tls_cert_file', 'tls_key_file', 'manager_distribution'):
+                        values[field] = ''
+                    values.update(source_root=str(directory / 'source'), offline_dir=str(directory),
+                                  source_mode='offline', repository='', python_index_url='', npm_registry_url='')
+        except (OSError, ValueError, AttributeError):
+            pass  # No claim of verified readiness until worker inspection.
+    if explicit_root is not None:
+        values['source_root'] = str(explicit_root)
+    return values
 
 
 def default_source_root() -> Path:
@@ -24,7 +47,7 @@ def normalize_task_paths(values: dict) -> dict:
     """
     result = dict(values)
     fields = {'source_root', 'offline_dir', 'ca_file', 'assets', 'feature_catalog',
-              'tls_cert_file', 'tls_key_file', 'output', 'env_file'}
+              'tls_cert_file', 'tls_key_file', 'output', 'env_file', 'manager_distribution'}
     repository = result.get('repository')
     if repository and '://' not in str(repository):
         fields.add('repository')

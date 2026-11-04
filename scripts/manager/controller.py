@@ -23,6 +23,7 @@ class ManagerTask:
     claims: tuple = field(default_factory=tuple)
     result: dict | None = None
     cancel_requested: bool = False
+    browser_opened: bool = False
     events: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=256))
 
     @property
@@ -43,9 +44,35 @@ class ManagerController:
         self.session_factory = session_factory or WorkerSession
         self.browser_opener = browser_opener or webbrowser.open
         self.closing = self.closed = False
-        self.view = view_factory(root, self.action, self.stop, self.close, source_root=source_root)
+        self.inspection_ids = {}
+        self.view = view_factory(root, self.action, self.stop, self.window_close, source_root=source_root)
         self.view.on_open = self.open_browser
+        self.view.on_exit = self.close
+        self.view.on_inspect = self.inspect_selected
+        root.after_idle(self.inspect_selected)
         root.after(100, self.poll)
+
+    def inspect_selected(self):
+        values = self.view.form_values()
+        if not isinstance(values, dict) or self.closing:
+            return
+        profile = values.get('profile', 'dev')
+        if any(task.active and task.action in {'start', 'provision'} and task.values['profile'] == profile
+               for task in self.tasks.values()):
+            return
+        previous = self.tasks.get(self.inspection_ids.get(profile))
+        if previous and previous.active:
+            self._request_stop(previous)
+        task_id = self.action('inspect', values)
+        if task_id:
+            self.inspection_ids[profile] = task_id
+            self.view.handle_event({'type': 'profile', 'profile': profile, 'status': 'inspecting'})
+
+    def window_close(self):
+        if self.busy:
+            self.root.iconify()
+        else:
+            self.close()
 
     @property
     def busy(self):
@@ -63,7 +90,7 @@ class ManagerController:
         snapshot = normalize_task_paths(snapshot)
         claims = claims_for(action, snapshot)
         for task in self.tasks.values():
-            if task.active and conflicts(claims, task.claims):
+            if action != 'inspect' and task.active and conflicts(claims, task.claims):
                 self._general_error('task_conflict',
                     f"{ACTION_LABELS[task.action]} ({task.values['profile']}) aynı profil, kaynak veya paylaşılan runtime'ı kullanıyor.")
                 return None
@@ -91,7 +118,7 @@ class ManagerController:
             task.result = {'ok': False}
             emit({'type': 'error', 'code': 'task_start_failed', 'message': 'İşlem süreci başlatılamadı.'})
             emit({'type': '_closed'})
-        self._publish_tasks(selected_id=task_id)
+        self._publish_tasks(selected_id=task_id if action != 'inspect' else None)
         return task_id
 
     def _general_error(self, code, message):
@@ -102,7 +129,7 @@ class ManagerController:
         completed = [task.id for task in self.tasks.values() if not task.active]
         for task_id in completed[:-50]:
             self.tasks.pop(task_id)
-        self.view.update_tasks([task.snapshot() for task in self.tasks.values()], selected_id=selected_id)
+        self.view.update_tasks([task.snapshot() for task in self.tasks.values() if task.action != 'inspect'], selected_id=selected_id)
 
     def stop(self, task_id=None):
         task_id = task_id or self.view.selected_task_id()
@@ -171,6 +198,21 @@ class ManagerController:
         if task is None or not task.active:
             return
         kind = event['type']
+        if task.action == 'inspect' and kind != '_closed':
+            if self.inspection_ids.get(task.values['profile']) != task.id:
+                return
+            if kind == 'profile':
+                self.view.handle_event({**event, 'task_id': None})
+            elif kind in {'phase', 'status'}:
+                self.view.handle_event({'type': 'profile', 'profile': task.values['profile'],
+                    'status': 'inspecting', 'detail': event.get('message', '')})
+            elif kind == 'error':
+                self.view.handle_event({'type': 'profile', 'profile': task.values['profile'],
+                    'status': 'blocked', 'detail': event.get('message', 'Ortam doğrulanamadı.') +
+                    ' ' + event.get('remedy', '')})
+            elif kind == 'done':
+                task.result = event
+            return
         if kind == '_closed':
             task.session = None
             result = task.result or {'ok': False}
@@ -179,6 +221,8 @@ class ManagerController:
             try:
                 self.view.dismiss_admin(task.id)
                 self._publish_tasks()
+                if task.action in {'start', 'provision'} and not self.closing:
+                    self.root.after_idle(self.inspect_selected)
             finally:
                 if self.closing and not self.busy:
                     self.closed = True
@@ -197,10 +241,13 @@ class ManagerController:
             task.status = 'stopping' if task.cancel_requested else 'ready'
             # Provision is now a running server: no setup writes remain.
             task.claims = claims_for('start', task.values)
-        if kind in {'done', 'ready'}:
+        elif kind == 'health' and not task.cancel_requested:
+            task.status = 'ready' if event.get('healthy') is True else 'degraded'
+        if kind in {'done', 'ready', 'health'}:
             self._publish_tasks()
         self._render(task, event)
-        if kind == 'ready' and not self.closing and not task.cancel_requested:
+        if kind == 'ready' and not self.closing and not task.cancel_requested and not task.browser_opened:
+            task.browser_opened = True
             self.open_browser(event.get('url'), task.id)
 
     def _admin_response(self, task_id, value):

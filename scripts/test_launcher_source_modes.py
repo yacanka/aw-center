@@ -177,7 +177,10 @@ class EngineHookTests(unittest.TestCase):
                  mock.patch.object(installation, 'save_sources'), \
                  mock.patch.object(installation, 'provision_profile', return_value=profile), \
                  mock.patch.object(installation, 'profile_environment', return_value={}), \
-                 mock.patch.object(installation, 'ensure_toolchain', return_value={}), \
+                 mock.patch.object(installation, 'ensure_toolchain', return_value={'AWCENTER_MANAGED_PYTHON': '/python'}), \
+                 mock.patch('scripts.launcher.runtime_selection.tool_choices', return_value={}), \
+                 mock.patch('scripts.launcher.installation_profiles.update_python_runtime', return_value=profile), \
+                 mock.patch('scripts.launcher.installation_profiles.update_node_runtime', return_value=profile), \
                  mock.patch.object(installation, 'install_dependencies'), \
                  mock.patch.object(installation, '_initialize_schema'), \
                  mock.patch.object(installation, '_initial_admin'), \
@@ -186,7 +189,7 @@ class EngineHookTests(unittest.TestCase):
                  mock.patch('scripts.launcher.installation_features.install_features', return_value=[]), \
                  mock.patch('builtins.print'):
                 self.assertEqual(installation.provision(project, args), [])
-            self.assertEqual(labels, ['özel profil', 'runtime hazırlığı', 'kilitli bağımlılıklar',
+            self.assertEqual(labels, ['ön kontrol', 'runtime hazırlığı', 'kilitli bağımlılıklar', 'özel profil',
                                      'veritabanı şeması', 'ilk yönetici', 'ek araçlar ve varlıklar'])
 
     def test_running_callback_occurs_only_after_readiness_succeeds(self):

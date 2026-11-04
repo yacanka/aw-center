@@ -67,7 +67,7 @@ def controlled_run(command, *, safe_boundary=False, **kwargs):
         kwargs["creationflags"] = kwargs.get("creationflags", 0) | subprocess.CREATE_NO_WINDOW
     else:
         kwargs["start_new_session"] = True
-    child = subprocess.Popen(command, **kwargs)
+    child = _controlled_windows(command, kwargs) if os.name == 'nt' else subprocess.Popen(command, **kwargs)
     if os.name != "nt":
         child._launcher_group = child.pid
     deadline = time.monotonic() + timeout if timeout is not None else None
@@ -96,6 +96,33 @@ def controlled_run(command, *, safe_boundary=False, **kwargs):
             for stream in (child.stdin, child.stdout, child.stderr):
                 if stream is not None:
                     stream.close()
+
+
+def _controlled_windows(command, kwargs):
+    """A separate inherited gate keeps stdin payloads and EOF semantics intact."""
+    import msvcrt
+    from .windows_job import WindowsJob
+    reader, writer = os.pipe()
+    child = None
+    try:
+        handle = msvcrt.get_osfhandle(reader)
+        os.set_handle_inheritable(handle, True)
+        startup = kwargs.pop('startupinfo', None) or subprocess.STARTUPINFO()
+        startup.lpAttributeList = {'handle_list': [handle]}
+        prefix = ([sys.executable, '--manager-command-gate'] if getattr(sys, 'frozen', False) else
+                  [sys.executable, str(Path(__file__).with_name('child_bootstrap.py')), '--gate-handle'])
+        child = subprocess.Popen([*prefix, str(handle), *map(str, command)],
+                                 startupinfo=startup, close_fds=True, **kwargs)
+        child._launcher_job = WindowsJob(child._handle)
+        os.write(writer, b'go\n')
+        return child
+    except BaseException:
+        if child is not None:
+            terminate([child])
+        raise
+    finally:
+        os.close(reader)
+        os.close(writer)
 
 
 def npm_command() -> list[str]:
@@ -244,12 +271,14 @@ def starting_processes():
         raise
 
 
-def supervise(processes: list[subprocess.Popen]) -> None:
+def supervise(processes: list[subprocess.Popen], *, health=None) -> None:
     """Wait for child processes and stop siblings on exit or interruption."""
     try:
         check_cancelled()
         while all(process.poll() is None for process in processes):
             check_cancelled()
+            if health is not None:
+                health()
             time.sleep(0.25)
         failed = next(process for process in processes if process.poll() is not None)
         raise LauncherError(f"server process exited with code {failed.returncode}")

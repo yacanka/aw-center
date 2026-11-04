@@ -55,6 +55,7 @@ def source_settings(args, project: Project | None = None) -> SourceSettings:
     if repository and "://" in str(repository):
         _https_url(str(repository))
     return SourceSettings(repository=repository, offline_dir=Path(offline) if offline else None,
+                          runtime_dirs=getattr(args, 'runtime_dirs', ()), progress=getattr(args, 'progress', None),
                           mode=getattr(args, "source_mode", None) or saved.get("mode", "online"),
                           python_index_url=python_index, npm_registry_url=npm_registry,
                           ca_file=Path(getattr(args, "ca_file", None) or saved["ca_file"]) if getattr(args, "ca_file", None) or saved.get("ca_file") else None)
@@ -183,7 +184,38 @@ def _select_assets(project: Project, profile: dict, source: Path | None, request
     return profile
 
 
+def _tls_preflight(project, values):
+    """Stdlib cold check: readable external files, decryptable matching key."""
+    import ssl
+    runtime.require_production_host(values.get('host') or '')
+    paths = []
+    for field in ('tls_cert_file', 'tls_key_file'):
+        path = Path(values.get(field) or '')
+        runtime.require_external_file(project, path, 'TLS')
+        from .installation_permissions import require_unlinked
+        require_unlinked(path)
+        paths.append(path)
+    if paths[0] == paths[1]:
+        raise LauncherError('TLS sertifikası ve özel anahtar ayrı dosyalar olmalı.')
+    try:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # Explicit callback prevents encrypted PEMs from prompting on stdin.
+        context.load_cert_chain(str(paths[0]), str(paths[1]), password=lambda: '')
+    except (OSError, ValueError):
+        raise LauncherError('TLS dosyaları okunamadı veya sertifika/anahtar eşleşmiyor.') from None
+
+
 def provision(project: Project, args) -> list[dict]:
+    require_windows()
+    from .installation_permissions import require_local_ntfs
+    require_local_ntfs(project.root)
+    require_local_ntfs(installation_home())
+    from .resource_locks import lifecycle_locks
+    with lifecycle_locks(installation_home(), project, args.profile, write=True):
+        return _provision(project, args)
+
+
+def _provision(project: Project, args) -> list[dict]:
     require_windows()
     home = installation_home()
     settings = source_settings(args, project)
@@ -199,7 +231,7 @@ def provision(project: Project, args) -> list[dict]:
             save_report(home, args.profile, [{"name": "provision", "status": "blocked",
                         "detail": f"Son başlatılan aşama henüz tamamlanmadı: {label}. İşlemi tekrar çalıştırabilirsiniz."}])
 
-        phase("özel profil")
+        phase("ön kontrol")
         options = {name: getattr(args, name, None) for name in (
             "host", "backend_port", "frontend_port", "tls_cert_file", "tls_key_file", "asset_set", "exclude_doors", "env_file")}
         assets = getattr(args, "assets", None)
@@ -208,35 +240,37 @@ def provision(project: Project, args) -> list[dict]:
         if assets and not options["asset_set"]:
             from .installation_bundle import verify_asset_source
             options["asset_set"] = verify_asset_source(Path(assets))["asset_set"]
-        profile = provision_profile(project, args.profile, home, **options)
-        print(f"Özel yapılandırma dosyası: {profile['env_file']}")
-        profile_environment(profile)  # Reject inherited application overrides before package changes.
-        save_sources(home, settings)
+        existing_path = home / 'config' / (args.profile + '.profile.json')
+        from .installation_permissions import require_unlinked
+        require_unlinked(existing_path)
+        existing = load_profile(project, args.profile, home) if existing_path.exists() else None
+        if existing:
+            profile_environment(existing)
+        tls = existing or options
+        if args.profile == 'prod':
+            _tls_preflight(project, tls)
         phase("runtime hazırlığı")
-        python = getattr(args, 'python_executable', None)
-        if not hasattr(args, 'install_python') and profile.get('python_executable'):
-            python = Path(profile['python_executable'])
-        if getattr(args, 'install_python', True) is False and python is None:
-            from .system_python import discover_python
-            python = discover_python()
-        node = getattr(args, 'node_executable', None)
-        if not hasattr(args, 'node_command') and profile.get('node_executable'):
-            node = Path(profile['node_executable'])
-        selected_tools = {field: value for field, value in (
-            ('python_executable', python), ('node_executable', node)) if value is not None}
+        from .runtime_selection import tool_choices
+        selected_tools = tool_choices(args, existing)
         from .installation_bundle import require_bundle_host_runtimes
         require_bundle_host_runtimes(project, settings, **selected_tools)
-        tool_env = ensure_toolchain(home, settings, **selected_tools)
+        runtime_options = dict(selected_tools)
+        if getattr(args, 'node_probe_deadline', None) is not None:
+            runtime_options['node_probe_deadline'] = args.node_probe_deadline
+        tool_env = ensure_toolchain(home, settings, **runtime_options)
         phase("kilitli bağımlılıklar")
-        explicit_python = hasattr(args, 'install_python') or python is not None
         install_dependencies(project, settings, tool_env,
-                             **({'expected_python': Path(tool_env['AWCENTER_MANAGED_PYTHON'])} if explicit_python else {}))
-        if explicit_python:
-            from .installation_profiles import update_python_runtime
-            profile = update_python_runtime(project, profile, python)
-        if hasattr(args, 'node_command') or node is not None:
-            from .installation_profiles import update_node_runtime
-            profile = update_node_runtime(project, profile, node)
+                             expected_python=Path(tool_env['AWCENTER_MANAGED_PYTHON']))
+        if args.profile == 'prod':
+            phase("TLS sertifika ve IP doğrulaması")
+            runtime.validate_tls_identity(project, Path(tls['tls_cert_file']), Path(tls['tls_key_file']), tls['host'])
+        phase("özel profil")
+        profile = provision_profile(project, args.profile, home, **options)
+        profile_environment(profile)
+        save_sources(home, settings)
+        from .installation_profiles import update_python_runtime, update_node_runtime
+        profile = update_python_runtime(project, profile, selected_tools.get('python_executable'))
+        profile = update_node_runtime(project, profile, selected_tools.get('node_executable'))
         phase("veritabanı şeması")
         _initialize_schema(project, profile, args, tool_env)
         phase("ilk yönetici")
@@ -284,7 +318,7 @@ def provision(project: Project, args) -> list[dict]:
 def _worker_ready(project: Project, directory: Path) -> bool:
     command = [project.python, project.manage_py, "check_job_worker_health", "--worker-id-file", directory / "job"]
     try:
-        result = subprocess.run([str(part) for part in command], cwd=project.root,
+        result = controlled_run([str(part) for part in command], cwd=project.root,
                                 env=environment(), stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, timeout=5, check=False)
         return result.returncode == 0
@@ -292,7 +326,19 @@ def _worker_ready(project: Project, directory: Path) -> bool:
         return False
 
 
-def start_profile(project: Project, name: str, *, on_ready=None) -> None:
+def start_profile(project: Project, name: str, *, on_ready=None, on_health=None) -> None:
+    require_windows()
+    from .resource_locks import lifecycle_locks
+    profile = load_profile(project, name)
+    home = Path(profile.get('installation_home', Path(profile['env_file']).parent.parent))
+    from .installation_permissions import require_local_ntfs
+    require_local_ntfs(project.root)
+    require_local_ntfs(home)
+    with lifecycle_locks(home, project, name):
+        _start_profile(project, name, on_ready=on_ready, on_health=on_health)
+
+
+def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None) -> None:
     require_windows()
     profile = load_profile(project, name)
     home = Path(profile.get("installation_home", Path(profile["env_file"]).parent.parent))
@@ -311,10 +357,15 @@ def start_profile(project: Project, name: str, *, on_ready=None) -> None:
         def ready(processes):
             wait_until_ready(processes, profile, directory,
                              worker_check=lambda: _worker_ready(project, directory))
+            from .resource_locks import downgrade_runtime_claims
+            downgrade_runtime_claims()
             if on_ready is not None:
                 on_ready(profile)
         options = {"migrate": False, "exclude_doors": profile.get("exclude_doors", False),
                    "ready": ready, "worker_heartbeat_dir": directory, "protect_credentials": True}
+        if on_health is not None:
+            from .installation_readiness import HealthMonitor, healthy
+            options['health'] = HealthMonitor(lambda: healthy(profile, lambda: _worker_ready(project, directory)), on_health)
         if name == "dev":
             runtime.dev(project, Scope(), host=profile["host"], backend_port=profile["backend_port"],
                         frontend_port=profile["frontend_port"], no_backend_reload=False, **options)

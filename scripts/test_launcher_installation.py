@@ -152,10 +152,11 @@ class ManagedWorkflowTests(unittest.TestCase):
         from scripts.launcher.installation import start_profile
 
         with tempfile.TemporaryDirectory() as temporary:
-            project = create_project(Path(temporary))
+            project = create_project(Path(temporary).resolve())
             profile = {"name": "dev", "host": "127.0.0.1", "backend_port": 8000,
                        "frontend_port": 5173, "exclude_doors": True,
-                       "env_file": str(project.root / "external.env")}
+                       "installation_home": str(project.root / "private"),
+                       "env_file": str(project.root / "private/config/dev.env")}
             with mock.patch("scripts.launcher.installation.require_windows"), \
                  mock.patch("scripts.launcher.installation.load_profile", return_value=profile), \
                  mock.patch("scripts.launcher.installation.profile_environment", return_value={}), \

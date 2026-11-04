@@ -30,6 +30,43 @@ def probe_http(url: str, certificate: str | None = None) -> bool:
         return False
 
 
+def healthy(profile: dict, worker_check: Callable[[], bool]) -> bool:
+    production = profile['name'] == 'prod'
+    host, port = profile['host'], profile['backend_port']
+    origin = f'https://{host}:{port}' if production else f'http://{host}:{port}'
+    path = '/health/ready/' if production else '/health/live/'
+    ready = probe_http(origin + path, profile.get('tls_cert_file') if production else None)
+    if not production:
+        ready = probe_http(f"http://{host}:{profile['frontend_port']}/app/") and ready
+    return worker_check() and ready
+
+
+class HealthMonitor:
+    """Bounded checks on the supervisor thread; transitions never restart servers."""
+    def __init__(self, check, emit, *, clock=time.monotonic):
+        self.check, self.emit, self.clock = check, emit, clock
+        self.next_check = clock() + 10
+        self.healthy = True
+        self.failures = self.successes = 0
+
+    def __call__(self):
+        if self.clock() < self.next_check:
+            return
+        check_cancelled()
+        result = self.check()
+        self.successes = self.successes + 1 if result else 0
+        self.failures = 0 if result else self.failures + 1
+        if self.failures >= 3:
+            self.healthy = False
+        elif self.successes >= 2:
+            self.healthy = True
+        self.emit({'type': 'health', 'healthy': self.healthy, 'check_ok': result,
+                   'message': ('Web ve worker sağlıklı.' if self.healthy and result else
+                               f'Sağlık kontrolü başarısız ({self.failures}/3); yeniden denetlenecek.' if self.healthy else
+                               'Web veya worker sağlık kontrolü başarısız; iyileşme izleniyor.')})
+        self.next_check = self.clock() + 10
+
+
 def wait_until_ready(
     processes: list,
     profile: dict,

@@ -190,7 +190,7 @@ def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None
 
 
 def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable: Path | None = None,
-                     node_executable: Path | None = None, progress=None) -> dict[str, str]:
+                     node_executable: Path | None = None, progress=None, node_probe_deadline=None) -> dict[str, str]:
     """Install reviewed native artifacts; return environment overrides only.
 
     Hosts do not receive global PATH, registry or dependency-lock modifications.
@@ -207,10 +207,13 @@ def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable:
     npm_cli = None
     if node_executable is not None:
         from .system_node import find_npm_cli, validate_node
-        node_executable = validate_node(node_executable)
-        if callable(progress):
-            progress('Kurulu npm sürümü denetleniyor')
-        npm_cli = find_npm_cli(node_executable, catalog['npm'].version, compatible=True)
+        from .probe_budget import deadline_at
+        import time
+        with deadline_at(node_probe_deadline if node_probe_deadline is not None else time.monotonic() + 60):
+            node_executable = validate_node(node_executable)
+            if callable(progress):
+                progress('Kurulu npm sürümü denetleniyor')
+            npm_cli = find_npm_cli(node_executable, catalog['npm'].version, compatible=True)
     for directory in (home, home / "cache", home / "cache" / "runtimes", home / "runtimes"):
         private_directory(directory)
     paths = {}

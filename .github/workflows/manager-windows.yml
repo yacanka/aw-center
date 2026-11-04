@@ -8,6 +8,7 @@ on:
       - scripts/manager/**
       - scripts/launcher/**
       - scripts/build_manager.py
+      - scripts/manager_windows_acceptance.py
       - scripts/test_manager*.py
       - scripts/test_launcher*.py
       - packaging/**
@@ -20,6 +21,7 @@ on:
       - scripts/manager/**
       - scripts/launcher/**
       - scripts/build_manager.py
+      - scripts/manager_windows_acceptance.py
       - scripts/test_manager*.py
       - scripts/test_launcher*.py
       - packaging/**
@@ -33,7 +35,7 @@ permissions:
 jobs:
   windows-manager:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       PYTHONUTF8: '1'
     defaults:
@@ -57,7 +59,7 @@ jobs:
           if not exist "%RUNNER_TEMP%\manager-ui-evidence" mkdir "%RUNNER_TEMP%\manager-ui-evidence"
           python -m scripts.manager.main --smoke-test "%RUNNER_TEMP%\manager-ui-evidence\startup.json"
       - name: Verify system tools, bundle prerequisites and permission diagnostics
-        run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_system_node scripts.test_launcher_runtime_validation scripts.test_launcher_install_dependencies scripts.test_manager_system_tools scripts.test_manager_tool_paths scripts.test_launcher_bundle scripts.test_launcher_env_selection scripts.test_launcher_permissions
+        run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_system_node scripts.test_launcher_runtime_validation scripts.test_launcher_install_dependencies scripts.test_manager_system_tools scripts.test_manager_tool_paths scripts.test_launcher_bundle scripts.test_launcher_bundle_patch_compat scripts.test_launcher_env_selection scripts.test_launcher_permissions scripts.test_launcher_restricted scripts.test_launcher_resource_locks scripts.test_launcher_health scripts.test_launcher_preflight scripts.test_launcher_resume
       - name: Verify issue 131 with real Node 26 and npm archives
         env:
           AWCENTER_RUN_RUNTIME_PROBE_SMOKE: '1'
@@ -72,7 +74,7 @@ jobs:
         env:
           AWCENTER_RUN_MANAGER_WINDOWS_SMOKE: '1'
           AWCENTER_MANAGER_EXE: ${{ runner.temp }}\awcenter-manager-portable\AWCenterManager.exe
-        run: python -m unittest scripts.test_manager_package.NativeWindowsPackageTests
+        run: python -m unittest scripts.test_manager_package.NativeWindowsPackageTests scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
       - name: Upload manager ZIP and reviewable checksum inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

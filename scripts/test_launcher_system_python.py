@@ -362,25 +362,20 @@ class SystemPythonTests(unittest.TestCase):
             _bundled_tools(args, lambda event: None)
         discover.assert_not_called()
 
-    def test_existing_system_toolchain_bundle_does_not_prepare_python_archive(self):
+    def test_bundle_does_not_borrow_prepared_system_toolchain(self):
         from scripts.manager.operations import _bundle
         from scripts.launcher_test_support import create_project
-        args = arguments({'action': 'bundle', 'output': '/bundle'})
-        python = Path(sys.executable).resolve()
+        args = arguments({'action': 'bundle', 'output': '/bundle', 'manager_distribution': '/manager'})
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary).resolve())
             args.progress = lambda _: None
-            with patch('scripts.launcher.system_python.discover_python', return_value=python), \
-                 patch('scripts.launcher.installation_profiles.installation_home', return_value=Path('/private/install')), \
-                 patch.object(toolchain, 'inspect_toolchain', return_value=[{'status': 'ready'}]) as inspect, \
-                 patch.object(toolchain, 'toolchain_environment', return_value={}) as env, \
-                 patch('scripts.manager.operations._bundled_tools') as prepare, \
-                 patch('scripts.launcher.installation.source_settings', return_value=SourceSettings()), \
-                 patch('scripts.launcher.installation_bundle.prepare_install_bundle'):
+            with patch('scripts.launcher.system_python.discover_python') as discover, \
+                 patch.object(toolchain, 'toolchain_environment') as env, \
+                 patch('scripts.manager.distribution.prepare_full_manager') as prepare:
                 _bundle(project, args, lambda _: None)
-            prepare.assert_not_called()
-            self.assertEqual(inspect.call_args.kwargs['python_executable'], python)
-            self.assertEqual(env.call_args.kwargs['python_executable'], python)
+            discover.assert_not_called()
+            env.assert_not_called()
+            prepare.assert_called_once()
 
     def test_runtime_selection_is_profile_scoped_and_preserves_keys(self):
         from scripts.launcher.installation_profiles import provision_profile, load_profile, update_python_runtime

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import time
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -13,8 +14,8 @@ DEFAULT_VALUES = {
     "npm_registry_url": "", "ca_file": "", "assets": "",
     "feature_catalog": "", "host": "", "backend_port": "",
     "frontend_port": "", "tls_cert_file": "", "tls_key_file": "",
-    "migrate": False, "install_python": False, "python_command": "", "node_command": "",
-    "output": "", "env_file": "",
+    "migrate": False, "install_python": False, "install_node": False, "python_command": "", "node_command": "",
+    "output": "", "env_file": "", "manager_distribution": "",
 }
 SOURCE_ACTIONS = {"provision", "test-sources", "bundle"}
 CHECK_LABELS = {
@@ -85,13 +86,13 @@ def _validate_provision(values: dict) -> None:
 
 def normalize_values(action: str, values: dict) -> dict[str, str | bool]:
     """Return only non-secret supported fields; never perform disk or network I/O."""
-    if action not in SOURCE_ACTIONS | {"start", "doctor"}:
+    if action not in SOURCE_ACTIONS | {"start", "doctor", "inspect"}:
         raise FormError("profile", "Geçersiz işlem.")
     result = {key: (values.get(key) is True if isinstance(default, bool) else str(values.get(key, default)).strip())
               for key, default in DEFAULT_VALUES.items()}
     if result["profile"] not in {"dev", "prod"}:
         raise FormError("profile", "Geliştirme veya üretim profilini seçin.")
-    if result["source_mode"] not in {"online", "corporate", "offline"}:
+    if result["source_mode"] not in {"online", "restricted", "corporate", "offline"}:
         raise FormError("source_mode", "Geçerli bir kaynak modu seçin.")
     if result["source_mode"] == "offline":
         for field in ("repository", "python_index_url", "npm_registry_url"):
@@ -173,11 +174,19 @@ class ManagerState:
         self.last_action: str | None = None
         self.last_values: dict[str, str | bool] = {}
         self._report_lines: list[str] = []
+        self.started_at = time.monotonic()
+        self.phases: list[str] = []
+        self.healthy = True
+        self.finished_at = None
+        self.last_health = ''
 
     def record_action(self, action: str, values: dict) -> None:
         self.last_action = action
         self.last_values = normalize_values(action, values)
         self.busy = True
+        self.started_at = time.monotonic()
+        self.finished_at = None
+        self.phases = []
         self.phase = ""
         self.error_message = self.error_remedy = self.error_code = self.ready_url = ""
         self.checks = []
@@ -195,7 +204,17 @@ class ManagerState:
             self.status = safe_text(event.get("message", ""))
             if kind == "phase":
                 self.phase = self.status
-            self._append(self.status)
+                if not self.phases or self.phases[-1] != self.phase:
+                    self.phases = [*self.phases[-19:], self.phase]
+            elapsed = int(time.monotonic() - self.started_at)
+            self._append(f'[{elapsed // 60:02}:{elapsed % 60:02}] {self.status}')
+        elif kind == 'health':
+            healthy = event.get('healthy') is True
+            if healthy != self.healthy:
+                self._append(safe_text(event.get('message', '')))
+            self.healthy = healthy
+            self.last_health = safe_text(event.get('message', ''))
+            self.status = safe_text(event.get('message', ''))
         elif kind == "error":
             self.error_message = safe_text(event.get("message", "İşlem tamamlanamadı."))
             self.error_remedy = safe_text(event.get("remedy", "Kaynakları ve durum raporunu inceleyip yeniden deneyin."))
@@ -211,10 +230,16 @@ class ManagerState:
                 self._append("Hazır: " + self.ready_url)
         elif kind == "done":
             self.busy = False
+            self.finished_at = time.monotonic()
+            self.ready_url = ''
             if event.get("cancelled") is True:
                 self.status = "İşlem durduruldu. Yeni bir işlem başlatabilirsiniz."
             elif event.get("ok") is True:
-                self.status = "İşlem tamamlandı."
+                blocked = sum(check['status'] == 'ENGEL' for check in self.checks)
+                missing = sum(check['status'] not in {'HAZIR', 'ENGEL'} for check in self.checks)
+                self.status = (f'Kurulum engellendi — {blocked} engel.' if blocked else
+                               f'Eksiklerle kullanılabilir — {missing} eksik / doğrulanmamış özellik.' if missing else
+                               'Hazır — denetim tamamlandı.' if self.checks else 'İşlem tamamlandı.')
             elif not self.error_message:
                 self.status = "İşlem tamamlanamadı. Durum raporunu inceleyin."
             self._append(self.status)
@@ -233,7 +258,9 @@ class ManagerState:
             self._append(f"[{item['status']}] {item['name']}: {item['detail']}")
 
     def report(self) -> str:
-        return "AW Center — güvenli durum raporu\n" + "\n".join(self._report_lines)
+        elapsed = int((self.finished_at or time.monotonic()) - self.started_at)
+        health = '\nSon sağlık: ' + self.last_health if self.last_health else ''
+        return f"AW Center — güvenli durum raporu\nSüre: {elapsed // 60:02}:{elapsed % 60:02}{health}\n" + "\n".join(self._report_lines)
 
 
 class ManagerTaskStates:
@@ -243,13 +270,34 @@ class ManagerTaskStates:
     does not end an active row while the controller is still cleaning up.
     """
 
-    ACTIVE_STATUSES = frozenset({"running", "ready", "stopping", "finishing"})
+    ACTIVE_STATUSES = frozenset({"running", "ready", "degraded", "stopping", "finishing"})
 
     def __init__(self):
         self.general = ManagerState()
         self.states: dict[str, ManagerState] = {}
         self.tasks: dict[str, dict[str, str]] = {}
         self.selected_id: str | None = None
+        self.profiles: dict[str, dict] = {}
+
+    def profile_presentation(self, profile: str) -> dict:
+        """Live profile ownership wins over read-only inspection and task selection."""
+        for task in reversed(list(self.tasks.values())):
+            if task['profile'] != profile or task['action'] not in {'start', 'provision'}:
+                continue
+            if task['status'] not in self.ACTIVE_STATUSES:
+                continue
+            state = self.states[task['id']]
+            ready = task['status'] == 'ready' and state.healthy and bool(state.ready_url)
+            return {'status': task['status'], 'action': 'open' if ready else None,
+                    'label': 'Tarayıcıda aç' if ready else 'İşlem sürüyor', 'task_id': task['id'],
+                    'url': state.ready_url if ready else '', 'detail': state.status}
+        snapshot = self.profiles.get(profile, {})
+        status = snapshot.get('status', 'inspecting')
+        actions = {'not_installed': ('provision', 'Kur ve başlat'), 'stopped': ('start', 'Başlat'),
+                   'incomplete': ('provision', 'Tamamla ve başlat'), 'blocked': ('doctor', 'Eksikleri göster')}
+        action, label = actions.get(status, (None, 'Denetleniyor…'))
+        return {'status': status, 'action': action, 'label': label, 'task_id': None, 'url': '',
+                'detail': snapshot.get('detail', ''), 'tools': snapshot.get('tools', '')}
 
     @property
     def current(self) -> ManagerState:
@@ -270,11 +318,17 @@ class ManagerTaskStates:
             rows[task_id] = {"id": task_id, "action": action, "profile": profile,
                              "status": task["status"]}
             self.states[task_id].busy = task["status"] in self.ACTIVE_STATUSES
+            if not self.states[task_id].busy:
+                self.states[task_id].ready_url = ''
         self.tasks = rows
         self.states = {task_id: self.states[task_id] for task_id in rows}
         self.select(selected_id if selected_id is not None else self.selected_id)
 
     def handle_event(self, event: dict) -> None:
+        if event.get('type') == 'profile':
+            if event.get('profile') in {'dev', 'prod'}:
+                self.profiles[event['profile']] = event
+            return
         task_id = event.get("task_id")
         if task_id is None:
             self.general.handle_event(event)

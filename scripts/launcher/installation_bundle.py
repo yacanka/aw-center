@@ -313,7 +313,7 @@ def _supported_host_version(name: str, value) -> bool:
     if match is None:
         return False
     major, minor, _ = map(int, match.groups())
-    return (major == 22 and minor >= 12) or major >= 24
+    return (major == 22 and minor >= 13) or major >= 24
 
 
 def _host_runtime_metadata(toolchain, names: frozenset[str]) -> dict[str, str]:
@@ -422,23 +422,68 @@ def _npm_argv() -> list[str]:
     return [str(npm)]
 
 
+def _patch_requirements(project: Project, python: str, destination: Path, overrides: dict) -> Path:
+    """Acquire the lock's union for 3.11 patches, using the target pip's parser.
+
+    The original lock remains the installation authority. A newer producer must
+    also carry pins such as async-timeout required only by an older 3.11 target.
+    Evaluate boundaries mentioned by markers instead of guessing a last patch.
+    Platform markers still use the native producer, which must be Windows x64.
+    """
+    script = r'''
+import re, sys
+from pathlib import Path
+from pip._vendor.packaging.markers import default_environment
+from pip._vendor.packaging.requirements import Requirement
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+base = default_environment()
+if base["python_version"] != "3.11":
+    raise ValueError("CPython 3.11 is required")
+patches = {0, int(base["python_full_version"].split(".")[2])}
+for match in re.finditer(r"(?<![0-9])3\.11\.([0-9]+)(?![0-9])", text):
+    patch = int(match.group(1))
+    patches.update((max(0, patch - 1), patch, patch + 1))
+environments = [dict(base, python_full_version=f"3.11.{patch}",
+                     implementation_version=f"3.11.{patch}") for patch in patches]
+for line in text.splitlines():
+    line = line.strip()
+    if not line or line.startswith("#"):
+        continue
+    requirement = Requirement(line)
+    if requirement.marker is None or any(requirement.marker.evaluate(env) for env in environments):
+        requirement.marker = None
+        print(requirement)
+'''
+    result = _capture([python, '-c', script, project.requirements], project, overrides)
+    _require_success(result, 'CPython 3.11 patch requirement inspection')
+    if not result.stdout.strip() or len(result.stdout) > 2 * 1024 * 1024:
+        raise LauncherError('CPython 3.11 patch requirements could not be inspected')
+    destination.write_text(result.stdout, encoding='utf-8')
+    return destination
+
+
 def _acquire_wheels(project: Project, destination: Path, settings, overrides: dict) -> None:
     from .installation_dependencies import availability_failure
     from .installation_sources import acquisition_urls
     python = os.environ.get('AWCENTER_MANAGED_PYTHON', sys.executable)
     indexes = acquisition_urls(settings, 'https://pypi.org/simple', settings.python_index_url)
     with tempfile.TemporaryDirectory(prefix='awcenter-wheel-acquire-') as temporary:
-        selected = None
-        for index, url in enumerate(indexes):
+        requirements = project.requirements
+        if 'python_full_version' in requirements.read_text(encoding='utf-8'):
+            requirements = _patch_requirements(project, python, Path(temporary) / 'requirements.txt', overrides)
+        offline = _offline_source(project, settings) if settings.mode in {'restricted', 'offline'} else None
+        selected = offline / 'wheels' if offline else None
+        for index, url in enumerate(indexes if selected is None else []):
             attempt = Path(temporary) / str(index)
             attempt.mkdir()
             result = _capture([python, '-m', 'pip', 'wheel', '--wheel-dir', attempt,
-                               '--index-url', url, '-r', project.requirements], project, overrides)
+                               '--index-url', url, '-r', requirements], project, overrides)
             if not result.returncode:
                 selected = attempt
                 break
-            if not availability_failure((result.stdout or '') + (result.stderr or '')):
+            if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=settings.mode == 'restricted'):
                 _require_success(result, 'Python wheel acquisition')
+            settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
         if selected is None:
             offline = _offline_source(project, settings)
             if offline is None:
@@ -446,7 +491,7 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
             selected = offline / 'wheels'
         ensure_wheels_only(selected)
         _require_success(_capture([python, '-m', 'pip', 'install', '--dry-run', '--ignore-installed',
-                                   '--no-index', '--find-links', selected, '-r', project.requirements],
+                                   '--no-index', '--find-links', selected, '-r', requirements],
                                   project, overrides), 'Offline Python wheel resolution')
         shutil.copytree(selected, destination)
 
@@ -457,8 +502,9 @@ def _acquire_npm(project: Project, destination: Path, settings, overrides: dict)
     registries = acquisition_urls(settings, 'https://registry.npmjs.org', settings.npm_registry_url)
     npm = _npm_argv()
     with tempfile.TemporaryDirectory(prefix='awcenter-npm-acquire-') as temporary:
-        selected = None
-        for index, registry in enumerate(registries):
+        offline = _offline_source(project, settings) if settings.mode in {'restricted', 'offline'} else None
+        selected = offline / 'npm-cache' if offline else None
+        for index, registry in enumerate(registries if selected is None else []):
             stage = Path(temporary) / str(index)
             stage.mkdir()
             for name in ('package.json', 'package-lock.json'):
@@ -471,8 +517,9 @@ def _acquire_npm(project: Project, destination: Path, settings, overrides: dict)
             if not result.returncode:
                 selected = cache
                 break
-            if not availability_failure((result.stdout or '') + (result.stderr or '')):
+            if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=settings.mode == 'restricted'):
                 _require_success(result, 'npm cache acquisition')
+            settings.report('npm kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
         if selected is None:
             offline = _offline_source(project, settings)
             if offline is None:
@@ -543,7 +590,7 @@ def _verify_npm_offline(project: Project, cache: Path, environment: dict) -> Non
 
 
 def prepare_install_bundle(project: Project, output: Path, settings, assets=None, *,
-                           feature_catalog=None, external_runtimes=frozenset()) -> Path:
+                           feature_catalog=None, external_runtimes=frozenset(), manager_distribution=None) -> Path:
     """Build a transferable bundle, optionally requiring named tools on its target.
 
     External runtime archives are never acquired. Their producer versions, without
@@ -552,6 +599,8 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
     """
     target = _require_windows_target()
     external_runtimes = _external_runtime_names(external_runtimes)
+    if manager_distribution is not None and external_runtimes:
+        raise LauncherError('Tam Manager paketi hedefte kurulu araç gerektiremez.')
     _validate_bootstrap(project)
     output = Path(output).expanduser().absolute()
     from .installation_permissions import require_unlinked
@@ -568,7 +617,13 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
     with tempfile.TemporaryDirectory(prefix='.awcenter-bundle-', dir=output.parent) as temporary:
         staging = Path(temporary) / 'bundle'
         staging.mkdir()
-        copy_install_source(project, staging / 'source')
+        if manager_distribution is None:
+            copy_install_source(project, staging / 'source')
+        else:
+            from scripts.manager.payload import prepare_source_payload
+            from scripts.manager.distribution import copy_manager
+            prepare_source_payload(project, staging / 'source')
+            copy_manager(Path(manager_distribution), staging)
         from .installation_sources import fetch_artifact
         runtimes = staging / 'runtimes'
         included_runtimes = {name: metadata for name, metadata in _runtime_metadata(catalog).items()
@@ -592,7 +647,12 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
                     'artifacts': install_inventory(staging, source_state=True)}
         if external_runtimes:
             manifest['host_runtimes'] = host_runtimes
+        if manager_distribution is not None:
+            manifest['manager_manifest'] = 'manager-manifest.json'
         (staging / INSTALL_MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+        if manager_distribution is not None:
+            from scripts.manager.distribution import seal_distribution
+            seal_distribution(staging, complete=True)
         verify_install_bundle(project, staging)
         staging.rename(output)
     return output
@@ -609,7 +669,16 @@ def verify_install_bundle(project: Project, directory: Path) -> dict:
         raise LauncherError('installation bundle targets a different OS, architecture or Python')
     if manifest.get('locks') != lock_metadata(project, Scope()):
         raise LauncherError('installation bundle does not match the current dependency locks')
-    _verify_inventory(directory, manifest.get('artifacts'), exclude=(INSTALL_MANIFEST,), source_state=True)
+    excluded = (INSTALL_MANIFEST,)
+    if 'manager_manifest' in manifest:
+        if manifest['manager_manifest'] != 'manager-manifest.json':
+            raise LauncherError('Manager manifest reference is invalid')
+        from scripts.manager.distribution import verify_distribution
+        manager = verify_distribution(directory)
+        if manager.get('complete') is not True or host_runtimes:
+            raise LauncherError('Complete Manager distribution is required')
+        excluded += ('manager-manifest.json',)
+    _verify_inventory(directory, manifest.get('artifacts'), exclude=excluded, source_state=True)
     catalog = dict(_catalog())
     if manifest.get('feature_catalog') is not None:
         if manifest['feature_catalog'] != 'feature-catalog.json':

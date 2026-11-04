@@ -89,10 +89,13 @@ def write_portable_archive(directory: Path, output: Path, metadata: dict) -> Non
     output = Path(output).absolute()
     _require_new_output(output)
     if (directory / MANAGER_MANIFEST).exists():
-        raise LauncherError('Manager staging manifest already exists')
-    artifacts = install_inventory(directory)
-    manifest = {**metadata, 'format_version': 1, 'target': 'windows-x64',
-                'python': '3.11', 'pyinstaller': PYINSTALLER_VERSION, 'artifacts': artifacts}
+        from scripts.manager.distribution import verify_distribution
+        manifest = verify_distribution(directory)
+        artifacts = manifest['artifacts']
+    else:
+        artifacts = install_inventory(directory)
+        manifest = {**metadata, 'format_version': 1, 'target': 'windows-x64',
+                    'python': '3.11', 'pyinstaller': PYINSTALLER_VERSION, 'artifacts': artifacts}
     serialized = json.dumps(manifest, sort_keys=True, indent=2) + '\n'
     (directory / MANAGER_MANIFEST).write_text(serialized, encoding='utf-8')
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +168,11 @@ def build_manager(repository: Path, output: Path, settings: SourceSettings) -> P
             shutil.move(str(path), portable / path.name)
         verify_source_payload(portable / 'source')
         verify_runtime_payload(portable / 'runtimes', runtimes)
-        write_portable_archive(portable, output, {'source_fingerprint': source_metadata['fingerprint'], 'runtimes': runtimes})
+        from scripts.manager.distribution import seal_distribution, prepare_full_manager
+        seal_distribution(portable)
+        full = work / 'complete'
+        prepare_full_manager(project, full, settings, portable)
+        write_portable_archive(full, output, {})
     return output
 
 
@@ -176,9 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--repository', help='Explicit runtime archive repository (HTTPS URL or local directory)')
     parser.add_argument('--offline-dir', type=Path)
     parser.add_argument('--ca-file', type=Path)
-    parser.add_argument('--source-mode', choices=('online', 'corporate', 'offline'), default='online')
+    parser.add_argument('--python-index-url')
+    parser.add_argument('--npm-registry-url')
+    parser.add_argument('--source-mode', choices=('online', 'restricted', 'corporate', 'offline'), default='online')
     args = parser.parse_args(argv)
     settings = SourceSettings(repository=args.repository, offline_dir=args.offline_dir,
+                              python_index_url=args.python_index_url, npm_registry_url=args.npm_registry_url,
                               ca_file=args.ca_file, mode=args.source_mode)
     try:
         output = build_manager(args.root, args.output, settings)

@@ -83,45 +83,29 @@ class ManagerSystemToolsTests(unittest.TestCase):
                  patch('scripts.launcher.process.required_tool', side_effect=installation.LauncherError('npm is not on PATH')):
                 self.assertEqual(_npm_argv(), [node, str(cli)])
 
-    def test_manager_bundle_declares_system_tools_without_archive_download(self):
-        python = Path(sys.executable).resolve()
-        node = python.parent / 'node.exe'
-        npm = python.parent / 'node_modules/npm/bin/npm-cli.js'
-        with tempfile.TemporaryDirectory() as temporary, ExitStack() as mocks:
+    def test_manager_bundle_uses_complete_isolated_preparer(self):
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            source = root / 'source'
-            source.mkdir()
-            project = create_project(source)
-            args = operations.arguments({'action': 'bundle', 'output': str(root / 'output')})
+            project = create_project(root)
+            args = operations.arguments({'action': 'bundle', 'output': str(root / 'output'),
+                                         'manager_distribution': str(root / 'manager')})
             args.progress = lambda _: None
-            mocks.enter_context(patch('scripts.launcher.system_python.discover_python', return_value=python))
-            mocks.enter_context(patch('scripts.launcher.system_node.discover_node', return_value=node))
-            mocks.enter_context(patch.object(installation_profiles, 'installation_home', return_value=root / 'private'))
-            mocks.enter_context(patch.object(toolchain, 'inspect_toolchain', return_value=[{'status': 'ready'}]))
-            mocks.enter_context(patch.object(toolchain, 'toolchain_environment', return_value={
-                'AWCENTER_MANAGED_PYTHON': str(python), 'AWCENTER_MANAGED_NODE': str(node),
-                'AWCENTER_MANAGED_NPM_CLI': str(npm)}))
-            mocks.enter_context(patch.object(installation, 'source_settings', return_value=SourceSettings()))
-            prepare = mocks.enter_context(patch.object(operations, '_bundled_tools'))
-            bundle = mocks.enter_context(patch('scripts.launcher.installation_bundle.prepare_install_bundle'))
-            operations._bundle(project, args, lambda _: None)
-            prepare.assert_not_called()
-            self.assertEqual(bundle.call_args.kwargs['external_runtimes'], {'python', 'node', 'npm'})
+            with patch('scripts.manager.distribution.prepare_full_manager') as prepare, \
+                 patch('scripts.launcher.system_python.discover_python') as discover, \
+                 patch.object(toolchain, 'ensure_toolchain') as live_tools:
+                operations._bundle(project, args, lambda _: None)
+            self.assertEqual(prepare.call_args.args[3], root / 'manager')
+            self.assertNotIn('external_runtimes', prepare.call_args.kwargs)
+            discover.assert_not_called()
+            live_tools.assert_not_called()
 
-    def test_ready_tools_do_not_skip_offline_bundle_prerequisites(self):
-        from scripts.launcher.installation_bundle import BundleHostRuntimeError
+    def test_bundle_requires_matching_manager_distribution(self):
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary).resolve())
             args = operations.arguments({'action': 'bundle', 'output': '/unused-output'})
             args.progress = lambda _: None
-            with patch.object(operations, '_tool_choices', return_value={}), \
-                 patch.object(installation_profiles, 'installation_home', return_value=project.root), \
-                 patch.object(installation, 'source_settings', return_value=SourceSettings(mode='offline')), \
-                 patch.object(toolchain, 'inspect_toolchain', return_value=[{'status': 'ready'}]), \
-                 patch.object(toolchain, 'toolchain_environment', return_value={}), \
-                 patch('scripts.launcher.installation_bundle.require_bundle_host_runtimes', side_effect=BundleHostRuntimeError('node')), \
-                 patch('scripts.launcher.installation_bundle.prepare_install_bundle') as prepare:
-                with self.assertRaises(BundleHostRuntimeError):
+            with patch('scripts.manager.distribution.prepare_full_manager') as prepare:
+                with self.assertRaisesRegex(installation.LauncherError, 'Windows Manager'):
                     operations._bundle(project, args, lambda _: None)
             prepare.assert_not_called()
 

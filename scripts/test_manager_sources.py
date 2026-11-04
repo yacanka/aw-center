@@ -86,7 +86,7 @@ class SourceCheckTests(unittest.TestCase):
         self.assertTrue(set(roots).issubset(context.get_ca_certs(binary_form=True)))
         self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
         self.assertTrue(context.check_hostname)
-        self.assertEqual(checks[0]['status'], 'available')
+        self.assertEqual(checks[0]['status'], 'unverified')
 
     def test_without_selected_ca_uses_default_os_certificate_loader(self):
         # The native loader reads Windows CA/ROOT stores (OpenSSL defaults elsewhere).
@@ -213,12 +213,12 @@ class SourceCheckTests(unittest.TestCase):
         self.settings = replace(self.settings, npm_registry_url='https://npm.invalid/')
         self.opener.open.side_effect = [HTTPError(self.url, 403, 'private-reason', {}, None), self.response]
         checks, events, _ = self.probe()
-        self.assertEqual([check['status'] for check in checks], ['missing', 'available'])
+        self.assertEqual([check['status'] for check in checks], ['missing', 'unverified'])
         state = ManagerState()
         for event in events:
             state.handle_event(event)
         self.assertIn('HTTP 403', state.report())
-        self.assertIn('Kurumsal npm', state.report())
+        self.assertIn('npm kilitli paket', state.report())
         self.assertNotIn('private-reason', state.report())
 
     def test_unknown_errors_have_safe_fallback_without_exception_data(self):

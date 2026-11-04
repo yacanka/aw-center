@@ -37,7 +37,7 @@ def add_installation_commands(commands) -> None:
 
 
 def _sources(command: argparse.ArgumentParser) -> None:
-    command.add_argument("--source-mode", choices=("online", "corporate", "offline"), default="online",
+    command.add_argument("--source-mode", choices=("online", "restricted", "corporate", "offline"), default="online",
                          help="Online: genel/kurumsal/offline; corporate: seçili kaynaklar; offline: yalnız yerel paketler.")
     command.add_argument("--repository", help="HTTPS artifact deposu veya yerel/UNC paket dizini.")
     command.add_argument("--offline-dir", type=Path)
@@ -61,14 +61,18 @@ def dispatch_installation(project: Project, args: argparse.Namespace) -> int:
     if args.command == "prepare-install-bundle":
         from .installation import installation_home, require_windows, source_settings
         from .installation_bundle import prepare_install_bundle
-        from .installation_state import installation_lock, process_environment
+        from .installation_state import process_environment
         from .toolchain import ensure_toolchain
+        from .resource_locks import path_claims, resource_locks
+        import tempfile
 
         require_windows()
         settings = source_settings(args)
         home = installation_home()
-        with installation_lock(home):
-            with process_environment(ensure_toolchain(home, settings)):
+        claims = path_claims(project.root)
+        claims.update(path_claims(args.output.absolute(), write=True))
+        with resource_locks(home, claims), tempfile.TemporaryDirectory(prefix='awcenter-bundle-tools-') as temporary:
+            with process_environment(ensure_toolchain(Path(temporary).resolve() / 'tools', settings)):
                 output = prepare_install_bundle(project, args.output.absolute(), settings,
                                                 assets=args.assets, feature_catalog=args.feature_catalog)
         print(f"Offline paket hazır: {output}")
@@ -117,7 +121,7 @@ def wizard(project: Project, initial: argparse.Namespace) -> int:
         if choice in {"1", "5"}:
             from .installation import source_settings
             saved = source_settings(initial, project)
-            mode = input(f"Kaynak modu online/corporate/offline [{saved.mode}]: ").strip() or saved.mode
+            mode = input(f"Kaynak modu online/restricted/corporate/offline [{saved.mode}]: ").strip() or saved.mode
             arguments += ["--source-mode", mode]
             for flag, label in (
                 ("repository", "Alternatif artifact deposu/dizini"),

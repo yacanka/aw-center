@@ -127,7 +127,7 @@ def _safe_values(values: dict) -> dict:
                     continue
         if key == 'profile' and value not in {'dev', 'prod'}:
             continue
-        if key == 'source_mode' and value not in {'online', 'corporate', 'offline'}:
+        if key == 'source_mode' and value not in {'online', 'restricted', 'corporate', 'offline'}:
             continue
         result[key] = value
     return result

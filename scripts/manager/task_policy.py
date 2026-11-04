@@ -6,7 +6,7 @@ import os
 
 
 ACTION_LABELS = {'provision': 'Kur ve başlat', 'start': 'Başlat', 'doctor': 'Kontrol et',
-                 'test-sources': 'Kaynak testi', 'bundle': 'Offline paket hazırla'}
+                 'test-sources': 'Kaynak testi', 'bundle': 'Offline paket hazırla', 'inspect': 'Ortam denetimi'}
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,7 @@ def _path(value):
 def claims_for(action: str, values: dict) -> tuple[Claim, ...]:
     """Reserve real mutations and per-profile lifecycle, never a global UI lock."""
     profile = values.get('profile', 'dev')
-    if action in {'doctor', 'test-sources'}:
+    if action in {'doctor', 'test-sources', 'inspect'}:
         return (Claim(f'{action}:{profile}', write=True),)
     claims = [Claim('managed-runtime', write=action == 'provision')]
     if action in {'provision', 'start'}:

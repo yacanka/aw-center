@@ -16,6 +16,7 @@ from .view_theme import apply_control_styles, icon_image
 _ACTION_LABELS = {"provision": "Kur ve başlat", "start": "Başlat", "doctor": "Durumu denetle",
                   "test-sources": "Kaynakları dene", "bundle": "Çevrimdışı paket hazırla"}
 _TASK_STATUSES = {"running": "Çalışıyor", "ready": "Hazır / çalışıyor", "stopping": "Durduruluyor",
+                  "degraded": "Sağlık sorunu",
                   "finishing": "Tamamlanıyor", "done": "Tamamlandı", "failed": "Başarısız",
                   "cancelled": "Durduruldu"}
 
@@ -119,7 +120,7 @@ class ManagerWindow:
     Call ``handle_event`` and ``set_busy`` only from the Tk event loop.
     """
 
-    _advanced_fields = frozenset({"frontend_port", "tls_cert_file", "tls_key_file",
+    _advanced_fields = frozenset({"frontend_port", "install_node",
                                   "migrate", "install_python", "python_command", "node_command", "env_file"})
 
     def __init__(self, root, on_action: Callable, on_stop: Callable,
@@ -129,6 +130,8 @@ class ManagerWindow:
         self.on_stop = on_stop
         self.task_states = ManagerTaskStates()
         self.on_open: Callable | None = None
+        self.on_inspect = self.on_exit = None
+        self._inspection_job = None
         self._admin_dialogs: dict[str, dict] = {}
         self._progress_running = False
         self._refresh_job = None
@@ -162,8 +165,10 @@ class ManagerWindow:
         root.protocol("WM_DELETE_WINDOW", on_close)
         self._build()
         self.variables["profile"].trace_add("write", lambda *_: self._profile_changed())
+        self.variables['source_root'].trace_add('write', lambda *_: self._schedule_inspection())
         self.variables["source_mode"].trace_add("write", lambda *_: self._update_controls())
         self.variables["install_python"].trace_add("write", lambda *_: self._update_controls())
+        self.variables["install_node"].trace_add("write", lambda *_: self._update_controls())
         root.bind("<Configure>", self._layout_changed, add=True)
         root.bind("<Control-r>", lambda _event: self._retry())
         for number, tab in enumerate((self.run_tab, self.source_tab, self.report_tab), start=1):
@@ -171,6 +176,23 @@ class ManagerWindow:
         if any(self.variables[key].get() != DEFAULT_VALUES[key] for key in self._advanced_fields):
             self._set_advanced(True)
         self._update_controls()
+        self.root.after(1000, self._tick_progress)
+
+    def _schedule_inspection(self):
+        if self._inspection_job is not None:
+            self.root.after_cancel(self._inspection_job)
+        def inspect():
+            self._inspection_job = None
+            if self.on_inspect:
+                self.on_inspect()
+        self._inspection_job = self.root.after(250, inspect)
+
+    def _tick_progress(self):
+        import time
+        if self.state.busy:
+            elapsed = max(0, int(time.monotonic() - self.state.started_at))
+            self.status_var.set(f'{self.state.status} · {elapsed // 60:02d}:{elapsed % 60:02d}')
+        self.root.after(1000, self._tick_progress)
 
     def form_values(self):
         """Snapshot inputs, including inactive fields, without credentials or I/O."""
@@ -316,7 +338,9 @@ class ManagerWindow:
         mark.create_text(mark_size / 2, mark_size / 2, text="AW", fill=self._palette['on_primary'], font=self._eyebrow_font)
         ttk.Label(header, text="Center Manager", style="Manager.Brand.TLabel").grid(row=0, column=1, sticky="w")
         ttk.Separator(header, style="Manager.Divider.TSeparator").place(relx=0, rely=1, relwidth=1, anchor="sw", height=1)
-        self.tabs = ttk.Notebook(shell, style="Manager.TNotebook")
+        style = ttk.Style(self.root)
+        style.layout('Manager.Single.TNotebook.Tab', [])
+        self.tabs = ttk.Notebook(shell, style="Manager.Single.TNotebook")
         self.tabs.grid(row=1, column=0, sticky="nsew")
         self.run_tab = _ScrollPanel(self.tabs)
         self.source_tab = _ScrollPanel(self.tabs)
@@ -336,6 +360,9 @@ class ManagerWindow:
         self._build_actions()
         self._build_tasks(self.run_tab.body)
         self._build_error(shell)
+        for column, (label, panel) in enumerate((('Ana ekran', self.run_tab), ('Kaynaklar', self.source_tab), ('Rapor', self.report_tab)), 2):
+            ttk.Button(header, text=label, command=lambda target=panel: self.tabs.select(target),
+                       style='Manager.Footer.TButton').grid(row=0, column=column, padx=(8, 0))
         footer = ttk.Frame(shell, padding=(30, 8, 30, 10), style="Manager.TFrame")
         footer.grid(row=4, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
@@ -353,6 +380,8 @@ class ManagerWindow:
                    style="Manager.Footer.TButton").grid(row=0, column=2, padx=(8, 0))
         self.stop_button = ttk.Button(controls, text="Durdur", command=self._stop_selected, state="disabled")
         self.stop_button.grid(row=0, column=3, padx=(8, 0))
+        ttk.Button(controls, text='Çıkış', command=lambda: self.on_exit() if self.on_exit else None,
+                   style='Manager.Footer.TButton').grid(row=0, column=4, padx=(8, 0))
 
     def _build_tasks(self, parent):
         tasks = self.tasks_card = _Card(parent, padding=20)
@@ -457,7 +486,7 @@ class ManagerWindow:
         self.open_button = ttk.Button(self.banner_actions, text="Tarayıcıda aç", command=self._open_ready,
                                       style="Manager.Primary.TButton", state="disabled")
         self.open_button.grid(row=0, column=0)
-        self.banner_stop_button = ttk.Button(self.banner_actions, text="Durdur", command=self._stop_selected,
+        self.banner_stop_button = ttk.Button(self.banner_actions, text="Durdur", command=self._stop_profile,
                                              style="Manager.TButton", state="disabled")
         self.banner_stop_button.grid(row=0, column=1, padx=(8, 0))
         paths = self.run_settings = _Card(parent, padding=20)
@@ -487,6 +516,10 @@ class ManagerWindow:
             self._fields[key], self._field_titles[key], self._field_tabs[key] = entry, title, self.run_tab
             self._controls.append(entry)
         self._label(paths, "Boş alanlar mevcut profili korur.", style="Manager.PanelMuted.TLabel").grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 12))
+        self.tls_frame = ttk.Frame(paths, style='Manager.Panel.TFrame')
+        self.tls_frame.grid(row=4, column=0, columnspan=3, sticky='ew')
+        self._entry(self.tls_frame, 0, 'tls_cert_file', 'TLS sertifikası (prod)', tab=self.run_tab, picker='certificate')
+        self._entry(self.tls_frame, 1, 'tls_key_file', 'TLS özel anahtarı (prod)', tab=self.run_tab, picker='key')
         ttk.Separator(paths).grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 8))
         self.advanced_button = ttk.Button(paths, text="Gelişmiş ayarları göster", command=self._toggle_advanced,
                                           style="Manager.Link.TButton")
@@ -498,8 +531,6 @@ class ManagerWindow:
 
     def _build_advanced(self, parent):
         self._entry(parent, 0, "frontend_port", "Frontend portu (dev)", tab=self.run_tab)
-        self._entry(parent, 1, "tls_cert_file", "TLS sertifikası (prod)", tab=self.run_tab, picker="certificate")
-        self._entry(parent, 2, "tls_key_file", "TLS özel anahtarı (prod)", tab=self.run_tab, picker="key")
         self._label(parent, "Yeni prod profili için makineye atanmış sabit IPv4 ve kaynak dizini dışındaki TLS dosyaları gerekir.").grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 12))
         migrate = ttk.Checkbutton(parent, text="Mevcut veritabanının migration işlemlerini uygula",
                                   variable=self.variables["migrate"], style="Manager.TCheckbutton")
@@ -513,6 +544,10 @@ class ManagerWindow:
         self._entry(parent, 7, 'python_command', 'Python komutu / yolu (isteğe bağlı)', tab=self.run_tab, picker='python')
         self._label(parent, 'Boşsa otomatik aranır. python, py -3.11, python.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Python seçimini kullanır.').grid(row=8, column=0, columnspan=3, sticky='ew', pady=(4, 12))
         self._entry(parent, 9, 'node_command', 'Node.js komutu / yolu (isteğe bağlı)', tab=self.run_tab, picker='node')
+        managed_node = ttk.Checkbutton(parent, text='Her durumda yönetilen Node.js kurulumunu kullan',
+                                      variable=self.variables['install_node'], style='Manager.TCheckbutton')
+        managed_node.grid(row=14, column=0, columnspan=3, sticky='w', pady=(8, 0))
+        self._controls.append(managed_node)
         self._label(parent, 'Boşsa önce uygun sistem Node.js aranır; bulunamazsa yönetilen Node.js kurulur. node, node.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Node.js seçimini kullanır.').grid(row=10, column=0, columnspan=3, sticky='ew', pady=(4, 12))
         self._entry(parent, 11, 'env_file', '.env dosyası (isteğe bağlı)', tab=self.run_tab, picker='environment')
         self._label(parent, 'Kur ve başlat seçilen dosyayı özel profile aktarır; kaynak dosya değiştirilmez. Boşsa mevcut profil veya otomatik yapılandırma kullanılır. Değişmiş dosyayı önce Kur ve başlat ile uygulayın.').grid(row=12, column=0, columnspan=3, sticky='ew', pady=(4, 0))
@@ -526,20 +561,19 @@ class ManagerWindow:
         self._set_advanced(not self.advanced_var.get())
 
     def _profile_changed(self):
-        if self.variables["profile"].get() == "prod":
-            self._set_advanced(True)
         self._update_controls()
+        self._schedule_inspection()
 
     def _build_sources(self, parent):
         parent.columnconfigure(0, weight=1)
         modes = _Card(parent)
         modes.grid(row=0, column=0, sticky="ew")
         ttk.Label(modes, text="Paket kaynakları", style="Manager.Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
-        for column, (value, label) in enumerate((("online", "İnternet (Online)"), ("corporate", "Kurumsal (Corporate)"), ("offline", "Çevrimdışı (Offline)"))):
+        for column, (value, label) in enumerate((("online", "İnternet"), ('restricted', 'Kısıtlı internet'), ("corporate", "Yalnız kurumsal"), ("offline", "Çevrimdışı"))):
             button = ttk.Radiobutton(modes, text=label, value=value, variable=self.variables["source_mode"], style="Manager.Source.TRadiobutton")
-            button.grid(row=1, column=column, sticky="w", padx=(0, 16))
+            button.grid(row=1 + column // 2, column=column % 2, sticky="w", padx=(0, 12), pady=4)
             self._controls.append(button)
-        self._label(modes, textvariable=self.source_help_var).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        self._label(modes, textvariable=self.source_help_var).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         fields = _Card(parent)
         fields.grid(row=1, column=0, sticky="ew", pady=(16, 0))
         for row, (key, label, picker) in enumerate((
@@ -551,6 +585,7 @@ class ManagerWindow:
             ("assets", "Onaylı asset dizini (isteğe bağlı)", "directory"),
             ("feature_catalog", "Native araç kataloğu (isteğe bağlı)", "catalog"),
             ("output", "Çevrimdışı paket çıktı dizini", "directory"),
+            ('manager_distribution', 'Windows Manager paketi (kaynak çalıştırmada)', 'directory'),
         )):
             self._entry(fields, row, key, label, tab=self.source_tab, picker=picker)
         self._label(parent, "İsteğe bağlı yönetilen Python, Node ve npm arşivleri yönetici paketine dahildir. pip ve npm alanları uygulama bağımlılıklarını belirler; arşiv deposu alanı bunlardan ayrıdır. URL'lere parola veya token yazmayın. TLS ve hash doğrulaması her modda korunur.", style="Manager.TLabel").grid(row=2, column=0, sticky="ew", pady=(12, 0))
@@ -579,12 +614,12 @@ class ManagerWindow:
     def _build_actions(self):
         """Place each operation with its inputs; stopping remains task-scoped."""
         self.action_buttons = {"start": ttk.Button(self.banner_actions, text="Başlat", style="Manager.Primary.TButton",
-                                                   command=lambda: self._dispatch("start"))}
+                                                   command=self._primary_action)}
         self.action_buttons["start"].grid(row=0, column=0)
-        for parent, row, names in ((self.run_settings, 9, ("doctor", "provision")),
+        for parent, row, names in ((self.advanced_frame, 13, ("doctor", "provision")),
                                    (self.source_tab.body, 3, ("test-sources", "bundle"))):
-            actions = ttk.Frame(parent, style="Manager.Panel.TFrame" if parent is self.run_settings else "Manager.TFrame")
-            actions.grid(row=row, column=0, columnspan=3 if parent is self.run_settings else 1, sticky="e", pady=(16, 0))
+            actions = ttk.Frame(parent, style="Manager.Panel.TFrame")
+            actions.grid(row=row, column=0, columnspan=3, sticky="e", pady=(16, 0))
             for column, action in enumerate(names):
                 style = "Manager.Primary.TButton" if action in {"start", "test-sources"} else "Manager.TButton"
                 button = ttk.Button(actions, text=_ACTION_LABELS[action], style=style,
@@ -651,7 +686,24 @@ class ManagerWindow:
 
     def _retry(self):
         if self.state.last_action:
-            self._dispatch(self.state.last_action)
+            self._dispatch(self.state.last_action, dict(self.state.last_values))
+
+    def _profile_presentation(self):
+        return self.task_states.profile_presentation(self.variables['profile'].get())
+
+    def _primary_action(self):
+        action = self._profile_presentation()['action']
+        if action == 'open':
+            self._open_ready()
+        elif action:
+            self._dispatch(action)
+            if action == 'doctor':
+                self.tabs.select(self.report_tab)
+
+    def _stop_profile(self):
+        task = self._profile_presentation()['task_id']
+        if task:
+            self.on_stop(task)
 
     def _show_sources(self):
         self.tabs.select(self.source_tab)
@@ -667,11 +719,12 @@ class ManagerWindow:
         self.status_var.set("Güvenli durum raporu panoya kopyalandı.")
 
     def _open_ready(self):
-        url = self.state.ready_url
+        presentation = self._profile_presentation()
+        url = presentation['url']
         if not url:
             return
         if self.on_open:
-            self.on_open(url, self.selected_task_id())
+            self.on_open(url, presentation['task_id'])
         else:
             Thread(target=self._open_browser, args=(url,), daemon=True).start()
 
@@ -713,9 +766,11 @@ class ManagerWindow:
 
     def _update_controls(self):
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
+        profile_state = self._profile_presentation()
         presentation = (self.variables["profile"].get(), self.variables["source_mode"].get(),
                         self.variables['install_python'].get(), selected.get("status"),
-                        bool(self.state.last_action), bool(self.state.ready_url))
+                        self.variables['install_node'].get(),
+                        bool(self.state.last_action), tuple(profile_state.items()))
         if presentation == self._rendered_controls:
             self._update_summary()
             self._paint_status_tile()
@@ -725,10 +780,13 @@ class ManagerWindow:
             control.configure(state="normal")
         profile = self.variables["profile"].get()
         self.profile_badge_var.set("DEV profili" if profile == "dev" else "PROD profili")
+        self.tls_frame.grid() if profile == 'prod' else self.tls_frame.grid_remove()
         mode = self.variables["source_mode"].get()
         disabled = {"frontend_port"} if profile == "prod" else {"tls_cert_file", "tls_key_file"}
         if self.variables['install_python'].get():
             disabled.add('python_command')
+        if self.variables['install_node'].get():
+            disabled.add('node_command')
         if mode == "offline":
             disabled.update({"repository", "python_index_url", "npm_registry_url"})
         for key in disabled:
@@ -739,19 +797,17 @@ class ManagerWindow:
             button.configure(state="normal")
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
         self.stop_button.configure(state="normal" if selected.get("status") in ManagerTaskStates.ACTIVE_STATUSES else "disabled")
-        self.banner_stop_button.configure(state=str(self.stop_button['state']))
+        self.banner_stop_button.configure(state="normal" if profile_state['task_id'] else "disabled")
         self.retry_button.configure(state="normal" if self.state.last_action else "disabled")
-        self.open_button.configure(state="normal" if self.state.ready_url else "disabled")
-        self.report_open_button.configure(state="normal" if self.state.ready_url else "disabled")
-        if self.state.ready_url:
-            self.open_button.grid()
-            self.action_buttons['start'].grid_remove()
-        else:
-            self.open_button.grid_remove()
-            self.action_buttons['start'].grid()
+        self.open_button.grid_remove()
+        self.report_open_button.configure(state="normal" if profile_state['url'] else "disabled")
+        self.action_buttons['start'].configure(text=profile_state['label'],
+            state="normal" if profile_state['action'] else "disabled")
+        self.action_buttons['start'].grid()
         self.profile_help_var.set("Dev: yerel geliştirme sunucuları; host 127.0.0.1 ile sınırlıdır." if profile == "dev" else "Prod: HTTPS, sabit IPv4 ve ayrı özel veritabanı / artifact dizinleri.")
         self.source_help_var.set({
             "online": "İnternet kaynakları kullanılır. İsteğe bağlı kurumsal ve çevrimdışı yedek kaynaklar aşağıdan seçilebilir.",
+            "restricted": "Önce doğrulanmış yerel paketler, sonra seçilen depolar, ardından izin verilen genel internet kaynakları denenir.",
             "corporate": "Açıkça belirttiğiniz kurumsal HTTPS depoları veya yerel paket dizinleri kullanılır. CA dosyasını gerekiyorsa seçin.",
             "offline": "Ağ kullanılmaz. Doğrulanmış uygulama bağımlılıklarını içeren çevrimdışı paket dizini zorunludur.",
         }.get(mode, "Kaynak modu seçin."))
@@ -760,9 +816,8 @@ class ManagerWindow:
 
     def _paint_status_tile(self):
         """Decorative state icon; the adjacent text always explains its meaning."""
-        selected = self.task_states.tasks.get(self.selected_task_id(), {})
-        state = (bool(self.state.error_message), selected.get('status') == 'ready' and bool(self.state.ready_url),
-                 self.state.busy)
+        profile = self._profile_presentation()
+        state = (profile['status'] in {'blocked', 'degraded'}, bool(profile['url']), bool(profile['task_id']))
         if state == self._rendered_status_tile:
             return
         self._rendered_status_tile = state
@@ -774,36 +829,32 @@ class ManagerWindow:
                             0, r, 0, 0, smooth=True, fill=self._palette['soft'], outline='')
         color = self._palette['accent']
         tile.create_oval(size*.24, size*.24, size*.76, size*.76, outline=color, width=2)
-        selected = self.task_states.tasks.get(self.selected_task_id(), {})
-        if self.state.error_message:
+        if state[0]:
             tile.create_text(size/2, size/2, text='!', font=self._section_font, fill=color)
-        elif selected.get('status') == 'ready' and self.state.ready_url:
+        elif state[1]:
             tile.create_line(size*.35, size*.5, size*.46, size*.61, size*.67, size*.39,
                              fill=color, width=2, capstyle='round', joinstyle='round')
-        elif self.state.busy:
+        elif state[2]:
             tile.create_text(size/2, size/2-2, text='…', font=self._body_font, fill=color)
 
     def _update_summary(self):
-        """Display controller-owned selection, never infer health from the form."""
+        """The profile dashboard stays independent of the selected task report."""
         tasks = self.task_states.tasks
         active = sum(task["status"] in ManagerTaskStates.ACTIVE_STATUSES for task in tasks.values())
         self.task_count_var.set(f"{active} aktif · {len(tasks)} işlem" if tasks else "Henüz işlem yok")
-        selected = tasks.get(self.selected_task_id())
-        if not selected:
-            self.summary_title_var.set("Genel bildirimler" if self.state.error_message else "İşlem bekleniyor")
-            self.summary_context_var.set("Bir profil seçip işlem başlatın.")
-            return
-        action = _ACTION_LABELS.get(selected["action"], safe_text(selected["action"], limit=80))
-        status = _TASK_STATUSES.get(selected["status"], "Bilinmiyor")
-        self.summary_title_var.set(f"{action} — {status}")
-        profile = {"dev": "Geliştirme (dev)", "prod": "Üretim (prod)"}.get(selected["profile"], safe_text(selected["profile"], limit=30))
-        self.summary_context_var.set(f"{profile} · İşlem #{safe_text(selected['id'], limit=8)}")
-        if selected['status'] == 'ready' and self.state.ready_url and selected['action'] in {'start', 'provision'}:
+        current = self._profile_presentation()
+        name = 'Geliştirme' if self.variables['profile'].get() == 'dev' else 'Üretim'
+        descriptions = {'not_installed': 'kurulumu gerekli', 'stopped': 'ortamı hazır',
+            'incomplete': 'kurulumu tamamlanmalı', 'blocked': 'kurulumu engellendi',
+            'inspecting': 'ortamı denetleniyor', 'degraded': 'ortamında sağlık sorunu',
+            'running': 'işlemi sürüyor', 'finishing': 'işlemi tamamlanıyor', 'stopping': 'ortamı durduruluyor'}
+        self.summary_title_var.set(f"{name} {descriptions.get(current['status'], 'ortamı başlatılıyor')}")
+        self.summary_context_var.set(' · '.join(filter(None, (current.get('detail'), current.get('tools')))))
+        if current['url']:
             from urllib.parse import urlsplit
-            endpoint = urlsplit(self.state.ready_url)
-            name = {'dev': 'Geliştirme', 'prod': 'Üretim'}.get(selected['profile'], profile)
+            endpoint = urlsplit(current['url'])
             self.summary_title_var.set(f"{name} ortamı çalışıyor")
-            self.summary_context_var.set(f"{endpoint.scheme}://{safe_text(endpoint.netloc, limit=120)} · #{safe_text(selected['id'], limit=8)}")
+            self.summary_context_var.set(f"{endpoint.scheme}://{safe_text(endpoint.netloc, limit=120)} · #{safe_text(current['task_id'], limit=8)}")
 
     def set_busy(self, busy: bool):
         """Compatibility hook; input controls remain usable during operations."""
@@ -817,7 +868,7 @@ class ManagerWindow:
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
         # A ready server remains controller-owned, but its startup has finished.
         # Progress is presentation state and must not change lifecycle fencing.
-        progressing = self.state.busy and selected.get('status') != 'ready'
+        progressing = self.state.busy and selected.get('status') not in {'ready', 'degraded'}
         if progressing != self._progress_running:
             if progressing:
                 self.progress.grid()
@@ -856,6 +907,7 @@ class ManagerWindow:
     def handle_event(self, event: dict):
         self.task_states.handle_event(event)
         if event.get("task_id") is not None and event["task_id"] != self.selected_task_id():
+            self._update_controls()
             return
         self._sync_task_selection()
         # The model consumes every event immediately. A poll's burst needs one

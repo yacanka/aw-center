@@ -31,6 +31,36 @@ def require_unlinked(path: Path) -> None:
             raise LauncherError('Installation paths must not contain symlinks or reparse points')
 
 
+def require_local_ntfs(path: Path) -> None:
+    """USB is transport media; mutable application state stays on local NTFS."""
+    require_unlinked(path)
+    if os.name != 'nt':
+        return
+    from ctypes import wintypes
+    path = Path(path).absolute()
+    for key in ('OneDrive', 'OneDriveCommercial', 'OneDriveConsumer'):
+        if os.environ.get(key) and path.is_relative_to(Path(os.environ[key]).absolute()):
+            raise LauncherError('Çalışma dizini OneDrive dışında yerel NTFS üzerinde olmalı.')
+    existing = path
+    while not existing.exists() and existing != existing.parent:
+        existing = existing.parent
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.GetVolumePathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    kernel.GetVolumePathNameW.restype = wintypes.BOOL
+    kernel.GetDriveTypeW.argtypes = [wintypes.LPCWSTR]
+    kernel.GetDriveTypeW.restype = wintypes.UINT
+    kernel.GetVolumeInformationW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD),
+        wintypes.LPWSTR, wintypes.DWORD]
+    kernel.GetVolumeInformationW.restype = wintypes.BOOL
+    volume, filesystem = ctypes.create_unicode_buffer(32768), ctypes.create_unicode_buffer(256)
+    valid = kernel.GetVolumePathNameW(str(existing), volume, len(volume))
+    valid = valid and kernel.GetDriveTypeW(volume.value) == 3
+    valid = valid and kernel.GetVolumeInformationW(volume.value, None, 0, None, None, None, filesystem, len(filesystem))
+    if not valid or filesystem.value.upper() != 'NTFS':
+        raise LauncherError('Kurulum klasörünü USB/ağ sürücüsünden yerel NTFS diske kopyalayın.')
+
+
 def secure_path(path: Path) -> None:
     """Set exactly current-owner access on a newly created file or directory."""
     require_unlinked(path)

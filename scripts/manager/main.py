@@ -58,6 +58,14 @@ def _smoke_metadata(root=None):
 
 def main(argv=None):
     values = list(sys.argv[1:] if argv is None else argv)
+    if values[:1] == ['--manager-command-gate']:
+        from .worker import _restore_private_streams
+        from scripts.launcher.child_bootstrap import main as command_main
+        _restore_private_streams()
+        if os.name == 'nt':
+            import ctypes
+            ctypes.windll.kernel32.SetDllDirectoryW(None)
+        return command_main(pass_stdin=True, gate_handle=int(values[1]), arguments=values[2:])
     if '--manager-worker' in values:
         from .worker import main as worker_main
         values.remove('--manager-worker')
@@ -74,7 +82,7 @@ def main(argv=None):
         _dpi_awareness()
         import tkinter as tk
         from .controller import ManagerController
-        from .paths import default_source_root
+        from .paths import default_source_root, startup_values
         from .view import ManagerWindow
         from .preferences import PreferencesError, load_preferences, preferences_home, save_preferences
         initial_values = {}
@@ -99,7 +107,8 @@ def main(argv=None):
                 controller.view.handle_event({'type': 'error', 'code': 'ui_failed',
                     'message': 'Arayüz işlemi tamamlanamadı.', 'remedy': 'İşlemi yeniden deneyin. Devam eden görev varsa önce Durdur düğmesini kullanın.'})
         root.report_callback_exception = callback_error
-        source_root = args.root or Path(initial_values.get('source_root') or default_source_root())
+        initial_values = startup_values(initial_values, args.root)
+        source_root = Path(initial_values.get('source_root') or default_source_root())
         controller = ManagerController(root, partial(ManagerWindow, initial_values=initial_values), source_root)
         if preferences_failed:
             controller.view.handle_event({'type': 'status',

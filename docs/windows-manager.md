@@ -2,60 +2,39 @@
 
 Taşınabilir paket Windows x64 içindir. ZIP'in tamamını kullanıcıya ait yerel bir dizine çıkarın ve `AWCenterManager.exe` dosyasını açın. İlk pencere için kurulu Python, Node, npm, Git veya ağ bağlantısı gerekmez. Python/Tk arayüzü `_internal/` içinde; uygulama kaynakları `source/`, SHA-256 değerleri onaylı Python 3.11, Node ve npm arşivleri `runtimes/` içindedir. Bu dizinleri EXE'den ayırmayın.
 
-Pencerenin açılması uygulamanın kurulduğu veya servisin hazır olduğu anlamına gelmez. Durum ve ilerleme gerçek kurulum, HTTP ve worker kontrollerinden gelir. İlk kurulumun Python ve frontend bağımlılıkları için erişilebilir paket kaynakları gerekir. Runtime arşivleri, uygulamanın tüm bağımlılıklarının çevrimdışı kopyası değildir.
+Pencerenin açılması uygulamanın hazır olduğu anlamına gelmez. Güncel tam paket,
+`dependencies/wheels` ve `dependencies/npm-cache` içerir; yalnız eski
+`runtimes/` paketleri bağımlılıkların çevrimdışı kopyası değildir.
 
 ## Sade yönetim ekranı
 
-**Çalışma (Ctrl+1)** sekmesi seçili işlemin durum özetini, çalışma profilini,
-kaynak dizinini, host ve backend portunu gösterir. **Başlat**, **Kur ve başlat**
-ve **Durumu denetle** burada bulunur. **Gelişmiş ayarları göster** ile frontend
-portu, TLS dosyaları, isteğe bağlı Python kurulumu, `.env` seçimi ve migration
-seçeneği açılır. Bu bölümü kapatmak girilen değerleri silmez. Üretim profili
-seçildiğinde veya kapalı bölümdeki bir alan doğrulama hatası verdiğinde bölüm
-otomatik açılır.
+Ana ekran seçili **profilin gerçek durumu**, **ana eylem** ve **işlem ilerlemesi**
+üzerine kuruludur. Açılışta ve kaynak/profil değişiminde arka planda salt okunur
+inceleme yapılır; eski inceleme yeni seçimi değiştiremez.
 
-**Paket kaynakları (Ctrl+2)** kaynak politikasını, ilgili dizin ve depoları,
-**Kaynakları dene** ve **Çevrimdışı paket hazırla** işlemlerini içerir.
-**Durum ve rapor (Ctrl+3)** seçili işlemin temizlenmiş raporunu gösterir.
-İşlem listesi, örnekteki gibi Çalışma sekmesinde ayar kartının altında aynı
-kaydırılan akıştadır. **İşlem / Profil / Durum / Rapor** sütunları kullanılır.
-Bir işlemin **İncele →** hücresi, Enter veya çift tıklama raporunu açar.
-Seçili işlem kimliği durum özetinde korunur. Alt çubuktaki **Durdur**, bildirim
-ve işlem listesi kontrolleri tek satırda, tüm sekmelerde erişilebilir. Henüz
-işlem yokken boş tablo gizlenir; işlem listesi düğmesiyle yine açılabilir.
+| Durum | Ana eylem |
+| --- | --- |
+| Kurulmamış | Kur ve başlat |
+| Hazırlanmış, durmuş | Başlat |
+| Tamamlanabilir yarım kurulum | Tamamla ve başlat |
+| Çalışıyor ve sağlıklı | Tarayıcıda aç |
+| Müdahale gerekiyor | Eksikleri göster |
 
-Küçük pencerede, büyük sistem fontunda veya hata gösterildiğinde işlem listesi
-başlık satırına küçülür; **Listeyi göster** ile tekrar açılabilir. Görevler ve
-seçim korunur. Hata kartı kısa özet gösterir; **Çözümü incele** tam hata, çözüm
-ve hata kodunu içeren raporu açar. Yeniden deneme kısayolu **Ctrl+R** olarak kalır.
+Kaynaklar ve Rapor düğmeleri ilgili görünümü açar; Ctrl+1/2/3 korunur.
+Kaynak testi veya başka bir rapor seçmek çalışan profilin Tarayıcıda aç/Durdur
+kontrollerini değiştirmez. Üretimde IPv4, sertifika ve özel anahtar alanları
+ana ekranda görünür. Gelişmiş ayarlar isteğe bağlıdır. Açık/koyu tema, sistem
+fontu, klavye odağı ve küçük pencerede kaydırma korunur.
 
-Durum özeti formdaki profil seçiminden bağımsızdır; yalnız seçili görevin
-kayıtlı profilini ve controller tarafından bildirilen durumunu gösterir.
-Henüz işlem yokken uygulama çalışıyor gibi gösterilmez. Arayüz mevcut
-Tkinter/ttk üzerinde onaylanan Sade yönetim örneğinin açık/koyu paletini,
-yuvarlatılmış kartlarını, çizgi sekmelerini ve yan yana bağlantı alanlarını
-kullanır. İlk görünüm sistemin açık/koyu yüzeyinden çözülür; kontroller standart
-ttk bileşenleri olarak kalır. Windows'un yerel düğme çizimi özel renkleri
-yok sayabildiğinden boyanabilir standart Clam elemanları ve yerel üretilen
-yuvarlatılmış kontrol yüzeyleri kullanılır; ek GUI bağımlılığı gerekmez.
-Örnekteki 13/25/16 piksel metin rolleri sistem font ailesi, DPI ve büyütülmüş
-sistem metniyle ölçeklenir. Düğme/alan köşeleri 7/6 pikseldir; hover, basılı,
-devre dışı ve klavye odağı durumları ayrı çizilir. Ana referans Sade yönetimdir;
-Advanced SystemCare yalnız durum vurgusu ve kontrol incelikleri için fikirdir.
+İlerleme geçerli aşama, geçen süre ve bekleme nedenini gösterir; tahmini yüzde
+üretilmez. Denetim özeti Hazır, Eksiklerle kullanılabilir veya Kurulum engellendi
+olur. **Yeniden dene / Ctrl+R**, ilgili görevin kayıtlı ayarlarını kullanır;
+formu değiştirmek yeni bir işlem başlatmak içindir. Başlatmada tarayıcı bir kez
+açılır. Durdurulan görevin canlı bağlantısı kaldırılır.
 
-Durum olayları hemen görev modeline yazılır; aynı olay turundaki çizimler
-birleştirilir. Seçili olmayan işlemler açık raporun metin seçimini veya kaydırma
-konumunu değiştirmez. Gizli rapor, sekmesi açıldığında güncel modelden hazırlanır.
-Fare tekerleği görünüm yüksekliğine bağlı büyük sıçramalar yerine küçük adımlar
-kullanır. Sekme boşlukları çizilmeden bırakılır; kontrol yüzeylerinin tekrarlanan
-orta alanı geniş tutulur. Böylece [ttk resim elemanlarının döşeme davranışı](https://www.tcl-lang.org/man/tcl9.0/TkCmd/ttk_image.html)
-nedeniyle her yeniden çizimde binlerce küçük resim işlemi yapılması önlenir.
-
-Windows CI başlangıç kontrolü, yalnız pencerenin görünürlüğünü değil Tk callback
-hatalarını da denetler. `manager-ui-evidence` artifact'ında gerçek Tk sürümü,
-ölçek, font, tema ve pencere boyutu saklanır; Tk görüntü servisi açılamazsa kapı
-başarısız olur. Bu kayıt ekran görüntüsü veya görsel eşitlik kanıtı değildir;
-son Windows görsel kabulü ayrıca gerekir.
+Aktif işlem varken **X** görev çubuğuna küçültür. **Çıkış**, mevcut onaylı güvenli
+durdurma akışını çalıştırır; süreçler temizlendikten sonra kapanır. Aktif işlem
+yokken X doğrudan kapatır. Sistem tepsisi veya Windows servisi kurulmaz.
 
 ## Sistem Python ve Node.js seçimi
 
@@ -63,7 +42,7 @@ Manager varsayılan olarak önce sistemdeki uygun Python ve Node.js kurulumları
 
 Otomatik tespit yeterli olmazsa **Gelişmiş ayarlar → Python komutu / yolu (isteğe bağlı)** alanına `python`, `py -3.11`, `C:\Python311\python.exe` veya Python kurulum dizinini girin; **Seç…** düğmesiyle `python.exe` de seçebilirsiniz. Boşluk içeren, tırnakla kopyalanmış dosya yolları desteklenir. Girilen seçim doğrulanır; uyumsuzsa farklı bir Python'a sessizce geçilmez. Shell komutu çalıştırılmaz. Yönetilen Python kutusu seçildiğinde bu alan kullanılmaz. Alan Kur ve başlat ile offline paket hazırlığı içindir; Başlat ve Durumu denetle mevcut profilin kayıtlı Python seçimini korur.
 
-**Node.js komutu / yolu (isteğe bağlı)** alanı `node`, `node.exe` dosyasının tam yolu veya kurulum dizinini kabul eder; **Seç…** düğmesi EXE seçer. Boşsa PATH, Windows kayıtları ve yaygın dizinler taranır. Desteklenen sistem Node, x64 **22.12+ (22.x) veya 24+** sürümüdür; ön sürümler ve uyumsuz mimariler kullanılmaz. Otomatik arama uygun kurulum bulamazsa yalnız eksik yönetilen Node hazırlanır. Elle verilen geçersiz seçim açık hata üretir. İptal, indirmeye geçiş sayılmaz.
+**Node.js komutu / yolu (isteğe bağlı)** alanı `node`, `node.exe` dosyasının tam yolu veya kurulum dizinini kabul eder; **Seç…** düğmesi EXE seçer. Boşsa PATH, Windows kayıtları ve yaygın dizinler taranır. Desteklenen sistem Node, x64 **22.13+ (22.x) veya 24+** sürümüdür; ön sürümler ve uyumsuz mimariler kullanılmaz. Otomatik arama uygun kurulum bulamazsa yalnız eksik yönetilen Node hazırlanır. Elle verilen geçersiz seçim açık hata üretir. İptal, indirmeye geçiş sayılmaz.
 
 Seçilen Node yanındaki kararlı **npm 10.9.4+ (10.x) veya 11.x** CLI da kullanılır. Örneğin Node 26.12.1 ile kurulu npm 11.18.0, yalnız daha yeni olduğu için yeniden kurulmaz. Uygun npm eksikse doğrulanmış yönetilen **npm 10.9.4** arşivi hazırlanır; katalog pini ve dependency lock dosyaları değişmez. npm doğrudan seçilen Node ile çalıştırılır, `.cmd` üzerinden shell komutu yürütülmez. Python ve Node yolları profil bazında kaydedilir; Başlat ve Durumu denetle aynı araçları yeniden doğrular.
 
@@ -71,7 +50,7 @@ Runtime hazırlığı, arşiv edinme/açma, sürüm denetimi ve kayıt yazma aş
 
 Python 3.11.3 x64 dahil CPython 3.11 yama sürümleri kabul edilir. Etkileşimli `python` ekranının açılması, `venv` ve `ensurepip` desteğinin hazır olduğunu tek başına göstermez. Manager artık süreç başlatma hatasını (`system_python_start_failed`, varsa `WinError`/`errno`), süreç çıkışını (`system_python_process_failed` ve sayısal çıkış kodu), denetim zaman aşımını (`system_python_timeout`), eksik `venv`/`ensurepip` modülünü ve standart modül yükleme hatasını ayrı raporlar. Ham stderr, dosya yolları veya exception içeriği rapora aktarılmaz. Eski genel “Python bulunamadı” mesajı bu nedenleri ayırt ettirmez.
 
-Yavaş ilk açılışlar için denetim süresi aday başına **60 saniyedir**; eski 5 saniyelik sınır kaldırılmıştır. Otomatik aramada farklı yorumlayıcılar denenirse toplam süre daha uzun olabilir. Arama başlamadan durum bilgisi gösterilir ve **Durdur** denetim sürerken de kullanılabilir. Aynı dosyaya giden PATH yazımları aynı aramada tekrar denenmez; doğrudan çalıştırılıp bütün kontrolleri geçen Python hemen ikinci kez başlatılmaz. Launcher veya sanal ortam farklı bir temel yorumlayıcı bildirirse temel dosya ayrıca doğrulanır. Sürüm, x64 mimari, `venv`/`ensurepip` ve yönetilen runtime/Store alias sınırları korunur. Kalıcı bir takılma 60 saniye sonunda yine açık hata verir; süresiz bekleme veya otomatik kurulum yapılmaz.
+Python aramasının toplam bütçesi **120 saniye**, tek adayın üst sınırı **60 saniyedir**. Node/npm araması ortak **60 saniyelik** bütçe kullanır; tek denetim en fazla **30 saniye** sürer. Arama başlamadan durum bilgisi gösterilir ve **Durdur** denetim sürerken de kullanılabilir. Aynı dosyaya giden PATH yazımları aynı aramada tekrar denenmez; doğrudan çalıştırılıp bütün kontrolleri geçen Python hemen ikinci kez başlatılmaz. Launcher veya sanal ortam farklı bir temel yorumlayıcı bildirirse temel dosya ayrıca doğrulanır. Zaman aşımı, süreç hatası veya geçersiz yanıt araç yok sayılarak indirmeye dönüştürülmez. Yeniden deneme, açık yol seçimi veya yönetilen araç seçimi gerekir; sistem kurulumu değiştirilmez.
 
 Kurulumda değişiklik yapmadan CMD’de `python -I -S -c "import venv, ensurepip, sysconfig; print(sysconfig.get_platform())"` ile aynı izole modül kontrolünü yapabilirsiniz; Windows x64 için başarılı sonuç `win-amd64` olur. `>>>` etkileşimli Python ekranındaysanız önce `exit()` ile CMD’ye dönün. Başarısızsa hata türünü ve Manager’ın yeni hata kodunu birlikte değerlendirin; yalnız sürüm ekranına bakarak yeniden kurulum kararı vermeyin.
 
@@ -81,7 +60,13 @@ Kutu seçilirse paketteki veya seçilen kaynaklardaki SHA-256 sabitlenmiş yöne
 
 Başarılı bağımlılık hazırlığından sonra seçilen sistem yorumlayıcısı dev/prod profil metadata'sına ayrı ayrı kaydedilir; Başlat ve Kontrol et aynı seçimi kullanır. Özel env, anahtarlar ve mevcut hesaplar değişmez. Mevcut `.venv` farklı bir Python'a bağlıysa Manager onu otomatik silmez veya yeniden bağlamaz; ayrı temiz kaynak dizini kullanın ya da mevcut ortamın Python seçimini koruyun. Profil değişimi sonradan sistem Python'unu kaldırmaz veya güncellemez.
 
-Manager üzerinden offline paket hazırlanırken kullanılan sistem araçlarının arşivleri tekrar indirilmez. Bu paketler sürüm 2 manifest'te `host_runtimes` gereksinimlerini ve üretici sürümlerini kaydeder; üreticinin dosya yolları dışarı aktarılmaz. Hedef bilgisayarda da uygun araçlar gerekir. Çevrimdışı modda eksik hedef gereksinimi indirmeyle giderilmez, açık hata verir. Dahil edilen arşivler katalogdaki hash'lerle doğrulanır. Önceki tam sürüm 1 paketler desteklenir; düşük seviyeli CLI varsayılanı tam sürüm 1 paket üretmeye devam eder. Kaynak `.pyw` Python/Tk gerektirir; paketli EXE'nin ilk penceresi kendi gömülü Python/Tk'sini kullanır.
+Manager üzerinden hazırlanan **tam USB paketi**, üreticide sistem araçları kurulu
+olsa da Python/Node/npm arşivlerini içerir. Araçlar ayrı geçici alanda hazırlanır;
+canlı uygulamanın runtime veya sanal ortamı değiştirilmez. Kaynak üzerinden
+çalıştırmada aynı sürümden önceden derlenmiş Windows Manager dizini seçilmelidir.
+Hedefte uyumlu sistem araçları yine önceliklidir. Eski v1/v2 kurulum paketlerinin
+okunması ve v2 `host_runtimes` gereksinimlerinin doğrulanması korunur.
+
 
 ## Form değerlerini hatırlama
 
@@ -99,7 +84,7 @@ Yalnız dosya yolları kaydedilir; `.env`, sertifika ve özel anahtar içerikler
 
 Mevcut profilin `SECRET_KEY` / `JIRA_SESSION_ENCRYPTION_KEY` değerleri değiştirilemez. Profilin ayrı veritabanı, özel dosya ve bind/model yollarıyla çelişen ayarlar reddedilir; dosyadan bu alanları çıkarmak mevcut güvenli değerleri korur. İlk kez eski bir geliştirme veritabanı açıkça sahiplenilecekse seçilen dosya her iki özgün anahtarı da içermelidir; veritabanı resetlenmez. Production için seçilen dosya kaynak ağacının dışında olmalıdır. İlk kurulumda eksik anahtarlar yalnız yeni/boş ortam için oluşturulur.
 
-**Başlat** ve **Durumu denetle** salt okunur davranır. Alan boşken kayıtlı profil kopyasını kullanırlar. Dosya seçiliyse aynı ayarlara karşılık geldiğini doğrularlar; farklı ayarlar varsa bunları önce **Kur ve başlat** ile uygulamanız istenir. Bu seçim, iki profilin aynı state veya anahtarları paylaşmasına izin vermez.
+**Durumu denetle** salt okunurdur. **Başlat** paket indirmez veya bağımlılık kurmaz; üretimin deployment, migration durumu, collectstatic ve artifact kontrollerini tekrar çalıştırır. Alan boşken kayıtlı profil kopyasını kullanırlar. Dosya seçiliyse aynı ayarlara karşılık geldiğini doğrularlar; farklı ayarlar varsa bunları önce **Kur ve başlat** ile uygulamanız istenir. Bu seçim, iki profilin aynı state veya anahtarları paylaşmasına izin vermez.
 
 ## Geliştirme ve üretim
 
@@ -128,12 +113,13 @@ Kaynak modu her işlemde açıkça seçilir:
 | Mod | İzin verilen kaynaklar |
 | --- | --- |
 | Online | Genel HTTPS kaynakları, seçilen kurumsal kaynaklar ve doğrulanmış yerel fallback |
+| Kısıtlı internet (`restricted`) | Doğrulanmış yerel içerik → seçilen depolar → genel HTTPS kaynakları |
 | Kurumsal | Yalnız seçilen kurumsal HTTPS veya yerel kaynaklar; genel internete fallback yok |
 | Çevrimdışı | Yalnız seçilen yerel doğrulanmış paket dizini; ağ indirmesi yok |
 
 Python index adresi, npm registry adresi ve runtime arşiv deposu ayrı alanlardır. Kurumun CA dosyasını gerektiğinde seçin; TLS kontrolü kapatılmaz. URL'ye kullanıcı adı, parola veya token koymayın. Kurumsal proxy yapılandırması işlemin ortamından gelebilir; ham paket yöneticisi çıktıları arayüze veya rapora aktarılmaz.
 
-Runtime arşivi indirme isteği yetki veya erişim nedeniyle reddedilirse Manager `artifact_http_rejected` koduyla Python, Node.js veya npm bileşenini ve sayısal HTTP kodunu gösterir. HTTP 401 depo kimlik doğrulamasını, 403 erişim reddini, 407 proxy kimlik doğrulamasını ayrı açıklar. Eski paketlerde bu durumlar genel `source_unavailable` mesajına dönüşüyordu. Yanıt gövdesi, adres, header ve ham hata metni rapora eklenmez. Yetki/erişim reddinde başka kaynağa sessiz geçiş yapılmaz; mevcut 404 fallback, sınırlı yeniden deneme, TLS ve SHA-256 kontrolleri korunur.
+Runtime arşivi indirme isteği yetki veya erişim nedeniyle reddedilirse Manager `artifact_http_rejected` koduyla Python, Node.js veya npm bileşenini ve sayısal HTTP kodunu gösterir. HTTP 401 depo kimlik doğrulamasını, 403 erişim reddini, 407 proxy kimlik doğrulamasını ayrı açıklar. Eski paketlerde bu durumlar genel `source_unavailable` mesajına dönüşüyordu. Yanıt gövdesi, adres, header ve ham hata metni rapora eklenmez. Kısıtlı modda HTTP 401/403/407, bulunamama ve bağlantı sorunları raporlanarak sıradaki izinli kaynağa geçilir. Diğer modların sınırları korunur. TLS, hash, bozuk manifest ve kurulum hataları fallback yapmadan durur. Her uzak deneme ayrı geçici dizindedir; depolar aynı çözümleme havuzunda karıştırılmaz. Son kurulum Python için `--no-index --find-links`, npm için `npm ci --offline` ile yerelden yapılır.
 
 “Kaynakları dene” seçilen PEM CA dosyasını varsayılan güven deposuna ekler; Windows'un güvenilen CA ve ROOT depoları ile OpenSSL varsayılanları korunur. CA dosyası seçilmediğinde bu varsayılan depolar kullanılır. Dosya okunamıyorsa veya geçerli PEM değilse ağ isteği yapılmadan CA dosyası hatası gösterilir. Her kaynak için sertifika doğrulaması, diğer TLS hataları, proxy bağlantısı/kimlik doğrulaması, HTTP durum kodları, DNS ve zaman aşımı ayrı açıklanır. Proxy bypass ayarları korunur; hata yanıtlarının gövdeleri, ham exception metinleri ve proxy kimlik bilgileri rapora yazılmaz.
 
@@ -143,13 +129,18 @@ Uygulamanın HTTPS entegrasyonları da Windows CA/ROOT, OpenSSL ve Requests'in g
 
 Çevrimdışı kurulum için Windows x64 ve mevcut dependency lock'larıyla hazırlanmış kurulum paketi gerekir. Paket içindeki dependency manifest'i, Python wheel'leri ve npm cache doğrulanır. Yönetici üzerinden paket hazırlama işlemi, erişebilen bir Windows makinede mevcut kurulum bundle akışını kullanır. Yalnız `runtimes/` dizinini seçmek çevrimdışı uygulama kurulumunu tamamlamaz.
 
+Wheel hazırlığı CPython 3.11 yama sürümlerinin koşullu pinlerini birlikte toplar;
+örneğin yalnız 3.11.0–3.11.2 için gereken `async-timeout` yeni Python ile hazırlanan
+pakette de bulunur. İşletim sistemi koşulları korunur. Bu geçici edinim listesi
+lock dosyasını değiştirmez; hedef kurulum özgün lock koşullarını uygular.
+
 ## İşlemler ve ilk yönetici
 
-Hazırlama işlemi özel profili oluşturur, onaylı runtime'ları açar, kilitli bağımlılıkları kurar, şemayı ve ilgili build/deployment kapılarını doğrular, ardından uygulamayı başlatır. Başlat mevcut hazırlanmış profili kullanır. Kontrol et salt okunur tanılama yapar. Kaynak testi seçilen politikanın erişimini veya yerel bağımlılık envanterini inceler; paket kapsamının tamamı kurulum sırasında doğrulanır.
+Sıra: ön kontrol → araçlar/bağımlılıklar → tam TLS doğrulaması → özel profil/şema → ilk yönetici → seçilen ekler → build/deployment → web/worker. TLS dosya erişimi ve anahtar eşleşmesi daha ilk ön kontrolde incelenir; tam sertifika/IP kontrolü uygulama ortamındaki cryptography ile profil ve veritabanından önce tamamlanır. Başlat mevcut hazırlanmış profili kullanır. Kontrol et salt okunur tanılama yapar. Kaynak testi seçilen politikanın erişimini veya yerel bağımlılık envanterini inceler; paket kapsamının tamamı kurulum sırasında doğrulanır.
 
 İlk aktif yönetici bulunmadığında kullanıcı adı ve parola ayrı, maskeli parola alanı olan pencerede istenir. Kullanıcı adı bir harf ve beş rakamdır. Bilgiler yalnız worker'ın özel stdin kanalıyla aktarılır; argv, environment, kaynak dosyası veya rapora yazılmaz. Mevcut kullanıcılar değiştirilmez veya yöneticiye yükseltilmez.
 
-Durdur yalnız görev listesindeki seçili işlemi ve onun alt süreçlerini durdurur. Pencereyi kapatmayı onaylamak tüm aktif işlemlere iptal gönderir ve süreç temizliğinin bitmesini bekler. Devam eden migration güvenli komut sınırında durur; tamamlanan kurulum adımları korunur. Hata sonrası gösterilen aşamayı ve çözüm bilgisini inceleyip aynı işlemi tekrar çalıştırın. Özel profili veya veritabanını silmek bir kurtarma adımı değildir. Rapor yalnız temizlenmiş durum bilgisidir.
+Durdur yalnız görev listesindeki seçili işlemi ve onun alt süreçlerini durdurur. Çıkış işlemini onaylamak tüm aktif işlemlere iptal gönderir ve süreç temizliğinin bitmesini bekler. Devam eden migration güvenli komut sınırında durur; tamamlanan kurulum adımları korunur. Hata sonrası gösterilen aşamayı ve çözüm bilgisini inceleyip aynı işlemi tekrar çalıştırın. Özel profili veya veritabanını silmek bir kurtarma adımı değildir. Rapor yalnız temizlenmiş durum bilgisidir.
 
 ## Modüller ve bağımsız işlemler
 
@@ -162,7 +153,7 @@ Göreli dosya yolları görev başlarken kaynak çalıştırmada repository kök
 | Eşzamanlı işlemler | Davranış |
 | --- | --- |
 | Çalışan uygulama + kaynak testi / durum kontrolü | Birbirinden bağımsız çalışır. |
-| Çalışan uygulama + offline paket hazırlama | Doğrulanmış mevcut araçları okuyarak, ayrı staging/cache/çıktı alanında çalışır; canlı `.venv` değiştirilmez. |
+| Çalışan uygulama + offline paket hazırlama | Sabitlenmiş araçları ayrı hazırlık alanında kullanır; canlı `.venv` değiştirilmez. |
 | Hazır dev + hazır prod başlatma | Ayrı profil ve state ile çalışabilir; mevcut port ve tek DOORS worker kontrolleri korunur. |
 | Aynı profilin iki lifecycle işlemi | İkinci işlem açık çakışma mesajıyla reddedilir. |
 | Kurulum + çalışan lifecycle / başka kurulum | Kaynak, profil veya paylaşılan runtime yazmalarının çakışması engellenir. Kurulum uygulamayı hazır ilan edince yalnız çalışan sunucu kaynaklarını tutar. |
@@ -172,7 +163,7 @@ Görev listesinde kısa işlem kimliğini seçerek o işlemin durumunu ve raporu
 
 Tk iş parçacığında ağ erişimi, süreç bekleme, pipe yazma veya tarayıcı başlatma yapılmaz. Özel pipe yazıcısı ve sınırlı mesaj kuyruğu işlem başınadır. Tk her görevden sınırlı sayıda olay okur; yoğun bir görev diğerlerinin ilerleme veya kapanış olaylarını aç bırakmaz. En fazla 16 aktif işlem ve son 50 tamamlanmış görev tutulur. `done` bildirimi kaynakları erken serbest bırakmaz; sahip olunan süreç temizliği de tamamlanmalıdır.
 
-Kaynak paylaşan işlemlerin güvenlik nedeniyle çakışması ile arayüzün kilitlenmesi farklı durumlardır. Python olmadan migration veya aynı veritabanı üzerinde eşzamanlı kurulum yapılmaz; gerekli sıralama ve transaction sınırları korunur. Ayrı Manager pencereleri arasındaki mevcut işletim sistemi kurulum kilidi de geçerlidir.
+Kaynak paylaşan işlemlerin güvenlik nedeniyle çakışması ile arayüzün kilitlenmesi farklı durumlardır. Python olmadan migration veya aynı veritabanı üzerinde eşzamanlı kurulum yapılmaz; gerekli sıralama ve transaction sınırları korunur. Profil, kaynak (üst/alt dizinler dahil) ve runtime erişimleri paylaşılan/özel işletim sistemi kilitleriyle Manager ve CLI arasında korunur. Kilitler alt süreç temizliği tamamlanmadan bırakılmaz. Web ve job worker 10 saniyede bir denetlenir; üç başarısız tur sorun, iki başarılı tur tekrar hazır durumu üretir. Otomatik yeniden başlatma yapılmaz.
 
 ### Yardımcı süreç hata kodları
 
@@ -212,12 +203,17 @@ _internal/
 source/
   manager-source-manifest.json
 runtimes/
+dependencies/
+  wheels/
+  npm-cache/
+  manifest.json
+install-manifest.json
 manager-manifest.json
 ```
 
 Kaynak seçimi mevcut `copy_install_source` güvenlik filtresini ve Git tracked envanterini kullanır. Yeni yönetici modülleri ve ilk yönetici servisi yalnız açık dosya allowlist'iyle eklenir. Yerel environment, credential, private state, dependency cache ve bilinmeyen kök dosyalar dağıtılmaz. `runtimes/` yalnız repository'deki onaylı katalogda bulunan Python, Node ve npm arşivlerini içerir; katalogdaki SHA-256 değerleri kopyalamadan sonra yeniden doğrulanır.
 
-Runtime arşivleri için build komutu `--source-mode online|corporate|offline`, `--repository`, `--offline-dir` ve `--ca-file` alır. Bu seçenekler PyInstaller build bağımlılıklarının pip kaynağını değiştirmez; build ortamının paket/proxy/CA yapılandırması ayrıca sağlanmalıdır. [PyInstaller dağıtım dokümantasyonu](https://pyinstaller.org/en/stable/) Windows çıktısının Windows üzerinde üretilmesini gerektirir. PyInstaller build aracıdır; Python, Tcl/Tk ve paket içindeki runtime'ların lisans koşulları dağıtım sürecinde korunmalıdır.
+Runtime arşivleri için build komutu `--source-mode online|restricted|corporate|offline`, `--repository`, `--offline-dir`, `--ca-file`, `--python-index-url` ve `--npm-registry-url` alır. Bu seçenekler PyInstaller build bağımlılıklarının pip kaynağını değiştirmez; build ortamının paket/proxy/CA yapılandırması ayrıca sağlanmalıdır. [PyInstaller dağıtım dokümantasyonu](https://pyinstaller.org/en/stable/) Windows çıktısının Windows üzerinde üretilmesini gerektirir. PyInstaller build aracıdır; Python, Tcl/Tk ve paket içindeki runtime'ların lisans koşulları dağıtım sürecinde korunmalıdır.
 
 ## Doğrulama ve mevcut sınır
 
@@ -235,8 +231,31 @@ set AWCENTER_MANAGER_EXE=C:\AWCenterBuild\extracted\AWCenterManager.exe
 py -3.11 -m unittest scripts.test_manager_package.NativeWindowsPackageTests
 ```
 
-Tam soğuk çevrimdışı kurulum kabulü ayrıca hazırlanmış, onaylı bir bundle gerektirir. `AWCENTER_RUN_MANAGER_OFFLINE_SMOKE=1` ve `AWCENTER_MANAGER_OFFLINE_BUNDLE=<bundle dizini>` tanımlanınca aynı native test sınıfı erişilemeyen proxy'lerle bu akışı da çalıştırır. Varsayılan workflow bu ek offline bundle'ı üretmez; bu kabul açıkça skip edilir.
+Tam soğuk çevrimdışı dev/prod kabulü artık workflow'da zorunludur;
+`scripts.test_manager_windows_acceptance.NativeOfflineAcceptance` aynı tam
+paketi sistem araçlarıyla ve yönetilen araç seçimiyle çalıştırır. Test yalnız
+geçici CI Windows makinesinde Windows Firewall ile dış IPv4/IPv6 erişimini
+engeller; loopback ve uygulamanın kendi IPv4 adresi açık kalır. Engelin gerçekten
+çalıştığı TCP bağlantılarıyla doğrulanır. Testin geçici kuralı sonunda kaldırılır.
+Firewall kurulamazsa test başarısız olur, çevrimdışı kabul atlanmaz.
 
-Bu testler runtime ve bağımlılık indirebilir, geçici doğrulanmış kaynak kopyasında geliştirme ortamı oluşturabilir ve yalnız testin geçici uygulama-data dizininde profil oluşturur. Gerçek kullanıcı profiliyle çalıştırmayın. Normal unittest çalışmasında native testler açıkça skip edilir.
+Gerçek HTTPS, ilk yönetici, session cookie/CSRF, frontend, küçük DOCX karşılaştırma
+job'ı, gerçek worker ve yetkili/anonim dosya indirme kontrolleri yapılır. İptalden
+sonra yeniden deneme, ikinci Manager/CLI çakışması, süreç çökmesi, portların
+kapanması ve yeniden başlatmada hesap/anahtar/eski çıktı korunması kapsanır.
+HTTP/API mock kullanılmaz. Eski pencere/proxy smoke testleri bu kapının yerine
+geçmez. Network engeli uygulama için bir ürün özelliği değildir.
 
-02.11.2026 tarihinde macOS üzerindeki kaynak ve paket kontratı testleri çalıştırılabilir; bu ortam Windows EXE üretemez ve Windows/Tk/NTFS/native worker kabulünü kanıtlayamaz. İlk yayın için Windows workflow sonucunu ve üretilen ZIP üzerindeki kabul sonuçlarını inceleyin. Native smoke, üretim TLS kurulumu veya elle yapılan görsel/erişilebilirlik kabulünün yerine geçmez. Bu değişiklik otomatik yayın veya imzalama yapmaz.
+05.11.2026 uygulaması macOS üzerinde geliştirilmiştir. Windows EXE üretimi,
+NTFS/Job Object/Firewall kabulü ve gerçek kurumsal ağ bu ortamda çalıştırılamaz.
+Yayın için Windows CI sonucuna ek olarak araçsız **temiz Windows** ve standart
+kullanıcı hesabında saha kabulü gerekir; zorlanmış yönetilen araç seçimi temiz
+makine kanıtı değildir. Açık/koyu tema, %100/%150/%200 ölçek, küçük pencere,
+Tab/Enter/Escape ve küçültüp geri açma gerçek Windows'ta elle kontrol edilir.
+Çevrimdışı kurulum JIRA/SMTP gibi uzak servisleri çevrimdışı kullanılabilir yapmaz.
+
+USB yalnız taşıma içindir; tam klasörü hedefte yerel NTFS diske kopyalayın.
+Dev kopyalanan kaynakta, prod ayrı yönetilen release alanında çalışır. İlk
+başlangıçta tam manifest algılanır, paket yollarıyla çevrimdışı mod seçilir;
+açık `--root` önceliklidir ve başka makineden kalmış araç/TLS/env yolları taşınmaz.
+Sürüm yükseltme, imzalama, otomatik yayın, servis ve sistem tepsisi kapsam dışıdır.
