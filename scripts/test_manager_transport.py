@@ -231,7 +231,8 @@ class WorkerTransportTests(unittest.TestCase):
         def windows_spawn(command, **options):
             options.pop('creationflags', None)
             child = spawn(command, **options)
-            child._handle = object()
+            if not hasattr(child, '_handle'):
+                child._handle = object()
             return child
         with patch.object(transport, 'os', types.SimpleNamespace(name='nt')), \
              patch.object(transport.subprocess, 'CREATE_NO_WINDOW', 0, create=True), \

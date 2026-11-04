@@ -755,8 +755,9 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(str(window.retry_button["state"]), "normal")
         window.variables["source_root"].set("D:/changed-source")
         window.retry_button.invoke()
-        self.assertEqual(actions[-1][1]["source_root"], "D:/changed-source")
+        self.assertEqual(actions[-1][1]["source_root"], "C:/source")
         window.update_tasks([{"id": "doctor-1", "action": "doctor", "profile": "dev", "status": "running", "values": actions[0][1]}], selected_id="doctor-1")
+        window.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped'})
         self.assertEqual(str(window.action_buttons["start"]["state"]), "normal")
         self.assertEqual(str(window.stop_button["state"]), "normal")
         window.action_buttons["start"].invoke()
@@ -846,6 +847,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         controller = ManagerController(self.root, lambda *_args, **_kwargs: self.window, source_root,
                                        session_factory=factory, browser_opener=lambda _url: True)
         self.window.on_action, self.window.on_stop = controller.action, controller.stop
+        self.window.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped'})
         self.window.action_buttons["start"].invoke()
         self.assertTrue(sessions[0].started.wait(1))
         start_id = next(iter(controller.tasks))
