@@ -36,7 +36,6 @@ jobs:
     timeout-minutes: 60
     env:
       PYTHONUTF8: '1'
-      AWCENTER_RUN_RUNTIME_PROBE_SMOKE: '1'
     defaults:
       run:
         shell: cmd
@@ -59,6 +58,10 @@ jobs:
           python -m scripts.manager.main --smoke-test "%RUNNER_TEMP%\manager-ui-evidence\startup.json"
       - name: Verify system tools, bundle prerequisites and permission diagnostics
         run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_system_node scripts.test_launcher_runtime_validation scripts.test_launcher_install_dependencies scripts.test_manager_system_tools scripts.test_manager_tool_paths scripts.test_launcher_bundle scripts.test_launcher_env_selection scripts.test_launcher_permissions
+      - name: Verify issue 131 with real Node 26 and npm archives
+        env:
+          AWCENTER_RUN_RUNTIME_PROBE_SMOKE: '1'
+        run: python -m unittest scripts.test_launcher_runtime_validation
       - name: Verify source payload, package and manager contracts
         run: python -m unittest discover -s scripts -p "test_manager*.py"
       - name: Build portable windowed ZIP with reviewed runtime archives
