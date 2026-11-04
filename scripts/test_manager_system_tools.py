@@ -11,7 +11,7 @@ from scripts.launcher.installation_sources import SourceSettings
 from scripts.launcher.process import OperationCancelled
 from scripts.launcher.system_python import SystemPythonError
 from scripts.manager import operations
-from scripts.test_launcher import create_project
+from scripts.launcher_test_support import create_project
 
 
 class ManagerSystemToolsTests(unittest.TestCase):

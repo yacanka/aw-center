@@ -276,7 +276,7 @@ class SystemPythonTests(unittest.TestCase):
     def test_provision_and_later_start_keep_system_selection_without_managed_python(self):
         from scripts.launcher import installation
         from scripts.launcher.installation_profiles import provision_profile, load_profile
-        from scripts.test_launcher import create_project
+        from scripts.launcher_test_support import create_project
         python = Path(sys.executable).resolve()
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as mocks:
             root = Path(temporary).resolve()
@@ -364,7 +364,7 @@ class SystemPythonTests(unittest.TestCase):
 
     def test_existing_system_toolchain_bundle_does_not_prepare_python_archive(self):
         from scripts.manager.operations import _bundle
-        from scripts.test_launcher import create_project
+        from scripts.launcher_test_support import create_project
         args = arguments({'action': 'bundle', 'output': '/bundle'})
         python = Path(sys.executable).resolve()
         with tempfile.TemporaryDirectory() as temporary:
@@ -384,7 +384,7 @@ class SystemPythonTests(unittest.TestCase):
 
     def test_runtime_selection_is_profile_scoped_and_preserves_keys(self):
         from scripts.launcher.installation_profiles import provision_profile, load_profile, update_python_runtime
-        from scripts.test_launcher import create_project
+        from scripts.launcher_test_support import create_project
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             source = root / 'source'
@@ -402,7 +402,7 @@ class SystemPythonTests(unittest.TestCase):
 
     def test_existing_venv_cannot_silently_switch_its_base_interpreter(self):
         from scripts.launcher.installation_dependencies import _ensure_venv
-        from scripts.test_launcher import create_project
+        from scripts.launcher_test_support import create_project
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary).resolve())
             project.python.parent.mkdir(parents=True)
@@ -420,7 +420,7 @@ class SystemPythonTests(unittest.TestCase):
 
     def test_system_mode_installs_only_node_and_npm(self):
         with tempfile.TemporaryDirectory() as temporary:
-            home = Path(temporary).resolve()
+            home = Path(temporary).resolve() / 'private'
             python = Path(sys.executable).resolve()
             with patch('scripts.launcher.system_python.validate_python', return_value=python), \
                  patch.object(toolchain, 'fetch_artifact', side_effect=lambda artifact, *_: home / artifact.filename) as fetch, \

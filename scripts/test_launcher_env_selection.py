@@ -7,7 +7,7 @@ import unittest
 
 from scripts.launcher.installation_profiles import provision_profile, read_profile_environment
 from scripts.launcher.model import LauncherError
-from scripts.test_launcher import create_project
+from scripts.launcher_test_support import create_project
 from scripts.manager.operations import arguments
 from scripts.manager.paths import normalize_task_paths
 from scripts.manager.view_model import normalize_values

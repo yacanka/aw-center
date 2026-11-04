@@ -46,10 +46,18 @@ class SystemNodeTests(unittest.TestCase):
 
     def test_explicit_file_directory_quotes_and_relative_path_are_supported(self):
         from scripts.launcher import system_node
-        for selection in (str(self.node), '"' + str(self.node) + '"', str(self.node.parent),
-                          os.path.relpath(self.node)):
+        for selection in (str(self.node), '"' + str(self.node) + '"', str(self.node.parent)):
             with self.subTest(selection=selection), patch.object(system_node, '_PROBE', self.probe()):
                 self.assertEqual(system_node.discover_node(selection), self.node)
+        # A relative path only exists on the current drive. CI's checkout and
+        # installed Node commonly live on different Windows drives.
+        previous = Path.cwd()
+        try:
+            os.chdir(self.node.parent)
+            with patch.object(system_node, '_PROBE', self.probe()):
+                self.assertEqual(system_node.discover_node('./' + self.node.name), self.node)
+        finally:
+            os.chdir(previous)
 
     def test_utf8_executable_path_is_not_decoded_with_windows_ansi(self):
         from scripts.launcher import system_node
