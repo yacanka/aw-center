@@ -14,7 +14,7 @@ from scripts.launcher.process import OperationCancelled, check_cancelled, operat
 from .task_policy import ACTION_LABELS
 
 PATH_FIELDS = {'offline_dir', 'ca_file', 'assets', 'feature_catalog', 'tls_cert_file', 'tls_key_file', 'output', 'env_file'}
-TEXT_FIELDS = {'repository', 'python_index_url', 'npm_registry_url', 'host', 'asset_set'}
+TEXT_FIELDS = {'repository', 'python_index_url', 'npm_registry_url', 'host', 'asset_set', 'python_command'}
 
 
 def arguments(request):
@@ -26,7 +26,7 @@ def arguments(request):
     action = request.get('action', 'provision')
     sources = {'repository', 'offline_dir', 'python_index_url', 'npm_registry_url', 'ca_file'}
     fields = (sources if action == 'test-sources' else
-              sources | {'assets', 'feature_catalog', 'output'} if action == 'bundle' else
+              sources | {'assets', 'feature_catalog', 'output', 'python_command'} if action == 'bundle' else
               PATH_FIELDS | TEXT_FIELDS if action == 'provision' else {'env_file'} if action in {'start', 'doctor'} else set())
     values = {'profile': profile, 'source_mode': mode, 'no_admin': False, 'use_saved_sources': False,
               'migrate': request.get('migrate') is True, 'exclude_doors': None,
@@ -50,7 +50,8 @@ def _python_choice(args):
         return {}
     if not getattr(args, 'python_executable', None):
         from scripts.launcher.system_python import discover_python
-        args.python_executable = discover_python()
+        selection = getattr(args, 'python_command', None)
+        args.python_executable = discover_python(selection) if selection else discover_python()
     return {'python_executable': args.python_executable}
 
 
@@ -94,7 +95,7 @@ def _failure_reason(error):
         (('uygulamak için kur ve başlat',), 'env_import_required', 'Seçilen .env profilin kayıtlı ayarlarından farklı. Uygulamak için Kur ve başlat kullanın.'),
         (('.env', 'environment file is invalid'), 'env_file_invalid', 'Seçilen .env okunamadı, biçimi veya profil ile uyumu doğrulanamadı. Dosyayı ve mevcut anahtar/veri yolu uyumunu kontrol edin.'),
         (('venv farklı',), 'venv_python_mismatch', 'Mevcut .venv seçilen Python’a bağlı değil; otomatik değiştirilmedi. Ayrı temiz kaynak dizini kullanın.'),
-        (('uygun sistem python',), 'system_python_missing', 'Uygun sistem Python 3.11 x64 bulunamadı; Python 3.11 x64 kurun veya “Python çalışma zamanını kur” seçeneğini işaretleyin.'),
+        (('uygun sistem python',), 'system_python_missing', 'Uygun sistem Python 3.11 x64 bulunamadı; Python komutu / yolu alanına python veya python.exe yolunu girin ya da “Python çalışma zamanını kur” seçeneğini işaretleyin.'),
         (('yalnız windows',), 'windows_required', 'Bu kurulum işlemi Windows x64 gerektirir.'),
         (('sha-256', 'checksum', 'hash', 'integrity', 'differ', 'değişmiş'), 'integrity_failed', 'Dosya bütünlüğü doğrulanamadı; değiştirilmiş paket kullanılmadı.'),
         (('tls', 'certificate', 'certification', 'ssl'), 'tls_failed', 'TLS sertifikası veya güvenli bağlantı doğrulanamadı.'),
@@ -140,7 +141,7 @@ def execute(request, emit, admin_provider, stop):
     except Exception as error:
         code, reason = _failure_reason(error)
         remedies = {
-            'system_python_missing': 'Sisteme tam CPython 3.11 x64 kurun veya Çalışma sekmesindeki Python kurulumu kutusunu seçip yeniden deneyin.',
+            'system_python_missing': 'Çalışma sekmesindeki gelişmiş ayarlarda Python komutu / yolu alanına python, py -3.11 veya python.exe dosyasının tam yolunu girin. CPython 3.11 x64 gerekir; isterseniz Python kurulumu kutusunu seçin.',
             'env_import_required': 'Çalışan ilgili görevi durdurun; seçilen dosyayı Kur ve başlat ile uygulayın. Mevcut anahtar ve veri yolları korunmalıdır.',
             'env_file_invalid': 'Çalışma sekmesindeki .env dosyasını kontrol edin; yalnız uygulama ayarlarını içeren, profilin anahtarları ve veri yollarıyla uyumlu bir dosya seçin.',
         }

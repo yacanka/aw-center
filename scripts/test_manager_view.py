@@ -272,8 +272,7 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.window._fields = {key: Mock() for key in view_model.DEFAULT_VALUES}
         self.window._field_tabs = {key: self.window.run_tab for key in view_model.DEFAULT_VALUES}
         self.window._field_tabs["offline_dir"] = self.window.source_tab
-        self.window._advanced_fields = frozenset({"frontend_port", "tls_cert_file", "tls_key_file",
-                                                  "migrate", "install_python", "env_file"})
+        self.window._advanced_fields = self.window.__class__._advanced_fields
         self.window.advanced_var = tk.BooleanVar(interpreter, value=False)
         self.window.advanced_frame = Mock()
         self.window.advanced_button = Mock()
@@ -662,6 +661,35 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.window.variables['install_python'].set(True)
         self.window.action_buttons['provision'].invoke()
         self.assertIs(self.actions[-1][1]['install_python'], True)
+
+    def test_python_picker_and_managed_choice_preserve_manual_value(self):
+        window = self.window
+        with patch('scripts.manager.view.filedialog.askopenfilename', return_value='C:/Python 311/python.exe'):
+            window._pick('python_command', 'python')
+        window._dispatch('provision')
+        self.assertEqual(self.actions[-1][1]['python_command'], 'C:/Python 311/python.exe')
+        window.variables['install_python'].set(True)
+        self.assertEqual(str(window._fields['python_command']['state']), 'disabled')
+        window.variables['install_python'].set(False)
+        self.assertEqual(str(window._fields['python_command']['state']), 'normal')
+        self.assertEqual(window.form_values()['python_command'], 'C:/Python 311/python.exe')
+
+    def test_restored_advanced_inputs_are_visible_and_readable_after_window_closes(self):
+        import tkinter as tk
+        from scripts.manager.view import ManagerWindow
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            window = ManagerWindow(root, lambda *_: None, lambda: None, lambda: None,
+                source_root='C:/explicit', initial_values={'source_root': 'C:/saved', 'env_file': 'C:/private/dev.env',
+                    'python_command': 'python', 'source_mode': 'corporate', 'migrate': True})
+            self.assertTrue(window.advanced_var.get())
+            self.assertFalse(window.variables['migrate'].get())
+            self.assertEqual(window.variables['source_root'].get(), 'C:/explicit')
+        finally:
+            root.destroy()
+        self.assertEqual(window.form_values()['python_command'], 'python')
+        self.assertEqual(window.form_values()['env_file'], 'C:/private/dev.env')
 
     def test_env_picker_submits_path_without_opening_or_reporting_contents(self):
         from unittest.mock import patch

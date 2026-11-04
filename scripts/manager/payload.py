@@ -33,7 +33,7 @@ MANAGER_SOURCE_FILES = (
     'scripts/launcher/installation_env.py',
     *(f'scripts/manager/{name}.py' for name in (
         '__init__', 'main', 'controller', 'worker', 'transport', 'payload', 'view', 'view_model', 'view_theme',
-        'paths', 'task_policy', 'operations', 'source_checks')),
+        'paths', 'task_policy', 'operations', 'source_checks', 'preferences')),
 )
 REQUIRED_SOURCE_FILES = {
     'launcher.py', 'AWCenter.cmd', 'backend/manage.py', 'requirements.txt',

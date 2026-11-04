@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,15 @@ def _startup_error():
     if os.name == 'nt':
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, message, 'AW Center', 0x10)
+    elif sys.stderr is not None:
+        print(message, file=sys.stderr)
+
+
+def _preferences_warning():
+    message = 'Manager form ayarları kaydedilemedi. Son girdiğiniz değerleri bir sonraki açılışta yeniden girmeniz gerekebilir. Kullanıcı uygulama verisi dizininin erişim izinlerini kontrol edin.'
+    if os.name == 'nt':
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, 'AW Center — form ayarları', 0x30)
     elif sys.stderr is not None:
         print(message, file=sys.stderr)
 
@@ -66,6 +76,18 @@ def main(argv=None):
         from .controller import ManagerController
         from .paths import default_source_root
         from .view import ManagerWindow
+        from .preferences import load_preferences, save_preferences
+        from scripts.launcher.installation_profiles import installation_home
+        from scripts.launcher.model import LauncherError
+        initial_values = {}
+        preferences_home = None
+        preferences_failed = False
+        if not args.smoke_test:
+            try:
+                preferences_home = installation_home()
+                initial_values = load_preferences(preferences_home)
+            except (OSError, LauncherError):
+                preferences_failed = True
         root = tk.Tk()
         controller = None
         # Keep callback exceptions visible without a disappearing console or raw
@@ -79,7 +101,11 @@ def main(argv=None):
                 controller.view.handle_event({'type': 'error', 'code': 'ui_failed',
                     'message': 'Arayüz işlemi tamamlanamadı.', 'remedy': 'İşlemi yeniden deneyin. Devam eden görev varsa önce Durdur düğmesini kullanın.'})
         root.report_callback_exception = callback_error
-        controller = ManagerController(root, ManagerWindow, args.root or default_source_root())
+        source_root = args.root or Path(initial_values.get('source_root') or default_source_root())
+        controller = ManagerController(root, partial(ManagerWindow, initial_values=initial_values), source_root)
+        if preferences_failed:
+            controller.view.handle_event({'type': 'status',
+                'message': 'Kayıtlı form ayarları okunamadı; varsayılan alanlar açıldı. Kullanıcı uygulama verisi dizininin erişim izinlerini kontrol edin.'})
         if args.smoke_test:
             def complete_smoke():
                 nonlocal smoke_metadata, smoke_ready
@@ -91,6 +117,11 @@ def main(argv=None):
                     root.destroy()
             root.after(300, complete_smoke)
         root.mainloop()
+        if not args.smoke_test:
+            try:
+                save_preferences(preferences_home or installation_home(), controller.view.form_values())
+            except (OSError, LauncherError):
+                _preferences_warning()
         if args.smoke_test:
             smoke_ready = smoke_ready and callback_error_count == 0
             args.smoke_test.write_text(json.dumps({**smoke_metadata, 'ready': smoke_ready,

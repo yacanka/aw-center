@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+import importlib
 import json
 from pathlib import Path
 import tempfile
@@ -38,10 +39,35 @@ class ManagerSmokeTests(unittest.TestCase):
         self.addCleanup(self.patches.close)
         self.patches.enter_context(patch.dict('sys.modules', {'tkinter': tkinter, 'scripts.manager.view': view}))
         self.patches.enter_context(patch.object(main, '_dpi_awareness'))
-        self.patches.enter_context(patch('scripts.manager.controller.ManagerController'))
+        self.controller_factory = self.patches.enter_context(patch('scripts.manager.controller.ManagerController'))
         self.callbacks = []
         self.root.after.side_effect = lambda _delay, callback: self.callbacks.append(callback)
         self.root.mainloop.side_effect = lambda: self.callbacks.pop()()
+
+    def test_normal_restart_loads_inputs_and_saves_latest_form_on_close(self):
+        preferences = importlib.import_module('scripts.manager.preferences')
+        self.root.mainloop.side_effect = None
+        view = self.controller_factory.return_value.view
+        view.form_values.return_value = {'profile': 'dev', 'python_command': 'python'}
+        with patch.object(preferences, 'load_preferences', return_value={
+                'source_root': 'C:/saved/source', 'python_command': 'py -3.11'}), \
+             patch.object(preferences, 'save_preferences') as save, \
+             patch('scripts.launcher.installation_profiles.installation_home', return_value=Path('/private/manager')):
+            self.assertEqual(main.main([]), 0)
+        self.assertEqual(self.controller_factory.call_args.args[2], Path('C:/saved/source'))
+        factory = self.controller_factory.call_args.args[1]
+        self.assertEqual(factory.keywords['initial_values']['python_command'], 'py -3.11')
+        save.assert_called_once_with(Path('/private/manager'), {'profile': 'dev', 'python_command': 'python'})
+
+    def test_explicit_root_overrides_remembered_source(self):
+        preferences = importlib.import_module('scripts.manager.preferences')
+        self.root.mainloop.side_effect = None
+        self.controller_factory.return_value.view.form_values.return_value = {}
+        with patch.object(preferences, 'load_preferences', return_value={'source_root': 'C:/saved'}), \
+             patch.object(preferences, 'save_preferences'), \
+             patch('scripts.launcher.installation_profiles.installation_home', return_value=Path('/private/manager')):
+            self.assertEqual(main.main(['--root', 'C:/explicit']), 0)
+        self.assertEqual(self.controller_factory.call_args.args[2], Path('C:/explicit'))
 
     def run_smoke(self):
         status = main.main(['--smoke-test', str(self.result_path)])

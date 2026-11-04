@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from contextlib import nullcontext
@@ -18,6 +19,85 @@ from scripts.manager.view_model import normalize_values
 
 
 class SystemPythonTests(unittest.TestCase):
+    def test_manual_python_command_and_quoted_path_select_valid_interpreter(self):
+        from scripts.launcher.system_python import discover_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        with patch('scripts.launcher.system_python.shutil.which', return_value=str(python)):
+            self.assertEqual(discover_python('python'), python)
+        self.assertEqual(discover_python(f'"{python}"'), python)
+        self.assertEqual(discover_python(str(python.parent)), python)
+
+    def test_invalid_manual_selection_does_not_silently_fall_back(self):
+        from scripts.launcher.system_python import discover_python
+        with self.assertRaises(LauncherError):
+            discover_python('/missing/python.exe')
+
+    def test_path_search_continues_past_store_alias_and_incompatible_python(self):
+        from scripts.launcher.system_python import discover_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            alias = root / 'Microsoft/WindowsApps'
+            wrong = root / 'wrong'
+            for directory in (alias, wrong):
+                directory.mkdir(parents=True)
+                for name in ('python3.11', 'python', 'python3'):
+                    executable = directory / (name + ('.exe' if os.name == 'nt' else ''))
+                    executable.write_text('invalid fixture')
+                    executable.chmod(0o700)
+            search = os.pathsep.join(map(str, (alias, wrong, python.parent)))
+            real_which = __import__('shutil').which
+            def which(name, **kwargs):
+                return None if Path(name).stem == 'py' else real_which(name, **kwargs)
+            with patch.dict(os.environ, {'PATH': search}), patch.object(sys, 'frozen', True, create=True), \
+                 patch('scripts.launcher.system_python.shutil.which', side_effect=which):
+                self.assertEqual(discover_python(), python)
+
+    def test_manager_passes_explicit_choice_through_normalization_to_selection(self):
+        from scripts.manager.operations import _python_choice
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        values = normalize_values('bundle', {'python_command': str(python), 'output': '/bundle'})
+        args = arguments({'action': 'bundle', **values})
+        with patch('scripts.launcher.system_python._candidates', return_value=[]):
+            self.assertEqual(_python_choice(args), {'python_executable': python})
+
+    def test_windows_registry_search_uses_executable_path_and_both_views(self):
+        from scripts.launcher.system_python import _windows_candidates
+        executable = '/custom/Python311/python.exe'
+        def open_key(hive, path, reserved, access):
+            if hive != 'user' or access != 3 or '\\3.11\\' not in path:
+                raise FileNotFoundError
+            return nullcontext('registered')
+        def query(key, name):
+            if key == 'registered' and name == 'ExecutablePath':
+                return executable, 1
+            raise FileNotFoundError
+        registry = SimpleNamespace(HKEY_CURRENT_USER='user', HKEY_LOCAL_MACHINE='machine',
+            KEY_READ=1, KEY_WOW64_64KEY=4, KEY_WOW64_32KEY=2, OpenKey=open_key, QueryValueEx=query)
+        with patch.dict(sys.modules, {'winreg': registry}):
+            self.assertIn([executable], list(_windows_candidates()))
+
+    def test_windows_path_accepts_versioned_executable_name(self):
+        from scripts.launcher.system_python import _path_candidates
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            executable = root / 'python3.11.exe'
+            executable.write_text('fixture')
+            executable.chmod(0o700)
+            windows = SimpleNamespace(name='nt', get_exec_path=lambda: [str(root)])
+            with patch('scripts.launcher.system_python.os', windows):
+                self.assertEqual(list(_path_candidates('python3.11')), [[str(executable)]])
+
+    def test_windows_default_install_directory_is_a_discovery_hint(self):
+        from scripts.launcher.system_python import _windows_candidates
+        def missing_key(*_):
+            raise FileNotFoundError
+        registry = SimpleNamespace(HKEY_CURRENT_USER=1, HKEY_LOCAL_MACHINE=2,
+            KEY_READ=1, KEY_WOW64_64KEY=4, KEY_WOW64_32KEY=2,
+            OpenKey=missing_key)
+        with patch.dict(sys.modules, {'winreg': registry}), patch.dict(os.environ, {'LOCALAPPDATA': '/operator/local'}):
+            self.assertIn([str(Path('/operator/local/Programs/Python/Python311/python.exe'))], list(_windows_candidates()))
+
     def test_provision_and_later_start_keep_system_selection_without_managed_python(self):
         from scripts.launcher import installation
         from scripts.launcher.installation_profiles import provision_profile, load_profile

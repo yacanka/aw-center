@@ -120,10 +120,10 @@ class ManagerWindow:
     """
 
     _advanced_fields = frozenset({"frontend_port", "tls_cert_file", "tls_key_file",
-                                  "migrate", "install_python", "env_file"})
+                                  "migrate", "install_python", "python_command", "env_file"})
 
     def __init__(self, root, on_action: Callable, on_stop: Callable,
-                 on_close: Callable, source_root=None):
+                 on_close: Callable, source_root=None, *, initial_values=None):
         self.root = root
         self.on_action = on_action
         self.on_stop = on_stop
@@ -137,9 +137,10 @@ class ManagerWindow:
         self._rendered_status_tile = None
         self._compact_layout = None
         self._tasks_expanded = True
+        values = {**DEFAULT_VALUES, **(initial_values or {}), 'migrate': False}
         self.variables = {key: (tk.BooleanVar(root, value=value) if isinstance(value, bool)
                                 else tk.StringVar(root, value=value))
-                          for key, value in DEFAULT_VALUES.items()}
+                          for key, value in values.items() if key in DEFAULT_VALUES}
         self.variables["source_root"].set(str(source_root or Path(__file__).resolve().parents[2]))
         self._controls: list[ttk.Widget] = []
         self._fields: dict[str, ttk.Entry] = {}
@@ -162,11 +163,18 @@ class ManagerWindow:
         self._build()
         self.variables["profile"].trace_add("write", lambda *_: self._profile_changed())
         self.variables["source_mode"].trace_add("write", lambda *_: self._update_controls())
+        self.variables["install_python"].trace_add("write", lambda *_: self._update_controls())
         root.bind("<Configure>", self._layout_changed, add=True)
         root.bind("<Control-r>", lambda _event: self._retry())
         for number, tab in enumerate((self.run_tab, self.source_tab, self.report_tab), start=1):
             root.bind(f"<Control-Key-{number}>", lambda _event, selected=tab: self.tabs.select(selected))
+        if any(self.variables[key].get() != DEFAULT_VALUES[key] for key in self._advanced_fields):
+            self._set_advanced(True)
         self._update_controls()
+
+    def form_values(self):
+        """Snapshot inputs, including inactive fields, without credentials or I/O."""
+        return {key: variable.get() for key, variable in self.variables.items()}
 
     @property
     def state(self):
@@ -502,8 +510,10 @@ class ManagerWindow:
         python.grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self._controls.append(python)
         self._label(parent, "Seçilmezse sistemdeki CPython 3.11 x64 kullanılır. Uygun Python yoksa otomatik kurulmaz. pip paketleri ayrı sanal ortama kurulur.").grid(row=6, column=0, columnspan=3, sticky="ew", pady=(4, 12))
-        self._entry(parent, 7, 'env_file', '.env dosyası (isteğe bağlı)', tab=self.run_tab, picker='environment')
-        self._label(parent, 'Kur ve başlat seçilen dosyayı özel profile aktarır; kaynak dosya değiştirilmez. Boşsa mevcut profil veya otomatik yapılandırma kullanılır. Değişmiş dosyayı önce Kur ve başlat ile uygulayın.').grid(row=8, column=0, columnspan=3, sticky='ew', pady=(4, 0))
+        self._entry(parent, 7, 'python_command', 'Python komutu / yolu (isteğe bağlı)', tab=self.run_tab, picker='python')
+        self._label(parent, 'Boşsa otomatik aranır. python, py -3.11, python.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat kayıtlı profilin Python seçimini kullanır.').grid(row=8, column=0, columnspan=3, sticky='ew', pady=(4, 12))
+        self._entry(parent, 9, 'env_file', '.env dosyası (isteğe bağlı)', tab=self.run_tab, picker='environment')
+        self._label(parent, 'Kur ve başlat seçilen dosyayı özel profile aktarır; kaynak dosya değiştirilmez. Boşsa mevcut profil veya otomatik yapılandırma kullanılır. Değişmiş dosyayı önce Kur ve başlat ile uygulayın.').grid(row=10, column=0, columnspan=3, sticky='ew', pady=(4, 0))
 
     def _set_advanced(self, expanded: bool):
         self.advanced_var.set(expanded)
@@ -600,6 +610,7 @@ class ManagerWindow:
             value = filedialog.askdirectory(**options, mustexist=(key != "output"))
         else:
             patterns = {"certificate": [("PEM / sertifika", "*.pem *.crt *.cer"), ("Tüm dosyalar", "*")],
+                        "python": [("Python yorumlayıcısı", "python*.exe"), ("Tüm dosyalar", "*")],
                         "environment": [("Ortam dosyası", ".env *.env *.env.*"), ("Tüm dosyalar", "*")],
                         "key": [("PEM / özel anahtar", "*.pem *.key"), ("Tüm dosyalar", "*")],
                         "catalog": [("JSON kataloğu", "*.json"), ("Tüm dosyalar", "*")]}
@@ -609,7 +620,7 @@ class ManagerWindow:
 
     def _dispatch(self, action, values=None):
         try:
-            submitted = normalize_values(action, values if values is not None else {key: variable.get() for key, variable in self.variables.items()})
+            submitted = normalize_values(action, values if values is not None else self.form_values())
         except FormError as error:
             self._show_form_error(error)
             return
@@ -700,7 +711,8 @@ class ManagerWindow:
     def _update_controls(self):
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
         presentation = (self.variables["profile"].get(), self.variables["source_mode"].get(),
-                        selected.get("status"), bool(self.state.last_action), bool(self.state.ready_url))
+                        self.variables['install_python'].get(), selected.get("status"),
+                        bool(self.state.last_action), bool(self.state.ready_url))
         if presentation == self._rendered_controls:
             self._update_summary()
             self._paint_status_tile()
@@ -712,6 +724,8 @@ class ManagerWindow:
         self.profile_badge_var.set("DEV profili" if profile == "dev" else "PROD profili")
         mode = self.variables["source_mode"].get()
         disabled = {"frontend_port"} if profile == "prod" else {"tls_cert_file", "tls_key_file"}
+        if self.variables['install_python'].get():
+            disabled.add('python_command')
         if mode == "offline":
             disabled.update({"repository", "python_index_url", "npm_registry_url"})
         for key in disabled:

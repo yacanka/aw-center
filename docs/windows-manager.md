@@ -59,13 +59,21 @@ son Windows görsel kabulü ayrıca gerekir.
 
 ## İsteğe bağlı Python kurulumu
 
-Çalışma sekmesindeki **Python çalışma zamanını kur (isteğe bağlı)** kutusu varsayılan olarak seçili değildir. Seçilmezse Manager mevcut CPython, `py -3.11`, PATH ve Windows Python kayıtları üzerinden tam **CPython 3.11 x64** arar. `venv` ve `ensurepip` desteği de doğrulanır. Uygun Python bulunmazsa açık uyarı verir; kendi kendine Python kurulumuna geçmez. Store yürütme alias'ı başlatılmaz; Python launcher'ın otomatik kurulum seçeneği de sorgu sürecinde kapatılır. [Python Windows launcher ayarları](https://docs.python.org/3/using/windows.html) bu davranışın ortam seçeneklerini açıklar.
+Çalışma sekmesindeki **Python çalışma zamanını kur (isteğe bağlı)** kutusu varsayılan olarak seçili değildir. Seçilmezse Manager mevcut CPython, `py -3.11`, PATH'in tüm dizinleri, Windows Python kayıtlarının 32/64 bit görünümleri ve yaygın kurulum dizinleri üzerinden tam **CPython 3.11 x64** arar. PATH'in başındaki uyumsuz Python veya Store alias'ı sonraki uygun kurulumu engellemez. `venv` ve `ensurepip` desteği de doğrulanır. Uygun Python bulunmazsa açık uyarı verir; kendi kendine Python kurulumuna geçmez. Store yürütme alias'ı başlatılmaz; Python launcher'ın otomatik kurulum seçeneği de sorgu sürecinde kapatılır. [Python Windows launcher ayarları](https://docs.python.org/3/using/windows.html) bu davranışın ortam seçeneklerini açıklar.
+
+Otomatik tespit yeterli olmazsa **Gelişmiş ayarlar → Python komutu / yolu (isteğe bağlı)** alanına `python`, `py -3.11`, `C:\Python311\python.exe` veya Python kurulum dizinini girin; **Seç…** düğmesiyle `python.exe` de seçebilirsiniz. Boşluk içeren, tırnakla kopyalanmış dosya yolları desteklenir. Girilen seçim doğrulanır; uyumsuzsa farklı bir Python'a sessizce geçilmez. Shell komutu çalıştırılmaz. Yönetilen Python kutusu seçildiğinde bu alan kullanılmaz. Alan Kur ve başlat ile offline paket hazırlığı içindir; Başlat ve Durumu denetle mevcut profilin kayıtlı Python seçimini korur.
 
 Kutu seçilirse paketteki veya seçilen kaynaklardaki SHA-256 sabitlenmiş yönetilen Python kullanılır. Bu seçim Node/npm hazırlığından ayrıdır. Her iki durumda da uygulamanın kilitli pip paketleri proje `.venv` dizinine kurulur; sistem Python paketleri değiştirilmez. Sistem modu işletim sistemindeki mevcut Python'a güvenir, onun dosyalarına yönetilen arşivin hash pinini uygulamaz.
 
 Başarılı bağımlılık hazırlığından sonra seçilen sistem yorumlayıcısı dev/prod profil metadata'sına ayrı ayrı kaydedilir; Başlat ve Kontrol et aynı seçimi kullanır. Özel env, anahtarlar ve mevcut hesaplar değişmez. Mevcut `.venv` farklı bir Python'a bağlıysa Manager onu otomatik silmez veya yeniden bağlamaz; ayrı temiz kaynak dizini kullanın ya da mevcut ortamın Python seçimini koruyun. Profil değişimi sonradan sistem Python'unu kaldırmaz veya güncellemez.
 
 Offline paket üretiminde üreticinin seçtiği Python kullanılabilir; taşınabilir çıktı, başka bilgisayarda isteğe bağlı yönetilen kurulum için Python arşivini içermeye devam eder. Kaynak `.pyw` dosyasını çalıştırmak için Python/Tk gerekir; paketli EXE'nin ilk penceresi kendi gömülü Python/Tk'sini kullanır. Mevcut düşük seviyeli CLI akışının yönetilen Python varsayılanı korunur; kayıtlı sistem profiliyle Başlat sistem yorumlayıcısını kullanır.
+
+## Form değerlerini hatırlama
+
+Manager normal biçimde kapatıldığında son form değerlerini `%LOCALAPPDATA%\AWCenter\config\manager.json` içinde atomik ve yalnız mevcut kullanıcıya açık olarak saklar. Profil, kaynak modu/adresleri, dizinler, Python seçimi, portlar, CA/TLS ve `.env` dosya yolları sonraki açılışta geri gelir. `--root` ile verilen kaynak dizini hatırlanan dizinden önceliklidir. İşlem başlatılmadan girilen değerler de kapanışta saklanır; ani süreç sonlandırmada son değişiklikler kaybolabilir.
+
+Yalnız dosya yolları kaydedilir; `.env`, sertifika ve özel anahtar içerikleri okunmaz. Yönetici kullanıcı adı/parolası ve credential içeren URL'ler kaydedilmez. Migration onayı her işlem için yeniden verilir. Kayıt okunamıyorsa form varsayılanlarla açılır ve durum mesajı gösterilir; kayıt yazılamıyorsa kapanışta uyarı verilir. Bu dosya uygulama profillerinden ayrıdır; mevcut hesapları, anahtarları veya veritabanını değiştirmez.
 
 ## .env dosyası seçimi
 
