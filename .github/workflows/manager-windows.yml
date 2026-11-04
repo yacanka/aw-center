@@ -55,18 +55,11 @@ jobs:
       - name: Require a working native Tk display
         run: python -c "import tkinter as tk; root = tk.Tk(); root.update(); root.destroy()"
       - name: Require working offline network containment before building
-        shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          Start-Service MpsSvc
-          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
-          @'
-          import socket
-          from scripts.manager_windows_acceptance import deny_external_network
-          with deny_external_network(socket.gethostbyname(socket.gethostname())):
-              pass
-          '@ | python -
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          sc start MpsSvc
+          netsh advfirewall set allprofiles state on
+          if errorlevel 1 exit /b 1
+          python -c "import socket; from scripts.manager_windows_acceptance import deny_external_network; exec('with deny_external_network(socket.gethostbyname(socket.gethostname())):\n    pass')"
       - name: Record source manager startup evidence
         run: |
           if not exist "%RUNNER_TEMP%\manager-ui-evidence" mkdir "%RUNNER_TEMP%\manager-ui-evidence"
