@@ -21,18 +21,31 @@ class PreferencesTests(unittest.TestCase):
 
     def test_restart_restores_inputs_without_credentials_or_migration_consent(self):
         values = {'profile': 'prod', 'source_mode': 'corporate', 'source_root': 'C:/AW/source',
-                  'python_command': 'C:/Python 311/python.exe', 'env_file': 'C:/config/prod.env',
+                  'python_command': 'C:/Python 311/python.exe', 'node_command': 'C:/Node 24/node.exe',
+                  'env_file': 'C:/config/prod.env',
                   'host': '192.0.2.1', 'backend_port': '8443', 'tls_key_file': 'C:/tls/private.key',
                   'python_index_url': 'https://packages.example/simple', 'install_python': False,
                   'migrate': True, 'password': 'must-not-persist', 'username': 'must-not-persist'}
         self.preferences.save_preferences(self.home, values)
         restored = self.preferences.load_preferences(self.home)
-        for key in ('profile', 'source_mode', 'source_root', 'python_command', 'env_file',
+        for key in ('profile', 'source_mode', 'source_root', 'python_command', 'node_command', 'env_file',
                     'host', 'backend_port', 'tls_key_file', 'python_index_url', 'install_python'):
             self.assertEqual(restored[key], values[key])
         self.assertFalse(restored.get('migrate', False))
         raw = (self.home / 'manager.json').read_text(encoding='utf-8')
         self.assertNotIn('must-not-persist', raw)
+
+    def test_node_commands_and_quoted_paths_survive_restart_without_interpretation(self):
+        for selection in ('node', 'node.exe', '"C:/Node 24/node.exe"', './tools/Node 24'):
+            with self.subTest(selection=selection):
+                self.preferences.save_preferences(self.home, {'node_command': selection})
+                self.assertEqual(self.preferences.load_preferences(self.home)['node_command'], selection)
+
+    def test_invalid_node_preferences_are_ignored(self):
+        for selection in ('node\ninvalid', 'node\0invalid', 'n' * 8193):
+            with self.subTest(selection=selection[:20]):
+                self.preferences.save_preferences(self.home, {'node_command': selection})
+                self.assertNotIn('node_command', self.preferences.load_preferences(self.home))
 
     def test_credential_urls_are_not_persisted_even_in_disabled_fields(self):
         self.preferences.save_preferences(self.home, {'source_mode': 'offline',

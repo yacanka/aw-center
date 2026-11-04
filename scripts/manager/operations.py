@@ -14,7 +14,7 @@ from scripts.launcher.process import OperationCancelled, check_cancelled, operat
 from .task_policy import ACTION_LABELS
 
 PATH_FIELDS = {'offline_dir', 'ca_file', 'assets', 'feature_catalog', 'tls_cert_file', 'tls_key_file', 'output', 'env_file'}
-TEXT_FIELDS = {'repository', 'python_index_url', 'npm_registry_url', 'host', 'asset_set', 'python_command'}
+TEXT_FIELDS = {'repository', 'python_index_url', 'npm_registry_url', 'host', 'asset_set', 'python_command', 'node_command'}
 
 
 def arguments(request):
@@ -26,7 +26,7 @@ def arguments(request):
     action = request.get('action', 'provision')
     sources = {'repository', 'offline_dir', 'python_index_url', 'npm_registry_url', 'ca_file'}
     fields = (sources if action == 'test-sources' else
-              sources | {'assets', 'feature_catalog', 'output', 'python_command'} if action == 'bundle' else
+              sources | {'assets', 'feature_catalog', 'output', 'python_command', 'node_command'} if action == 'bundle' else
               PATH_FIELDS | TEXT_FIELDS if action == 'provision' else {'env_file'} if action in {'start', 'doctor'} else set())
     values = {'profile': profile, 'source_mode': mode, 'no_admin': False, 'use_saved_sources': False,
               'migrate': request.get('migrate') is True, 'exclude_doors': None,
@@ -49,25 +49,68 @@ def _python_choice(args):
     if args.install_python:
         return {}
     if not getattr(args, 'python_executable', None):
-        from scripts.launcher.system_python import PROBE_TIMEOUT_SECONDS, discover_python
+        from scripts.launcher.system_python import PROBE_TIMEOUT_SECONDS, SystemPythonError, discover_python
         progress = getattr(args, 'progress', None)
         if callable(progress):
             progress(f'Sistem Python’u denetleniyor; her aday için en fazla {PROBE_TIMEOUT_SECONDS} saniye beklenir')
         selection = getattr(args, 'python_command', None)
-        args.python_executable = discover_python(selection) if selection else discover_python()
+        try:
+            args.python_executable = discover_python(selection) if selection else discover_python()
+        except SystemPythonError:
+            if selection:
+                raise
+            # Resolve the choice once so later provisioning cannot repeat a
+            # failed automatic search or accidentally ignore managed fallback.
+            args.install_python = True
+            if callable(progress):
+                progress('Uygun sistem Python bulunamadı; yönetilen Python hazırlanacak')
+            return {}
     return {'python_executable': args.python_executable}
 
 
-def _bundled_tools(args, emit):
+def _node_choice(args):
+    if getattr(args, 'node_executable', None):
+        return {'node_executable': args.node_executable}
+    if getattr(args, '_node_checked', False):
+        return {}
+    from scripts.launcher.system_node import SystemNodeError, discover_node
+    progress = getattr(args, 'progress', None)
+    if callable(progress):
+        progress('Sistem Node.js kurulumu denetleniyor')
+    selection = getattr(args, 'node_command', None)
+    try:
+        args.node_executable = discover_node(selection) if selection else discover_node()
+    except SystemNodeError:
+        if selection:
+            raise
+        if callable(progress):
+            progress('Uygun sistem Node.js bulunamadı; yönetilen Node.js hazırlanacak')
+        args._node_checked = True
+        return {}
+    args._node_checked = True
+    return {'node_executable': args.node_executable}
+
+
+def _tool_choices(args):
+    return {**_python_choice(args), **_node_choice(args)}
+
+
+def _bundled_tools(args, emit, *, project=None):
     """Runtime archives ship beside EXE; package indexes need not host CPython."""
     from scripts.launcher.installation import source_settings
     from scripts.launcher.installation_sources import SourceSettings
     from scripts.launcher.installation_profiles import installation_home
     from scripts.launcher.installation_state import installation_lock
     from scripts.launcher.toolchain import ensure_toolchain
-    options = _python_choice(args)
-    if options:
+    options = _tool_choices(args)
+    settings = source_settings(args, project) if project is not None else None
+    if project is not None:
+        from scripts.launcher.installation_bundle import require_bundle_host_runtimes
+        require_bundle_host_runtimes(project, settings, **options)
+    if options.get('python_executable'):
         emit({'type': 'phase', 'message': 'Sistem Python 3.11 x64 kullanılıyor; Python kurulmayacak'})
+    if options.get('node_executable'):
+        emit({'type': 'phase', 'message': 'Sistem Node.js kullanılıyor; Node.js arşivi indirilmeyecek'})
     if getattr(sys, 'frozen', False):
         emit({'type': 'phase', 'message': 'Seçilen runtime ve Node/npm hazırlanıyor'})
         with installation_lock(installation_home()):
@@ -76,7 +119,7 @@ def _bundled_tools(args, emit):
     else:
         # Source development still uses the selected policy; no global install.
         with installation_lock(installation_home()):
-            ensure_toolchain(installation_home(), source_settings(args), **options)
+            ensure_toolchain(installation_home(), settings or source_settings(args), **options)
 
 
 def _remedy(phase):
@@ -92,8 +135,10 @@ def _remedy(phase):
 def _failure_reason(error):
     """Translate reviewed error categories, never interpolate exception payloads."""
     from scripts.launcher.installation_sources import ArtifactDownloadError
+    from scripts.launcher.installation_bundle import BundleHostRuntimeError
+    from scripts.launcher.system_node import SystemNodeError
     from scripts.launcher.system_python import SystemPythonError
-    if isinstance(error, (SystemPythonError, ArtifactDownloadError)):
+    if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError)):
         return error.code, str(error)
     if not isinstance(error, LauncherError):
         return 'operation_failed', 'İşlem tamamlanamadı; yapılandırma veya sistem erişimi doğrulanamadı.'
@@ -153,8 +198,10 @@ def execute(request, emit, admin_provider, stop):
             'env_file_invalid': 'Çalışma sekmesindeki .env dosyasını kontrol edin; yalnız uygulama ayarlarını içeren, profilin anahtarları ve veri yollarıyla uyumlu bir dosya seçin.',
         }
         from scripts.launcher.installation_sources import ArtifactDownloadError
+        from scripts.launcher.installation_bundle import BundleHostRuntimeError
+        from scripts.launcher.system_node import SystemNodeError
         from scripts.launcher.system_python import SystemPythonError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, ArtifactDownloadError)) else remedies.get(code, _remedy(phase))
+        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError)) else remedies.get(code, _remedy(phase))
         emit({'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy})
         emit({'type': 'done', 'ok': False})
 
@@ -197,7 +244,7 @@ def _dispatch(action, args, emit):
 
 def _bundle(project, args, emit):
     from scripts.launcher.installation import source_settings
-    from scripts.launcher.installation_bundle import prepare_install_bundle
+    from scripts.launcher.installation_bundle import prepare_install_bundle, require_bundle_host_runtimes
     from scripts.launcher.installation_profiles import installation_home
     from scripts.launcher.installation_state import process_environment
     from scripts.launcher.toolchain import inspect_toolchain, toolchain_environment
@@ -205,14 +252,23 @@ def _bundle(project, args, emit):
         raise LauncherError('Offline paket hedefi gerekli.')
     # A running app already has verified tools. Bundling then uses them read-only
     # and touches only isolated staging/cache/output, never the live .venv.
-    options = _python_choice(args)
+    options = _tool_choices(args)
+    settings = source_settings(args, project)
+    require_bundle_host_runtimes(project, settings, **options)
     if any(check['status'] != 'ready' for check in inspect_toolchain(installation_home(), **options)):
         args.progress('Yönetilen runtime hazırlığı')
-        _bundled_tools(args, emit)
+        _bundled_tools(args, emit, project=project)
     args.progress('Offline paket hazırlanıyor')
-    with process_environment(toolchain_environment(installation_home(), **options)):
-        prepare_install_bundle(project, args.output, source_settings(args, project),
-                               assets=args.assets, feature_catalog=args.feature_catalog)
+    home = installation_home()
+    tools = toolchain_environment(home, **options)
+    external = {name for name in ('python', 'node') if options.get(name + '_executable')}
+    npm_cli = tools.get('AWCENTER_MANAGED_NPM_CLI')
+    if options.get('node_executable') and npm_cli and not Path(npm_cli).resolve().is_relative_to((home / 'runtimes').resolve()):
+        external.add('npm')
+    with process_environment(tools):
+        prepare_install_bundle(project, args.output, settings,
+                               assets=args.assets, feature_catalog=args.feature_catalog,
+                               external_runtimes=frozenset(external))
 
 
 def _lifecycle(project, action, args, emit):
@@ -222,7 +278,7 @@ def _lifecycle(project, action, args, emit):
             from scripts.launcher.installation_env import read_selected_environment
             read_selected_environment(project, args.profile, args.env_file)
         args.progress('Yönetilen runtime hazırlığı')
-        _bundled_tools(args, emit)
+        _bundled_tools(args, emit, project=project)
         emit({'type': 'checks', 'checks': provision(project, args)})
     args.progress('Uygulama ve worker süreçleri başlatılıyor')
     def ready(profile):

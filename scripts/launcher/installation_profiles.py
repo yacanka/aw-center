@@ -146,10 +146,11 @@ def _configuration(profile):
 
 
 def _validate_options(profile):
-    python = profile.get('python_executable')
-    if python is not None and (not isinstance(python, str) or not Path(python).is_absolute()
-                               or any(char in python for char in '\r\n\0')):
-        raise LauncherError('System Python pointer must be an absolute executable path')
+    for field in ('python_executable', 'node_executable'):
+        executable = profile.get(field)
+        if executable is not None and (not isinstance(executable, str) or not Path(executable).is_absolute()
+                                       or any(char in executable for char in '\r\n\0')):
+            raise LauncherError('System runtime pointer must be an absolute executable path')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', profile['asset_set']) or profile['asset_set'] in {'.', '..'}:
         raise LauncherError('Asset set must be a simple reviewed identifier')
     for key in ('backend_port', 'frontend_port'):
@@ -462,15 +463,24 @@ def update_python_runtime(project, profile, python_executable: Path | None) -> d
     Caller holds the installation lock and has verified the venv's base. Older
     profiles without this field retain their reviewed managed Python contract.
     """
+    return _update_runtime(project, profile, 'python_executable', python_executable)
+
+
+def update_node_runtime(project, profile, node_executable: Path | None) -> dict:
+    """Persist a validated Node pointer under the installation lock; keep env/keys."""
+    return _update_runtime(project, profile, 'node_executable', node_executable)
+
+
+def _update_runtime(project, profile, field, executable):
     home, path, _ = _paths(project, profile['name'], profile['installation_home'])
     current = load_profile(project, profile['name'], home)
     if current != profile:
-        raise LauncherError('Installation profile changed; reload before updating Python')
+        raise LauncherError('Installation profile changed; reload before updating runtime')
     updated = dict(current)
-    if python_executable is None:
-        updated.pop('python_executable', None)
+    if executable is None:
+        updated.pop(field, None)
     else:
-        updated['python_executable'] = str(python_executable)
+        updated[field] = str(executable)
     _validate_options(updated)
     if updated != current:
         _write_replace(path, json.dumps(updated, indent=2) + '\n')

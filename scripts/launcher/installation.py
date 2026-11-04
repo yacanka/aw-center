@@ -106,7 +106,7 @@ def doctor(project: Project, name: str) -> list[dict]:
         profile = load_profile(project, name, home)
     except (LauncherError, OSError):
         return [{"name": "profile", "status": "blocked", "detail": "Profil eksik veya güvenli biçimde okunamıyor; provision çalıştırın."}]
-    checks = inspect_toolchain(home, **_python_options(profile))
+    checks = inspect_toolchain(home, **_runtime_options(profile))
     for check in checks:
         if check["status"] != "ready":
             check["status"] = "blocked"
@@ -124,9 +124,8 @@ def _django(project: Project, profile: dict, arguments: list[str], tool_env: dic
         raise LauncherError("Django kurulum kontrolü başarısız; yapılandırma değerleri ve komut çıktısı gizlendi.")
 
 
-def _python_options(profile: dict) -> dict:
-    value = profile.get('python_executable')
-    return {'python_executable': Path(value)} if value else {}
+def _runtime_options(profile: dict) -> dict:
+    return {field: Path(profile[field]) for field in ('python_executable', 'node_executable') if profile.get(field)}
 
 
 def _initialize_schema(project: Project, profile: dict, args, tool_env: dict) -> None:
@@ -220,7 +219,14 @@ def provision(project: Project, args) -> list[dict]:
         if getattr(args, 'install_python', True) is False and python is None:
             from .system_python import discover_python
             python = discover_python()
-        tool_env = ensure_toolchain(home, settings, **({'python_executable': python} if python is not None else {}))
+        node = getattr(args, 'node_executable', None)
+        if not hasattr(args, 'node_command') and profile.get('node_executable'):
+            node = Path(profile['node_executable'])
+        selected_tools = {field: value for field, value in (
+            ('python_executable', python), ('node_executable', node)) if value is not None}
+        from .installation_bundle import require_bundle_host_runtimes
+        require_bundle_host_runtimes(project, settings, **selected_tools)
+        tool_env = ensure_toolchain(home, settings, **selected_tools)
         phase("kilitli bağımlılıklar")
         explicit_python = hasattr(args, 'install_python') or python is not None
         install_dependencies(project, settings, tool_env,
@@ -228,6 +234,9 @@ def provision(project: Project, args) -> list[dict]:
         if explicit_python:
             from .installation_profiles import update_python_runtime
             profile = update_python_runtime(project, profile, python)
+        if hasattr(args, 'node_command') or node is not None:
+            from .installation_profiles import update_node_runtime
+            profile = update_node_runtime(project, profile, node)
         phase("veritabanı şeması")
         _initialize_schema(project, profile, args, tool_env)
         phase("ilk yönetici")
@@ -287,12 +296,12 @@ def start_profile(project: Project, name: str, *, on_ready=None) -> None:
     require_windows()
     profile = load_profile(project, name)
     home = Path(profile.get("installation_home", Path(profile["env_file"]).parent.parent))
-    checks = inspect_toolchain(home, **_python_options(profile))
+    checks = inspect_toolchain(home, **_runtime_options(profile))
     if any(check["status"] != "ready" for check in checks):
         raise LauncherError("Managed runtime eksik veya değişmiş; açık provision gerekli.")
     from .toolchain import toolchain_environment
     from .installation_features import feature_environment
-    tools = toolchain_environment(home, **_python_options(profile))
+    tools = toolchain_environment(home, **_runtime_options(profile))
     with process_environment(tools):
         selected = profile_environment(profile)
         pointers = {key: selected[key] for key in ("AWCENTER_ENV_FILE", "DJANGO_SETTINGS_MODULE") if key in selected}

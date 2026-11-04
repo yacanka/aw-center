@@ -13,7 +13,8 @@ DEFAULT_VALUES = {
     "npm_registry_url": "", "ca_file": "", "assets": "",
     "feature_catalog": "", "host": "", "backend_port": "",
     "frontend_port": "", "tls_cert_file": "", "tls_key_file": "",
-    "migrate": False, "install_python": False, "python_command": "", "output": "", "env_file": "",
+    "migrate": False, "install_python": False, "python_command": "", "node_command": "",
+    "output": "", "env_file": "",
 }
 SOURCE_ACTIONS = {"provision", "test-sources", "bundle"}
 CHECK_LABELS = {

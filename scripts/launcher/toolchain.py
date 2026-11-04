@@ -19,7 +19,7 @@ RECEIPT = ".awcenter-tool.json"
 MANAGED_RUNTIME_ENVIRONMENT = {
     "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1",
     "PYTHONHOME": "", "PYTHONPATH": "", "PYTHONSTARTUP": "", "PYTHONUSERBASE": "",
-    "NODE_OPTIONS": "", "NODE_TLS_REJECT_UNAUTHORIZED": "1",
+    "NODE_OPTIONS": "", "NODE_PATH": "", "NODE_TLS_REJECT_UNAUTHORIZED": "1",
 }
 
 
@@ -51,9 +51,15 @@ def _check_version(executable: Path, version: str, *, node: Path | None = None) 
 
 
 def _npm_wrapper_files(node: Path, target: Path) -> dict[str, bytes]:
-    relative_node = os.path.relpath(node, target / "bin").replace("/", "\\")
+    if node.resolve().is_relative_to(target.parent.resolve()):
+        relative_node = os.path.relpath(node, target / "bin").replace("/", "\\")
+        executable = "%~dp0" + relative_node
+    else:
+        # System Node may live on a different drive or in a Unicode directory.
+        # The process-local pointer avoids persisting it in a CMD code page.
+        executable = "%AWCENTER_MANAGED_NODE%"
     return {
-        f"bin/{command}.cmd": f'@echo off\r\nsetlocal DisableDelayedExpansion\r\n"%~dp0{relative_node}" "%~dp0..\\package\\bin\\{command}-cli.js" %*\r\n'.encode("ascii")
+        f"bin/{command}.cmd": f'@echo off\r\nsetlocal DisableDelayedExpansion\r\n"{executable}" "%~dp0..\\package\\bin\\{command}-cli.js" %*\r\n'.encode("ascii")
         for command in ("npm", "npx")
     }
 
@@ -64,7 +70,7 @@ def _npm_wrappers(directory: Path, node: Path, target: Path) -> None:
         (directory / relative).write_bytes(content)
 
 
-def _trusted_inventory(home: Path, artifact: Artifact, catalog: dict[str, Artifact]) -> dict[str, str]:
+def _trusted_inventory(home: Path, artifact: Artifact, catalog: dict[str, Artifact], *, node: Path | None = None) -> dict[str, str]:
     """Derive expected hashes from the catalog-pinned archive, never receipts."""
     archive = home / "cache/runtimes" / artifact.filename
     verify_artifact(archive, artifact)
@@ -88,10 +94,27 @@ def _trusted_inventory(home: Path, artifact: Artifact, catalog: dict[str, Artifa
                 with source.extractfile(member) as stream:
                     result[relative] = hashlib.file_digest(stream, "sha256").hexdigest()
     if artifact.name == "npm":
-        node = _directory(home, catalog["node"]) / catalog["node"].executable
+        node = node if node is not None else _directory(home, catalog["node"]) / catalog["node"].executable
         for relative, content in _npm_wrapper_files(node, _directory(home, artifact)).items():
             result[relative] = hashlib.sha256(content).hexdigest()
     return result
+
+
+def _refresh_npm_wrappers(home: Path, target: Path, node: Path, current: dict, expected: dict) -> bool:
+    """Permit runtime selection changes only for fully authenticated npm files."""
+    artifact = load_catalog()['node']
+    managed_node = _directory(home, artifact) / artifact.executable
+    # The external placeholder only selects the environment-pointer wrapper;
+    # its path is never written to a wrapper or executed.
+    for previous_node in (managed_node, home / '.external-node'):
+        reviewed = {**expected, **{relative: hashlib.sha256(content).hexdigest()
+                                   for relative, content in _npm_wrapper_files(previous_node, target).items()}}
+        if current != reviewed:
+            continue
+        for relative, content in _npm_wrapper_files(node, target).items():
+            (target / relative).write_bytes(content)
+        return True
+    return False
 
 
 def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None = None) -> Path:
@@ -109,7 +132,9 @@ def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None
         if target.exists():
             # CMD may already have expanded this pinned Python before Python was
             # available. Authenticate its files against the freshly verified archive.
-            if _inventory(target) != expected:
+            current = _inventory(target)
+            if current != expected and not (artifact.name == 'npm' and
+                                             _refresh_npm_wrappers(home, target, node, current, expected)):
                 raise LauncherError(f"managed {artifact.name} files differ from the reviewed archive")
         else:
             shutil.move(str(stage), str(target))
@@ -123,13 +148,14 @@ def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None
     return target / artifact.executable
 
 
-def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable: Path | None = None) -> dict[str, str]:
+def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable: Path | None = None,
+                     node_executable: Path | None = None) -> dict[str, str]:
     """Install reviewed native artifacts; return environment overrides only.
 
     Hosts do not receive global PATH, registry or dependency-lock modifications.
     The caller owns when to apply the returned process-local environment.
-    An explicit system Python is version/architecture-checked and reused; its
-    files are operator-trusted and are never installed from the managed archive.
+    Explicit system Python/Node are validated and reused without their archives.
+    A matching npm beside system Node is reused; otherwise only npm is acquired.
     """
     home = Path(home)
     _no_symlink(home)
@@ -137,6 +163,11 @@ def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable:
     if python_executable is not None:
         from .system_python import validate_python
         python_executable = validate_python(python_executable)
+    npm_cli = None
+    if node_executable is not None:
+        from .system_node import find_npm_cli, validate_node
+        node_executable = validate_node(node_executable)
+        npm_cli = find_npm_cli(node_executable, catalog['npm'].version)
     for directory in (home, home / "cache", home / "cache" / "runtimes", home / "runtimes"):
         private_directory(directory)
     paths = {}
@@ -144,26 +175,48 @@ def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable:
         if name == "python" and python_executable is not None:
             paths[name] = python_executable
             continue
+        if name == "node" and node_executable is not None:
+            paths[name] = node_executable
+            continue
+        if name == "npm" and npm_cli is not None:
+            paths[name] = npm_cli
+            continue
         artifact = catalog[name]
         archive = fetch_artifact(artifact, home / "cache" / "runtimes", settings)
         paths[name] = _install(home, artifact, archive, node=paths.get("node") if name == "npm" else None)
-    return _environment(home, catalog, python_executable=python_executable)
+    return _environment(home, catalog, python_executable=python_executable,
+                        node_executable=node_executable, npm_cli=paths['npm'])
 
 
-def _environment(home: Path, catalog: dict[str, Artifact], *, python_executable: Path | None = None) -> dict[str, str]:
+def _environment(home: Path, catalog: dict[str, Artifact], *, python_executable: Path | None = None,
+                 node_executable: Path | None = None, npm_cli: Path | None = None) -> dict[str, str]:
     paths = {name: _directory(home, artifact) / artifact.executable for name, artifact in catalog.items()}
     if python_executable is not None:
         paths['python'] = python_executable
-    directories = [paths["python"].parent, paths["python"].parent / "Scripts", paths["node"].parent, _directory(home, catalog["npm"]) / "bin"]
+    if node_executable is not None:
+        from .system_node import find_npm_cli
+        paths['node'] = node_executable
+        if npm_cli is None:
+            npm_cli = find_npm_cli(node_executable, catalog['npm'].version)
+    if npm_cli is not None:
+        paths['npm'] = npm_cli
+    directories = [paths["python"].parent, paths["python"].parent / "Scripts", paths["node"].parent]
+    managed_npm = _directory(home, catalog['npm'])
+    if paths['npm'] == managed_npm / catalog['npm'].executable:
+        directories.append(managed_npm / 'bin')
+    else:
+        directories.append(paths['npm'].parent)
     # npm must precede the npm bundled by Node, preserving the repository pin.
     directories.insert(0, directories.pop())
     return {**MANAGED_RUNTIME_ENVIRONMENT, "PATH": os.pathsep.join([*(str(path) for path in directories), os.environ.get("PATH", "")]), "AWCENTER_MANAGED_PYTHON": str(paths["python"]), "AWCENTER_MANAGED_NODE": str(paths["node"]), "AWCENTER_MANAGED_NPM_CLI": str(paths["npm"])}
 
 
-def inspect_toolchain(home: Path, *, python_executable: Path | None = None) -> list[dict]:
-    """Inspect managed files and optionally probe system Python without writes."""
+def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
+                      node_executable: Path | None = None) -> list[dict]:
+    """Inspect managed files and optionally probe system Python/Node without writes."""
     checks = []
     catalog = load_catalog()
+    verified_node = None
     for name, artifact in catalog.items():
         if name == 'python' and python_executable is not None:
             from .system_python import validate_python
@@ -176,6 +229,19 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None) -> l
                     raise
                 checks.append({'name': 'python', 'status': 'invalid', 'detail': 'Kayıtlı sistem Python 3.11 x64 kullanılamıyor; otomatik kurulum yapılmadı.'})
             continue
+        if name == 'node' and node_executable is not None:
+            from .system_node import SystemNodeError, validate_node
+            try:
+                verified_node = validate_node(node_executable)
+                checks.append({'name': 'node', 'status': 'ready', 'detail': 'Sistem Node x64 doğrulandı; yönetilen arşiv gerekmez.'})
+            except SystemNodeError:
+                checks.append({'name': 'node', 'status': 'invalid', 'detail': 'Kayıtlı sistem Node kullanılamıyor; otomatik kurulum yapılmadı.'})
+            continue
+        if name == 'npm' and verified_node is not None:
+            from .system_node import find_npm_cli
+            if find_npm_cli(verified_node, artifact.version) is not None:
+                checks.append({'name': 'npm', 'status': 'ready', 'detail': f'Sistem npm {artifact.version} doğrulandı; yönetilen arşiv gerekmez.'})
+                continue
         target = _directory(Path(home), artifact)
         check = {"name": name, "status": "missing", "detail": f"managed {name} {artifact.version} is missing"}
         if not target.exists():
@@ -187,7 +253,8 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None) -> l
             receipt = json.loads((target / RECEIPT).read_text(encoding="utf-8"))
             if receipt["name"] != name or receipt["version"] != artifact.version or receipt["sha256"] != artifact.sha256:
                 raise ValueError("pin mismatch")
-            if _inventory(target) != _trusted_inventory(Path(home), artifact, catalog):
+            inventory_options = {'node': Path(node_executable)} if name == 'npm' and node_executable is not None else {}
+            if _inventory(target) != _trusted_inventory(Path(home), artifact, catalog, **inventory_options):
                 raise ValueError("modified runtime")
             check.update(status="ready", detail=f"managed {name} {artifact.version} verified")
         except (OSError, ValueError, KeyError, TypeError, LauncherError, tarfile.TarError, zipfile.BadZipFile):
@@ -196,8 +263,14 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None) -> l
     return checks
 
 
-def toolchain_environment(home: Path, *, python_executable: Path | None = None) -> dict[str, str]:
+def toolchain_environment(home: Path, *, python_executable: Path | None = None,
+                          node_executable: Path | None = None) -> dict[str, str]:
     """Return existing verified runtimes without retrieval, extraction or writes."""
-    if any(check["status"] != "ready" for check in inspect_toolchain(home, **({'python_executable': python_executable} if python_executable is not None else {}))):
+    options = {}
+    if python_executable is not None:
+        options['python_executable'] = python_executable
+    if node_executable is not None:
+        options['node_executable'] = node_executable
+    if any(check["status"] != "ready" for check in inspect_toolchain(home, **options)):
         raise LauncherError("managed toolchain is incomplete or invalid; run provision")
-    return _environment(Path(home), load_catalog(), python_executable=python_executable)
+    return _environment(Path(home), load_catalog(), **options)

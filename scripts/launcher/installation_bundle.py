@@ -1,7 +1,8 @@
-"""Complete, platform-bound Windows installation bundles without private state.
+"""Platform-bound Windows installation bundles without private state.
 
 The root manifest supplements, rather than changes, the dependency cache's v1
-manifest. Verification is read-only and must precede installation mutations.
+manifest. Version 2 may replace runtime archives with explicit host requirements.
+Verification is read-only and must precede installation mutations.
 """
 from __future__ import annotations
 
@@ -66,6 +67,21 @@ TEAMCENTER_ENABLED=False
 DOCPROOF_ENABLED=False
 NUMARATOR_ENABLED=False
 '''
+
+
+class BundleHostRuntimeError(LauncherError):
+    """An offline prerequisite failure with fixed labels and no private paths."""
+
+    def __init__(self, artifact: str):
+        labels = {'python': 'Python', 'node': 'Node.js', 'npm': 'npm'}
+        self.code = 'bundle_host_runtime_missing'
+        self.artifact = artifact if artifact in labels else None
+        self.remedy = {
+            'python': 'Bu çevrimdışı paket için tam CPython 3.11 x64 kurulumunu seçin; venv ve ensurepip desteği gerekir.',
+            'node': 'Bu çevrimdışı paket için kurulu Node 22.12+ (22.x) veya 24+ x64 yürütülebilir dosyasını seçin.',
+            'npm': 'Bu çevrimdışı paket için seçilen uyumlu Node kurulumunun yanında npm 10.9.4 bulunmalıdır.',
+        }.get(self.artifact, 'Bu çevrimdışı paketin gerekli sistem araçlarını kurup yeniden seçin.')
+        super().__init__(f"Çevrimdışı paketin gerektirdiği {labels.get(self.artifact, 'sistem aracı')} bulunamadı veya uyumsuz.")
 
 
 def _json_object(path: Path, limit: int = 16 * 1024 * 1024) -> dict:
@@ -276,6 +292,69 @@ def _runtime_metadata(catalog: dict) -> dict:
             if name in (*CORE_ARTIFACTS, *OPTIONAL_ARTIFACTS)}
 
 
+def _external_runtime_names(value) -> frozenset[str]:
+    if (not isinstance(value, (set, frozenset)) or
+            any(not isinstance(name, str) or name not in CORE_ARTIFACTS for name in value)):
+        raise LauncherError('external runtimes may contain only Python, Node and npm')
+    return frozenset(value)
+
+
+def _supported_host_version(name: str, value) -> bool:
+    # Versions cross the distribution boundary; never accept executable paths,
+    # prereleases or arbitrary subprocess output as host requirements.
+    if not isinstance(value, str) or len(value) > 32:
+        return False
+    if name == 'python':
+        return re.fullmatch(r'3\.11\.(0|[1-9][0-9]*)', value) is not None
+    if name == 'npm':
+        return value == '10.9.4'
+    match = re.fullmatch(r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value)
+    if match is None:
+        return False
+    major, minor, _ = map(int, match.groups())
+    return (major == 22 and minor >= 12) or major >= 24
+
+
+def _host_runtime_metadata(toolchain, names: frozenset[str]) -> dict[str, str]:
+    if not isinstance(toolchain, dict):
+        raise LauncherError('installation bundle toolchain metadata is invalid')
+    hosts = {name: toolchain.get(name) for name in sorted(names)}
+    if any(not _supported_host_version(name, version) for name, version in hosts.items()):
+        raise LauncherError('installation host runtimes require Python 3.11, supported Node and npm 10.9.4')
+    return hosts
+
+
+def _bundle_host_runtimes(manifest: dict) -> dict[str, str]:
+    if manifest['format_version'] == 1:
+        if 'host_runtimes' in manifest:
+            raise LauncherError('complete installation bundles cannot declare host runtimes')
+        return {}
+    hosts = manifest.get('host_runtimes')
+    if (not isinstance(hosts, dict) or not hosts or
+            any(name not in CORE_ARTIFACTS for name in hosts) or
+            any(not _supported_host_version(name, version) for name, version in hosts.items())):
+        raise LauncherError('installation host runtime requirements are invalid')
+    return hosts
+
+
+def _verify_dependency_toolchain(toolchain, catalog: dict, hosts: dict, version: int) -> None:
+    if not isinstance(toolchain, dict):
+        raise LauncherError('installation bundle toolchain metadata is invalid')
+    for name in CORE_ARTIFACTS:
+        actual = toolchain.get(name)
+        if name in hosts:
+            if actual != hosts[name]:
+                raise LauncherError('installation host runtime versions differ from the dependency toolchain')
+            continue
+        if name == 'python' and version == 1:
+            # Complete v1 bundles historically allow another CPython 3.11 patch
+            # version to prepare their wheels; preserve that existing contract.
+            continue
+        normalized = actual.removeprefix('v') if name == 'node' and isinstance(actual, str) else actual
+        if normalized != catalog[name].version:
+            raise LauncherError('offline dependencies were prepared with a different included runtime')
+
+
 def source_provenance(project: Project) -> str:
     """Use a real commit when available, otherwise fingerprint distributed source."""
     if (project.root / '.git').exists() and shutil.which('git'):
@@ -331,8 +410,11 @@ def _offline_source(project: Project, settings) -> Path | None:
 
 def _npm_argv() -> list[str]:
     from .process import required_tool
-    npm = Path(required_tool('npm'))
     node = os.environ.get('AWCENTER_MANAGED_NODE')
+    selected_cli = os.environ.get('AWCENTER_MANAGED_NPM_CLI')
+    if node and selected_cli and Path(selected_cli).is_file():
+        return [node, selected_cli]
+    npm = Path(required_tool('npm'))
     cli = Path(os.environ['AWCENTER_MANAGED_NPM_CLI']) if os.environ.get('AWCENTER_MANAGED_NPM_CLI') else npm.parent.parent / 'package/bin/npm-cli.js'
     if os.name == 'nt' and node and cli.is_file():
         return [node, str(cli)]
@@ -459,9 +541,16 @@ def _verify_npm_offline(project: Project, cache: Path, environment: dict) -> Non
             _require_success(result, 'Offline npm lifecycle/build smoke')
 
 
-def prepare_install_bundle(project: Project, output: Path, settings, assets=None, *, feature_catalog=None) -> Path:
-    """Build a new transferable directory; refuse overwrite or target mismatch."""
+def prepare_install_bundle(project: Project, output: Path, settings, assets=None, *,
+                           feature_catalog=None, external_runtimes=frozenset()) -> Path:
+    """Build a transferable bundle, optionally requiring named tools on its target.
+
+    External runtime archives are never acquired. Their producer versions, without
+    executable paths, become version 2 host requirements. The default remains a
+    complete version 1 bundle.
+    """
     target = _require_windows_target()
+    external_runtimes = _external_runtime_names(external_runtimes)
     _validate_bootstrap(project)
     output = Path(output).expanduser().absolute()
     from .installation_permissions import require_unlinked
@@ -481,7 +570,9 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
         copy_install_source(project, staging / 'source')
         from .installation_sources import fetch_artifact
         runtimes = staging / 'runtimes'
-        for name in _runtime_metadata(catalog):
+        included_runtimes = {name: metadata for name, metadata in _runtime_metadata(catalog).items()
+                             if name not in external_runtimes}
+        for name in included_runtimes:
             fetch_artifact(catalog[name], runtimes, settings)
         if feature_catalog is not None:
             from .installation_permissions import secure_path
@@ -490,12 +581,16 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
         _prepare_dependencies(project, staging / 'dependencies', settings)
         if approved is not None:
             shutil.copytree(assets, staging / 'assets' / approved['asset_set'])
-        manifest = {'format_version': 1, 'target': target,
-                    'locks': lock_metadata(project, Scope()), 'runtimes': _runtime_metadata(catalog),
-                    'toolchain': _json_object(staging / 'dependencies/manifest.json')['toolchain'],
+        toolchain = _json_object(staging / 'dependencies/manifest.json').get('toolchain')
+        host_runtimes = _host_runtime_metadata(toolchain, external_runtimes)
+        manifest = {'format_version': 2 if external_runtimes else 1, 'target': target,
+                    'locks': lock_metadata(project, Scope()), 'runtimes': included_runtimes,
+                    'toolchain': toolchain,
                     'feature_catalog': 'feature-catalog.json' if feature_catalog is not None else None,
                     'asset_set': approved['asset_set'] if approved else None,
                     'artifacts': install_inventory(staging, source_state=True)}
+        if external_runtimes:
+            manifest['host_runtimes'] = host_runtimes
         (staging / INSTALL_MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
         verify_install_bundle(project, staging)
         staging.rename(output)
@@ -506,8 +601,9 @@ def verify_install_bundle(project: Project, directory: Path) -> dict:
     """Verify all files, platform, locked dependencies and pinned runtimes read-only."""
     directory = Path(directory).expanduser().absolute()
     manifest = _json_object(_safe_path(directory, directory / INSTALL_MANIFEST))
-    if manifest.get('format_version') != 1:
+    if type(manifest.get('format_version')) is not int or manifest['format_version'] not in {1, 2}:
         raise LauncherError('installation bundle manifest version is unsupported')
+    host_runtimes = _bundle_host_runtimes(manifest)
     if manifest.get('target') != _require_windows_target():
         raise LauncherError('installation bundle targets a different OS, architecture or Python')
     if manifest.get('locks') != lock_metadata(project, Scope()):
@@ -519,12 +615,21 @@ def verify_install_bundle(project: Project, directory: Path) -> dict:
             raise LauncherError('installation optional feature catalog reference is invalid')
         from .installation_features import read_feature_catalog
         catalog.update(read_feature_catalog(directory / 'feature-catalog.json', require_owner=False))
-    if manifest.get('runtimes') != _runtime_metadata(catalog):
+    included_runtimes = {name: metadata for name, metadata in _runtime_metadata(catalog).items()
+                         if name not in host_runtimes}
+    if manifest.get('runtimes') != included_runtimes:
         raise LauncherError('installation bundle runtimes differ from the reviewed catalog')
-    for name in _runtime_metadata(catalog):
+    if any((directory / 'runtimes' / _relative_path(catalog[name].filename)).exists()
+           for name in host_runtimes):
+        raise LauncherError('installation host runtimes cannot include runtime archives')
+    for name in included_runtimes:
         artifact = catalog[name]
-        path = directory / 'runtimes' / _relative_path(artifact.filename)
-        if file_sha256(path) != artifact.sha256:
+        path = _safe_path(directory, directory / 'runtimes' / _relative_path(artifact.filename))
+        try:
+            digest = file_sha256(path)
+        except OSError:
+            raise LauncherError('installation runtime artifact is unavailable') from None
+        if digest != artifact.sha256:
             raise LauncherError('installation runtime checksum verification failed')
     source = directory / 'source'
     source_project = Project(source, source / 'backend/manage.py', source / 'frontend/package.json', source / 'requirements.txt')
@@ -533,12 +638,58 @@ def verify_install_bundle(project: Project, directory: Path) -> dict:
     dependencies = verify_offline_manifest(project, Scope(), directory / 'dependencies')
     if manifest.get('toolchain') != dependencies.get('toolchain'):
         raise LauncherError('installation bundle toolchain metadata is inconsistent')
-    node_version = str(dependencies.get('toolchain', {}).get('node', '')).removeprefix('v')
-    npm_version = dependencies.get('toolchain', {}).get('npm')
-    if node_version != catalog['node'].version or npm_version != catalog['npm'].version:
-        raise LauncherError('offline dependencies were prepared with a different Node or npm')
+    _verify_dependency_toolchain(dependencies.get('toolchain'), catalog, host_runtimes,
+                                 manifest['format_version'])
     if manifest.get('asset_set') is not None:
         asset_path = directory / 'assets' / _relative_path(manifest['asset_set'])
         if verify_asset_source(asset_path)['asset_set'] != manifest['asset_set']:
             raise LauncherError('bundled asset set identifier is inconsistent')
     return manifest
+
+
+def require_bundle_host_runtimes(project: Project, settings, *,
+                                python_executable: Path | None = None,
+                                node_executable: Path | None = None) -> None:
+    """Require selected system tools before an offline v2 bundle can be installed.
+
+    Producer versions document dependency provenance; target tools need only meet
+    the supported runtime constraints. This check never acquires artifacts.
+    """
+    if settings.mode != 'offline':
+        return
+    roots = []
+    if settings.repository and '://' not in str(settings.repository):
+        roots.append(Path(settings.repository))
+    if settings.offline_dir:
+        roots.append(Path(settings.offline_dir))
+    for root in roots:
+        if (root / INSTALL_MANIFEST).exists():
+            manifest = verify_install_bundle(project, root)
+            break
+    else:
+        return
+    if manifest['format_version'] != 2:
+        return
+    from .process import check_cancelled
+    from .system_python import SystemPythonError, validate_python
+    from .system_node import SystemNodeError, validate_node, find_npm_cli
+    check_cancelled()
+    hosts = manifest['host_runtimes']
+    if 'python' in hosts:
+        if python_executable is None:
+            raise BundleHostRuntimeError('python')
+        try:
+            validate_python(python_executable)
+        except SystemPythonError:
+            raise BundleHostRuntimeError('python') from None
+    if not any(name in hosts for name in ('node', 'npm')):
+        return
+    required = 'node' if 'node' in hosts else 'npm'
+    if node_executable is None:
+        raise BundleHostRuntimeError(required)
+    try:
+        node = validate_node(node_executable)
+    except SystemNodeError:
+        raise BundleHostRuntimeError(required) from None
+    if 'npm' in hosts and find_npm_cli(node, '10.9.4') is None:
+        raise BundleHostRuntimeError('npm')

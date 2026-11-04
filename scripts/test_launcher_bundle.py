@@ -349,5 +349,351 @@ class BundleSafetyTests(unittest.TestCase):
         self.assertNotEqual(run.call_args_list[0].kwargs['cwd'], self.project.frontend)
 
 
+class HostRuntimeBundleTests(unittest.TestCase):
+    def setUp(self):
+        from scripts.launcher.installation_permissions import secure_path
+        from scripts.launcher.installation_sources import Artifact, SourceSettings
+        from scripts.launcher.offline_manifest import artifact_metadata, lock_metadata
+        self.bundle = importlib.import_module('scripts.launcher.installation_bundle')
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        secure_path(self.root)
+        self.project = project_at(self.root / 'project')
+        self.target = {'system': 'windows', 'machine': 'amd64', 'python': '3.11',
+                       'implementation': 'cpython'}
+        self.versions = {'python': '3.11.18', 'pip': '25.1', 'node': 'v22.23.4', 'npm': '10.9.4'}
+        self.offline = self.root / 'runtime-source'
+        self.offline.mkdir()
+        self.catalog = {}
+        for name, version in (('python', '3.11.18'), ('node', '22.23.4'), ('npm', '10.9.4')):
+            payload = (name + '-reviewed-runtime').encode()
+            filename = name + '.zip'
+            (self.offline / filename).write_bytes(payload)
+            self.catalog[name] = Artifact(name, version, filename,
+                                          'https://publisher.example/' + filename,
+                                          hashlib.sha256(payload).hexdigest(), 'zip', name + '.exe')
+        self.settings = SourceSettings(offline_dir=self.offline)
+
+        def dependencies(project, directory, settings):
+            (directory / 'wheels').mkdir(parents=True)
+            (directory / 'wheels/approved.whl').write_bytes(b'wheel')
+            (directory / 'npm-cache').mkdir()
+            (directory / 'npm-cache/approved').write_bytes(b'node package')
+            value = {'format_version': 1, 'target': self.target, 'toolchain': self.versions.copy(),
+                     'locks': lock_metadata(project, self.bundle.Scope()),
+                     'artifacts': artifact_metadata(directory)}
+            (directory / 'manifest.json').write_text(json.dumps(value))
+
+        for patcher in (
+            patch.object(self.bundle, 'target_metadata', return_value=self.target),
+            patch('scripts.launcher.offline_manifest.target_metadata', return_value=self.target),
+            patch.object(self.bundle, '_catalog', return_value=self.catalog),
+            patch.object(self.bundle, '_prepare_dependencies', side_effect=dependencies),
+            patch('scripts.launcher.installation_sources._retrieve', return_value=False),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def prepare(self, *, external=frozenset(), name='bundle'):
+        return self.bundle.prepare_install_bundle(
+            self.project, self.root / name, self.settings, external_runtimes=external)
+
+    def manifest(self, output):
+        return json.loads((output / 'install-manifest.json').read_text())
+
+    def rewrite_manifest(self, output, value, *, refresh_inventory=False):
+        if refresh_inventory:
+            value['artifacts'] = self.bundle.install_inventory(
+                output, exclude=('install-manifest.json',), source_state=True)
+        (output / 'install-manifest.json').write_text(json.dumps(value))
+
+    def test_system_tools_omit_all_runtime_fetches_and_export_only_versions(self):
+        self.versions.update(python='3.11.17', node='v24.4.0')
+        for path in self.offline.iterdir():
+            path.unlink()
+        with patch('scripts.launcher.installation_sources.fetch_artifact',
+                   side_effect=AssertionError('host tools must not fetch runtime archives')):
+            output = self.prepare(external=frozenset({'python', 'node', 'npm'}))
+        manifest = self.bundle.verify_install_bundle(self.project, output)
+        self.assertEqual(manifest['format_version'], 2)
+        self.assertEqual(manifest['host_runtimes'], {
+            'python': '3.11.17', 'node': 'v24.4.0', 'npm': '10.9.4'})
+        self.assertEqual(manifest['runtimes'], {})
+        self.assertFalse((output / 'runtimes').exists())
+        self.assertNotIn(str(self.root), json.dumps(manifest))
+
+    def test_partial_host_tools_keep_only_pinned_included_runtime(self):
+        self.versions.update(python='3.11.17', node='v24.0.0')
+        (self.offline / 'python.zip').unlink()
+        (self.offline / 'node.zip').unlink()
+        output = self.prepare(external=frozenset({'python', 'node'}))
+        manifest = self.bundle.verify_install_bundle(self.project, output)
+        self.assertEqual(manifest['host_runtimes'], {'python': '3.11.17', 'node': 'v24.0.0'})
+        self.assertEqual(set(manifest['runtimes']), {'npm'})
+        self.assertEqual([path.name for path in (output / 'runtimes').iterdir()], ['npm.zip'])
+        self.assertEqual((output / 'runtimes/npm.zip').read_bytes(), b'npm-reviewed-runtime')
+
+    def test_prepare_rejects_unknown_host_names_before_output_or_download(self):
+        for names in ({'ffmpeg'}, {'python', 'unknown'}, {'node', None}, 'node'):
+            with self.subTest(names=names), self.assertRaises(LauncherError):
+                self.prepare(external=names)
+            self.assertFalse((self.root / 'bundle').exists())
+
+    def test_external_node_accepts_supported_non_catalog_stable_versions(self):
+        for index, version in enumerate(('v22.12.0', 'v22.99.1', '24.0.0', 'v25.1.2')):
+            with self.subTest(version=version):
+                self.versions['node'] = version
+                output = self.prepare(external=frozenset({'node'}), name=f'bundle-{index}')
+                self.assertEqual(self.manifest(output)['host_runtimes'], {'node': version})
+
+    def test_host_versions_reject_unsupported_prerelease_and_path_values(self):
+        cases = (
+            ('python', '3.12.0'), ('python', '3.11.1rc1'), ('python', '/private/python'),
+            ('node', 'v22.11.9'), ('node', 'v23.0.0'), ('node', 'v24.0.0-rc.1'),
+            ('node', 'v24.0.0+private-path'), ('node', {'executable': '/private/node'}),
+            ('npm', '10.9.3'), ('npm', 10),
+        )
+        for name, version in cases:
+            with self.subTest(name=name, version=version):
+                original = self.versions[name]
+                self.versions[name] = version
+                with self.assertRaises(LauncherError):
+                    self.prepare(external=frozenset({name}))
+                self.assertFalse((self.root / 'bundle').exists())
+                self.versions[name] = original
+
+    def test_host_metadata_must_be_nonempty_and_exactly_match_omitted_names(self):
+        output = self.prepare(external=frozenset({'node'}))
+        original = self.manifest(output)
+        for host in ({}, None, [], 'node', {'unknown': '24.0.0'},
+                     {'node': 'v22.23.4', 'python': '3.11.18'}):
+            with self.subTest(host=host):
+                self.rewrite_manifest(output, {**original, 'host_runtimes': host})
+                with self.assertRaises(LauncherError):
+                    self.bundle.verify_install_bundle(self.project, output)
+
+    def test_host_version_tampering_must_match_dependency_toolchain(self):
+        output = self.prepare(external=frozenset({'node'}))
+        manifest = self.manifest(output)
+        manifest['host_runtimes']['node'] = 'v24.0.0'
+        self.rewrite_manifest(output, manifest)
+        with self.assertRaises(LauncherError):
+            self.bundle.verify_install_bundle(self.project, output)
+
+    def test_included_runtime_cannot_be_omitted_or_redeclared_as_host(self):
+        output = self.prepare(external=frozenset({'node'}))
+        original = self.manifest(output)
+        for runtimes in ({}, {**original['runtimes'], 'node': {
+                'version': '22.23.4', 'filename': 'node.zip', 'sha256': 'a' * 64}}):
+            with self.subTest(runtimes=runtimes):
+                self.rewrite_manifest(output, {**original, 'runtimes': runtimes})
+                with self.assertRaises(LauncherError):
+                    self.bundle.verify_install_bundle(self.project, output)
+
+    def test_missing_included_runtime_is_safe_even_with_rewritten_inventory(self):
+        output = self.prepare(external=frozenset({'node'}))
+        manifest = self.manifest(output)
+        (output / 'runtimes/npm.zip').unlink()
+        self.rewrite_manifest(output, manifest, refresh_inventory=True)
+        with self.assertRaises(LauncherError) as error:
+            self.bundle.verify_install_bundle(self.project, output)
+        self.assertNotIn(str(self.root), str(error.exception))
+
+    def test_included_runtime_checksum_remains_pinned_after_inventory_rewrite(self):
+        output = self.prepare(external=frozenset({'node'}))
+        manifest = self.manifest(output)
+        (output / 'runtimes/npm.zip').write_bytes(b'replacement npm archive')
+        self.rewrite_manifest(output, manifest, refresh_inventory=True)
+        with self.assertRaises(LauncherError):
+            self.bundle.verify_install_bundle(self.project, output)
+
+    def test_declared_host_runtime_cannot_carry_an_injected_archive(self):
+        output = self.prepare(external=frozenset({'node'}))
+        manifest = self.manifest(output)
+        (output / 'runtimes/node.zip').write_bytes(b'node-reviewed-runtime')
+        self.rewrite_manifest(output, manifest, refresh_inventory=True)
+        with self.assertRaises(LauncherError):
+            self.bundle.verify_install_bundle(self.project, output)
+
+    def test_version_two_included_toolchain_stays_catalog_pinned(self):
+        for name, version in (('python', '3.11.17'), ('npm', '10.9.3')):
+            with self.subTest(name=name):
+                original = self.versions[name]
+                self.versions[name] = version
+                with self.assertRaises(LauncherError):
+                    self.prepare(external=frozenset({'node'}))
+                self.versions[name] = original
+
+    def test_default_complete_bundle_stays_version_one_without_host_field(self):
+        self.versions['python'] = '3.11.17'
+        output = self.bundle.prepare_install_bundle(self.project, self.root / 'bundle', self.settings)
+        manifest = self.bundle.verify_install_bundle(self.project, output)
+        self.assertEqual(manifest['format_version'], 1)
+        self.assertNotIn('host_runtimes', manifest)
+        self.assertEqual(set(manifest['runtimes']), {'python', 'node', 'npm'})
+        self.assertEqual({path.name for path in (output / 'runtimes').iterdir()},
+                         {'python.zip', 'node.zip', 'npm.zip'})
+        for host in ({}, {'node': 'v22.23.4'}):
+            with self.subTest(host=host):
+                self.rewrite_manifest(output, {**manifest, 'host_runtimes': host})
+                with self.assertRaises(LauncherError):
+                    self.bundle.verify_install_bundle(self.project, output)
+
+    def test_complete_bundle_keeps_exact_catalog_node_and_npm_checks(self):
+        for name, version in (('node', 'v24.0.0'), ('npm', '10.9.3')):
+            with self.subTest(name=name):
+                original = self.versions[name]
+                self.versions[name] = version
+                with self.assertRaises(LauncherError):
+                    self.bundle.prepare_install_bundle(self.project, self.root / 'bundle', self.settings)
+                self.versions[name] = original
+
+    def test_version_two_cannot_be_downgraded_or_use_noninteger_version(self):
+        output = self.prepare(external=frozenset({'node'}))
+        manifest = self.manifest(output)
+        for version in (1, True, 2.0, '2'):
+            with self.subTest(version=version):
+                self.rewrite_manifest(output, {**manifest, 'format_version': version})
+                with self.assertRaises(LauncherError):
+                    self.bundle.verify_install_bundle(self.project, output)
+
+    def test_offline_host_guard_reports_missing_selected_python_without_paths(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        output = self.prepare(external=frozenset({'python'}))
+        with self.assertRaises(LauncherError) as caught:
+            self.bundle.require_bundle_host_runtimes(
+                self.project, SourceSettings(mode='offline', offline_dir=output))
+        self.assertEqual(caught.exception.code, 'bundle_host_runtime_missing')
+        self.assertEqual(caught.exception.artifact, 'python')
+        self.assertTrue(caught.exception.remedy)
+        self.assertNotIn(str(self.root), str(caught.exception))
+
+    def test_offline_host_guard_accepts_supported_target_versions_different_from_producer(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        self.versions.update(python='3.11.17', node='v24.4.0')
+        output = self.prepare(external=frozenset({'python', 'node', 'npm'}))
+        python = self.root / 'target-python.exe'
+        node = self.root / 'target-node.exe'
+        cli = self.root / 'npm-cli.js'
+        # Each validator accepts this target's independently supported version;
+        # producer patch versions in the manifest must not become target locks.
+        with patch('scripts.launcher.system_python.validate_python', return_value=python), \
+             patch('scripts.launcher.system_node.validate_node', return_value=node), \
+             patch('scripts.launcher.system_node.find_npm_cli', return_value=cli) as find_npm, \
+             patch('scripts.launcher.installation_sources.fetch_artifact',
+                   side_effect=AssertionError('guard must not acquire artifacts')):
+            self.bundle.require_bundle_host_runtimes(
+                self.project, SourceSettings(mode='offline', offline_dir=output),
+                python_executable=python, node_executable=node)
+        find_npm.assert_called_once_with(node, '10.9.4')
+
+    def test_offline_host_guard_checks_selected_node_and_matching_npm(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        from scripts.launcher.system_node import SystemNodeError
+        output = self.prepare(external=frozenset({'node', 'npm'}))
+        settings = SourceSettings(mode='offline', offline_dir=output)
+        node = self.root / 'private-node.exe'
+        with self.assertRaises(LauncherError) as missing:
+            self.bundle.require_bundle_host_runtimes(self.project, settings)
+        self.assertEqual(missing.exception.code, 'bundle_host_runtime_missing')
+        self.assertEqual(missing.exception.artifact, 'node')
+        with patch('scripts.launcher.system_node.validate_node', side_effect=SystemNodeError('version')):
+            with self.assertRaises(LauncherError) as incompatible:
+                self.bundle.require_bundle_host_runtimes(self.project, settings, node_executable=node)
+        self.assertEqual(incompatible.exception.code, 'bundle_host_runtime_missing')
+        with patch('scripts.launcher.system_node.validate_node', return_value=node), \
+             patch('scripts.launcher.system_node.find_npm_cli', return_value=None):
+            with self.assertRaises(LauncherError) as npm_missing:
+                self.bundle.require_bundle_host_runtimes(self.project, settings, node_executable=node)
+        self.assertEqual(npm_missing.exception.code, 'bundle_host_runtime_missing')
+        self.assertEqual(npm_missing.exception.artifact, 'npm')
+        self.assertNotIn(str(self.root), str(npm_missing.exception))
+
+    def test_offline_host_guard_rejects_incompatible_selected_python(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        from scripts.launcher.system_python import SystemPythonError
+        output = self.prepare(external=frozenset({'python'}))
+        with patch('scripts.launcher.system_python.validate_python',
+                   side_effect=SystemPythonError('architecture')):
+            with self.assertRaises(LauncherError) as caught:
+                self.bundle.require_bundle_host_runtimes(
+                    self.project, SourceSettings(mode='offline', offline_dir=output),
+                    python_executable=self.root / 'private-python.exe')
+        self.assertEqual(caught.exception.code, 'bundle_host_runtime_missing')
+        self.assertEqual(caught.exception.artifact, 'python')
+
+    def test_offline_host_guard_fully_verifies_bundle_before_any_host_probe(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        output = self.prepare(external=frozenset({'node'}))
+        (output / 'dependencies/wheels/approved.whl').write_bytes(b'tampered wheel')
+        with patch('scripts.launcher.system_node.validate_node') as validate:
+            with self.assertRaises(LauncherError) as caught:
+                self.bundle.require_bundle_host_runtimes(
+                    self.project, SourceSettings(mode='offline', offline_dir=output),
+                    node_executable=self.root / 'private-node.exe')
+        self.assertFalse(hasattr(caught.exception, 'code'))
+        validate.assert_not_called()
+
+    def test_offline_host_guard_supports_local_repository_bundle(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        output = self.prepare(external=frozenset({'node'}))
+        with self.assertRaises(LauncherError) as caught:
+            self.bundle.require_bundle_host_runtimes(
+                self.project, SourceSettings(mode='offline', repository=output))
+        self.assertEqual(caught.exception.code, 'bundle_host_runtime_missing')
+        self.assertEqual(caught.exception.artifact, 'node')
+
+    def test_offline_npm_host_requirement_also_needs_a_selected_compatible_node(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        output = self.prepare(external=frozenset({'npm'}))
+        with self.assertRaises(LauncherError) as caught:
+            self.bundle.require_bundle_host_runtimes(
+                self.project, SourceSettings(mode='offline', offline_dir=output))
+        self.assertEqual(caught.exception.code, 'bundle_host_runtime_missing')
+        self.assertEqual(caught.exception.artifact, 'npm')
+
+    def test_offline_guard_uses_local_repository_before_fallback_offline_directory(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        repository = self.prepare(external=frozenset({'node'}), name='repository')
+        fallback = self.prepare(external=frozenset({'python'}), name='fallback')
+        with self.assertRaises(LauncherError) as caught:
+            self.bundle.require_bundle_host_runtimes(
+                self.project, SourceSettings(mode='offline', repository=repository,
+                                             offline_dir=fallback))
+        self.assertEqual(caught.exception.artifact, 'node')
+
+    def test_host_guard_does_not_apply_outside_offline_version_two_bundles(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        v1 = self.bundle.prepare_install_bundle(self.project, self.root / 'v1', self.settings)
+        v2 = self.prepare(external=frozenset({'node'}))
+        cases = (SourceSettings(mode='online', offline_dir=v2),
+                 SourceSettings(mode='corporate', repository=v2),
+                 SourceSettings(mode='offline', offline_dir=v1),
+                 SourceSettings(mode='offline', offline_dir=self.offline),
+                 SourceSettings(mode='offline', repository='https://publisher.example/bundle'))
+        with patch('scripts.launcher.system_python.validate_python') as python, \
+             patch('scripts.launcher.system_node.validate_node') as node:
+            for settings in cases:
+                with self.subTest(settings=settings):
+                    self.bundle.require_bundle_host_runtimes(self.project, settings)
+        python.assert_not_called()
+        node.assert_not_called()
+
+    def test_offline_host_guard_preserves_probe_cancellation(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        from scripts.launcher.process import OperationCancelled
+        output = self.prepare(external=frozenset({'node', 'npm'}))
+        settings = SourceSettings(mode='offline', offline_dir=output)
+        node = self.root / 'private-node.exe'
+        with patch('scripts.launcher.system_node.validate_node', side_effect=OperationCancelled('stopped')):
+            with self.assertRaises(OperationCancelled):
+                self.bundle.require_bundle_host_runtimes(self.project, settings, node_executable=node)
+        with patch('scripts.launcher.system_node.validate_node', return_value=node), \
+             patch('scripts.launcher.system_node.find_npm_cli', side_effect=OperationCancelled('stopped')):
+            with self.assertRaises(OperationCancelled):
+                self.bundle.require_bundle_host_runtimes(self.project, settings, node_executable=node)
+
+
 if __name__ == '__main__':
     unittest.main()

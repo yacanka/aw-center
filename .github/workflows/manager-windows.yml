@@ -49,10 +49,10 @@ jobs:
         run: |
           if not exist "%RUNNER_TEMP%\manager-ui-evidence" mkdir "%RUNNER_TEMP%\manager-ui-evidence"
           python -m scripts.manager.main --smoke-test "%RUNNER_TEMP%\manager-ui-evidence\startup.json"
+      - name: Verify system tools, bundle prerequisites and permission diagnostics
+        run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_system_node scripts.test_manager_system_tools scripts.test_manager_tool_paths scripts.test_launcher_bundle scripts.test_launcher_env_selection scripts.test_launcher_permissions
       - name: Verify source payload, package and manager contracts
         run: python -m unittest discover -s scripts -p "test_manager*.py"
-      - name: Verify Python, environment selections and permission diagnostics
-        run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_env_selection scripts.test_launcher_permissions
       - name: Build portable windowed ZIP with reviewed runtime archives
         run: python scripts/build_manager.py --output "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip"
       - name: Extract the complete portable ZIP

@@ -28,10 +28,13 @@ def normalize_task_paths(values: dict) -> dict:
     repository = result.get('repository')
     if repository and '://' not in str(repository):
         fields.add('repository')
-    selection = result.get('python_command', '')
-    if '/' in selection or '\\' in selection:
-        result['python_command'] = selection.strip('"')
-        fields.add('python_command')
+    for field in ('python_command', 'node_command'):
+        selection = result.get(field, '')
+        if len(selection) >= 2 and selection[0] == selection[-1] and selection[0] in {'"', "'"}:
+            selection = selection[1:-1]
+            result[field] = selection
+        if '/' in selection or '\\' in selection:
+            fields.add(field)
     base = str(worker_directory())
     for field in fields:
         value = result.get(field)

@@ -23,6 +23,14 @@ class FormTests(unittest.TestCase):
         self.assertEqual(values["source_mode"], "online")
         self.assertIs(values["migrate"], False)
 
+    def test_node_selection_is_optional_and_preserved_for_each_operation(self):
+        for action in ("provision", "test-sources", "bundle", "start", "doctor"):
+            with self.subTest(action=action):
+                values = normalize_values(action, {"output": "D:/bundle", "node_command": " node.exe "})
+                self.assertEqual(values["node_command"], "node.exe")
+                self.assertIs(values["install_python"], False)
+        self.assertEqual(normalize_values("provision", {})["node_command"], "")
+
     def test_invalid_port_identifies_its_field(self):
         for port in ("0", "65536", "abc", "1.5"):
             with self.subTest(port=port), self.assertRaises(FormError) as caught:
@@ -327,6 +335,26 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         window.advanced_frame.grid_remove.assert_called_once()
         self.assertEqual(window.variables["env_file"].get(), "C:/private/selected.env")
         self.assertIs(window.variables["install_python"].get(), True)
+
+    def test_node_picker_submits_the_selected_executable_without_reporting_it(self):
+        window = self.window
+        self.assertIn("node_command", window.variables)
+        window._field_titles = {"node_command": "Node.js komutu / yolu (isteğe bağlı)"}
+        with patch("scripts.manager.view.filedialog.askopenfilename", return_value="C:/Node 24/node.exe") as picker:
+            window._pick("node_command", "node")
+        self.assertIn(("Node.js", "node.exe"), picker.call_args.kwargs["filetypes"])
+        window._dispatch("provision")
+        self.assertEqual(self.actions[-1][1]["node_command"], "C:/Node 24/node.exe")
+        self.assertNotIn("C:/Node 24/node.exe", window.state.report())
+
+    def test_managed_python_choice_keeps_node_selection_in_submitted_values(self):
+        window = self.window
+        self.assertIn("node_command", window.variables)
+        window.variables["node_command"].set("node")
+        window.variables["install_python"].set(True)
+        window._dispatch("provision")
+        self.assertEqual(self.actions[-1][1]["node_command"], "node")
+        self.assertIs(self.actions[-1][1]["install_python"], True)
 
     def test_advanced_form_error_selects_tab_and_reveals_before_focus(self):
         window, calls = self.window, []
@@ -670,9 +698,24 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.actions[-1][1]['python_command'], 'C:/Python 311/python.exe')
         window.variables['install_python'].set(True)
         self.assertEqual(str(window._fields['python_command']['state']), 'disabled')
+        self.assertEqual(str(window._fields['node_command']['state']), 'normal')
+        self.assertEqual(str(window._pickers['node_command']['state']), 'normal')
         window.variables['install_python'].set(False)
         self.assertEqual(str(window._fields['python_command']['state']), 'normal')
         self.assertEqual(window.form_values()['python_command'], 'C:/Python 311/python.exe')
+
+    def test_restored_node_selection_reveals_advanced_settings(self):
+        import tkinter as tk
+        from scripts.manager.view import ManagerWindow
+        root = tk.Toplevel(self.root)
+        try:
+            window = ManagerWindow(root, lambda *_: None, lambda: None, lambda: None,
+                                   initial_values={'node_command': 'C:/Node 24/node.exe'})
+            self.assertTrue(window.advanced_var.get())
+            self.assertEqual(window.form_values()['node_command'], 'C:/Node 24/node.exe')
+            self.assertEqual(window._fields['node_command'].master, window.advanced_frame)
+        finally:
+            root.destroy()
 
     def test_restored_advanced_inputs_are_visible_and_readable_after_window_closes(self):
         import tkinter as tk

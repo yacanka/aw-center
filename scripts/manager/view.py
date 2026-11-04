@@ -120,7 +120,7 @@ class ManagerWindow:
     """
 
     _advanced_fields = frozenset({"frontend_port", "tls_cert_file", "tls_key_file",
-                                  "migrate", "install_python", "python_command", "env_file"})
+                                  "migrate", "install_python", "python_command", "node_command", "env_file"})
 
     def __init__(self, root, on_action: Callable, on_stop: Callable,
                  on_close: Callable, source_root=None, *, initial_values=None):
@@ -505,15 +505,17 @@ class ManagerWindow:
                                   variable=self.variables["migrate"], style="Manager.TCheckbutton")
         migrate.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self._controls.append(migrate)
-        python = ttk.Checkbutton(parent, text="Python çalışma zamanını kur (isteğe bağlı)",
+        python = ttk.Checkbutton(parent, text="Her durumda yönetilen Python kurulumunu kullan",
                                  variable=self.variables['install_python'], style="Manager.TCheckbutton")
         python.grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self._controls.append(python)
-        self._label(parent, "Seçilmezse sistemdeki CPython 3.11 x64 kullanılır. Uygun Python yoksa otomatik kurulmaz. pip paketleri ayrı sanal ortama kurulur.").grid(row=6, column=0, columnspan=3, sticky="ew", pady=(4, 12))
+        self._label(parent, "Varsayılan olarak önce sistemdeki CPython 3.11 x64 aranır; bulunamazsa yönetilen Python otomatik indirilir veya çevrimdışı paketten kurulur. Bu seçim yönetilen kurulumu zorlar. pip paketleri ayrı sanal ortama kurulur.").grid(row=6, column=0, columnspan=3, sticky="ew", pady=(4, 12))
         self._entry(parent, 7, 'python_command', 'Python komutu / yolu (isteğe bağlı)', tab=self.run_tab, picker='python')
-        self._label(parent, 'Boşsa otomatik aranır. python, py -3.11, python.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat kayıtlı profilin Python seçimini kullanır.').grid(row=8, column=0, columnspan=3, sticky='ew', pady=(4, 12))
-        self._entry(parent, 9, 'env_file', '.env dosyası (isteğe bağlı)', tab=self.run_tab, picker='environment')
-        self._label(parent, 'Kur ve başlat seçilen dosyayı özel profile aktarır; kaynak dosya değiştirilmez. Boşsa mevcut profil veya otomatik yapılandırma kullanılır. Değişmiş dosyayı önce Kur ve başlat ile uygulayın.').grid(row=10, column=0, columnspan=3, sticky='ew', pady=(4, 0))
+        self._label(parent, 'Boşsa otomatik aranır. python, py -3.11, python.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Python seçimini kullanır.').grid(row=8, column=0, columnspan=3, sticky='ew', pady=(4, 12))
+        self._entry(parent, 9, 'node_command', 'Node.js komutu / yolu (isteğe bağlı)', tab=self.run_tab, picker='node')
+        self._label(parent, 'Boşsa önce uygun sistem Node.js aranır; bulunamazsa yönetilen Node.js kurulur. node, node.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Node.js seçimini kullanır.').grid(row=10, column=0, columnspan=3, sticky='ew', pady=(4, 12))
+        self._entry(parent, 11, 'env_file', '.env dosyası (isteğe bağlı)', tab=self.run_tab, picker='environment')
+        self._label(parent, 'Kur ve başlat seçilen dosyayı özel profile aktarır; kaynak dosya değiştirilmez. Boşsa mevcut profil veya otomatik yapılandırma kullanılır. Değişmiş dosyayı önce Kur ve başlat ile uygulayın.').grid(row=12, column=0, columnspan=3, sticky='ew', pady=(4, 0))
 
     def _set_advanced(self, expanded: bool):
         self.advanced_var.set(expanded)
@@ -611,6 +613,7 @@ class ManagerWindow:
         else:
             patterns = {"certificate": [("PEM / sertifika", "*.pem *.crt *.cer"), ("Tüm dosyalar", "*")],
                         "python": [("Python yorumlayıcısı", "python*.exe"), ("Tüm dosyalar", "*")],
+                        "node": [("Node.js", "node.exe"), ("Tüm dosyalar", "*")],
                         "environment": [("Ortam dosyası", ".env *.env *.env.*"), ("Tüm dosyalar", "*")],
                         "key": [("PEM / özel anahtar", "*.pem *.key"), ("Tüm dosyalar", "*")],
                         "catalog": [("JSON kataloğu", "*.json"), ("Tüm dosyalar", "*")]}
