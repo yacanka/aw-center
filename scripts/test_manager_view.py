@@ -758,6 +758,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(actions[-1][1]["source_root"], "C:/source")
         window.update_tasks([{"id": "doctor-1", "action": "doctor", "profile": "dev", "status": "running", "values": actions[0][1]}], selected_id="doctor-1")
         window.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped'})
+        root.update_idletasks()
         self.assertEqual(str(window.action_buttons["start"]["state"]), "normal")
         self.assertEqual(str(window.stop_button["state"]), "normal")
         window.action_buttons["start"].invoke()
@@ -844,10 +845,11 @@ class NativeWindowSmokeTests(unittest.TestCase):
 
         source_root = str(Path.cwd() / 'manager-source-fixture')
         self.window.variables["source_root"].set(source_root)
+        self.window.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped'})
+        self.root.update_idletasks()
         controller = ManagerController(self.root, lambda *_args, **_kwargs: self.window, source_root,
                                        session_factory=factory, browser_opener=lambda _url: True)
         self.window.on_action, self.window.on_stop = controller.action, controller.stop
-        self.window.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped'})
         self.window.action_buttons["start"].invoke()
         self.assertTrue(sessions[0].started.wait(1))
         start_id = next(iter(controller.tasks))
@@ -855,7 +857,9 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertTrue(sessions[1].started.wait(1))
         source_id = self.window.selected_task_id()
         self.assertNotEqual(start_id, source_id)
-        self.assertTrue(all(str(button["state"]) == "normal" for button in self.window.action_buttons.values()))
+        self.assertTrue(all(str(button["state"]) == "normal"
+                            for action, button in self.window.action_buttons.items() if action != 'start'))
+        self.assertEqual(str(self.window.action_buttons['start']['state']), 'disabled')
         self.window.variables["source_root"].set("D:/edited")
         self.assertEqual(str(self.window._fields["source_root"]["state"]), "normal")
         self.assertEqual(controller.tasks[start_id].values["source_root"], source_root)
