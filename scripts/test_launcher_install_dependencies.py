@@ -1,7 +1,11 @@
 """Source fallback must not disguise installation or integrity failures."""
 
+import json
+import os
+import shutil
 import subprocess
 import ssl
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,7 +13,87 @@ from unittest import mock
 
 from scripts.launcher.model import LauncherError
 from scripts.launcher.installation_sources import SourceSettings
-from scripts.test_launcher import create_project
+from scripts.launcher_test_support import create_project
+
+
+class PackageConfigurationIsolationTests(unittest.TestCase):
+    def test_capture_provides_distinct_empty_npm_configs_and_removes_them_after_exit(self):
+        from scripts.launcher.installation_dependencies import capture
+        program = '''import json, os, pathlib, sys
+paths = [os.environ['NPM_CONFIG_USERCONFIG'], os.environ['NPM_CONFIG_GLOBALCONFIG']]
+print(json.dumps({'paths': paths, 'contents': [pathlib.Path(path).read_text() for path in paths],
+                  'inherited': any(name in os.environ for name in ('NPM_CONFIG_REGISTRY', 'npm_config_registry', 'NPM_CONFIG__AUTH', 'PIP_INDEX_URL'))}))
+sys.exit(int(sys.argv[1]))
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            for exit_code in (0, 7):
+                with self.subTest(exit_code=exit_code), \
+                     mock.patch.dict(os.environ, {'NPM_CONFIG_REGISTRY': 'https://untrusted.invalid',
+                                                 'npm_config_registry': 'https://untrusted.invalid',
+                                                 'NPM_CONFIG__AUTH': 'inherited-credential-fixture',
+                                                 'PIP_INDEX_URL': 'https://untrusted.invalid'}):
+                    result = capture([sys.executable, '-c', program, str(exit_code)], project)
+                    self.assertEqual(result.returncode, exit_code)
+                    observed = json.loads(result.stdout)
+                    self.assertNotEqual(*observed['paths'])
+                    self.assertEqual(observed['contents'], ['', ''])
+                    self.assertFalse(observed['inherited'])
+                    self.assertTrue(all(not Path(path).exists() for path in observed['paths']))
+
+    def test_capture_cleans_npm_configs_after_start_error_timeout_and_cancellation(self):
+        from scripts.launcher import installation_dependencies as dependencies
+        from scripts.launcher.process import OperationCancelled
+        cases = ((OSError('fixture'), OSError),
+                 (subprocess.TimeoutExpired(['fixture'], 1), LauncherError),
+                 (OperationCancelled('fixture'), OperationCancelled))
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            for error, expected in cases:
+                observed = []
+                def fail(command, **options):
+                    paths = [Path(options['env'][name]) for name in
+                             ('NPM_CONFIG_USERCONFIG', 'NPM_CONFIG_GLOBALCONFIG')]
+                    self.assertNotEqual(*paths)
+                    self.assertTrue(all(path.is_file() and path.read_bytes() == b'' for path in paths))
+                    observed.extend(paths)
+                    raise error
+                with self.subTest(error=type(error).__name__), \
+                     mock.patch.object(dependencies, 'controlled_run', side_effect=fail):
+                    with self.assertRaises(expected):
+                        dependencies.capture(['fixture'], project)
+                self.assertEqual(len(observed), 2)
+                self.assertTrue(all(not path.exists() for path in observed))
+
+    def test_capture_preserves_explicit_package_config_overrides(self):
+        from scripts.launcher.installation_dependencies import capture
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = create_project(root)
+            user, global_config = root / 'selected-user.npmrc', root / 'selected-global.npmrc'
+            for path in (user, global_config):
+                path.write_bytes(b'')
+            result = capture([sys.executable, '-c',
+                              'import json, os; print(json.dumps([os.environ["NPM_CONFIG_USERCONFIG"], os.environ["NPM_CONFIG_GLOBALCONFIG"]]))'],
+                             project, {'NPM_CONFIG_USERCONFIG': str(user),
+                                       'NPM_CONFIG_GLOBALCONFIG': str(global_config)})
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout), [str(user), str(global_config)])
+            self.assertTrue(user.is_file() and global_config.is_file())
+
+    @unittest.skipUnless(shutil.which('node'), 'A local Node executable is required for real npm tests')
+    def test_real_npm_version_runs_with_isolated_capture_configuration(self):
+        from scripts.launcher.installation_dependencies import capture
+        from scripts.launcher.system_node import _npm_candidates
+        node = Path(shutil.which('node')).resolve()
+        cli = next((path for path in _npm_candidates(node) if path.is_file()), None)
+        if cli is None:
+            self.skipTest('An npm CLI beside local Node is required')
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            result = capture([node, cli, '--version'], project, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout.strip(), r'^\d+\.\d+\.\d+$')
 
 
 class AcquisitionFailureTests(unittest.TestCase):

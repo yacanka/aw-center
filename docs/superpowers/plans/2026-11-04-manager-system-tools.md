@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - CPython 3.11 x64 with venv/ensurepip; Node x64 22.12+ within major 22 or Node 24+.
-- npm remains 10.9.4; included runtime archives remain catalog/hash verified.
+- Managed npm remains 10.9.4; compatible installed npm 10.9.4+ (10.x) or 11.x can be reused. Included runtime archives remain catalog/hash verified.
 - No shell command parsing, private path output, credential persistence, or cancellation fallback.
 - Preserve version 1 bundles and CLI defaults; external tool bundles use version 2.
 

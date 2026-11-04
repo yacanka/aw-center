@@ -447,12 +447,24 @@ class HostRuntimeBundleTests(unittest.TestCase):
                 output = self.prepare(external=frozenset({'node'}), name=f'bundle-{index}')
                 self.assertEqual(self.manifest(output)['host_runtimes'], {'node': version})
 
+    def test_external_npm_accepts_reviewed_stable_versions_and_roundtrips_host_metadata(self):
+        for index, version in enumerate(('10.9.5', '10.10.0', '11.0.0', '11.18.0')):
+            with self.subTest(version=version):
+                self.versions['npm'] = version
+                output = self.prepare(external=frozenset({'npm'}), name=f'bundle-{index}')
+                manifest = self.bundle.verify_install_bundle(self.project, output)
+                self.assertEqual(manifest['host_runtimes'], {'npm': version})
+                self.assertEqual(set(manifest['runtimes']), {'python', 'node'})
+                self.assertFalse((output / 'runtimes/npm.zip').exists())
+
     def test_host_versions_reject_unsupported_prerelease_and_path_values(self):
         cases = (
             ('python', '3.12.0'), ('python', '3.11.1rc1'), ('python', '/private/python'),
             ('node', 'v22.11.9'), ('node', 'v23.0.0'), ('node', 'v24.0.0-rc.1'),
             ('node', 'v24.0.0+private-path'), ('node', {'executable': '/private/node'}),
-            ('npm', '10.9.3'), ('npm', 10),
+            ('npm', '10.9.3'), ('npm', '10.8.99'), ('npm', '9.9.9'), ('npm', '12.0.0'),
+            ('npm', '11.18.0-rc.1'), ('npm', '11.18.0+private'), ('npm', 'v11.18.0'),
+            ('npm', '11.018.0'), ('npm', '/private/npm'), ('npm', 10),
         )
         for name, version in cases:
             with self.subTest(name=name, version=version):
@@ -517,7 +529,7 @@ class HostRuntimeBundleTests(unittest.TestCase):
             self.bundle.verify_install_bundle(self.project, output)
 
     def test_version_two_included_toolchain_stays_catalog_pinned(self):
-        for name, version in (('python', '3.11.17'), ('npm', '10.9.3')):
+        for name, version in (('python', '3.11.17'), ('npm', '10.9.3'), ('npm', '11.18.0')):
             with self.subTest(name=name):
                 original = self.versions[name]
                 self.versions[name] = version
@@ -541,7 +553,7 @@ class HostRuntimeBundleTests(unittest.TestCase):
                     self.bundle.verify_install_bundle(self.project, output)
 
     def test_complete_bundle_keeps_exact_catalog_node_and_npm_checks(self):
-        for name, version in (('node', 'v24.0.0'), ('npm', '10.9.3')):
+        for name, version in (('node', 'v24.0.0'), ('npm', '10.9.3'), ('npm', '11.18.0')):
             with self.subTest(name=name):
                 original = self.versions[name]
                 self.versions[name] = version
@@ -586,7 +598,7 @@ class HostRuntimeBundleTests(unittest.TestCase):
             self.bundle.require_bundle_host_runtimes(
                 self.project, SourceSettings(mode='offline', offline_dir=output),
                 python_executable=python, node_executable=node)
-        find_npm.assert_called_once_with(node, '10.9.4')
+        find_npm.assert_called_once_with(node, '10.9.4', compatible=True)
 
     def test_offline_host_guard_checks_selected_node_and_matching_npm(self):
         from scripts.launcher.installation_sources import SourceSettings

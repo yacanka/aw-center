@@ -1,4 +1,4 @@
-"""Discover operator-installed Node and its pinned npm CLI without installing."""
+"""Discover operator-installed Node and compatible npm CLI without installing."""
 from __future__ import annotations
 
 import json
@@ -195,11 +195,24 @@ def _npm_candidates(node):
             yield (directory / relative).resolve()
 
 
-def find_npm_cli(node: Path, version: str) -> Path | None:
-    """Find exact pinned npm beside validated Node; execute JS directly, never CMD.
+def supported_npm_version(value) -> bool:
+    """Accept reviewed stable system npm 10.9.4+ (10.x) and 11.x versions."""
+    if not isinstance(value, str) or len(value) > 32:
+        return False
+    match = re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value)
+    if match is None:
+        return False
+    major, minor, patch = map(int, match.groups())
+    return major == 11 or major == 10 and (minor, patch) >= (9, 4)
 
-    Missing or incompatible npm permits managed npm acquisition. Cancellation
-    propagates so stopping an operation can never initiate a fallback download.
+
+def find_npm_cli(node: Path, version: str, *, compatible: bool = False) -> Path | None:
+    """Find system npm beside validated Node; execute JS directly, never CMD.
+
+    Exact matching remains the default. Compatible selection accepts reviewed
+    stable system versions without changing the managed archive pin. Missing or
+    incompatible npm permits managed npm acquisition. Cancellation propagates so
+    stopping an operation can never initiate a fallback download.
     """
     seen = set()
     for cli in _npm_candidates(node):
@@ -210,7 +223,9 @@ def find_npm_cli(node: Path, version: str) -> Path | None:
         try:
             result = controlled_run([str(node), str(cli), '--version'], env=_probe_environment(),
                                     capture_output=True, text=True, encoding='utf-8', timeout=PROBE_TIMEOUT_SECONDS, check=False)
-            if result.returncode == 0 and result.stdout.strip() == version:
+            actual = result.stdout.strip()
+            accepted = supported_npm_version(actual) if compatible else actual == version
+            if result.returncode == 0 and accepted:
                 return cli
         except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, AttributeError):
             continue

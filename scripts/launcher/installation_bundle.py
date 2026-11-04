@@ -79,7 +79,7 @@ class BundleHostRuntimeError(LauncherError):
         self.remedy = {
             'python': 'Bu çevrimdışı paket için tam CPython 3.11 x64 kurulumunu seçin; venv ve ensurepip desteği gerekir.',
             'node': 'Bu çevrimdışı paket için kurulu Node 22.12+ (22.x) veya 24+ x64 yürütülebilir dosyasını seçin.',
-            'npm': 'Bu çevrimdışı paket için seçilen uyumlu Node kurulumunun yanında npm 10.9.4 bulunmalıdır.',
+            'npm': 'Bu çevrimdışı paket için seçilen uyumlu Node kurulumunun yanında npm 10.9.4+ (10.x) veya 11.x bulunmalıdır.',
         }.get(self.artifact, 'Bu çevrimdışı paketin gerekli sistem araçlarını kurup yeniden seçin.')
         super().__init__(f"Çevrimdışı paketin gerektirdiği {labels.get(self.artifact, 'sistem aracı')} bulunamadı veya uyumsuz.")
 
@@ -307,7 +307,8 @@ def _supported_host_version(name: str, value) -> bool:
     if name == 'python':
         return re.fullmatch(r'3\.11\.(0|[1-9][0-9]*)', value) is not None
     if name == 'npm':
-        return value == '10.9.4'
+        from .system_node import supported_npm_version
+        return supported_npm_version(value)
     match = re.fullmatch(r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value)
     if match is None:
         return False
@@ -320,7 +321,7 @@ def _host_runtime_metadata(toolchain, names: frozenset[str]) -> dict[str, str]:
         raise LauncherError('installation bundle toolchain metadata is invalid')
     hosts = {name: toolchain.get(name) for name in sorted(names)}
     if any(not _supported_host_version(name, version) for name, version in hosts.items()):
-        raise LauncherError('installation host runtimes require Python 3.11, supported Node and npm 10.9.4')
+        raise LauncherError('installation host runtimes require Python 3.11, supported Node and supported npm')
     return hosts
 
 
@@ -691,5 +692,5 @@ def require_bundle_host_runtimes(project: Project, settings, *,
         node = validate_node(node_executable)
     except SystemNodeError:
         raise BundleHostRuntimeError(required) from None
-    if 'npm' in hosts and find_npm_cli(node, '10.9.4') is None:
+    if 'npm' in hosts and find_npm_cli(node, '10.9.4', compatible=True) is None:
         raise BundleHostRuntimeError('npm')

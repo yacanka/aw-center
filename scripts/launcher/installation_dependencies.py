@@ -36,23 +36,29 @@ def availability_failure(output: str) -> bool:
 
 
 def capture(command: list, project: Project, overrides: dict | None = None, *, timeout=1800):
-    """Do not echo package-manager diagnostics, which may contain proxy credentials."""
+    """Capture diagnostics privately while isolating inherited package settings."""
     values = environment(overrides)
     values = {key: value for key, value in values.items()
               if not key.upper().startswith(("PIP_", "NPM_CONFIG_"))}
     values.update({"PIP_CONFIG_FILE": os.devnull, "PIP_NO_INPUT": "1",
                    "PIP_DEFAULT_TIMEOUT": "10", "PIP_RETRIES": "1",
-                   "NPM_CONFIG_USERCONFIG": os.devnull, "NPM_CONFIG_GLOBALCONFIG": os.devnull,
                    "NODE_TLS_REJECT_UNAUTHORIZED": "1", "NPM_CONFIG_STRICT_SSL": "true",
                    "NPM_CONFIG_FETCH_RETRIES": "1", "NPM_CONFIG_FETCH_TIMEOUT": "15000"})
-    if overrides:
-        values.update(overrides)
-    try:
-        return controlled_run([str(part) for part in command], cwd=project.root, env=values,
-                              capture_output=True, text=True, timeout=timeout, check=False,
-                              safe_boundary=any(str(part) == "migrate" for part in command))
-    except subprocess.TimeoutExpired:
-        raise LauncherError("Paket işlemi süre sınırını aştı; kurulum yeniden çalıştırılabilir.") from None
+    with tempfile.TemporaryDirectory(prefix="awcenter-package-config-") as temporary:
+        # npm rejects loading the same file as both user and global config,
+        # including the null device. Separate empty files suppress both sources.
+        for kind in ("user", "global"):
+            path = Path(temporary) / (kind + ".npmrc")
+            path.write_bytes(b"")
+            values["NPM_CONFIG_" + kind.upper() + "CONFIG"] = str(path)
+        if overrides:
+            values.update(overrides)
+        try:
+            return controlled_run([str(part) for part in command], cwd=project.root, env=values,
+                                  capture_output=True, text=True, timeout=timeout, check=False,
+                                  safe_boundary=any(str(part) == "migrate" for part in command))
+        except subprocess.TimeoutExpired:
+            raise LauncherError("Paket işlemi süre sınırını aştı; kurulum yeniden çalıştırılabilir.") from None
 
 
 def _succeeded(result, stage: str) -> None:

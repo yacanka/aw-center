@@ -167,6 +167,29 @@ class SystemNodeTests(unittest.TestCase):
             finally:
                 timer.cancel()
 
+    def test_compatible_npm_accepts_reviewed_versions_without_relaxing_exact_mode(self):
+        from scripts.launcher import system_node
+        with tempfile.TemporaryDirectory() as temporary:
+            cli = Path(temporary).resolve() / 'npm-cli.js'
+            with patch.object(system_node, '_npm_candidates', return_value=[cli]):
+                for version in ('10.9.4', '10.9.5', '10.10.0', '11.0.0', '11.18.0'):
+                    with self.subTest(version=version):
+                        cli.write_text('console.log(' + json.dumps(version) + ')')
+                        self.assertEqual(system_node.find_npm_cli(self.node, '10.9.4', compatible=True), cli)
+                        expected = cli if version == '10.9.4' else None
+                        self.assertEqual(system_node.find_npm_cli(self.node, '10.9.4'), expected)
+
+    def test_compatible_npm_rejects_unsupported_and_nonstable_cli_versions(self):
+        from scripts.launcher import system_node
+        with tempfile.TemporaryDirectory() as temporary:
+            cli = Path(temporary).resolve() / 'npm-cli.js'
+            with patch.object(system_node, '_npm_candidates', return_value=[cli]):
+                for version in ('9.9.9', '10.8.99', '10.9.3', '12.0.0', '11.18.0-rc.1',
+                                '11.18.0+private', 'v11.18.0', '11.018.0', '/private/npm'):
+                    with self.subTest(version=version):
+                        cli.write_text('console.log(' + json.dumps(version) + ')')
+                        self.assertIsNone(system_node.find_npm_cli(self.node, '10.9.4', compatible=True))
+
 
 class SystemNodeDiscoveryTests(unittest.TestCase):
     def test_path_discovery_continues_past_an_incompatible_installation(self):
@@ -308,6 +331,26 @@ class SelectedNodeToolchainTests(unittest.TestCase):
             self.assertEqual(toolchain.toolchain_environment(self.home, python_executable=self.python,
                                                             node_executable=self.node), values)
         self.assertFalse(toolchain._directory(self.home, self.catalog['node']).exists())
+
+    @unittest.skipUnless(HOST_NODE, 'A local Node executable is required for real npm probe tests')
+    def test_installed_npm_eleven_does_not_acquire_any_runtime_archive(self):
+        from scripts.launcher import system_node
+        node = Path(HOST_NODE).resolve()
+        self.npm.write_text('console.log("11.18.0")')
+        with patch.object(toolchain, 'load_catalog', return_value=self.catalog), \
+             patch.object(toolchain, 'fetch_artifact', side_effect=self.fetch), \
+             patch.object(toolchain, '_check_version'), \
+             patch('scripts.launcher.system_python.validate_python', return_value=self.python), \
+             patch.object(system_node, 'validate_node', return_value=node), \
+             patch.object(system_node, '_npm_candidates', return_value=[self.npm]):
+            values = toolchain.ensure_toolchain(self.home, SourceSettings(), python_executable=self.python,
+                                               node_executable=node)
+            self.assertEqual(self.fetches, [])
+            self.assertEqual(values['AWCENTER_MANAGED_NPM_CLI'], str(self.npm))
+            self.assertTrue(all(check['status'] == 'ready' for check in toolchain.inspect_toolchain(
+                self.home, python_executable=self.python, node_executable=node)))
+            self.assertEqual(toolchain.toolchain_environment(self.home, python_executable=self.python,
+                                                            node_executable=node), values)
 
     def test_invalid_selected_node_fails_before_writes_or_fetches(self):
         from scripts.launcher.system_node import SystemNodeError

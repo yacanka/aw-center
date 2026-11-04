@@ -103,6 +103,7 @@ def _bundled_tools(args, emit, *, project=None):
     from scripts.launcher.installation_state import installation_lock
     from scripts.launcher.toolchain import ensure_toolchain
     options = _tool_choices(args)
+    preparation_options = {**options, 'progress': getattr(args, 'progress', None)}
     settings = source_settings(args, project) if project is not None else None
     if project is not None:
         from scripts.launcher.installation_bundle import require_bundle_host_runtimes
@@ -115,11 +116,11 @@ def _bundled_tools(args, emit, *, project=None):
         emit({'type': 'phase', 'message': 'Seçilen runtime ve Node/npm hazırlanıyor'})
         with installation_lock(installation_home()):
             ensure_toolchain(installation_home(), SourceSettings(
-                offline_dir=Path(sys.executable).parent, mode='offline'), **options)
+                offline_dir=Path(sys.executable).parent, mode='offline'), **preparation_options)
     else:
         # Source development still uses the selected policy; no global install.
         with installation_lock(installation_home()):
-            ensure_toolchain(installation_home(), settings or source_settings(args), **options)
+            ensure_toolchain(installation_home(), settings or source_settings(args), **preparation_options)
 
 
 def _remedy(phase):
@@ -136,9 +137,10 @@ def _failure_reason(error):
     """Translate reviewed error categories, never interpolate exception payloads."""
     from scripts.launcher.installation_sources import ArtifactDownloadError
     from scripts.launcher.installation_bundle import BundleHostRuntimeError
+    from scripts.launcher.toolchain import RuntimeValidationError
     from scripts.launcher.system_node import SystemNodeError
     from scripts.launcher.system_python import SystemPythonError
-    if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError)):
+    if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError)):
         return error.code, str(error)
     if not isinstance(error, LauncherError):
         return 'operation_failed', 'İşlem tamamlanamadı; yapılandırma veya sistem erişimi doğrulanamadı.'
@@ -199,9 +201,10 @@ def execute(request, emit, admin_provider, stop):
         }
         from scripts.launcher.installation_sources import ArtifactDownloadError
         from scripts.launcher.installation_bundle import BundleHostRuntimeError
+        from scripts.launcher.toolchain import RuntimeValidationError
         from scripts.launcher.system_node import SystemNodeError
         from scripts.launcher.system_python import SystemPythonError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError)) else remedies.get(code, _remedy(phase))
+        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError)) else remedies.get(code, _remedy(phase))
         emit({'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy})
         emit({'type': 'done', 'ok': False})
 

@@ -14,6 +14,7 @@ from pathlib import Path
 from .installation_sources import Artifact, SourceSettings, _digest, _no_symlink, _safe_member, _verify as verify_artifact, fetch_artifact, load_catalog, safe_extract
 from .installation_state import private_directory
 from .model import LauncherError
+from .process import controlled_run
 
 RECEIPT = ".awcenter-tool.json"
 MANAGED_RUNTIME_ENVIRONMENT = {
@@ -21,6 +22,31 @@ MANAGED_RUNTIME_ENVIRONMENT = {
     "PYTHONHOME": "", "PYTHONPATH": "", "PYTHONSTARTUP": "", "PYTHONUSERBASE": "",
     "NODE_OPTIONS": "", "NODE_PATH": "", "NODE_TLS_REJECT_UNAUTHORIZED": "1",
 }
+
+
+class RuntimeValidationError(LauncherError):
+    """Fixed runtime/version failure details without subprocess output or paths."""
+
+    def __init__(self, reason, artifact, *, system_error=None, returncode=None):
+        labels = {'python': 'Python', 'node': 'Node.js', 'npm': 'npm'}
+        failures = {
+            'start_failed': 'sürüm denetimi başlatılamadı',
+            'timeout': 'sürüm denetimi 30 saniyelik sınırı aştı',
+            'process_failed': 'sürüm denetimi hata ile kapandı',
+            'version_mismatch': 'sürümü onaylı runtime kataloğuyla uyuşmuyor',
+            'invalid_response': 'sürüm denetimi okunabilir bir yanıt vermedi',
+        }
+        self.reason = reason if reason in failures else 'invalid_response'
+        self.artifact = artifact if artifact in labels else None
+        self.code = 'runtime_validation_' + self.reason
+        self.remedy = ('Seçili Node/Python kurulumunu ve çalışma iznini kontrol edin. '
+                       'Manager sürümünü güncelleyin; hata kodu ve sayısal sistem kodunu inceleyin.')
+        message = f"{labels.get(self.artifact, 'Runtime')} {failures[self.reason]}."
+        for label, value in (('WinError', getattr(system_error, 'winerror', None)),
+                             ('errno', getattr(system_error, 'errno', None)), ('Süreç çıkış kodu', returncode)):
+            if type(value) is int:
+                message += f' {label}: {value}.'
+        super().__init__(message)
 
 
 def _directory(home: Path, artifact: Artifact) -> Path:
@@ -37,17 +63,26 @@ def _inventory(directory: Path) -> dict[str, str]:
 
 
 def _check_version(executable: Path, version: str, *, node: Path | None = None) -> None:
+    name = 'npm' if node is not None else 'python' if executable.name == 'python.exe' else 'node'
     command = [str(executable), "--version"] if node is None else [str(node), str(executable), "--version"]
     if executable.name == "python.exe":
         command[1:1] = ["-I", "-S", "-B", "-X", "utf8", "-X", "frozen_modules=on"]
     try:
-        completed = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30, env={**os.environ, **MANAGED_RUNTIME_ENVIRONMENT})
-    except (OSError, subprocess.TimeoutExpired):
-        raise LauncherError("managed runtime could not be validated") from None
+        completed = controlled_run(command, check=False, capture_output=True, text=True,
+                                   encoding='utf-8', stdin=subprocess.DEVNULL, timeout=30,
+                                   env={**os.environ, **MANAGED_RUNTIME_ENVIRONMENT})
+    except subprocess.TimeoutExpired:
+        raise RuntimeValidationError('timeout', name) from None
+    except OSError as error:
+        raise RuntimeValidationError('start_failed', name, system_error=error) from None
+    except UnicodeError:
+        raise RuntimeValidationError('invalid_response', name) from None
+    if completed.returncode:
+        raise RuntimeValidationError('process_failed', name, returncode=completed.returncode)
     rendered = completed.stdout.strip()
     expected = "Python " + version if executable.name == "python.exe" else version
-    if completed.returncode or rendered.removeprefix("v") != expected:
-        raise LauncherError("managed runtime version does not match the reviewed catalog")
+    if rendered.removeprefix("v") != expected:
+        raise RuntimeValidationError('version_mismatch', name)
 
 
 def _npm_wrapper_files(node: Path, target: Path) -> dict[str, bytes]:
@@ -117,11 +152,13 @@ def _refresh_npm_wrappers(home: Path, target: Path, node: Path, current: dict, e
     return False
 
 
-def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None = None) -> Path:
+def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None = None, progress=None) -> Path:
     target = _directory(home, artifact)
     _no_symlink(target)
     with tempfile.TemporaryDirectory(prefix=".tool-", dir=home / "runtimes") as temporary:
         stage = Path(temporary) / "content"
+        if callable(progress):
+            progress(f'{artifact.name} runtime arşivi açılıyor')
         safe_extract(archive, stage, artifact.archive)
         executable = stage / artifact.executable
         if not executable.is_file():
@@ -138,9 +175,13 @@ def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None
                 raise LauncherError(f"managed {artifact.name} files differ from the reviewed archive")
         else:
             shutil.move(str(stage), str(target))
+        if callable(progress):
+            progress(f'{artifact.name} runtime sürümü doğrulanıyor')
         _check_version(target / artifact.executable, artifact.version, node=node)
         receipt = {"name": artifact.name, "version": artifact.version, "sha256": artifact.sha256, "files": expected}
         receipt_path = target / RECEIPT
+        if callable(progress):
+            progress(f'{artifact.name} runtime doğrulama kaydı yazılıyor')
         _no_symlink(receipt_path)
         contents = json.dumps(receipt, sort_keys=True, indent=2) + "\n"
         if not receipt_path.exists() or receipt_path.read_text(encoding="utf-8") != contents:
@@ -149,13 +190,13 @@ def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None
 
 
 def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable: Path | None = None,
-                     node_executable: Path | None = None) -> dict[str, str]:
+                     node_executable: Path | None = None, progress=None) -> dict[str, str]:
     """Install reviewed native artifacts; return environment overrides only.
 
     Hosts do not receive global PATH, registry or dependency-lock modifications.
     The caller owns when to apply the returned process-local environment.
     Explicit system Python/Node are validated and reused without their archives.
-    A matching npm beside system Node is reused; otherwise only npm is acquired.
+    A compatible npm beside system Node is reused; otherwise only npm is acquired.
     """
     home = Path(home)
     _no_symlink(home)
@@ -167,7 +208,9 @@ def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable:
     if node_executable is not None:
         from .system_node import find_npm_cli, validate_node
         node_executable = validate_node(node_executable)
-        npm_cli = find_npm_cli(node_executable, catalog['npm'].version)
+        if callable(progress):
+            progress('Kurulu npm sürümü denetleniyor')
+        npm_cli = find_npm_cli(node_executable, catalog['npm'].version, compatible=True)
     for directory in (home, home / "cache", home / "cache" / "runtimes", home / "runtimes"):
         private_directory(directory)
     paths = {}
@@ -182,8 +225,13 @@ def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable:
             paths[name] = npm_cli
             continue
         artifact = catalog[name]
+        if callable(progress):
+            progress(f'{name} runtime arşivi hazırlanıyor')
         archive = fetch_artifact(artifact, home / "cache" / "runtimes", settings)
-        paths[name] = _install(home, artifact, archive, node=paths.get("node") if name == "npm" else None)
+        options = {'node': paths.get('node') if name == 'npm' else None}
+        if progress is not None:
+            options['progress'] = progress
+        paths[name] = _install(home, artifact, archive, **options)
     return _environment(home, catalog, python_executable=python_executable,
                         node_executable=node_executable, npm_cli=paths['npm'])
 
@@ -197,7 +245,7 @@ def _environment(home: Path, catalog: dict[str, Artifact], *, python_executable:
         from .system_node import find_npm_cli
         paths['node'] = node_executable
         if npm_cli is None:
-            npm_cli = find_npm_cli(node_executable, catalog['npm'].version)
+            npm_cli = find_npm_cli(node_executable, catalog['npm'].version, compatible=True)
     if npm_cli is not None:
         paths['npm'] = npm_cli
     directories = [paths["python"].parent, paths["python"].parent / "Scripts", paths["node"].parent]
@@ -239,8 +287,8 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
             continue
         if name == 'npm' and verified_node is not None:
             from .system_node import find_npm_cli
-            if find_npm_cli(verified_node, artifact.version) is not None:
-                checks.append({'name': 'npm', 'status': 'ready', 'detail': f'Sistem npm {artifact.version} doğrulandı; yönetilen arşiv gerekmez.'})
+            if find_npm_cli(verified_node, artifact.version, compatible=True) is not None:
+                checks.append({'name': 'npm', 'status': 'ready', 'detail': 'Uyumlu sistem npm doğrulandı; yönetilen arşiv gerekmez.'})
                 continue
         target = _directory(Path(home), artifact)
         check = {"name": name, "status": "missing", "detail": f"managed {name} {artifact.version} is missing"}

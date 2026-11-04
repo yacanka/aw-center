@@ -25,9 +25,10 @@ The optional Python checkbox explicitly forces the managed Python; default is au
   or Node 24+. These ranges cover the checked-in Vite/Vitest engine intersection
   and the project's TypeScript stripping commands; unsupported/prerelease versions
   are rejected.
-- npm remains pinned to 10.9.4 (`frontend/package.json` packageManager). An existing
-  matching npm CLI alongside the selected Node is reused. Otherwise only the
-  reviewed npm archive is acquired.
+- Managed npm remains pinned to 10.9.4 (`frontend/package.json` packageManager).
+  Compatible installed stable npm 10.9.4+ within major 10 or npm 11 is reused;
+  otherwise only the reviewed npm archive is acquired. Issue #131 clarified the
+  requirement with Node 26.12.1/npm 11.18.0; runtime pins and locks remain unchanged.
 - System tools are never modified. Profile metadata stores executable pointers;
   form preferences store Node command/path with the same safeguards as Python.
 
