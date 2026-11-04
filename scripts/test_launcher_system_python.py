@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -19,6 +20,75 @@ from scripts.manager.view_model import normalize_values
 
 
 class SystemPythonTests(unittest.TestCase):
+    def test_slow_valid_python_is_not_rejected_after_five_seconds(self):
+        from scripts.launcher import system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        original_run = system_python.controlled_run
+        calls = []
+        def slow_start(command, **options):
+            calls.append(command)
+            # Model a cold interpreter/module load that exceeds the old budget.
+            command = [*command[:-1], 'import time; time.sleep(5.2)\n' + command[-1]]
+            return original_run(command, **options)
+        with patch.object(system_python, 'controlled_run', side_effect=slow_start):
+            self.assertEqual(system_python.discover_python(str(python)), python)
+        self.assertEqual(len(calls), 1, 'A fully validated direct interpreter must not be launched twice')
+
+    def test_duplicate_interpreter_aliases_do_not_repeat_timeout(self):
+        from scripts.launcher import system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        # Lexically different spellings can identify the same executable.
+        alternate = str(python.parent) + '/../' + python.parent.name + '/' + python.name
+        with patch.object(system_python, '_candidates', return_value=[[str(python)], [alternate]]), \
+             patch.object(system_python, 'controlled_run', side_effect=subprocess.TimeoutExpired('private command', 60)) as run:
+            with self.assertRaises(system_python.SystemPythonError) as caught:
+                system_python.discover_python()
+        self.assertEqual(caught.exception.code, 'system_python_timeout')
+        self.assertEqual(run.call_count, 1)
+
+    def test_extended_probe_can_still_be_cancelled(self):
+        from scripts.launcher import process, system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        stop = threading.Event()
+        timer = threading.Timer(0.2, stop.set)
+        timer.start()
+        try:
+            with process.operation_control(stop), patch.object(system_python, '_PROBE', 'import time; time.sleep(30)'):
+                with self.assertRaises(process.OperationCancelled):
+                    system_python.discover_python(str(python))
+        finally:
+            timer.cancel()
+
+    def test_wrapper_hint_still_requires_validation_of_actual_base(self):
+        from scripts.launcher import system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        value = {'version': [3, 11], 'bits': 64, 'implementation': 'cpython',
+                 'platform': 'win-amd64', 'base': str(python),
+                 'modules': {'sysconfig': 'ok', 'venv': 'ok', 'ensurepip': 'ok'}}
+        with tempfile.TemporaryDirectory() as temporary:
+            hint = Path(temporary).resolve() / 'python-hint.exe'
+            hint.write_text('fixture', encoding='utf-8')
+            answers = [subprocess.CompletedProcess([], 0, json.dumps(value), ''),
+                       subprocess.CompletedProcess([], 0, json.dumps({**value, 'version': [3, 12]}), '')]
+            with patch.object(system_python, 'controlled_run', side_effect=answers):
+                with self.assertRaises(system_python.SystemPythonError) as caught:
+                    system_python.discover_python(str(hint))
+        self.assertEqual(caught.exception.code, 'system_python_version')
+
+    def test_manager_reports_python_check_before_waiting_for_probe(self):
+        from scripts.manager.operations import _python_choice
+        from scripts.launcher.system_python import PROBE_TIMEOUT_SECONDS
+        args = arguments({'action': 'provision'})
+        phases = []
+        args.progress = phases.append
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        def discover():
+            self.assertTrue(phases, 'The UI must identify the phase before a slow probe starts')
+            return python
+        with patch('scripts.launcher.system_python.discover_python', side_effect=discover):
+            self.assertEqual(_python_choice(args), {'python_executable': python})
+        self.assertIn(str(PROBE_TIMEOUT_SECONDS), phases[0])
+
     def test_windows_python_3113_is_accepted(self):
         from scripts.launcher.system_python import discover_python
         python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()

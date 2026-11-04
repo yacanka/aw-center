@@ -12,6 +12,8 @@ from .model import LauncherError
 from .process import controlled_run, environment
 from .process import OperationCancelled
 
+PROBE_TIMEOUT_SECONDS = 60
+
 _ERROR = 'Uygun sistem Python 3.11 x64 bulunamadı. Python komutu / yolu alanına python veya python.exe yolunu girin; gerekirse “Python çalışma zamanını kur” seçeneğini işaretleyin.'
 _PROBE = '''import json, sys, struct
 value = {"version": list(sys.version_info[:2]), "micro": sys.version_info.micro,
@@ -35,7 +37,7 @@ _FAILURES = {
     'excluded': ('Seçilen yol sistem Python’u olarak kullanılamıyor.', 'Microsoft Store alias’ı veya AW Center yönetilen runtime dizini yerine kurulu python.exe dosyasını seçin.'),
     'start_failed': ('Python denetim süreci başlatılamadı.', 'Dosyanın python.exe olduğunu ve Windows uygulama çalıştırma politikasını kontrol edin; sayısal sistem kodunu inceleyin.'),
     'process_failed': ('Python denetim süreci hata ile kapandı.', 'Süreç çıkış koduyla Python kurulumunu ve gerekli DLL dosyalarını kontrol edin.'),
-    'timeout': ('Python denetimi 5 saniyede tamamlanmadı.', 'Python’un CMD’de açılabildiğini ve güvenlik yazılımının süreç başlatmayı geciktirip geciktirmediğini kontrol edin.'),
+    'timeout': (f'Python denetimi {PROBE_TIMEOUT_SECONDS} saniyelik süre sınırını aştı.', 'Seçilen python.exe dosyasının aynı bilgisayarda CMD’den çalışabildiğini ve güvenlik yazılımının süreç başlatmayı geciktirip geciktirmediğini kontrol edin.'),
     'invalid_response': ('Python beklenen denetim yanıtını vermedi.', 'python.exe seçin; komutun ek çıktı üreten bir wrapper olmadığını ve Python kurulumunu kontrol edin.'),
     'version': ('Python sürümü uyumsuz; CPython 3.11 gerekiyor.', '3.11.x kurulumunu seçin. 3.11.3 dahil 3.11 yama sürümleri kabul edilir.'),
     'architecture': ('Python mimarisi uyumsuz; Windows x64 gerekiyor.', '64 bit AMD64 CPython 3.11 kurulumunu seçin; ARM64 ve 32 bit yorumlayıcılar desteklenmiyor.'),
@@ -109,7 +111,7 @@ def _probe(command, *, failures=None):
     values.pop('PYLAUNCHER_ALLOW_INSTALL', None)
     try:
         result = controlled_run([*map(str, command), '-I', '-S', '-B', '-X', 'utf8', '-c', _PROBE],
-                                env=values, capture_output=True, text=True, timeout=5, check=False)
+                                env=values, capture_output=True, text=True, timeout=PROBE_TIMEOUT_SECONDS, check=False)
         if result.returncode:
             raise SystemPythonError('process_failed', returncode=result.returncode)
         if len(result.stdout) > 4096:
@@ -228,16 +230,25 @@ def discover_python(selection: str | None = None) -> Path:
     seen = set()
     failures = []
     for command in (_selected_candidates(selection) if selection else _candidates()):
-        identity = tuple(map(str, command))
+        executable = Path(command[0])
+        if _excluded(executable):
+            failures.append(SystemPythonError('excluded'))
+            continue
+        # PATH aliases/case differences must not repeatedly consume a slow
+        # interpreter's entire timeout budget. Keep launcher arguments distinct.
+        resolved = executable.resolve()
+        identity = (os.path.normcase(str(resolved)), *map(str, command[1:]))
         if identity in seen:
             continue
         seen.add(identity)
-        if _excluded(Path(command[0])):
-            failures.append(SystemPythonError('excluded'))
-            continue
         base = _probe(command, failures=failures)
         if base is not None:
             try:
+                if _excluded(base):
+                    raise SystemPythonError('excluded')
+                if base == resolved:
+                    # This exact file has passed every probe check already.
+                    return base
                 return validate_python(base)
             except OperationCancelled:
                 raise

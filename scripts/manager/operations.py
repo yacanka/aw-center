@@ -49,7 +49,10 @@ def _python_choice(args):
     if args.install_python:
         return {}
     if not getattr(args, 'python_executable', None):
-        from scripts.launcher.system_python import discover_python
+        from scripts.launcher.system_python import PROBE_TIMEOUT_SECONDS, discover_python
+        progress = getattr(args, 'progress', None)
+        if callable(progress):
+            progress(f'Sistem Python’u denetleniyor; her aday için en fazla {PROBE_TIMEOUT_SECONDS} saniye beklenir')
         selection = getattr(args, 'python_command', None)
         args.python_executable = discover_python(selection) if selection else discover_python()
     return {'python_executable': args.python_executable}
