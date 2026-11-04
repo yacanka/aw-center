@@ -241,6 +241,13 @@ class NativeWindowsPackageTests(unittest.TestCase):
 
     def exercise_lifecycle(self, executable, directory, request, *, network, timeout):
         child, events = self.start_worker(executable, directory, request, network=network)
+        try:
+            return self._exercise_started_lifecycle(child, events, request, timeout)
+        finally:
+            # Clean up before TemporaryDirectory, including assertion failures.
+            self.stop_worker(child)
+
+    def _exercise_started_lifecycle(self, child, events, request, timeout):
         password = secrets.token_urlsafe(48)
         received, ready, admin_requested = [], False, False
         deadline = time.monotonic() + timeout
@@ -256,9 +263,12 @@ class NativeWindowsPackageTests(unittest.TestCase):
             if event['type'] == 'ready':
                 ready = True
                 from urllib.request import ProxyHandler, build_opener
-                with build_opener(ProxyHandler({})).open(
-                        f"http://127.0.0.1:{request['backend_port']}/health/ready/", timeout=15) as response:
-                    self.assertEqual(response.status, 200)
+                # Dev serves its frontend from Vite; Django's deployment
+                # readiness requires a production frontend artifact.
+                for url in (f"http://127.0.0.1:{request['backend_port']}/health/live/",
+                            f"http://127.0.0.1:{request['frontend_port']}/app/"):
+                    with build_opener(ProxyHandler({})).open(url, timeout=15) as response:
+                        self.assertEqual(response.status, 200)
                 child.stdin.write(b'{"type":"cancel"}\n')
                 child.stdin.flush()
         self.assertTrue(ready, received)

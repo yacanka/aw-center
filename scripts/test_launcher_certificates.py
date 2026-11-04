@@ -14,6 +14,15 @@ from scripts.launcher.model import LauncherError
 
 
 class PackageTrustTests(unittest.TestCase):
+    def test_isolated_python_trust_probe_cannot_write_runtime_bytecode(self):
+        with patch.object(certificates, '_tool_roots') as probe:
+            certificates._python_roots(sys.executable, {})
+        command = probe.call_args.args[0]
+        result = subprocess.run([*command[:command.index('-c')], '-c',
+                                 'import sys; print(sys.dont_write_bytecode)'],
+                                capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout.strip(), 'True')
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

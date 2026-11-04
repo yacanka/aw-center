@@ -167,7 +167,7 @@ def _ensure_venv(project: Project, tool_env: dict, *, expected_python: Path | No
     if result.returncode or result.stdout.strip() != "True":
         raise LauncherError("Mevcut .venv CPython 3.11 x64 ile oluşturulmalı; otomatik değiştirilmedi.")
     if expected_python is not None:
-        base = capture([project.python, '-I', '-c',
+        base = capture([project.python, '-I', '-B', '-c',
                         'import sys; print(getattr(sys, "_base_executable", sys.executable))'], project, tool_env)
         if (base.returncode or not base.stdout.strip() or
                 Path(base.stdout.strip()).resolve() != Path(expected_python).resolve()):

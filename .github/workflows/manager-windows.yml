@@ -54,6 +54,19 @@ jobs:
           architecture: x64
       - name: Require a working native Tk display
         run: python -c "import tkinter as tk; root = tk.Tk(); root.update(); root.destroy()"
+      - name: Require working offline network containment before building
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Service MpsSvc
+          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
+          @'
+          import socket
+          from scripts.manager_windows_acceptance import deny_external_network
+          with deny_external_network(socket.gethostbyname(socket.gethostname())):
+              pass
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Record source manager startup evidence
         run: |
           if not exist "%RUNNER_TEMP%\manager-ui-evidence" mkdir "%RUNNER_TEMP%\manager-ui-evidence"
@@ -74,7 +87,7 @@ jobs:
         env:
           AWCENTER_RUN_MANAGER_WINDOWS_SMOKE: '1'
           AWCENTER_MANAGER_EXE: ${{ runner.temp }}\awcenter-manager-portable\AWCenterManager.exe
-        run: python -m unittest scripts.test_manager_package.NativeWindowsPackageTests scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+        run: python -m unittest -v scripts.test_manager_package.NativeWindowsPackageTests scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
       - name: Upload manager ZIP and reviewable checksum inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

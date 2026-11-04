@@ -140,7 +140,8 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                         self.assertTrue(admin)
                         origin = f"https://{host}:{request['backend_port']}" if profile == 'prod' else f"http://127.0.0.1:{request['backend_port']}"
                         certificate = directory / 'cert.pem' if profile == 'prod' else None
-                        job_id, digest = LiveAcceptance(origin, certificate).exercise(password)
+                        frontend = origin if profile == 'prod' else f"http://127.0.0.1:{request['frontend_port']}"
+                        job_id, digest = LiveAcceptance(origin, certificate, frontend).exercise(password)
                         private = directory / 'local/AWCenter'
                         saved = json.loads((private / 'config' / (profile + '.profile.json')).read_text(encoding='utf-8'))
                         self.assertEqual(bool(saved.get('python_executable')), system)

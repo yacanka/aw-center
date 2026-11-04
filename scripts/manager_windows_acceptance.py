@@ -36,7 +36,9 @@ def deny_external_network(host):
             'name=' + name, 'dir=out', 'action=block', 'enable=yes', 'profile=any',
             'remoteip=' + remote], capture_output=True, timeout=30)
         if result.returncode:
-            raise AssertionError('Native offline acceptance requires an active Windows Firewall and rule creation rights')
+            raise AssertionError('Windows Firewall rule creation failed: ' +
+                                 result.stdout.decode(errors='replace')[:2000] +
+                                 result.stderr.decode(errors='replace')[:2000])
         names.append(name)
         yield
     finally:
@@ -55,8 +57,9 @@ def docx_bytes(text):
 
 
 class LiveAcceptance:
-    def __init__(self, origin, certificate=None):
+    def __init__(self, origin, certificate=None, frontend_origin=None):
         self.origin = origin
+        self.frontend_origin = frontend_origin or origin
         self.cookies = CookieJar()
         self.handlers = [ProxyHandler({})]
         if certificate:
@@ -89,7 +92,7 @@ class LiveAcceptance:
         session = self.json('/api/session/', data=credentials, headers={'Content-Type': 'application/json'})
         assert session['state'] == 'authenticated'
         assert self.json('/api/session/')['user']['username'] == 'U12345'
-        with self.request('/app/') as response:
+        with self.client.open(self.frontend_origin + '/app/', timeout=30) as response:
             assert b'<html' in response.read().lower()
         boundary = 'awc' + secrets.token_hex(16)
         body = bytearray()

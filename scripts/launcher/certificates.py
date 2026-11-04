@@ -28,7 +28,8 @@ def _python_roots(python, tool_env):
             'context.load_verify_locations(cafile=certifi.where()); '
             'print("".join(ssl.DER_cert_to_PEM_cert(cert) '
             'for cert in context.get_ca_certs(binary_form=True)))')
-    return _tool_roots([str(python), '-I', '-c', code], tool_env)
+    # -I ignores PYTHONDONTWRITEBYTECODE; pin the read-only probe explicitly.
+    return _tool_roots([str(python), '-I', '-B', '-c', code], tool_env)
 
 
 def _node_roots(node, tool_env):
