@@ -88,6 +88,9 @@ def _remedy(phase):
 
 def _failure_reason(error):
     """Translate reviewed error categories, never interpolate exception payloads."""
+    from scripts.launcher.system_python import SystemPythonError
+    if isinstance(error, SystemPythonError):
+        return error.code, str(error)
     if not isinstance(error, LauncherError):
         return 'operation_failed', 'İşlem tamamlanamadı; yapılandırma veya sistem erişimi doğrulanamadı.'
     text = str(error).casefold()
@@ -145,7 +148,8 @@ def execute(request, emit, admin_provider, stop):
             'env_import_required': 'Çalışan ilgili görevi durdurun; seçilen dosyayı Kur ve başlat ile uygulayın. Mevcut anahtar ve veri yolları korunmalıdır.',
             'env_file_invalid': 'Çalışma sekmesindeki .env dosyasını kontrol edin; yalnız uygulama ayarlarını içeren, profilin anahtarları ve veri yollarıyla uyumlu bir dosya seçin.',
         }
-        remedy = remedies.get(code, _remedy(phase))
+        from scripts.launcher.system_python import SystemPythonError
+        remedy = error.remedy if isinstance(error, SystemPythonError) else remedies.get(code, _remedy(phase))
         emit({'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy})
         emit({'type': 'done', 'ok': False})
 

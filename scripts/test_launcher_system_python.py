@@ -19,6 +19,111 @@ from scripts.manager.view_model import normalize_values
 
 
 class SystemPythonTests(unittest.TestCase):
+    def test_windows_python_3113_is_accepted(self):
+        from scripts.launcher.system_python import discover_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        value = {'version': [3, 11], 'micro': 3, 'bits': 64, 'implementation': 'cpython',
+                 'platform': 'win-amd64', 'base': str(python),
+                 'modules': {'sysconfig': 'ok', 'venv': 'ok', 'ensurepip': 'ok'}}
+        with patch.object(sys, 'platform', 'win32'), \
+             patch('scripts.launcher.system_python.controlled_run', return_value=subprocess.CompletedProcess([], 0, json.dumps(value), '')):
+            self.assertEqual(discover_python(str(python)), python)
+
+    def test_missing_ensurepip_is_reported_instead_of_python_not_found(self):
+        from scripts.launcher import system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        value = {'version': [3, 11], 'micro': 3, 'bits': 64, 'implementation': 'cpython',
+                 'platform': 'win-amd64', 'base': str(python),
+                 'modules': {'sysconfig': 'ok', 'venv': 'ok', 'ensurepip': 'missing'}}
+        with patch.object(system_python, 'controlled_run', return_value=subprocess.CompletedProcess([], 0, json.dumps(value), '')):
+            with self.assertRaises(system_python.SystemPythonError) as caught:
+                system_python.discover_python(str(python))
+        self.assertEqual(caught.exception.code, 'system_python_ensurepip_missing')
+        self.assertIn('ensurepip', str(caught.exception))
+
+    def test_start_failure_keeps_numeric_error_without_private_payload(self):
+        from scripts.launcher import system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        error = OSError(13, 'sensitive-file-path password=private-value')
+        error.winerror = 193
+        with patch.object(system_python, 'controlled_run', side_effect=error):
+            with self.assertRaises(system_python.SystemPythonError) as caught:
+                system_python.discover_python(str(python))
+        self.assertEqual(caught.exception.code, 'system_python_start_failed')
+        self.assertIn('193', str(caught.exception))
+        self.assertNotIn('sensitive-file-path', str(caught.exception))
+        self.assertNotIn('private-value', str(caught.exception))
+
+    def test_manager_error_report_preserves_python_probe_failure(self):
+        from scripts.launcher import system_python
+        from scripts.manager.operations import execute
+        from threading import Event
+        events = []
+        failure = system_python.SystemPythonError('ensurepip_missing')
+        with patch('scripts.manager.operations._dispatch', side_effect=failure):
+            execute({'action': 'provision'}, events.append, lambda: None, Event())
+        error = next(event for event in events if event['type'] == 'error')
+        self.assertEqual(error['code'], 'system_python_ensurepip_missing')
+        self.assertIn('ensurepip', error['message'])
+        self.assertIn('pip', error['remedy'])
+
+    def test_real_probe_reports_missing_modules_and_import_failures(self):
+        from scripts.launcher import system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        for statement, code in (("raise ModuleNotFoundError('private module detail', name='ensurepip')", 'system_python_ensurepip_missing'),
+                                ("raise ImportError('private DLL detail')", 'system_python_module_failed')):
+            wrapper = ('import builtins\noriginal_import = builtins.__import__\n'
+                       'def controlled_import(name, *args, **kwargs):\n'
+                       '    if name == "ensurepip":\n        ' + statement + '\n'
+                       '    return original_import(name, *args, **kwargs)\n'
+                       'builtins.__import__ = controlled_import\n')
+            result = subprocess.run([str(python), '-I', '-S', '-c', wrapper + system_python._PROBE],
+                                    capture_output=True, text=True, timeout=10, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('private', result.stdout)
+            with self.subTest(code=code), patch.object(system_python, 'controlled_run', return_value=result):
+                with self.assertRaises(system_python.SystemPythonError) as caught:
+                    system_python.discover_python(str(python))
+            self.assertEqual(caught.exception.code, code)
+
+    def test_process_failure_and_timeout_are_not_misreported_as_missing_python(self):
+        from scripts.launcher import system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        with patch.object(system_python, 'controlled_run', return_value=subprocess.CompletedProcess([], -1073741515, '', 'private path/credential')):
+            with self.assertRaises(system_python.SystemPythonError) as caught:
+                system_python.discover_python(str(python))
+        self.assertEqual(caught.exception.code, 'system_python_process_failed')
+        self.assertIn('-1073741515', str(caught.exception))
+        self.assertNotIn('private', str(caught.exception))
+        with patch.object(system_python, 'controlled_run', side_effect=subprocess.TimeoutExpired('private command', 5)):
+            with self.assertRaises(system_python.SystemPythonError) as caught:
+                system_python.discover_python(str(python))
+        self.assertEqual(caught.exception.code, 'system_python_timeout')
+        self.assertNotIn('private', str(caught.exception))
+
+    def test_stale_discovery_paths_do_not_hide_missing_component(self):
+        from scripts.launcher import system_python
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        value = {'version': [3, 11], 'bits': 64, 'implementation': 'cpython',
+                 'base': str(python), 'modules': {'sysconfig': 'ok', 'venv': 'ok', 'ensurepip': 'missing'}}
+        with patch.object(system_python, '_candidates', return_value=[[str(python)], ['/missing/python']]), \
+             patch.object(system_python, 'controlled_run', side_effect=[subprocess.CompletedProcess([], 0, json.dumps(value), ''), FileNotFoundError()]):
+            with self.assertRaises(system_python.SystemPythonError) as caught:
+                system_python.discover_python()
+        self.assertEqual(caught.exception.code, 'system_python_ensurepip_missing')
+
+    def test_other_python_versions_do_not_hide_process_start_failure(self):
+        from scripts.launcher import system_python
+        failure = PermissionError(13, 'private path')
+        value = {'version': [3, 12], 'bits': 64, 'implementation': 'cpython'}
+        with patch.object(system_python, '_candidates', return_value=[['first'], ['second'], ['stale']]), \
+             patch.object(system_python, 'controlled_run', side_effect=[failure, subprocess.CompletedProcess([], 0, json.dumps(value), ''), FileNotFoundError()]):
+            with self.assertRaises(system_python.SystemPythonError) as caught:
+                system_python.discover_python()
+        self.assertEqual(caught.exception.code, 'system_python_start_failed')
+        self.assertIn('13', str(caught.exception))
+        self.assertNotIn('private', str(caught.exception))
+
     def test_manual_python_command_and_quoted_path_select_valid_interpreter(self):
         from scripts.launcher.system_python import discover_python
         python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
@@ -156,10 +261,13 @@ class SystemPythonTests(unittest.TestCase):
     def test_windows_arm64_python_is_not_mistaken_for_x64(self):
         from scripts.launcher.system_python import _probe
         value = {'version': [3, 11], 'bits': 64, 'implementation': 'cpython',
-                 'platform': 'win-arm64', 'base': str(Path(sys.executable).resolve())}
+                 'platform': 'win-arm64', 'base': str(Path(sys.executable).resolve()),
+                 'modules': {'sysconfig': 'ok', 'venv': 'ok', 'ensurepip': 'ok'}}
+        failures = []
         with patch.object(sys, 'platform', 'win32'), \
              patch('scripts.launcher.system_python.controlled_run', return_value=subprocess.CompletedProcess([], 0, json.dumps(value), '')):
-            self.assertIsNone(_probe(['python']))
+            self.assertIsNone(_probe(['python'], failures=failures))
+        self.assertEqual(failures[-1].code, 'system_python_architecture')
 
     def test_unchecked_frozen_bootstrap_selects_system_python(self):
         from scripts.manager.operations import _bundled_tools

@@ -11,6 +11,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -121,7 +122,7 @@ class PackageTests(unittest.TestCase):
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE') == '1',
                      'Native packaged Windows acceptance requires AWCENTER_RUN_MANAGER_WINDOWS_SMOKE=1')
 class NativeWindowsPackageTests(unittest.TestCase):
-    def environment(self, directory, *, network):
+    def environment(self, directory, *, network, python_on_path=None):
         system = Path(os.environ['SystemRoot'])
         values = {**os.environ, 'PATH': os.pathsep.join((str(system / 'System32'), str(system))),
                   'LOCALAPPDATA': str(directory / 'local'), 'PYTHONDONTWRITEBYTECODE': '1'}
@@ -134,12 +135,21 @@ class NativeWindowsPackageTests(unittest.TestCase):
                           ALL_PROXY='http://127.0.0.1:9')
         for name in ('python', 'node', 'npm', 'git'):
             self.assertIsNone(shutil.which(name, path=values['PATH']), name)
+        if python_on_path is not None:
+            # Exclude the Windows py launcher too, so automatic discovery must
+            # reach the one operator interpreter explicitly exposed by this test.
+            values['PATH'] = str(python_on_path.parent)
+            selected = shutil.which('python', path=values['PATH'])
+            self.assertIsNotNone(selected, 'Controlled PATH must expose the operator Python')
+            self.assertEqual(Path(selected).resolve(), python_on_path)
+            self.assertIsNone(shutil.which('py', path=values['PATH']))
         return values
 
-    def start_worker(self, executable, directory, request, *, network):
+    def start_worker(self, executable, directory, request, *, network, python_on_path=None):
         from scripts.launcher.windows_job import WindowsJob
         child = subprocess.Popen([str(executable), '--manager-worker', '--manager-gate'],
-                                 cwd=directory, env=self.environment(directory, network=network),
+                                 cwd=directory, env=self.environment(directory, network=network,
+                                                                    python_on_path=python_on_path),
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                  creationflags=subprocess.CREATE_NO_WINDOW)
         child._launcher_job = WindowsJob(child._handle)
@@ -280,6 +290,59 @@ class NativeWindowsPackageTests(unittest.TestCase):
                              'Prepared start must preserve the existing administrator')
             self.assertEqual(hashlib.sha256(private_env.read_bytes()).digest(), before,
                              'Prepared restart must not rewrite private keys or configuration')
+
+    def test_real_packaged_system_python_provision_restart_and_automatic_discovery(self):
+        """Use the host CPython through the frozen worker without installing Python."""
+        executable = Path(os.environ['AWCENTER_MANAGER_EXE']).resolve()
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        with tempfile.TemporaryDirectory(prefix='awcenter-manager-system-python-') as temporary:
+            directory = Path(temporary).resolve()
+            source = self.copy_clean_source(executable, directory)
+            request = self.provision_request(source, 'online')
+            request.update(install_python=False, python_command=str(python))
+            self.assertTrue(self.exercise_lifecycle(executable, directory, request, network=True, timeout=2400),
+                            'A fresh system-Python install must request its first administrator')
+            home = directory / 'local/AWCenter'
+            profile = json.loads((home / 'config/dev.profile.json').read_text(encoding='utf-8'))
+            self.assertEqual(Path(profile['python_executable']).resolve(), python)
+            base = subprocess.run([str(source / '.venv/Scripts/python.exe'), '-I', '-c',
+                                   'import sys; print(sys._base_executable)'],
+                                  cwd=source, env=self.environment(directory, network=False),
+                                  capture_output=True, text=True, timeout=30, check=False)
+            self.assertEqual(base.returncode, 0)
+            self.assertEqual(Path(base.stdout.strip()).resolve(), python)
+            self.assertEqual(list((home / 'runtimes').glob('python-*')), [],
+                             'System selection must not install a managed Python runtime')
+            private_env = home / 'config/dev.env'
+            before = hashlib.sha256(private_env.read_bytes()).digest()
+            request['action'] = 'start'
+            self.assertFalse(self.exercise_lifecycle(executable, directory, request, network=False, timeout=180),
+                             'Prepared system-Python start must preserve the existing administrator')
+            self.assertEqual(hashlib.sha256(private_env.read_bytes()).digest(), before)
+
+            # An occupied output stops bundling after tool validation and before
+            # dependency acquisition, keeping automatic discovery acceptance small.
+            output = directory / 'occupied-bundle'
+            output.mkdir()
+            marker = output / 'preserved.txt'
+            marker.write_bytes(b'keep existing output')
+            automatic = {'action': 'bundle', 'source_root': str(source), 'source_mode': 'online',
+                         'install_python': False, 'output': str(output)}
+            child, events = self.start_worker(executable, directory, automatic, network=False,
+                                             python_on_path=python)
+            received = []
+            deadline = time.monotonic() + 180
+            while not received or received[-1]['type'] != 'done':
+                received.append(self.next_event(child, events, deadline))
+            self.assertTrue(any(event.get('message') == 'Offline paket hazırlanıyor' for event in received),
+                            received)
+            self.assertFalse(received[-1]['ok'], received)
+            self.assertEqual([event.get('code') for event in received if event['type'] == 'error'],
+                             ['source_unavailable'], received)
+            child.wait(timeout=30)
+            self.assertEqual(child.returncode, 0)
+            self.assertEqual(marker.read_bytes(), b'keep existing output')
+            self.assertEqual(list((home / 'runtimes').glob('python-*')), [])
 
     @unittest.skipUnless(os.environ.get('AWCENTER_RUN_MANAGER_OFFLINE_SMOKE') == '1' and
                          os.environ.get('AWCENTER_MANAGER_OFFLINE_BUNDLE'),
