@@ -3,6 +3,7 @@ from pathlib import Path
 import os
 import subprocess
 import sys
+import textwrap
 import threading
 import unittest
 from unittest.mock import patch
@@ -11,6 +12,75 @@ from scripts.launcher import process
 
 
 class ManagerControlTests(unittest.TestCase):
+    def run_with_open_control_pipe(self, statement):
+        program = '''import os, sys, threading
+from scripts.launcher import process
+entered = threading.Event()
+def controls():
+    entered.set()
+    os.read(sys.stdin.fileno(), 1)
+threading.Thread(target=controls, daemon=True).start()
+assert entered.wait(2)
+'''
+        child = subprocess.Popen([sys.executable, '-c', program + textwrap.dedent(statement)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            # communicate() would close stdin and remove the Manager condition.
+            child.wait(timeout=10)
+            output, errors = child.stdout.read(), child.stderr.read()
+            self.assertEqual(child.returncode, 0, errors.decode('utf-8', errors='replace'))
+            return output
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+            for stream in (child.stdin, child.stdout, child.stderr):
+                stream.close()
+
+    def test_managed_command_gets_eof_without_consuming_control_pipe(self):
+        output = self.run_with_open_control_pipe('''
+            with process.operation_control(threading.Event()):
+                result = process.controlled_run(
+                    [sys.executable, '-c', 'import sys; print(repr(sys.stdin.buffer.read()))'],
+                    capture_output=True, text=True, timeout=2, check=True)
+            sys.stdout.write(result.stdout)
+        ''')
+        self.assertEqual(output.splitlines(), [b"b''"])
+
+    def test_managed_command_preserves_explicit_input(self):
+        with process.operation_control(threading.Event()):
+            result = process.controlled_run(
+                [sys.executable, '-c', 'import sys; print(sys.stdin.read())'],
+                input='dedicated input', capture_output=True, text=True, timeout=5, check=True)
+        self.assertEqual(result.stdout, 'dedicated input\n')
+
+    def test_managed_command_preserves_explicit_stdin(self):
+        import tempfile
+        with tempfile.TemporaryFile() as source:
+            source.write(b'dedicated stream')
+            source.seek(0)
+            with process.operation_control(threading.Event()):
+                result = process.controlled_run(
+                    [sys.executable, '-c', 'import sys; print(sys.stdin.read())'],
+                    stdin=source, capture_output=True, text=True, timeout=5, check=True)
+        self.assertEqual(result.stdout, 'dedicated stream\n')
+
+    def test_worker_readiness_does_not_consume_control_pipe(self):
+        output = self.run_with_open_control_pipe('''
+            import tempfile
+            from pathlib import Path
+            from types import SimpleNamespace
+            from scripts.launcher.installation import _worker_ready
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                script = root / 'health.py'
+                script.write_text('import sys; assert sys.stdin.read() == ""', encoding='utf-8')
+                project = SimpleNamespace(python=sys.executable, manage_py=script, root=root)
+                assert _worker_ready(project, root), 'Health process could not finish with the control pipe open'
+            print('ready')
+        ''')
+        self.assertEqual(output.splitlines(), [b'ready'])
+
     def test_frontend_keeps_all_nonsecret_bootstrap_pointers(self):
         tools = {'AWCENTER_MANAGED_PYTHON': '/managed/python.exe',
                  'AWCENTER_MANAGED_NODE': '/managed/node.exe',

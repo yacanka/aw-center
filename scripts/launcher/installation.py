@@ -276,7 +276,8 @@ def _worker_ready(project: Project, directory: Path) -> bool:
     command = [project.python, project.manage_py, "check_job_worker_health", "--worker-id-file", directory / "job"]
     try:
         result = subprocess.run([str(part) for part in command], cwd=project.root,
-                                env=environment(), capture_output=True, text=True, timeout=5, check=False)
+                                env=environment(), stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=5, check=False)
         return result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False

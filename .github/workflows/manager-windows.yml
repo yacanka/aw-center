@@ -2,6 +2,18 @@ name: Portable Windows desktop manager
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - AWCenterManager.pyw
+      - scripts/manager/**
+      - scripts/launcher/**
+      - scripts/build_manager.py
+      - scripts/test_manager*.py
+      - scripts/test_launcher*.py
+      - packaging/**
+      - .github/workflows/manager-windows.yml
+      - frontend/package-lock.json
+      - requirements.txt
   pull_request:
     paths:
       - AWCenterManager.pyw
@@ -9,6 +21,7 @@ on:
       - scripts/launcher/**
       - scripts/build_manager.py
       - scripts/test_manager*.py
+      - scripts/test_launcher*.py
       - packaging/**
       - .github/workflows/manager-windows.yml
       - frontend/package-lock.json

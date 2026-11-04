@@ -100,6 +100,63 @@ class WorkerProtocolTests(unittest.TestCase):
             for stream in (child.stdin, child.stdout, child.stderr):
                 stream.close()
 
+    def test_worker_probes_python_while_control_pipe_read_is_pending(self):
+        program = r'''
+import os
+from pathlib import Path
+import sys
+import threading
+import time
+from unittest.mock import patch
+from scripts.launcher import system_python
+from scripts.manager import operations, worker
+
+reading = threading.Event()
+original_read = os.read
+def observe_read(descriptor, size):
+    if threading.current_thread() is not threading.main_thread():
+        reading.set()
+    return original_read(descriptor, size)
+
+def dispatch(action, args, emit):
+    if not reading.wait(2):
+        raise AssertionError('Worker control reader did not start')
+    # On Windows the inherited pipe's pending ReadFile blocks CPython stdin
+    # initialization, even when its -c command never reads any input.
+    time.sleep(0.1)
+    emit({'type': 'phase', 'message': 'Checking system Python'})
+    executable = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+    if system_python.discover_python(str(executable)) != executable:
+        raise AssertionError('Unexpected system Python')
+    emit({'type': 'status', 'message': 'System Python ready'})
+
+with patch.object(worker.os, 'read', side_effect=observe_read), \
+     patch.object(operations, '_dispatch', side_effect=dispatch), \
+     patch.object(system_python, 'PROBE_TIMEOUT_SECONDS', 2):
+    raise SystemExit(worker.main(['--manager-gate']))
+'''
+        child = subprocess.Popen([sys.executable, '-c', program], cwd=Path(__file__).resolve().parents[1],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            child.stdin.write(b'go\n{"action":"test-sources"}\n')
+            child.stdin.flush()
+            # Keep the owner side open: communicate() would close stdin and
+            # release the pending read, hiding the Windows startup deadlock.
+            self.assertEqual(child.wait(timeout=10), 0)
+            events = [json.loads(line) for line in child.stdout]
+            self.assertEqual(events, [
+                {'type': 'phase', 'message': 'Checking system Python'},
+                {'type': 'status', 'message': 'System Python ready'},
+                {'type': 'done', 'ok': True},
+            ])
+            self.assertEqual(child.stderr.read(), b'')
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+            for stream in (child.stdin, child.stdout, child.stderr):
+                stream.close()
+
     def test_corporate_probe_contacts_selected_endpoints_only(self):
         events = []
         settings = SourceSettings(mode='corporate', python_index_url='https://corporate.invalid/simple/',

@@ -56,6 +56,9 @@ def controlled_run(command, *, safe_boundary=False, **kwargs):
     payload = kwargs.pop("input", None)
     if payload is not None:
         kwargs["stdin"] = subprocess.PIPE
+    # The Manager control reader holds a pending read on its IPC pipe. Letting
+    # Python children inherit it can deadlock Windows stdio initialization.
+    kwargs.setdefault("stdin", subprocess.DEVNULL)
     if kwargs.pop("capture_output", False):
         kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     kwargs.setdefault("stdout", subprocess.DEVNULL)

@@ -69,6 +69,8 @@ Yavaş ilk açılışlar için denetim süresi aday başına **60 saniyedir**; e
 
 Kurulumda değişiklik yapmadan CMD’de `python -I -S -c "import venv, ensurepip, sysconfig; print(sysconfig.get_platform())"` ile aynı izole modül kontrolünü yapabilirsiniz; Windows x64 için başarılı sonuç `win-amd64` olur. `>>>` etkileşimli Python ekranındaysanız önce `exit()` ile CMD’ye dönün. Başarısızsa hata türünü ve Manager’ın yeni hata kodunu birlikte değerlendirin; yalnız sürüm ekranına bakarak yeniden kurulum kararı vermeyin.
 
+CMD denetimi geçmesine rağmen eski Manager paketleri `system_python_timeout` verebilir: Manager’ın kontrol thread’i iletişim pipe’ında okuma beklerken aynı stdin’i miras alan Python, Windows başlangıcında kilitlenebilir. Manager bağlamındaki komutlar artık bu kanalı miras almaz; özel input verilmediyse stdin kapalı girdiye (`DEVNULL`) yönlendirilir. Açık input akışları, iptal kanalı ve CLI kullanımı korunur. Worker sağlık denetimi de iletişim kanalından ayrılmıştır. Düzeltme paketli Manager koduna aittir; kaynak güncellemesinden sonra Windows ZIP/EXE’si yeniden üretilmelidir.
+
 Kutu seçilirse paketteki veya seçilen kaynaklardaki SHA-256 sabitlenmiş yönetilen Python kullanılır. Bu seçim Node/npm hazırlığından ayrıdır. Her iki durumda da uygulamanın kilitli pip paketleri proje `.venv` dizinine kurulur; sistem Python paketleri değiştirilmez. Sistem modu işletim sistemindeki mevcut Python'a güvenir, onun dosyalarına yönetilen arşivin hash pinini uygulamaz.
 
 Başarılı bağımlılık hazırlığından sonra seçilen sistem yorumlayıcısı dev/prod profil metadata'sına ayrı ayrı kaydedilir; Başlat ve Kontrol et aynı seçimi kullanır. Özel env, anahtarlar ve mevcut hesaplar değişmez. Mevcut `.venv` farklı bir Python'a bağlıysa Manager onu otomatik silmez veya yeniden bağlamaz; ayrı temiz kaynak dizini kullanın ya da mevcut ortamın Python seçimini koruyun. Profil değişimi sonradan sistem Python'unu kaldırmaz veya güncellemez.
@@ -211,7 +213,7 @@ Runtime arşivleri için build komutu `--source-mode online|corporate|offline`, 
 
 ## Doğrulama ve mevcut sınır
 
-`.github/workflows/manager-windows.yml` CMD ile Windows üzerinde ZIP üretir ve çıkarılmış EXE'yi çalıştırır. Native kabul testleri:
+`.github/workflows/manager-windows.yml` ilgili kaynak değişiklikleri push edildiğinde, pull request açıldığında veya elle tetiklendiğinde CMD ile Windows üzerinde ZIP üretir ve çıkarılmış EXE'yi çalıştırır. Kaynak worker testi, gerçek kontrol pipe’ı açık ve okuma beklerken sistem Python denetiminin tamamlandığını da doğrular. Native kabul testleri:
 
 - PATH'ten Python, Node, npm ve Git çıkarılmış, ağ proxy'si erişilemez bir ortamda gerçek ilk Tk penceresi;
 - paketli worker'ın özel pipe bağlantısı ve açık Kurumsal/Çevrimdışı kaynak seçimleri;
