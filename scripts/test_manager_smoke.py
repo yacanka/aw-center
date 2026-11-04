@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 import importlib
 import json
+import os
 from pathlib import Path
 import tempfile
 from types import ModuleType, SimpleNamespace
@@ -52,7 +53,7 @@ class ManagerSmokeTests(unittest.TestCase):
         with patch.object(preferences, 'load_preferences', return_value={
                 'source_root': 'C:/saved/source', 'python_command': 'py -3.11'}), \
              patch.object(preferences, 'save_preferences') as save, \
-             patch('scripts.launcher.installation_profiles.installation_home', return_value=Path('/private/manager')):
+             patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')):
             self.assertEqual(main.main([]), 0)
         self.assertEqual(self.controller_factory.call_args.args[2], Path('C:/saved/source'))
         factory = self.controller_factory.call_args.args[1]
@@ -65,9 +66,48 @@ class ManagerSmokeTests(unittest.TestCase):
         self.controller_factory.return_value.view.form_values.return_value = {}
         with patch.object(preferences, 'load_preferences', return_value={'source_root': 'C:/saved'}), \
              patch.object(preferences, 'save_preferences'), \
-             patch('scripts.launcher.installation_profiles.installation_home', return_value=Path('/private/manager')):
+             patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')):
             self.assertEqual(main.main(['--root', 'C:/explicit']), 0)
         self.assertEqual(self.controller_factory.call_args.args[2], Path('C:/explicit'))
+
+    def test_load_failure_shows_safe_detailed_status_and_still_saves_on_close(self):
+        preferences = importlib.import_module('scripts.manager.preferences')
+        self.root.mainloop.side_effect = None
+        error = preferences.PreferencesError('decode', 'invalid_format', legacy=True)
+        self.controller_factory.return_value.view.form_values.return_value = {'python_command': 'python'}
+        with patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')), \
+             patch.object(preferences, 'load_preferences', side_effect=error), \
+             patch.object(preferences, 'save_preferences') as save:
+            self.assertEqual(main.main([]), 0)
+        event = self.controller_factory.return_value.view.handle_event.call_args.args[0]
+        self.assertEqual(event['message'], error.message('load'))
+        save.assert_called_once_with(Path('/private/manager'), {'python_command': 'python'})
+
+    def test_save_failure_displays_details_instead_of_startup_error(self):
+        preferences = importlib.import_module('scripts.manager.preferences')
+        self.root.mainloop.side_effect = None
+        error = preferences.PreferencesError('replace', 'file_locked')
+        with patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')), \
+             patch.object(preferences, 'load_preferences', return_value={}), \
+             patch.object(preferences, 'save_preferences', side_effect=error), \
+             patch.object(main, '_preferences_warning') as warning, patch.object(main, '_startup_error') as startup:
+            self.assertEqual(main.main([]), 0)
+        warning.assert_called_once_with(error)
+        startup.assert_not_called()
+
+    def test_real_user_preferences_survive_close_and_reopen(self):
+        self.root.mainloop.side_effect = None
+        directory = Path(self.temporary.name).resolve()
+        values = {'profile': 'dev', 'python_command': 'python', 'source_root': 'C:/source', 'migrate': True}
+        self.controller_factory.return_value.view.form_values.return_value = values
+        with patch.dict(os.environ, {'LOCALAPPDATA': str(directory)}):
+            self.assertEqual(main.main([]), 0)
+            self.assertEqual(main.main([]), 0)
+        restored = self.controller_factory.call_args.args[1].keywords['initial_values']
+        self.assertEqual(restored['python_command'], 'python')
+        self.assertFalse(restored.get('migrate', False))
+        self.assertTrue((directory / 'AWCenterManager/manager.json').is_file())
+        self.assertFalse((directory / 'AWCenter').exists())
 
     def run_smoke(self):
         status = main.main(['--smoke-test', str(self.result_path)])

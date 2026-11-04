@@ -10,6 +10,15 @@ import stat
 from .model import LauncherError
 
 
+class PermissionCheckError(LauncherError):
+    """An allowlisted check identifier and optional numeric Windows API error."""
+
+    def __init__(self, permission_code, *, winerror=None):
+        super().__init__('Owner-only storage permission verification failed')
+        self.permission_code = permission_code
+        self.winerror = winerror
+
+
 def require_unlinked(path: Path) -> None:
     """Reject links and Windows reparse points in every existing ancestor."""
     path = Path(os.path.abspath(path))
@@ -80,44 +89,45 @@ def _windows_permissions(path: Path, *, apply: bool) -> None:
     token = wintypes.HANDLE()
     owned = []
 
-    def checked(value):
+    def checked(value, code, *, api=True):
         if not value:
-            raise LauncherError('Owner-only Windows ACL verification failed')
+            raise PermissionCheckError(code, winerror=ctypes.get_last_error() if api else None)
         return value
 
     try:
-        checked(advapi.OpenProcessToken(kernel.GetCurrentProcess(), 0x0008, ctypes.byref(token)))
+        checked(advapi.OpenProcessToken(kernel.GetCurrentProcess(), 0x0008, ctypes.byref(token)), 'token_open')
         size = dword()
         advapi.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
         buffer = ctypes.create_string_buffer(size.value)
-        checked(advapi.GetTokenInformation(token, 1, buffer, size, ctypes.byref(size)))
+        checked(advapi.GetTokenInformation(token, 1, buffer, size, ctypes.byref(size)), 'token_read')
         user_sid = ctypes.cast(buffer, ctypes.POINTER(pointer))[0]
         sid_text = wintypes.LPWSTR()
-        checked(advapi.ConvertSidToStringSidW(user_sid, ctypes.byref(sid_text)))
+        checked(advapi.ConvertSidToStringSidW(user_sid, ctypes.byref(sid_text)), 'sid_read')
         owned.append(ctypes.cast(sid_text, pointer))
         if apply:
             descriptor = pointer()
             inheritance = 'OICI' if path.is_dir() else ''
             sddl = f'O:{sid_text.value}D:P(A;{inheritance};FA;;;{sid_text.value})'
-            checked(advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None))
+            checked(advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None), 'acl_build')
             owned.append(descriptor)
-            checked(advapi.SetFileSecurityW(str(path), 0x80000005, descriptor))
+            checked(advapi.SetFileSecurityW(str(path), 0x80000005, descriptor), 'acl_apply')
         owner, dacl, descriptor = pointer(), pointer(), pointer()
-        if advapi.GetNamedSecurityInfoW(str(path), 1, 5, ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor)):
-            raise LauncherError('Cannot inspect owner-only Windows ACL')
+        status = advapi.GetNamedSecurityInfoW(str(path), 1, 5, ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor))
+        if status:
+            raise PermissionCheckError('acl_read', winerror=status)
         owned.append(descriptor)
-        checked(owner and dacl and advapi.EqualSid(owner, user_sid))
+        checked(owner and dacl and advapi.EqualSid(owner, user_sid), 'owner_mismatch', api=False)
         control, revision = wintypes.WORD(), dword()
-        checked(advapi.GetSecurityDescriptorControl(descriptor, ctypes.byref(control), ctypes.byref(revision)))
-        checked(control.value & 0x1000)
+        checked(advapi.GetSecurityDescriptorControl(descriptor, ctypes.byref(control), ctypes.byref(revision)), 'acl_control')
+        checked(control.value & 0x1000, 'acl_inheritance', api=False)
         information = AclSize()
-        checked(advapi.GetAclInformation(dacl, ctypes.byref(information), ctypes.sizeof(information), 2))
-        checked(information.count == 1)
+        checked(advapi.GetAclInformation(dacl, ctypes.byref(information), ctypes.sizeof(information), 2), 'acl_information')
+        checked(information.count == 1, 'acl_entries', api=False)
         ace_pointer = pointer()
-        checked(advapi.GetAce(dacl, 0, ctypes.byref(ace_pointer)))
+        checked(advapi.GetAce(dacl, 0, ctypes.byref(ace_pointer)), 'ace_read')
         ace = ctypes.cast(ace_pointer, ctypes.POINTER(AccessAce)).contents
-        checked(ace.kind == 0 and ace.flags == (3 if path.is_dir() else 0) and ace.mask == 0x1f01ff)
-        checked(advapi.EqualSid(ace_pointer.value + AccessAce.sid.offset, user_sid))
+        checked(ace.kind == 0 and ace.flags == (3 if path.is_dir() else 0) and ace.mask == 0x1f01ff, 'ace_permissions', api=False)
+        checked(advapi.EqualSid(ace_pointer.value + AccessAce.sid.offset, user_sid), 'ace_owner', api=False)
     finally:
         for allocation in reversed(owned):
             kernel.LocalFree(allocation)

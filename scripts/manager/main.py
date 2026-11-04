@@ -31,8 +31,8 @@ def _startup_error():
         print(message, file=sys.stderr)
 
 
-def _preferences_warning():
-    message = 'Manager form ayarları kaydedilemedi. Son girdiğiniz değerleri bir sonraki açılışta yeniden girmeniz gerekebilir. Kullanıcı uygulama verisi dizininin erişim izinlerini kontrol edin.'
+def _preferences_warning(error):
+    message = error.message('save')
     if os.name == 'nt':
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, message, 'AW Center — form ayarları', 0x30)
@@ -76,18 +76,16 @@ def main(argv=None):
         from .controller import ManagerController
         from .paths import default_source_root
         from .view import ManagerWindow
-        from .preferences import load_preferences, save_preferences
-        from scripts.launcher.installation_profiles import installation_home
-        from scripts.launcher.model import LauncherError
+        from .preferences import PreferencesError, load_preferences, preferences_home, save_preferences
         initial_values = {}
-        preferences_home = None
-        preferences_failed = False
+        preferences_directory = None
+        preferences_failed = None
         if not args.smoke_test:
             try:
-                preferences_home = installation_home()
-                initial_values = load_preferences(preferences_home)
-            except (OSError, LauncherError):
-                preferences_failed = True
+                preferences_directory = preferences_home()
+                initial_values = load_preferences(preferences_directory)
+            except PreferencesError as error:
+                preferences_failed = error
         root = tk.Tk()
         controller = None
         # Keep callback exceptions visible without a disappearing console or raw
@@ -105,7 +103,7 @@ def main(argv=None):
         controller = ManagerController(root, partial(ManagerWindow, initial_values=initial_values), source_root)
         if preferences_failed:
             controller.view.handle_event({'type': 'status',
-                'message': 'Kayıtlı form ayarları okunamadı; varsayılan alanlar açıldı. Kullanıcı uygulama verisi dizininin erişim izinlerini kontrol edin.'})
+                'message': preferences_failed.message('load')})
         if args.smoke_test:
             def complete_smoke():
                 nonlocal smoke_metadata, smoke_ready
@@ -119,9 +117,9 @@ def main(argv=None):
         root.mainloop()
         if not args.smoke_test:
             try:
-                save_preferences(preferences_home or installation_home(), controller.view.form_values())
-            except (OSError, LauncherError):
-                _preferences_warning()
+                save_preferences(preferences_directory or preferences_home(), controller.view.form_values())
+            except PreferencesError as error:
+                _preferences_warning(error)
         if args.smoke_test:
             smoke_ready = smoke_ready and callback_error_count == 0
             args.smoke_test.write_text(json.dumps({**smoke_metadata, 'ready': smoke_ready,
