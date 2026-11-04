@@ -31,6 +31,25 @@ MAX_EXPANDED_BYTES = 2 * MAX_ARTIFACT_BYTES
 CATALOG_PATH = Path(__file__).with_name("installation_catalog.json")
 
 
+class ArtifactDownloadError(LauncherError):
+    """A rejected download with only reviewed labels and numeric HTTP status."""
+
+    def __init__(self, status, *, artifact=None):
+        labels = {"python": "Python", "node": "Node.js", "npm": "npm"}
+        self.status = status if type(status) is int and 100 <= status <= 599 else None
+        self.artifact = artifact if artifact in labels else None
+        self.code = "artifact_http_rejected"
+        self.remedy = {
+            401: "Runtime deposu kimlik doğrulaması istiyor. Kurumun onaylı depo erişimini kullanın; URL'ye kullanıcı bilgisi eklemeyin.",
+            403: "Runtime arşivine erişim reddedildi. Kurumsal ağ/proxy izinlerini ve seçili runtime deposunun erişimini kontrol edin.",
+            407: "Proxy kimlik doğrulaması gerekli. Kurumsal proxy oturumunu ve erişim ayarlarını kontrol edin.",
+        }.get(self.status, "Runtime deposunun HTTP erişim politikasını ve ağ bağlantısını kontrol edin.")
+        message = f"{labels.get(self.artifact, 'Runtime')} arşivi indirme isteği kaynak sunucusu tarafından reddedildi."
+        if self.status is not None:
+            message += f" HTTP {self.status}."
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class Artifact:
     name: str
@@ -155,10 +174,13 @@ def _retrieve(url: str, destination: Path, context: ssl.SSLContext) -> bool:
             _download(url, destination, context)
             return True
         except HTTPError as error:
-            if error.code == 404:
-                return False
-            if error.code not in {408, 429, 500, 502, 503, 504}:
-                raise LauncherError("artifact source rejected the download") from None
+            try:
+                if error.code == 404:
+                    return False
+                if error.code not in {408, 429, 500, 502, 503, 504}:
+                    raise ArtifactDownloadError(error.code) from None
+            finally:
+                error.close()
         except (ssl.SSLError, ssl.CertificateError):
             raise LauncherError("artifact TLS verification failed") from None
         except URLError as error:
@@ -202,7 +224,11 @@ def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) ->
         if remote_repository and settings.mode != "offline":
             urls.append(str(repository).rstrip("/") + "/runtimes/" + artifact.filename)
         for url in urls:
-            if _retrieve(url, stage, context):
+            try:
+                retrieved = _retrieve(url, stage, context)
+            except ArtifactDownloadError as error:
+                raise ArtifactDownloadError(error.status, artifact=artifact.name) from None
+            if retrieved:
                 _verify(stage, artifact)
                 os.replace(stage, destination)
                 return destination

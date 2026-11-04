@@ -135,6 +135,73 @@ class SourceTests(unittest.TestCase):
                 sources.fetch_artifact(self.artifact, self.root / "cache", sources.SourceSettings(repository="https://mirror.example"))
         self.assertEqual(download.call_count, 1)
 
+    def test_http_rejection_preserves_safe_runtime_diagnostics_without_fallback(self):
+        artifact = sources.Artifact("node", "1", "node.zip", self.artifact.url,
+                                    self.artifact.sha256, "zip", "node.exe")
+        offline = self.root / "offline"
+        offline.mkdir()
+        (offline / artifact.filename).write_bytes(self.data)
+        marker = "fixture-sensitive-detail"
+        for status in (401, 403, 407):
+            with self.subTest(status=status):
+                response = io.BytesIO(marker.encode())
+                rejected = HTTPError(f"https://upstream.example/private?token={marker}",
+                                     status, marker, {"X-Private": marker}, response)
+                cache = self.root / f"cache-{status}"
+                with patch.object(sources, "_download", side_effect=rejected) as download:
+                    with self.assertRaises(LauncherError) as raised:
+                        sources.fetch_artifact(artifact, cache, sources.SourceSettings(
+                            repository="https://mirror.example/tools", offline_dir=offline))
+                self.assertEqual(download.call_count, 1)
+                self.assertFalse((cache / artifact.filename).exists())
+                error = raised.exception
+                self.assertEqual(getattr(error, "code", None), "artifact_http_rejected")
+                self.assertIsInstance(error, sources.ArtifactDownloadError)
+                self.assertEqual(error.status, status)
+                self.assertEqual(error.artifact, "node")
+                self.assertIn(f"HTTP {status}", str(error))
+                self.assertIn("Node.js", str(error))
+                self.assertIsInstance(error.remedy, str)
+                self.assertTrue(error.remedy)
+                rendered = str(error) + error.remedy
+                self.assertNotIn(marker, rendered)
+                self.assertNotIn("upstream.example", rendered)
+                self.assertNotIn("https://", rendered)
+                self.assertTrue(response.closed)
+
+    def test_http_not_found_closes_response_before_local_artifact_fallback(self):
+        offline = self.root / "offline"
+        offline.mkdir()
+        (offline / self.artifact.filename).write_bytes(self.data)
+        response = io.BytesIO(b"fixture-sensitive-detail")
+        missing = HTTPError(self.artifact.url, 404, "missing", {}, response)
+        with patch.object(sources, "_download", side_effect=missing) as download:
+            result = sources.fetch_artifact(self.artifact, self.root / "cache",
+                                            sources.SourceSettings(offline_dir=offline))
+        self.assertEqual(result.read_bytes(), self.data)
+        self.assertEqual(download.call_count, 1)
+        self.assertTrue(response.closed)
+
+    def test_retryable_http_responses_are_closed_before_the_next_attempt(self):
+        responses = []
+        failures = []
+        closed_before_attempt = []
+
+        def unavailable(url, destination, context):
+            closed_before_attempt.append(all(response.closed for response in responses))
+            response = io.BytesIO(b"fixture-sensitive-detail")
+            responses.append(response)
+            failures.append(HTTPError(url, 503, "unavailable", {}, response))
+            raise failures[-1]
+
+        with patch.object(sources, "_download", side_effect=unavailable) as download:
+            with self.assertRaises(LauncherError):
+                sources.fetch_artifact(self.artifact, self.root / "cache", sources.SourceSettings())
+        self.assertEqual(download.call_count, 3)
+        self.assertEqual(len(responses), 3)
+        self.assertEqual(closed_before_attempt, [True, True, True])
+        self.assertTrue(all(response.closed for response in responses))
+
     def test_verified_cache_avoids_network_and_corruption_fails_closed(self):
         cache = self.root / "cache"
         cache.mkdir()

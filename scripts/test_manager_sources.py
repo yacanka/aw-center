@@ -13,7 +13,8 @@ from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPSHandler
 
-from scripts.launcher.installation_sources import SourceSettings
+from scripts.launcher import installation_sources
+from scripts.launcher.installation_sources import Artifact, SourceSettings
 from scripts.launcher.process import OperationCancelled
 from scripts.manager import worker
 from scripts.manager.view_model import ManagerState
@@ -46,6 +47,30 @@ class SourceCheckTests(unittest.TestCase):
         self.assertTrue(events[-1]['ok'], events)
         checks = next(event['checks'] for event in events if event['type'] == 'checks')
         return checks, events, factory
+
+    def test_runtime_download_report_preserves_artifact_and_http_status(self):
+        artifact = Artifact('node', '1', 'node.zip', 'https://runtime.invalid/node.zip',
+                            'a' * 64, 'zip', 'node.exe')
+        for status, remedy in ((401, 'kimlik'), (403, 'erişim'), (407, 'Proxy')):
+            with self.subTest(status=status):
+                body = io.BytesIO(b'private-response-body')
+                events = []
+                def download(action, args, emit):
+                    args.progress('Yönetilen runtime hazırlığı')
+                    installation_sources.fetch_artifact(
+                        artifact, self.root.resolve() / str(status), SourceSettings())
+                with patch('scripts.manager.operations._dispatch', side_effect=download), \
+                     patch.object(installation_sources, '_download', side_effect=HTTPError(
+                         'https://private.invalid/opaque', status, 'private-reason', {}, body)):
+                    worker.execute({'action': 'bundle'}, events.append, lambda: None, threading.Event())
+                error = next(event for event in events if event['type'] == 'error')
+                self.assertEqual(error['code'], 'artifact_http_rejected')
+                self.assertIn('Node.js', error['message'])
+                self.assertIn(f'HTTP {status}', error['message'])
+                self.assertIn(remedy, error['remedy'])
+                self.assertNotIn('private-', json.dumps(events))
+                self.assertTrue(body.closed)
+                self.assertEqual(events[-1], {'type': 'done', 'ok': False})
 
     def test_selected_ca_preserves_system_roots_and_required_verification(self):
         # Use a real local trust anchor without committing a certificate fixture.
