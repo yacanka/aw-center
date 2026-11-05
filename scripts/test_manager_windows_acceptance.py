@@ -159,6 +159,21 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
             result = subprocess.run(command, capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, 'Application runtime bypassed OS network denial')
 
+    def assert_prepared_integrity(self, source, saved, home):
+        # Report only source-relative filenames and fixed tool check labels,
+        # never file contents, environment values or private profile fields.
+        from scripts.manager.payload import SOURCE_MANIFEST, _source_inventory
+        from scripts.launcher.toolchain import inspect_toolchain
+        expected = json.loads((source / SOURCE_MANIFEST).read_text(encoding='utf-8'))['artifacts']
+        expected = {entry['path']: entry for entry in expected}
+        actual = {entry['path']: entry for entry in _source_inventory(source)}
+        changed = sorted(name for name in expected.keys() | actual.keys()
+                         if expected.get(name) != actual.get(name))
+        self.assertEqual(changed, [], 'Prepared source inventory changed after normal use')
+        options = {name: Path(saved[name]) for name in ('python_executable', 'node_executable') if saved.get(name)}
+        checks = inspect_toolchain(home, **options)
+        self.assertTrue(all(check['status'] == 'ready' for check in checks), checks)
+
     def test_dev_prod_system_and_managed_tools_with_real_network_denial(self):
         # Forced managed runs complement discovery's missing-tools unit tests.
         # A genuinely clean standard-user machine is also a release field gate.
@@ -232,6 +247,7 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                         ports = [request['backend_port']] + ([request['frontend_port']] if profile == 'dev' else [])
                         bind = host if profile == 'prod' else '127.0.0.1'
                         self.stop_cleanly(child, events, bind, ports)
+                        self.assert_prepared_integrity(actual_source, saved, private)
                         request['action'] = 'start'
                         if profile == 'prod' and not system:
                             child, events, admin = self.run_until_ready(directory, request, password)
