@@ -7,6 +7,7 @@ Proxy configuration is inherited from the process; credentials are never printed
 from __future__ import annotations
 
 import hashlib
+from http.client import IncompleteRead
 import json
 import os
 import re
@@ -163,6 +164,13 @@ class _SecureRedirect(HTTPRedirectHandler):
 def _download(url: str, destination: Path, context: ssl.SSLContext) -> None:
     opener = build_opener(_SecureRedirect(), HTTPSHandler(context=context))
     with opener.open(url, timeout=30) as response, destination.open("wb") as output:
+        declared = getattr(response, 'headers', {}).get('Content-Length')
+        expected = None
+        if isinstance(declared, str) and re.fullmatch(r'[0-9]+', declared.strip()):
+            declared = declared.strip().lstrip('0') or '0'
+            if len(declared) > len(str(MAX_ARTIFACT_BYTES)) or int(declared) > MAX_ARTIFACT_BYTES:
+                raise LauncherError("artifact exceeds the download size limit")
+            expected = int(declared)
         size = 0
         while True:
             check_cancelled()
@@ -173,12 +181,16 @@ def _download(url: str, destination: Path, context: ssl.SSLContext) -> None:
             if size > MAX_ARTIFACT_BYTES:
                 raise LauncherError("artifact exceeds the download size limit")
             output.write(chunk)
+        if expected is not None and size < expected:
+            raise IncompleteRead(b'', expected - size)
 
 
 def _retrieve(url: str, destination: Path, context: ssl.SSLContext) -> bool:
     """Retry transient availability failures, never integrity/TLS failures."""
+    status = None
     for attempt in range(3):
         check_cancelled()
+        status = None
         try:
             _download(url, destination, context)
             return True
@@ -188,6 +200,7 @@ def _retrieve(url: str, destination: Path, context: ssl.SSLContext) -> bool:
                     return False
                 if error.code not in {408, 429, 500, 502, 503, 504}:
                     raise ArtifactDownloadError(error.code) from None
+                status = error.code
             finally:
                 error.close()
         except (ssl.SSLError, ssl.CertificateError):
@@ -195,10 +208,14 @@ def _retrieve(url: str, destination: Path, context: ssl.SSLContext) -> bool:
         except URLError as error:
             if isinstance(error.reason, (ssl.SSLError, ssl.CertificateError)):
                 raise LauncherError("artifact TLS verification failed") from None
+            if isinstance(error.reason, PermissionError):
+                raise LauncherError("artifact download blocked by permissions") from None
             if not isinstance(error.reason, (OSError, TimeoutError, socket.timeout)):
                 raise LauncherError("artifact download failed") from None
-        except (TimeoutError, ConnectionError):
+        except (TimeoutError, ConnectionError, IncompleteRead):
             pass
+    if status is not None:
+        raise ArtifactDownloadError(status)
     return False
 
 
@@ -227,9 +244,7 @@ def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) ->
             directories.append(Path(repository))
         if settings.offline_dir:
             directories.append(Path(settings.offline_dir))
-        # Sidecar runtime archives are usable in every mode, just like cache.
-        early = directories if settings.mode in {"restricted", "offline"} else settings.runtime_dirs
-        if _copy_local_artifact(artifact, early, stage, destination):
+        if _copy_local_artifact(artifact, directories, stage, destination):
             settings.report(f'{artifact.name}: doğrulanmış yerel arşiv kullanılıyor')
             return destination
         context = ssl.create_default_context() if settings.mode != "offline" else None
@@ -243,15 +258,16 @@ def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) ->
         if remote_repository and settings.mode != "offline":
             nested = str(repository).rstrip("/") + "/runtimes/" + artifact.filename
             urls.insert(1, nested) if settings.mode == 'restricted' else urls.append(nested)
+        rejection = None
         for index, url in enumerate(urls):
             attempt = Path(temporary) / str(index)
             attempt.mkdir()
             stage = attempt / artifact.filename
+            settings.report(f'{artifact.name}: izinli kaynak {index + 1}/{len(urls)} deneniyor')
             try:
                 retrieved = _retrieve(url, stage, context)
             except ArtifactDownloadError as error:
-                if settings.mode != 'restricted' or error.status not in {401, 403, 407}:
-                    raise ArtifactDownloadError(error.status, artifact=artifact.name) from None
+                rejection = ArtifactDownloadError(error.status, artifact=artifact.name)
                 settings.report(f'{artifact.name}: HTTP {error.status}; sıradaki izinli kaynak deneniyor')
                 continue
             if retrieved:
@@ -259,8 +275,8 @@ def fetch_artifact(artifact: Artifact, cache: Path, settings: SourceSettings) ->
                 os.replace(stage, destination)
                 return destination
             settings.report(f'{artifact.name}: kaynak erişilemiyor; sıradaki izinli kaynak deneniyor')
-        if settings.mode not in {'restricted', 'offline'} and _copy_local_artifact(artifact, directories, stage, destination):
-            return destination
+        if rejection is not None:
+            raise rejection from None
     raise LauncherError(f"verified {artifact.name} artifact unavailable from configured sources")
 
 

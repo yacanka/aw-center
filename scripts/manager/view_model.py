@@ -9,7 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 DEFAULT_VALUES = {
-    "profile": "dev", "source_root": "", "source_mode": "online",
+    "profile": "dev", "source_root": "", "source_mode": "restricted",
     "repository": "", "offline_dir": "", "python_index_url": "",
     "npm_registry_url": "", "ca_file": "", "assets": "",
     "feature_catalog": "", "host": "", "backend_port": "",
@@ -52,9 +52,6 @@ def _https(value: str, field: str) -> None:
 
 
 def _validate_sources(values: dict) -> None:
-    mode = values["source_mode"]
-    if mode == "offline" and not values["offline_dir"]:
-        raise FormError("offline_dir", "Çevrimdışı bağımlılık paketinin dizinini seçin.")
     for field in ("python_index_url", "npm_registry_url"):
         if values[field]:
             _https(values[field], field)
@@ -105,8 +102,6 @@ def normalize_values(action: str, values: dict) -> dict[str, str | bool]:
         _validate_sources(result)
     if action == "provision":
         _validate_provision(result)
-    if action == "bundle" and not result["output"]:
-        raise FormError("output", "Çevrimdışı paket için çıktı dizini seçin.")
     return result
 
 

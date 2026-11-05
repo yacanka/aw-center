@@ -1,8 +1,19 @@
 """Lightweight desktop launch paths, independent of installation modules."""
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 import os
 import sys
 import json
+import uuid
+
+
+def new_bundle_output(parent: Path | None = None) -> Path:
+    """Choose a new destination without filesystem I/O on the Tk thread."""
+    if parent is None:
+        from scripts.launcher.installation_profiles import installation_home
+        parent = installation_home() / 'exports'
+    stamp = datetime.now(timezone(timedelta(hours=3))).strftime('%d.%m.%Y-%H%M%S')
+    return Path(parent) / f'AWCenter-offline-{stamp}-{uuid.uuid4().hex[:12]}'
 
 
 def startup_values(saved: dict, explicit_root: Path | None) -> dict:

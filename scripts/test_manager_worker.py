@@ -1,4 +1,5 @@
 """Headless desktop protocol regressions, with real private-pipe integration."""
+import errno
 import json
 from pathlib import Path
 import subprocess
@@ -186,6 +187,54 @@ with patch.object(worker.os, 'read', side_effect=observe_read), \
         code, reason = worker._failure_reason(worker.LauncherError('password=never-echo TLS error'))
         self.assertEqual(code, 'tls_failed')
         self.assertNotIn('never-echo', reason)
+
+    def test_permission_failure_report_retains_safe_check_and_windows_error(self):
+        from scripts.launcher.installation_permissions import PermissionCheckError
+        events = []
+        with patch('scripts.manager.operations._dispatch', side_effect=PermissionCheckError('acl_read', winerror=5)):
+            worker.execute({'action': 'provision'}, events.append, lambda: None, threading.Event())
+        error = next(event for event in events if event['type'] == 'error')
+        self.assertEqual(error['code'], 'storage_acl_read')
+        self.assertIn('WinError: 5', error['message'])
+        self.assertIn('erişim', error['message'].lower())
+        self.assertIn('Windows', error['remedy'])
+        self.assertNotIn('Kaynakları', error['remedy'])
+        self.assertEqual(events[-1], {'type': 'done', 'ok': False})
+
+    def test_owner_mismatch_report_explains_same_account_recovery(self):
+        from scripts.launcher.installation_permissions import PermissionCheckError
+        events = []
+        with patch('scripts.manager.operations._dispatch', side_effect=PermissionCheckError('owner_mismatch')):
+            worker.execute({'action': 'provision'}, events.append, lambda: None, threading.Event())
+        error = next(event for event in events if event['type'] == 'error')
+        self.assertEqual(error['code'], 'storage_owner_mismatch')
+        self.assertIn('hesab', error['remedy'])
+        self.assertNotIn('WinError', error['message'])
+
+    def test_permission_report_rejects_unreviewed_diagnostic_fields(self):
+        from scripts.launcher.installation_permissions import PermissionCheckError
+        events = []
+        with patch('scripts.manager.operations._dispatch', side_effect=PermissionCheckError('private-path-withheld', winerror='private-value-withheld')):
+            worker.execute({'action': 'provision'}, events.append, lambda: None, threading.Event())
+        error = next(event for event in events if event['type'] == 'error')
+        self.assertEqual(error['code'], 'storage_permission_failed')
+        self.assertNotIn('withheld', json.dumps(events))
+
+    def test_lock_failure_report_distinguishes_busy_from_storage_access(self):
+        from scripts.launcher.resource_locks import ResourceLockError
+        for busy, expected in ((True, 'resource_busy'), (False, 'storage_lock_failed')):
+            with self.subTest(busy=busy):
+                system_error = PermissionError(errno.EACCES, 'private-path-withheld')
+                system_error.winerror = 33 if busy else 5
+                events = []
+                failure = ResourceLockError(busy=busy, system_error=system_error)
+                with patch('scripts.manager.operations._dispatch', side_effect=failure):
+                    worker.execute({'action': 'provision'}, events.append, lambda: None, threading.Event())
+                error = next(event for event in events if event['type'] == 'error')
+                self.assertEqual(error['code'], expected)
+                self.assertIn(f'WinError: {system_error.winerror}', error['message'])
+                self.assertIn('durdurun' if busy else 'erişimini', error['remedy'])
+                self.assertNotIn('private-path-withheld', json.dumps(events))
 
 
 if __name__ == '__main__':

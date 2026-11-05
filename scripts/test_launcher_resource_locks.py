@@ -1,10 +1,14 @@
 """OS resource claims protect live profiles across independent processes."""
 import importlib
+import errno
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from scripts.launcher.model import LauncherError
 
 
 class ResourceLockTests(unittest.TestCase):
@@ -70,3 +74,43 @@ except LauncherError: pass
         with self.locks.resource_locks(self.home, {'profile:dev': True}):
             with self.locks.resource_locks(self.home, {'profile:dev': True}):
                 self.assertEqual(self.child('profile:dev', True), 3)
+
+    def test_lock_file_access_denied_is_not_reported_as_contention(self):
+        error = PermissionError(errno.EACCES, 'private-path-withheld')
+        error.winerror = 5
+        with patch.object(Path, 'open', side_effect=error):
+            with self.assertRaises(LauncherError) as caught:
+                with self.locks.resource_locks(self.home, {'runtime': True}):
+                    self.fail('Denied lock file was accepted')
+        self.assertEqual(getattr(caught.exception, 'code', None), 'storage_lock_failed')
+        self.assertIn('WinError: 5', str(caught.exception))
+        self.assertNotIn('private-path-withheld', str(caught.exception))
+
+    def test_windows_lock_violation_is_reported_as_contention(self):
+        error = OSError(errno.EACCES, 'private-path-withheld')
+        error.winerror = 33
+        with patch.object(self.locks._Lease, '_lock', side_effect=error):
+            with self.assertRaises(LauncherError) as caught:
+                with self.locks.resource_locks(self.home, {'runtime': True}):
+                    self.fail('Competing lock was accepted')
+        self.assertEqual(getattr(caught.exception, 'code', None), 'resource_busy')
+        self.assertIn('WinError: 33', str(caught.exception))
+
+    def test_windows_lock_access_denied_is_not_reported_as_contention(self):
+        error = PermissionError(errno.EACCES, 'private-path-withheld')
+        error.winerror = 5
+        with patch.object(self.locks._Lease, '_lock', side_effect=error):
+            with self.assertRaises(LauncherError) as caught:
+                with self.locks.resource_locks(self.home, {'runtime': True}):
+                    self.fail('Denied lock was accepted')
+        self.assertEqual(getattr(caught.exception, 'code', None), 'storage_lock_failed')
+
+    def test_lock_directory_io_failure_keeps_safe_numeric_diagnostics(self):
+        error = OSError(errno.ENOSPC, 'private-path-withheld')
+        with patch.object(self.locks, 'private_directory', side_effect=error):
+            with self.assertRaises((LauncherError, OSError)) as caught:
+                with self.locks.resource_locks(self.home, {'runtime': True}):
+                    self.fail('Unavailable directory was accepted')
+        self.assertEqual(getattr(caught.exception, 'code', None), 'storage_lock_failed')
+        self.assertIn(f'errno: {errno.ENOSPC}', str(caught.exception))
+        self.assertNotIn('private-path-withheld', str(caught.exception))

@@ -6,6 +6,7 @@ threads sharing an interpreter. Imports for an action stay in its own path.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -20,7 +21,7 @@ TEXT_FIELDS = {'repository', 'python_index_url', 'npm_registry_url', 'host', 'as
 def arguments(request):
     """Convert only declared form values; paths remain argv elements, never shell."""
     profile = request.get('profile', 'dev')
-    mode = request.get('source_mode', 'online')
+    mode = request.get('source_mode', 'restricted')
     if profile not in {'dev', 'prod'} or mode not in {'online', 'restricted', 'corporate', 'offline'}:
         raise LauncherError('Geçersiz profil veya kaynak modu.')
     action = request.get('action', 'provision')
@@ -89,12 +90,21 @@ def _failure_reason(error):
     from scripts.launcher.toolchain import RuntimeValidationError
     from scripts.launcher.system_node import SystemNodeError
     from scripts.launcher.system_python import SystemPythonError
-    if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError)):
+    from scripts.launcher.installation_permissions import PermissionCheckError
+    from scripts.launcher.resource_locks import ResourceLockError
+    from scripts.launcher.installation_dependencies import PackageCommandError, PackageTimeoutError
+    if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError)):
         return error.code, str(error)
     if not isinstance(error, LauncherError):
         return 'operation_failed', 'İşlem tamamlanamadı; yapılandırma veya sistem erişimi doğrulanamadı.'
     text = str(error).casefold()
     categories = (
+        (('windows manager paketi gerekli',), 'manager_distribution_required', 'Tam çevrimdışı paket için aynı sürümün Windows Manager dağıtımı gerekli.'),
+        (('paket hedefi bir klasör',), 'bundle_output_invalid', 'Paket hedefi mevcut bir dosya; dosyanın üzerine yazılmadı.'),
+        (('installation bundle output must be new',), 'bundle_output_invalid', 'Paket hedefi kaynak dizininin dışında yeni bir klasör olmalı; mevcut dosyalar korunuyor.'),
+        (('installation bundle output must be outside all input',), 'bundle_output_invalid', 'Paket hedefi kaynak, Manager dağıtımı, asset ve bağımlılık girdilerinden ayrı olmalı.'),
+        (('symlink', 'reparse'), 'storage_path_unsafe', 'Kurulum veya paket yolu bağlantı / reparse noktası içeriyor; güvenli bir yerel klasör gerekli.'),
+        (('project root', 'manage.py was not found', 'vue package.json'), 'source_unavailable', 'Proje kaynağı bulunamadı veya Django/Vue kaynakları eksik. ZIP paketinin tamamını çıkarıp kaynak dizinini kontrol edin.'),
         (('uygulamak için kur ve başlat',), 'env_import_required', 'Seçilen .env profilin kayıtlı ayarlarından farklı. Uygulamak için Kur ve başlat kullanın.'),
         (('.env', 'environment file is invalid'), 'env_file_invalid', 'Seçilen .env okunamadı, biçimi veya profil ile uyumu doğrulanamadı. Dosyayı ve mevcut anahtar/veri yolu uyumunu kontrol edin.'),
         (('venv farklı',), 'venv_python_mismatch', 'Mevcut .venv seçilen Python’a bağlı değil; otomatik değiştirilmedi. Ayrı temiz kaynak dizini kullanın.'),
@@ -104,7 +114,7 @@ def _failure_reason(error):
         (('tls', 'certificate', 'certification', 'ssl'), 'tls_failed', 'TLS sertifikası veya güvenli bağlantı doğrulanamadı.'),
         (('python artifact unavailable',), 'python_runtime_missing', 'Doğrulanmış Python runtime arşivi bulunamadı.'),
         (('node artifact unavailable', 'npm artifact unavailable'), 'runtime_missing', 'Doğrulanmış Node/npm runtime arşivi bulunamadı.'),
-        (('kilitli python', 'python paket'), 'python_packages_missing', 'Kilitli Python paketleri seçilen kaynaklardan edinilemedi.'),
+        (('kilitli python', 'python paket', 'locked python wheels'), 'python_packages_missing', 'Kilitli Python paketleri seçilen kaynaklardan edinilemedi.'),
         (('npm', 'frontend paket'), 'npm_packages_missing', 'Kilitli frontend paketleri seçilen kaynaklardan edinilemedi.'),
         (('acl', 'owner', 'different user', 'başka bir'), 'storage_unavailable', 'Özel kurulum alanının sahibi, izinleri veya işlem kilidi doğrulanamadı.'),
         (('migration', 'şema'), 'schema_unavailable', 'Veritabanı şeması hazır değil; migration ve yedek durumunu kontrol edin.'),
@@ -146,6 +156,12 @@ def execute(request, emit, admin_provider, stop):
     except Exception as error:
         code, reason = _failure_reason(error)
         remedies = {
+            'manager_distribution_required': 'Aynı sürümden Windows Manager ZIP paketinin tamamını çıkarın. Kaynak çalıştırmada Windows Manager paketi alanını seçin; EXE ile açıldığında dağıtım otomatik bulunur.',
+            'bundle_output_invalid': 'Çıktı için bir klasör seçin veya alanı boş bırakın; mevcut dosyalar korunarak yeni bir paket dizini oluşturulur.',
+            'storage_path_unsafe': 'Bağlantı / junction içermeyen yerel bir klasör kullanın. Mevcut profil ve veritabanını silmeyin.',
+            'source_unavailable': 'ZIP paketinin yalnız EXE dosyasını değil tamamını çıkarın. Proje kaynak dizininde backend ve frontend klasörlerinin bulunduğunu kontrol edin.',
+            'python_packages_missing': 'İzin verilen paket kaynakları denendi. Kısıtlı bilgisayara tam çevrimdışı Manager paketini aktarın veya erişilebilir Python paket indeksini seçin.',
+            'npm_packages_missing': 'İzin verilen paket kaynakları denendi. Tam çevrimdışı Manager paketini aktarın veya erişilebilir npm deposunu seçin.',
             'system_python_missing': 'Çalışma sekmesindeki gelişmiş ayarlarda Python komutu / yolu alanına python, py -3.11 veya python.exe dosyasının tam yolunu girin. CPython 3.11 x64 gerekir; isterseniz Python kurulumu kutusunu seçin.',
             'env_import_required': 'Çalışan ilgili görevi durdurun; seçilen dosyayı Kur ve başlat ile uygulayın. Mevcut anahtar ve veri yolları korunmalıdır.',
             'env_file_invalid': 'Çalışma sekmesindeki .env dosyasını kontrol edin; yalnız uygulama ayarlarını içeren, profilin anahtarları ve veri yollarıyla uyumlu bir dosya seçin.',
@@ -155,7 +171,10 @@ def execute(request, emit, admin_provider, stop):
         from scripts.launcher.toolchain import RuntimeValidationError
         from scripts.launcher.system_node import SystemNodeError
         from scripts.launcher.system_python import SystemPythonError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError)) else remedies.get(code, _remedy(phase))
+        from scripts.launcher.installation_permissions import PermissionCheckError
+        from scripts.launcher.resource_locks import ResourceLockError
+        from scripts.launcher.installation_dependencies import PackageCommandError, PackageTimeoutError
+        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError)) else remedies.get(code, _remedy(phase))
         emit({'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy})
         emit({'type': 'done', 'ok': False})
 
@@ -164,6 +183,7 @@ def _project_for(action, args):
     from scripts.launcher.discovery import discover_project
     from scripts.launcher.installation import require_windows
     from scripts.launcher.installation_profiles import installation_home
+    args.progress('Proje kaynağı ve paket bütünlüğü doğrulanıyor')
     require_windows()
     source = Path(args.source_root)
     if args.profile == 'prod' and action != 'bundle':
@@ -177,16 +197,51 @@ def _project_for(action, args):
     return discover_project(source)
 
 
+def _manager_distribution(source, args):
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    if args.manager_distribution:
+        return Path(args.manager_distribution)
+    for candidate in dict.fromkeys((source.parent, source)):
+        if (candidate / 'AWCenterManager.exe').is_file() and (candidate / 'manager-manifest.json').is_file():
+            return candidate
+    return None
+
+
+def _bundle_output(args, home, source):
+    from .paths import new_bundle_output
+    from scripts.launcher.installation_permissions import require_unlinked
+    from scripts.launcher.installation import source_settings
+    from scripts.launcher.installation_bundle import bundle_input_roots
+    output = args.output or new_bundle_output(home / 'exports')
+    require_unlinked(output)
+    if output.exists():
+        if not output.is_dir():
+            raise LauncherError('Paket hedefi bir klasör olmalı; mevcut dosyaya yazılmadı.')
+        output = new_bundle_output(output)
+    inputs = (source, *bundle_input_roots(source_settings(args), assets=args.assets,
+                                         manager_distribution=_manager_distribution(source, args)))
+    roots = tuple(Path(os.path.abspath(root)) for root in inputs)
+    if any(Path(os.path.abspath(output)).is_relative_to(root) for root in roots):
+        output = new_bundle_output(home / 'exports')
+        if any(output.is_relative_to(root) for root in roots):
+            raise LauncherError('installation bundle output must be outside all input directories')
+        args.progress('Paket hedefi girdilerle çakışıyor; %LOCALAPPDATA%\\AWCenter\\exports altında yeni hedef seçildi')
+    return output
+
+
 def _dispatch(action, args, emit):
     if action in {'provision', 'start', 'bundle'}:
         from scripts.launcher.resource_locks import path_claims, resource_locks
         from scripts.launcher.installation_profiles import installation_home
+        args.progress('Kurulum alanı ve işlem kilitleri denetleniyor')
         home, source = installation_home(), Path(args.source_root).absolute()
         # A selected canonical release is also the mutable destination. Claim
         # it upfront: leases deliberately never upgrade an existing read claim.
         mutable_source = args.profile == 'dev' or source.is_relative_to(home / 'releases')
         claims = path_claims(source, write=action == 'provision' and mutable_source)
         if action == 'bundle':
+            args.output = _bundle_output(args, home, source)
             claims.update(path_claims(args.output, write=True))
         else:
             claims.update({'profile:' + args.profile: True, 'runtime': action == 'provision'})
@@ -221,12 +276,21 @@ def _dispatch_claimed(action, args, emit):
 def _bundle(project, args, emit):
     from scripts.launcher.installation import source_settings
     from .distribution import prepare_full_manager
-    distribution = Path(sys.executable).parent if getattr(sys, 'frozen', False) else args.manager_distribution
-    if not args.output or not distribution:
-        raise LauncherError('Çıktı klasörü ve aynı sürümden Windows Manager paketi seçin.')
+    args.progress('Windows Manager dağıtımı ve paket hedefi doğrulanıyor')
+    distribution = _manager_distribution(project.root, args)
+    if not distribution:
+        raise LauncherError('Windows Manager paketi gerekli; aynı sürümün dağıtımını seçin.')
     args.progress('Tam çevrimdışı Manager paketi hazırlanıyor')
     prepare_full_manager(project, args.output, source_settings(args, project), distribution,
                          assets=args.assets, feature_catalog=args.feature_catalog)
+    from scripts.launcher.installation_profiles import installation_home
+    # Show the known destination without recording the operator's home path.
+    local = os.environ.get('LOCALAPPDATA')
+    exports = installation_home() / 'exports' if local else None
+    detail = (f'%LOCALAPPDATA%\\AWCenter\\exports\\{args.output.name}'
+              if exports is not None and args.output.parent == exports else
+              f'Seçilen çıktı klasöründe hazır: {args.output.name}')
+    emit({'type': 'checks', 'checks': [{'name': 'Çevrimdışı paket', 'status': 'ready', 'detail': detail}]})
 
 
 def _lifecycle(project, action, args, emit):

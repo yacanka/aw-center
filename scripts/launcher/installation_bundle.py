@@ -395,7 +395,8 @@ def _capture(command: list, project: Project, overrides: dict):
 
 def _require_success(result, stage: str) -> None:
     if result.returncode:
-        raise LauncherError(stage + ' failed; package-manager diagnostics were withheld to protect credentials')
+        from .installation_dependencies import PackageCommandError
+        raise PackageCommandError(result)
 
 
 def _offline_source(project: Project, settings) -> Path | None:
@@ -471,9 +472,12 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
         requirements = project.requirements
         if 'python_full_version' in requirements.read_text(encoding='utf-8'):
             requirements = _patch_requirements(project, python, Path(temporary) / 'requirements.txt', overrides)
-        offline = _offline_source(project, settings) if settings.mode in {'restricted', 'offline'} else None
+        offline = _offline_source(project, settings)
         selected = offline / 'wheels' if offline else None
+        if selected is not None:
+            settings.report('Python paketleri: doğrulanmış yerel wheel paketi kullanılıyor')
         for index, url in enumerate(indexes if selected is None else []):
+            settings.report(f'Python paketleri: izinli kaynak {index + 1}/{len(indexes)} deneniyor')
             attempt = Path(temporary) / str(index)
             attempt.mkdir()
             result = _capture([python, '-m', 'pip', 'wheel', '--wheel-dir', attempt,
@@ -481,7 +485,7 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
             if not result.returncode:
                 selected = attempt
                 break
-            if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=settings.mode == 'restricted'):
+            if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=True):
                 _require_success(result, 'Python wheel acquisition')
             settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
         if selected is None:
@@ -497,32 +501,44 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
 
 
 def _acquire_npm(project: Project, destination: Path, settings, overrides: dict) -> None:
-    from .installation_dependencies import availability_failure
+    from .installation_dependencies import PackageTimeoutError, availability_failure
     from .installation_sources import acquisition_urls
     registries = acquisition_urls(settings, 'https://registry.npmjs.org', settings.npm_registry_url)
     npm = _npm_argv()
     with tempfile.TemporaryDirectory(prefix='awcenter-npm-acquire-') as temporary:
-        offline = _offline_source(project, settings) if settings.mode in {'restricted', 'offline'} else None
+        offline = _offline_source(project, settings)
         selected = offline / 'npm-cache' if offline else None
+        timeout = None
+        if selected is not None:
+            settings.report('npm paketleri: doğrulanmış yerel paket cache kullanılıyor')
         for index, registry in enumerate(registries if selected is None else []):
+            settings.report(f'npm paketleri: izinli kaynak {index + 1}/{len(registries)} deneniyor')
             stage = Path(temporary) / str(index)
             stage.mkdir()
             for name in ('package.json', 'package-lock.json'):
                 shutil.copyfile(project.frontend / name, stage / name)
             cache = stage / 'cache'
             isolated = Project(stage, stage / 'manage.py', stage / 'package.json', project.requirements)
-            result = _capture([*npm, 'ci', '--ignore-scripts', '--cache', cache,
-                               '--registry', registry, '--replace-registry-host=npmjs',
-                               '--no-audit', '--no-fund'], isolated, overrides)
+            try:
+                result = _capture([*npm, 'ci', '--ignore-scripts', '--cache', cache,
+                                   '--registry', registry, '--replace-registry-host=npmjs',
+                                   '--no-audit', '--no-fund'], isolated, overrides)
+            except PackageTimeoutError as error:
+                timeout = error
+                settings.report('npm paket edinimi süre sınırını aştı; sıradaki izinli kaynak deneniyor')
+                continue
+            timeout = None
             if not result.returncode:
                 selected = cache
                 break
-            if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=settings.mode == 'restricted'):
+            if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=True):
                 _require_success(result, 'npm cache acquisition')
             settings.report('npm kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
         if selected is None:
             offline = _offline_source(project, settings)
             if offline is None:
+                if timeout is not None:
+                    raise timeout from None
                 raise LauncherError('locked npm packages are unavailable from public, selected and offline sources')
             selected = offline / 'npm-cache'
         # Only content-addressed package cache is distributable: npm logs and
@@ -558,8 +574,11 @@ def _prepare_dependencies(project: Project, directory: Path, settings) -> None:
                                    python=overrides.get('AWCENTER_MANAGED_PYTHON', sys.executable),
                                    node=overrides.get('AWCENTER_MANAGED_NODE') or required_tool('node')) as trusted_env:
         directory.mkdir(parents=True)
+        settings.report('Çevrimdışı Python bağımlılıkları hazırlanıyor')
         _acquire_wheels(project, directory / 'wheels', settings, trusted_env)
+        settings.report('Çevrimdışı npm bağımlılıkları hazırlanıyor')
         _acquire_npm(project, directory / 'npm-cache', settings, trusted_env)
+        settings.report('npm paketleri çevrimdışı kurulum ve build ile doğrulanıyor')
         _verify_npm_offline(project, directory / 'npm-cache', trusted_env)
         manifest = {'format_version': 1, 'commit': source_provenance(project),
                     'target': target_metadata(), 'toolchain': _dependency_toolchain(project, trusted_env),
@@ -589,6 +608,31 @@ def _verify_npm_offline(project: Project, cache: Path, environment: dict) -> Non
             _require_success(result, 'Offline npm lifecycle/build smoke')
 
 
+def bundle_input_roots(settings, *, assets=None, manager_distribution=None) -> tuple[Path, ...]:
+    """Directories whose contents must stay unchanged during publication."""
+    roots = [assets, manager_distribution, getattr(settings, 'offline_dir', None),
+             *getattr(settings, 'runtime_dirs', ())]
+    repository = getattr(settings, 'repository', None)
+    if repository and '://' not in str(repository):
+        roots.append(repository)
+    return tuple(Path(root) for root in roots if root is not None)
+
+
+def validate_bundle_output(project: Project, output: Path, *, input_roots=()) -> Path:
+    """Admit a new, unlinked output outside source without creating any paths."""
+    from .installation_permissions import require_unlinked
+    output = Path(os.path.abspath(Path(output).expanduser()))
+    require_unlinked(output)
+    if output.exists() or output.is_relative_to(Path(os.path.abspath(project.root))):
+        raise LauncherError('installation bundle output must be new and outside the source tree')
+    for root in input_roots:
+        root = Path(os.path.abspath(Path(root).expanduser()))
+        require_unlinked(root)
+        if output.is_relative_to(root):
+            raise LauncherError('installation bundle output must be outside all input directories')
+    return output
+
+
 def prepare_install_bundle(project: Project, output: Path, settings, assets=None, *,
                            feature_catalog=None, external_runtimes=frozenset(), manager_distribution=None) -> Path:
     """Build a transferable bundle, optionally requiring named tools on its target.
@@ -602,11 +646,8 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
     if manager_distribution is not None and external_runtimes:
         raise LauncherError('Tam Manager paketi hedefte kurulu araç gerektiremez.')
     _validate_bootstrap(project)
-    output = Path(output).expanduser().absolute()
-    from .installation_permissions import require_unlinked
-    require_unlinked(output)
-    if output.exists() or output.is_relative_to(project.root.absolute()):
-        raise LauncherError('installation bundle output must be new and outside the source tree')
+    inputs = bundle_input_roots(settings, assets=assets, manager_distribution=manager_distribution)
+    output = validate_bundle_output(project, output, input_roots=inputs)
     approved = verify_asset_source(Path(assets)) if assets is not None else None
     from .installation_features import read_feature_catalog
     approved_features = read_feature_catalog(Path(feature_catalog)) if feature_catalog is not None else {}
@@ -617,6 +658,7 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
     with tempfile.TemporaryDirectory(prefix='.awcenter-bundle-', dir=output.parent) as temporary:
         staging = Path(temporary) / 'bundle'
         staging.mkdir()
+        settings.report('Paket kaynakları ve Manager dosyaları kopyalanıyor')
         if manager_distribution is None:
             copy_install_source(project, staging / 'source')
         else:
@@ -629,6 +671,7 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
         included_runtimes = {name: metadata for name, metadata in _runtime_metadata(catalog).items()
                              if name not in external_runtimes}
         for name in included_runtimes:
+            settings.report(f'{name}: çevrimdışı runtime arşivi hazırlanıyor')
             fetch_artifact(catalog[name], runtimes, settings)
         if feature_catalog is not None:
             from .installation_permissions import secure_path
@@ -653,6 +696,7 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
         if manager_distribution is not None:
             from scripts.manager.distribution import seal_distribution
             seal_distribution(staging, complete=True)
+        settings.report('Tam çevrimdışı paketin envanteri ve bütünlüğü doğrulanıyor')
         verify_install_bundle(project, staging)
         staging.rename(output)
     return output

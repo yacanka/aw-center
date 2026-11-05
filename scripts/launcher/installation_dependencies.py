@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -16,6 +17,57 @@ from .offline_manifest import verify_offline_manifest
 from .process import controlled_run, environment
 
 _STAGE_RECEIPT = '.awcenter-packages.json'
+_FATAL_PACKAGE_FAILURES = (
+    ((r'\b(?:sslerror|sslcertverificationerror|certificateerror|certificate_verify_failed)\b',
+      r'\b(?:unable_to_verify_leaf_signature|unable_to_get_issuer_cert_locally|depth_zero_self_signed_cert|self_signed_cert_in_chain|cert_has_expired|cert_not_yet_valid|err_tls_cert_altname_invalid)\b',
+      r'\b(?:ssl|tls) (?:certificate (?:verification|verify) failed|handshake (?:failed|failure)|routines)\b',
+      r'\bcertificate (?:verification failed|verify failed|has expired)\b',
+      r'\bself[- ]signed certificate\b',
+      r'\bunable to (?:get local issuer certificate|verify the first certificate)\b'), 'package_tls_failed',
+     'Paket bağlantısının TLS sertifikası veya güvenli bağlantısı doğrulanamadı.',
+     'Sistem sertifika deposunu, kurumun onaylı CA dosyasını ve proxy erişimini kontrol edin.'),
+    ((r'\beintegrity\b', r'\bhash mismatch\b',
+      r'\bchecksum (?:verification )?(?:failed|failure|mismatch)\b',
+      r'\bdo not match the hashes\b'), 'package_integrity_failed',
+     'Paket dosyalarının bütünlüğü doğrulanamadı; dosyalar kullanılmadı.',
+     'Onaylı paket veya depodan doğrulanmış dosyaları yeniden edinin; hash denetimini kapatmayın.'),
+    ((r'\bno space\b', r'\benospc\b', r'\bdisk full\b'), 'package_disk_full',
+     'Paket işlemi için yeterli disk alanı bulunamadı.',
+     'Kurulum ve geçici dosya disklerinde boş alan açıp yeniden deneyin.'),
+    ((r'\baccess is denied\b', r'\bpermission denied\b', r'\beacces\b', r'\beperm\b',
+      r'\boperation not permitted\b'), 'package_access_denied',
+     'Paket işlemi için gerekli dosya veya çalıştırma izni sağlanamadı.',
+     'Seçili dizin ve araçların erişim izinlerini veya kurumun çalıştırma politikasını kontrol edin.'),
+)
+
+
+def _package_failure(output: str) -> tuple[str, str, str]:
+    text = output.casefold()
+    for patterns, code, message, remedy in _FATAL_PACKAGE_FAILURES:
+        if any(re.search(pattern, text) for pattern in patterns):
+            return code, message, remedy
+    return ('package_command_failed', 'Paket aracı işlemi tamamlayamadı.',
+            'Seçili paket kaynaklarını ve Python/Node araçlarını kontrol edip yeniden deneyin.')
+
+
+class PackageCommandError(LauncherError):
+    """Expose only reviewed package failure details, never tool diagnostics."""
+
+    def __init__(self, result):
+        self.code, message, self.remedy = _package_failure((result.stdout or '') + '\n' + (result.stderr or ''))
+        if type(result.returncode) is int and result.returncode > 0:
+            message += f' Süreç çıkış kodu: {result.returncode}.'
+        super().__init__(message)
+
+
+class PackageTimeoutError(LauncherError):
+    """Identify a process timeout without retaining command or captured output."""
+
+    code = 'package_timeout'
+    remedy = 'Ağ ve paket araçlarının durumunu kontrol edip yeniden deneyin; tamamlanan aşamalar korunur.'
+
+    def __init__(self):
+        super().__init__('Paket işlemi süre sınırını aştı; kurulum yeniden çalıştırılabilir.')
 
 
 def _package_inventory(target):
@@ -72,12 +124,12 @@ def availability_failure(output: str, *, restricted: bool = False) -> bool:
     Unknown failures are installation failures, even if that requires a manual retry.
     """
     text = output.casefold()
-    fatal = ("certificate", "sslerror", "eintegrity", "hash mismatch", "failed building wheel",
-             "subprocess-exited-with-error", "eresolve", "no space", "access is denied", "permission denied")
-    if any(value in text for value in fatal):
+    fatal = ("failed building wheel", "subprocess-exited-with-error", "eresolve")
+    if _package_failure(text)[0] != 'package_command_failed' or any(value in text for value in fatal):
         return False
-    if restricted and any(value in text for code in (401, 403, 407)
-                          for value in (f'http error {code}', f'error {code}', f'e{code}', f'{code} client error')):
+    codes = (408, 429, 500, 502, 503, 504) + ((401, 403, 407) if restricted else ())
+    if any(re.search(rf'\b(?:e{code}|(?:http error|error|tunnel connection failed:)\s+{code}|{code}\s+client error)\b', text)
+           for code in codes):
         return True
     return any(value in text for value in (
         "newconnectionerror", "connection refused", "connection reset", "readtimeouterror",
@@ -111,12 +163,12 @@ def capture(command: list, project: Project, overrides: dict | None = None, *, t
                                   capture_output=True, text=True, timeout=timeout, check=False,
                                   safe_boundary=any(str(part) == "migrate" for part in command))
         except subprocess.TimeoutExpired:
-            raise LauncherError("Paket işlemi süre sınırını aştı; kurulum yeniden çalıştırılabilir.") from None
+            raise PackageTimeoutError() from None
 
 
 def _succeeded(result, stage: str) -> None:
     if result.returncode:
-        raise LauncherError(f"{stage} başarısız; kurulum durduruldu. Kaynak ve araç durumunu doctor ile kontrol edin.")
+        raise PackageCommandError(result)
 
 
 def _offline_candidates(settings: SourceSettings):
@@ -125,7 +177,8 @@ def _offline_candidates(settings: SourceSettings):
         roots.append(Path(settings.repository))
     if settings.offline_dir:
         roots.append(Path(settings.offline_dir))
-    for root in roots:
+    roots.extend(settings.runtime_dirs)
+    for root in dict.fromkeys(map(Path, roots)):
         for directory in (root / "dependencies", root):
             if (directory / "manifest.json").is_file():
                 yield directory
@@ -181,18 +234,19 @@ def _ensure_venv(project: Project, tool_env: dict, *, expected_python: Path | No
 def _python_packages(project: Project, settings: SourceSettings, tool_env: dict, stage: Path) -> None:
     if not project.requirements:
         raise LauncherError("Python requirements lock dosyası bulunamadı.")
-    offline = _offline_dependencies(project, settings) if settings.mode in {'restricted', 'offline'} else None
+    offline = _offline_dependencies(project, settings)
     wheelhouse = offline / 'wheels' if offline else None
     indexes = acquisition_urls(settings, "https://pypi.org/simple", settings.python_index_url)
     for number, index in enumerate(indexes if wheelhouse is None else []):
         candidate = stage / f'wheels-{number}'
         candidate.mkdir()
+        settings.report(f'Python paketleri: izinli kaynak {number + 1}/{len(indexes)} deneniyor')
         result = capture([project.python, "-m", "pip", "wheel", "--wheel-dir", candidate,
                           "--index-url", index, "-r", project.requirements], project, tool_env)
         if not result.returncode:
             wheelhouse = candidate
             break
-        if not availability_failure(result.stdout + result.stderr, restricted=settings.mode == 'restricted'):
+        if not availability_failure(result.stdout + result.stderr, restricted=True):
             _succeeded(result, "Python paket edinimi")
         settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
     if wheelhouse is None:
@@ -216,8 +270,9 @@ def _npm_command(tool_env: dict) -> list[str]:
 
 def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dict, stage: Path) -> None:
     npm = _npm_command(tool_env)
-    offline = _offline_dependencies(project, settings) if settings.mode in {'restricted', 'offline'} else None
+    offline = _offline_dependencies(project, settings)
     cache = None
+    timeout_error = None
     registries = acquisition_urls(settings, "https://registry.npmjs.org", settings.npm_registry_url)
     for number, registry in enumerate(registries if offline is None else []):
         tree, candidate = stage / f'npm-source-{number}', stage / f'npm-cache-{number}'
@@ -227,18 +282,27 @@ def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dic
             if not source.is_file():
                 raise LauncherError('Frontend lock dosyası eksik.')
             shutil.copyfile(source, tree / name)
-        result = capture([*npm, "ci", "--prefix", tree, "--ignore-scripts", "--cache", candidate,
-                          "--registry", registry, "--replace-registry-host=npmjs", "--no-audit", "--no-fund"],
-                         project, tool_env)
+        settings.report(f'npm paketleri: izinli kaynak {number + 1}/{len(registries)} deneniyor')
+        try:
+            result = capture([*npm, "ci", "--prefix", tree, "--ignore-scripts", "--cache", candidate,
+                              "--registry", registry, "--replace-registry-host=npmjs", "--no-audit", "--no-fund"],
+                             project, tool_env)
+        except PackageTimeoutError as error:
+            timeout_error = error
+            settings.report('npm kaynağı süre sınırında yanıt vermedi; sıradaki izinli kaynak deneniyor')
+            continue
+        timeout_error = None
         if not result.returncode:
             cache = candidate
             break
-        if not availability_failure(result.stdout + result.stderr, restricted=settings.mode == 'restricted'):
+        if not availability_failure(result.stdout + result.stderr, restricted=True):
             _succeeded(result, "npm paket edinimi")
         settings.report('npm kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
     if cache is None:
         offline = offline or _offline_dependencies(project, settings)
         if not offline:
+            if timeout_error is not None:
+                raise timeout_error
             raise LauncherError("Kilitli npm paketleri internet, seçilen depo veya offline dizinde bulunamadı.")
         cache = stage / "offline-npm-cache"
         shutil.copytree(offline / "npm-cache", cache)

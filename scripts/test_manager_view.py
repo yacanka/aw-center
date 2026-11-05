@@ -20,7 +20,7 @@ class FormTests(unittest.TestCase):
         self.assertEqual(values["source_root"], "C:/source")
         self.assertEqual(values["host"], "")
         self.assertEqual(values["backend_port"], "")
-        self.assertEqual(values["source_mode"], "online")
+        self.assertEqual(values["source_mode"], "restricted")
         self.assertIs(values["migrate"], False)
 
     def test_node_selection_is_optional_and_preserved_for_each_operation(self):
@@ -54,10 +54,10 @@ class FormTests(unittest.TestCase):
                 normalize_values("provision", {"profile": "prod", "host": host})
             self.assertEqual(caught.exception.field, "host")
 
-    def test_offline_dependency_operation_requires_directory(self):
-        with self.assertRaises(FormError) as caught:
-            normalize_values("test-sources", {"source_mode": "offline"})
-        self.assertEqual(caught.exception.field, "offline_dir")
+    def test_offline_allows_automatic_local_media_discovery(self):
+        values = normalize_values("test-sources", {"source_mode": "offline"})
+        self.assertEqual(values['offline_dir'], '')
+        self.assertEqual(values['source_mode'], 'offline')
 
     def test_start_and_doctor_do_not_validate_unused_source_fields(self):
         for action in ("start", "doctor"):
@@ -75,10 +75,8 @@ class FormTests(unittest.TestCase):
         values = normalize_values("test-sources", {"source_mode": "corporate", "repository": r"\\server\packages", "python_index_url": "https://packages.example/simple", "npm_registry_url": "https://npm.example"})
         self.assertEqual(values["repository"], r"\\server\packages")
 
-    def test_bundle_requires_an_explicit_output_directory(self):
-        with self.assertRaises(FormError) as caught:
-            normalize_values("bundle", {})
-        self.assertEqual(caught.exception.field, "output")
+    def test_bundle_allows_worker_to_choose_an_automatic_output_directory(self):
+        self.assertEqual(normalize_values("bundle", {})["output"], "")
 
     def test_unknown_values_never_enter_callback_payload(self):
         values = normalize_values("doctor", {"password": "never-in-report", "unexpected": "ignored"})

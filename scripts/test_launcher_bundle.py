@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts.launcher.model import LauncherError, Project
+from scripts.launcher.installation_sources import SourceSettings
 
 
 def project_at(root):
@@ -37,6 +38,57 @@ class BundleSafetyTests(unittest.TestCase):
         from scripts.launcher.installation_permissions import secure_path
         secure_path(self.root)
         self.project = project_at(self.root / 'project')
+
+    def test_output_must_be_outside_every_additional_input_tree(self):
+        for name in ('media', 'assets', 'dependencies'):
+            parent = self.root / name
+            parent.mkdir()
+            marker = parent / 'keep.txt'
+            marker.write_text('keep')
+            with self.subTest(name=name), self.assertRaises(LauncherError):
+                self.bundle.validate_bundle_output(self.project, parent / 'new-bundle', input_roots=(parent,))
+            self.assertEqual(list(parent.iterdir()), [marker])
+
+    def test_asset_overlap_is_rejected_before_asset_copy_or_validation(self):
+        assets = self.root / 'approved-assets'
+        assets.mkdir()
+        with patch.object(self.bundle, '_require_windows_target', return_value={}), \
+             patch.object(self.bundle, 'verify_asset_source', side_effect=AssertionError('Unsafe overlapping input was read')):
+            with self.assertRaises(LauncherError):
+                self.bundle.prepare_install_bundle(self.project, assets / 'new-bundle',
+                                                   SourceSettings(mode='offline'), assets=assets)
+        self.assertEqual(list(assets.iterdir()), [])
+
+    def test_isolated_npm_timeout_tries_the_next_permitted_registry(self):
+        import subprocess
+        from scripts.launcher.installation_dependencies import PackageTimeoutError
+        registries = []
+        def capture(command, project, overrides):
+            registry = command[command.index('--registry') + 1]
+            registries.append(registry)
+            if registry == 'https://selected.example/npm':
+                raise PackageTimeoutError()
+            cache = Path(command[command.index('--cache') + 1]) / '_cacache'
+            cache.mkdir(parents=True)
+            (cache / 'verified-package').write_bytes(b'package')
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with patch.object(self.bundle, '_capture', side_effect=capture), \
+             patch.object(self.bundle, '_offline_source', return_value=None), \
+             patch.object(self.bundle, '_npm_argv', return_value=['npm']):
+            target = self.root / 'npm-output'
+            self.bundle._acquire_npm(self.project, target, SourceSettings(mode='restricted',
+                npm_registry_url='https://selected.example/npm'), {})
+        self.assertEqual(registries, ['https://selected.example/npm', 'https://registry.npmjs.org'])
+        self.assertEqual((target / '_cacache/verified-package').read_bytes(), b'package')
+
+    def test_pip_build_timeout_is_terminal_without_another_source(self):
+        from scripts.launcher.installation_dependencies import PackageTimeoutError
+        with patch.object(self.bundle, '_capture', side_effect=PackageTimeoutError()) as capture, \
+             patch.object(self.bundle, '_offline_source', return_value=None):
+            with self.assertRaises(PackageTimeoutError):
+                self.bundle._acquire_wheels(self.project, self.root / 'wheels', SourceSettings(
+                    mode='restricted', python_index_url='https://selected.example/simple'), {})
+        self.assertEqual(capture.call_count, 1)
 
     def test_source_copy_excludes_live_environment_and_generates_safe_template(self):
         (self.project.backend / '.env.production').write_text('SECRET_KEY=private-value')
@@ -120,6 +172,38 @@ class BundleSafetyTests(unittest.TestCase):
             with self.assertRaises(LauncherError):
                 self.bundle.prepare_install_bundle(self.project, target, None)
         self.assertFalse(target.exists())
+
+    def test_output_admission_is_read_only_and_preserves_existing_paths(self):
+        validate = getattr(self.bundle, 'validate_bundle_output', None)
+        self.assertTrue(callable(validate), 'Bundle output preflight must be reusable before tool setup')
+        destination = self.root / 'new-parent/bundle'
+        self.assertEqual(validate(self.project, destination), destination)
+        self.assertFalse(destination.parent.exists())
+        existing = self.root / 'existing'
+        existing.mkdir()
+        (existing / 'keep.txt').write_text('preserve this output')
+        before = self.bundle.install_inventory(self.root)
+        for output in (existing, self.project.root, self.project.root / 'bundle'):
+            with self.subTest(output=output):
+                with self.assertRaises(LauncherError):
+                    validate(self.project, output)
+        self.assertEqual(self.bundle.install_inventory(self.root), before)
+
+    def test_output_admission_rejects_linked_parent_without_creating_output(self):
+        validate = getattr(self.bundle, 'validate_bundle_output', None)
+        self.assertTrue(callable(validate), 'Bundle output preflight must enforce unlinked paths')
+        link = self.root / 'linked'
+        link.symlink_to(self.project.root, target_is_directory=True)
+        with self.assertRaises(LauncherError):
+            validate(self.project, link / 'bundle')
+        self.assertFalse((self.project.root / 'bundle').exists())
+
+    def test_output_admission_normalizes_dot_segments_before_source_scope_check(self):
+        with self.assertRaises(LauncherError):
+            self.bundle.validate_bundle_output(self.project, self.root / 'outside/../project/bundle')
+        output = self.bundle.validate_bundle_output(self.project, self.project.root / '../bundle')
+        self.assertEqual(output, self.root / 'bundle')
+        self.assertFalse(output.exists())
 
     def test_complete_bundle_roundtrip_and_tamper_rejection(self):
         from scripts.launcher.installation_sources import Artifact, SourceSettings
@@ -332,6 +416,102 @@ class BundleSafetyTests(unittest.TestCase):
                                             SourceSettings(python_index_url='https://selected.example/simple'), {})
         self.assertEqual(run.call_count, 1)
         self.assertFalse((self.root / 'rejected-wheels').exists())
+
+    def _local_dependency_source(self):
+        from scripts.launcher.offline_manifest import artifact_metadata, lock_metadata, target_metadata
+        source = self.root / 'local-dependencies'
+        (source / 'wheels').mkdir(parents=True)
+        (source / 'wheels/approved.whl').write_bytes(b'approved local wheel')
+        (source / 'npm-cache/_cacache').mkdir(parents=True)
+        (source / 'npm-cache/_cacache/approved').write_bytes(b'approved local npm content')
+        manifest = {'format_version': 1, 'target': target_metadata(),
+                    'locks': lock_metadata(self.project, self.bundle.Scope()),
+                    'artifacts': artifact_metadata(source)}
+        (source / 'manifest.json').write_text(json.dumps(manifest))
+        return source
+
+    def test_bundle_dependency_acquisition_prefers_verified_local_packages_in_every_mode(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        source = self._local_dependency_source()
+        before = self.bundle.install_inventory(source)
+        def capture(command, project, overrides):
+            self.assertNotIn('--index-url', command, 'Validated local wheels must avoid the network')
+            self.assertNotIn('--registry', command, 'Validated local npm cache must avoid the network')
+            return type('Completed', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
+        with patch.object(self.bundle, '_capture', side_effect=capture), \
+             patch.object(self.bundle, '_npm_argv', return_value=['npm']):
+            for mode in ('online', 'corporate', 'restricted', 'offline'):
+                with self.subTest(mode=mode):
+                    settings = SourceSettings(mode=mode, offline_dir=source)
+                    wheels, npm = self.root / (mode + '-wheels'), self.root / (mode + '-npm')
+                    self.bundle._acquire_wheels(self.project, wheels, settings, {})
+                    self.bundle._acquire_npm(self.project, npm, settings, {})
+                    self.assertEqual((wheels / 'approved.whl').read_bytes(), b'approved local wheel')
+                    self.assertEqual((npm / '_cacache/approved').read_bytes(), b'approved local npm content')
+        self.assertEqual(self.bundle.install_inventory(source), before)
+
+    def test_corrupt_local_bundle_dependencies_are_rejected_before_network_fallback(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        source = self._local_dependency_source()
+        (source / 'wheels/approved.whl').write_bytes(b'corrupt local wheel')
+        with patch.object(self.bundle, '_capture', side_effect=AssertionError('Corrupt local media must fail closed')), \
+             patch.object(self.bundle, '_npm_argv', return_value=['npm']):
+            for acquire in (self.bundle._acquire_wheels, self.bundle._acquire_npm):
+                with self.subTest(acquire=acquire.__name__):
+                    output = self.root / acquire.__name__
+                    with self.assertRaises(LauncherError):
+                        acquire(self.project, output, SourceSettings(offline_dir=source), {})
+                    self.assertFalse(output.exists())
+
+    def test_bundle_package_acquisition_tries_selected_source_after_proxy_rejection(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        settings = SourceSettings(python_index_url='https://selected.example/simple',
+                                  npm_registry_url='https://selected.example/npm')
+        def capture(command, project, overrides):
+            if any(url in command for url in ('https://pypi.org/simple', 'https://registry.npmjs.org')):
+                return type('Completed', (), {'returncode': 1, 'stdout': '',
+                                             'stderr': 'HTTP error 407 Proxy Authentication Required'})()
+            if 'wheel' in command:
+                directory = Path(command[command.index('--wheel-dir') + 1])
+                (directory / 'approved.whl').write_bytes(b'selected source wheel')
+            if 'ci' in command:
+                cache = Path(command[command.index('--cache') + 1]) / '_cacache'
+                cache.mkdir(parents=True)
+                (cache / 'approved').write_bytes(b'selected source npm content')
+            return type('Completed', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
+        with patch.object(self.bundle, '_capture', side_effect=capture), \
+             patch.object(self.bundle, '_npm_argv', return_value=['npm']):
+            try:
+                self.bundle._acquire_wheels(self.project, self.root / 'wheels', settings, {})
+                self.bundle._acquire_npm(self.project, self.root / 'npm', settings, {})
+            except LauncherError:
+                self.fail('Proxy rejection must allow the other explicitly permitted package source')
+        self.assertEqual((self.root / 'wheels/approved.whl').read_bytes(), b'selected source wheel')
+        self.assertEqual((self.root / 'npm/_cacache/approved').read_bytes(), b'selected source npm content')
+
+    def test_bundle_package_failures_preserve_safe_actionable_categories(self):
+        from scripts.launcher.installation_sources import SourceSettings
+        for message, code in (
+            ('SSL certificate verification failed', 'package_tls_failed'),
+            ('hash mismatch', 'package_integrity_failed'),
+            ('No space left on device', 'package_disk_full'),
+            ('Permission denied', 'package_access_denied'),
+            ('Unexpected package-manager failure', 'package_command_failed'),
+        ):
+            for acquire in (self.bundle._acquire_wheels, self.bundle._acquire_npm):
+                with self.subTest(message=message, acquire=acquire.__name__):
+                    progress = []
+                    result = type('Completed', (), {'returncode': 1, 'stdout': 'private-command-output',
+                                                   'stderr': message + ' private-diagnostic'})()
+                    output = self.root / 'rejected-packages'
+                    with patch.object(self.bundle, '_capture', return_value=result), \
+                         patch.object(self.bundle, '_npm_argv', return_value=['npm']):
+                        with self.assertRaises(LauncherError) as failed:
+                            acquire(self.project, output, SourceSettings(progress=progress.append), {})
+                    self.assertEqual(getattr(failed.exception, 'code', None), code)
+                    self.assertTrue(getattr(failed.exception, 'remedy', ''))
+                    self.assertNotIn('private-', str(failed.exception) + failed.exception.remedy + str(progress))
+                    self.assertFalse(output.exists())
 
     def test_prepare_rejects_unapproved_native_catalog_before_output_mutation(self):
         target = {'system':'windows', 'machine':'amd64', 'python':'3.11', 'implementation':'cpython'}

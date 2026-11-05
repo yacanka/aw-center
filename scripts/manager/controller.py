@@ -8,7 +8,7 @@ import uuid
 import webbrowser
 
 from .task_policy import ACTION_LABELS, claims_for, conflicts
-from .paths import normalize_task_paths
+from .paths import new_bundle_output, normalize_task_paths
 from .transport import WorkerSession
 from .view_model import DEFAULT_VALUES, _ready_url
 
@@ -87,6 +87,15 @@ class ManagerController:
         snapshot = {key: value for key, value in values.items() if key in DEFAULT_VALUES}
         snapshot.setdefault('profile', 'dev')
         snapshot['source_root'] = snapshot.get('source_root') or self.source_root
+        if action == 'bundle' and not snapshot.get('output'):
+            from scripts.launcher.model import LauncherError
+            try:
+                snapshot['output'] = str(new_bundle_output())
+            except LauncherError:
+                self.view.handle_event({'type': 'error', 'code': 'profile_unavailable',
+                    'message': 'Otomatik paket hedefi için Windows kullanıcı kayıt alanı bulunamadı.',
+                    'remedy': 'LOCALAPPDATA kullanıcı profilini kontrol edin veya bir çıktı klasörü seçin.'})
+                return None
         snapshot = normalize_task_paths(snapshot)
         claims = claims_for(action, snapshot)
         for task in self.tasks.values():

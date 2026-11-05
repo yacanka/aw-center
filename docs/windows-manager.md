@@ -112,14 +112,47 @@ Kaynak modu her işlemde açıkça seçilir:
 
 | Mod | İzin verilen kaynaklar |
 | --- | --- |
-| Online | Genel HTTPS kaynakları, seçilen kurumsal kaynaklar ve doğrulanmış yerel fallback |
-| Kısıtlı internet (`restricted`) | Doğrulanmış yerel içerik → seçilen depolar → genel HTTPS kaynakları |
+| Online | Doğrulanmış yerel içerik → genel HTTPS kaynakları → seçilen kurumsal kaynaklar |
+| Otomatik (`restricted`, yeni masaüstü varsayılanı) | Doğrulanmış yerel içerik → seçilen depolar → genel HTTPS kaynakları |
 | Kurumsal | Yalnız seçilen kurumsal HTTPS veya yerel kaynaklar; genel internete fallback yok |
 | Çevrimdışı | Yalnız seçilen yerel doğrulanmış paket dizini; ağ indirmesi yok |
 
 Python index adresi, npm registry adresi ve runtime arşiv deposu ayrı alanlardır. Kurumun CA dosyasını gerektiğinde seçin; TLS kontrolü kapatılmaz. URL'ye kullanıcı adı, parola veya token koymayın. Kurumsal proxy yapılandırması işlemin ortamından gelebilir; ham paket yöneticisi çıktıları arayüze veya rapora aktarılmaz.
 
-Runtime arşivi indirme isteği yetki veya erişim nedeniyle reddedilirse Manager `artifact_http_rejected` koduyla Python, Node.js veya npm bileşenini ve sayısal HTTP kodunu gösterir. HTTP 401 depo kimlik doğrulamasını, 403 erişim reddini, 407 proxy kimlik doğrulamasını ayrı açıklar. Eski paketlerde bu durumlar genel `source_unavailable` mesajına dönüşüyordu. Yanıt gövdesi, adres, header ve ham hata metni rapora eklenmez. Kısıtlı modda HTTP 401/403/407, bulunamama ve bağlantı sorunları raporlanarak sıradaki izinli kaynağa geçilir. Diğer modların sınırları korunur. TLS, hash, bozuk manifest ve kurulum hataları fallback yapmadan durur. Her uzak deneme ayrı geçici dizindedir; depolar aynı çözümleme havuzunda karıştırılmaz. Son kurulum Python için `--no-index --find-links`, npm için `npm ci --offline` ile yerelden yapılır.
+Kur ve başlat ve Çevrimdışı paket hazırla, EXE yanındaki doğrulanmış arşiv ve
+bağımlılık paketlerini otomatik değerlendirir. Çevrimdışı modda dizin alanını boş
+bırakabilirsiniz; gerekli içerik otomatik bulunan yerel pakette yoksa eksik bildirilir.
+Kayıtlı kaynak modu ve CLI'nin online varsayılanı korunur. Ağ kullanılan modlarda
+seçilen modun izin verdiği kaynaklar sırayla denenir. Kesilen runtime transferleri
+en fazla üç kez denenir; geçici HTTP/npm hataları diğer izinli kaynakları engellemez.
+Tam uzunluktaki bozuk hash, TLS, izin, disk veya kurulum hatası otomatik fallback
+ile gizlenmez. Kaynak numarası ve gerçek aşama raporda gösterilir.
+
+Paket çıktı alanı boşsa her görev için yeni bir
+`%LOCALAPPDATA%\AWCenter\exports\AWCenter-offline-…` dizini seçilir. Mevcut bir
+çıktı klasörü seçildiğinde içinde yeni bir alt klasör oluşturulur; mevcut içerik
+korunur. Hedef kaynak, Manager dağıtımı, asset veya bağımlılık girdilerinin
+içindeyse Manager araç hazırlığından önce otomatik exports konumuna yönlendirir
+ve bunu raporda belirtir. Diğer yeni hedefler aynen kullanılır. CLI çakışan
+hedefleri yazma yapmadan reddeder; mevcut/yeni hedef sözleşmesi değişmez.
+Tam paket hazırlığı araçlar için indirdiği doğrulanmış arşivleri tekrar
+kullanır; canlı runtime veya uygulama bağımlılıklarını değiştirmez.
+
+Kullanıcı müdahalesi gereken örnekler: ilk yönetici bilgileri, yeni production
+profilinin IPv4/TLS dosyaları, mevcut veritabanı migration onayı, güvenilen kurum
+CA'sı/proxy erişimi, bozuk medya veya tüm izinli kaynaklarda bulunmayan paket.
+Paket komutu hataları `package_tls_failed`, `package_integrity_failed`,
+`package_disk_full`, `package_access_denied` veya `package_command_failed` ile
+güvenli neden ve yapılacak işlem olarak bildirilir. Kaynak ve kilit doğrulaması
+ilk progress olayından önce sessizce çalışmaz; “Hazırlık” tek başına ağ hatası
+teşhisi değildir.
+
+İzole `npm ci --ignore-scripts` paket edinimi zaman aşımında diğer izinli depolar
+denenir. Son çevrimdışı kurulum/build ve Python wheel derlemesi zaman aşımları
+yeniden çalıştırılmaz; güvenli `package_timeout` bildirimi üretir. İptal hiçbir
+kaynak denemesini veya otomatik yeniden başlatmayı tetiklemez.
+
+Runtime arşivi indirme isteği yetki veya erişim nedeniyle reddedilirse Manager `artifact_http_rejected` koduyla Python, Node.js veya npm bileşenini ve sayısal HTTP kodunu gösterir. HTTP 401 depo kimlik doğrulamasını, 403 erişim reddini, 407 proxy kimlik doğrulamasını ayrı açıklar. Eski paketlerde bu durumlar genel `source_unavailable` mesajına dönüşüyordu. Yanıt gövdesi, adres, header ve ham hata metni rapora eklenmez. HTTP 401/403/407, bulunamama ve geçici bağlantı sorunları raporlanarak sıradaki izinli kaynağa geçilir. Kurumsal ve çevrimdışı modların sınırları korunur. TLS, hash, bozuk manifest ve kurulum hataları fallback yapmadan durur. Her uzak deneme ayrı geçici dizindedir; depolar aynı çözümleme havuzunda karıştırılmaz. Son kurulum Python için `--no-index --find-links`, npm için `npm ci --offline` ile yerelden yapılır.
 
 “Kaynakları dene” seçilen PEM CA dosyasını varsayılan güven deposuna ekler; Windows'un güvenilen CA ve ROOT depoları ile OpenSSL varsayılanları korunur. CA dosyası seçilmediğinde bu varsayılan depolar kullanılır. Dosya okunamıyorsa veya geçerli PEM değilse ağ isteği yapılmadan CA dosyası hatası gösterilir. Her kaynak için sertifika doğrulaması, diğer TLS hataları, proxy bağlantısı/kimlik doğrulaması, HTTP durum kodları, DNS ve zaman aşımı ayrı açıklanır. Proxy bypass ayarları korunur; hata yanıtlarının gövdeleri, ham exception metinleri ve proxy kimlik bilgileri rapora yazılmaz.
 
@@ -186,6 +219,28 @@ gösterir; ham exception, dosya yolu, worker çıktısı veya credential içerme
 Süreç iletişiminin kodlaması, Windows'un metin kodlamasından bağımsız UTF-8'dir.
 Eski paketlerde bunların tamamı `worker_failed` olarak görünür; bu genel mesaj
 tek başına internet, yetki veya eksik dosya teşhisi koydurmaz.
+
+### Kurulum alanı ve işlem kilidi hataları
+
+`Hazırlık` aşamasında özel kurulum alanına veya işlem kilidine erişim
+reddedilebilir; bu aşama henüz paket kaynaklarının çalışmadığını göstermez.
+İzin raporu başarısız kontrolün sabit adını ve varsa sayısal `WinError` kodunu
+korur. Ham Windows hata metni, kullanıcı kimliği ve gerçek dosya yolu rapora
+eklenmez.
+
+| Kod | Anlamı / yapılacak kontrol |
+| --- | --- |
+| `storage_owner_mismatch`, `storage_ace_owner` | Sahiplik mevcut Windows hesabıyla eşleşmiyor. Kurulumu oluşturan hesapla açın ve sahipliği BT ile kontrol edin. |
+| `storage_acl_read`, `storage_acl_apply` | İzinleri okuma veya uygulama başarısız. Windows hata koduyla kullanıcı profili erişimini ve kurum politikasını kontrol edin. |
+| Diğer `storage_*` izin kodları | Raporda belirtilen sahiplik / yalnız kullanıcıya açık izin kontrolü başarısız. |
+| `storage_lock_failed` | İşlem kilidi alanının hazırlanması, dosyanın açılması veya kilit API'si başarısız; sayısal sistem koduyla erişim, disk ve güvenlik politikasını kontrol edin. |
+| `resource_busy` | Başka bir işlem çakışan kilidi tutuyor; ilgili Manager / launcher görevini durdurun veya tamamlanmasını bekleyin. |
+
+Önceki paketlerde bu durumlar `storage_unavailable` olarak birleştirilir.
+Bu genel kod tek başına erişim reddini, sahiplik uyuşmazlığını veya gerçek
+kilit çakışmasını ayırt etmez. Yeni tanılama için güncel kaynaklardan üretilmiş
+Windows Manager paketi gerekir. Mevcut profil, anahtar veya veritabanını silmek
+ve izinleri herkese açmak bir kurtarma adımı değildir.
 
 ## Windows üzerinde paket üretme
 

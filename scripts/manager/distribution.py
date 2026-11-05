@@ -1,6 +1,7 @@
 """Verified Manager media; full bundles include a pinned, isolated toolchain."""
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -63,16 +64,27 @@ def copy_manager(distribution: Path, destination: Path) -> None:
 def prepare_full_manager(project, output, settings, distribution, *, assets=None, feature_catalog=None):
     """Never borrow producer runtimes or mutate an active application's tools."""
     from scripts.launcher.installation import require_windows
-    from scripts.launcher.installation_bundle import prepare_install_bundle
+    from scripts.launcher.installation_bundle import bundle_input_roots, prepare_install_bundle, validate_bundle_output
+    from scripts.launcher.installation_profiles import installation_home
     from scripts.launcher.installation_state import process_environment
     from scripts.launcher.toolchain import ensure_toolchain
     require_windows()
     distribution = Path(distribution).absolute()
+    runtime_dirs = (*settings.runtime_dirs, distribution)
+    if os.environ.get('LOCALAPPDATA'):
+        runtime_dirs += (installation_home() / 'cache/runtimes',)
+    settings = replace(settings, runtime_dirs=runtime_dirs)
+    inputs = bundle_input_roots(settings, assets=assets, manager_distribution=distribution)
+    output = validate_bundle_output(project, output, input_roots=inputs)
     verify_distribution(distribution)
-    settings = replace(settings, runtime_dirs=(*settings.runtime_dirs, distribution))
     settings.report('Tam paket için sabitlenmiş araçlar ayrı hazırlık alanında kuruluyor')
     with tempfile.TemporaryDirectory(prefix='awcenter-full-manager-') as temporary:
-        tools = ensure_toolchain(Path(temporary).resolve() / 'tools', settings)
+        temporary_home = Path(temporary).resolve() / 'tools'
+        tools = ensure_toolchain(temporary_home, settings)
+        # Tool preparation already acquired these pinned bytes. Keep them until
+        # publication and reverify them through the ordinary artifact reader.
+        bundle_settings = replace(settings, runtime_dirs=(temporary_home / 'cache/runtimes',
+                                                         *settings.runtime_dirs))
         with process_environment(tools):
-            return prepare_install_bundle(project, output, settings, assets=assets,
+            return prepare_install_bundle(project, output, bundle_settings, assets=assets,
                 feature_catalog=feature_catalog, manager_distribution=distribution)

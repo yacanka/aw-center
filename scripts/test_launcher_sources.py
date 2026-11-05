@@ -1,5 +1,7 @@
 """Trust boundaries for installer sources and archives."""
 import hashlib
+from contextlib import nullcontext
+from http.client import IncompleteRead
 import io
 import ssl
 import tarfile
@@ -24,19 +26,25 @@ class SourceTests(unittest.TestCase):
         self.data = b"reviewed artifact"
         self.artifact = sources.Artifact("example", "1", "example.zip", "https://public.example/example.zip", hashlib.sha256(self.data).hexdigest(), "zip", "example.exe")
 
-    def test_public_unavailable_then_repository_then_nested_offline(self):
+    def test_verified_nested_local_runtime_prevents_network_in_every_mode(self):
         offline = self.root / "offline" / "runtimes"
         offline.mkdir(parents=True)
         (offline / self.artifact.filename).write_bytes(self.data)
-        settings = sources.SourceSettings(repository="https://mirror.example/tools", offline_dir=offline.parent)
-        urls = []
-        def unavailable(url, destination, context):
-            urls.append(url)
-            raise HTTPError(url, 404, "missing", {}, None)
-        with patch.object(sources, "_download", side_effect=unavailable):
-            result = sources.fetch_artifact(self.artifact, self.root / "cache", settings)
-        self.assertEqual(result.read_bytes(), self.data)
-        self.assertEqual(urls, [self.artifact.url, "https://mirror.example/tools/example.zip", "https://mirror.example/tools/runtimes/example.zip"])
+        for mode in ('online', 'restricted', 'corporate', 'offline'):
+            with self.subTest(mode=mode), patch.object(sources, "_download", side_effect=AssertionError('network used')):
+                result = sources.fetch_artifact(self.artifact, self.root / mode, sources.SourceSettings(
+                    repository="https://mirror.example/tools", offline_dir=offline.parent, mode=mode))
+                self.assertEqual(result.read_bytes(), self.data)
+
+    def test_corrupt_local_runtime_never_tries_network_in_every_mode(self):
+        local = self.root / 'local'
+        local.mkdir()
+        (local / self.artifact.filename).write_bytes(b'changed')
+        for mode in ('online', 'restricted', 'corporate', 'offline'):
+            with self.subTest(mode=mode), patch.object(sources, '_download', side_effect=AssertionError('network used')):
+                with self.assertRaisesRegex(LauncherError, 'SHA-256'):
+                    sources.fetch_artifact(self.artifact, self.root / mode,
+                                           sources.SourceSettings(offline_dir=local, mode=mode))
 
     def test_hash_mismatch_does_not_fallback_or_cache(self):
         def corrupt(url, destination, context):
@@ -65,6 +73,109 @@ class SourceTests(unittest.TestCase):
             with self.assertRaises(LauncherError):
                 sources.fetch_artifact(self.artifact, self.root / "cache", sources.SourceSettings())
         self.assertEqual(download.call_count, 3)
+
+    def test_interrupted_transfer_retries_without_accepting_partial_bytes(self):
+        attempts = []
+        def download(url, destination, context):
+            attempts.append(url)
+            if len(attempts) == 1:
+                destination.write_bytes(b'partial')
+                raise IncompleteRead(b'partial', 20)
+            destination.write_bytes(self.data)
+        with patch.object(sources, '_download', side_effect=download):
+            result = sources.fetch_artifact(self.artifact, self.root / 'cache', sources.SourceSettings())
+        self.assertEqual(result.read_bytes(), self.data)
+        self.assertEqual(attempts, [self.artifact.url, self.artifact.url])
+
+    def test_short_content_length_response_is_retried_before_checksum_verification(self):
+        response = unittest.mock.Mock()
+        response.headers = {'Content-Length': str(len(self.data))}
+        response.read.side_effect = [b'partial', b'', self.data, b'']
+        opener = unittest.mock.Mock()
+        opener.open.return_value = nullcontext(response)
+        with patch.object(sources, 'build_opener', return_value=opener):
+            result = sources.fetch_artifact(self.artifact, self.root / 'cache', sources.SourceSettings())
+        self.assertEqual(result.read_bytes(), self.data)
+        self.assertEqual(opener.open.call_count, 2)
+
+    def test_complete_content_length_with_wrong_checksum_never_retries_or_falls_back(self):
+        response = unittest.mock.Mock()
+        response.headers = {'Content-Length': str(len(b'corrupt'))}
+        response.read.side_effect = [b'corrupt', b'']
+        opener = unittest.mock.Mock()
+        opener.open.return_value = nullcontext(response)
+        with patch.object(sources, 'build_opener', return_value=opener):
+            with self.assertRaisesRegex(LauncherError, 'SHA-256'):
+                sources.fetch_artifact(self.artifact, self.root / 'cache', sources.SourceSettings(
+                    repository='https://mirror.example/tools'))
+        self.assertEqual(opener.open.call_count, 1)
+        self.assertFalse((self.root / 'cache' / self.artifact.filename).exists())
+
+    def test_exhausted_interrupted_transfers_try_the_next_permitted_source(self):
+        attempts = []
+        def download(url, destination, context):
+            attempts.append(url)
+            if url == self.artifact.url:
+                destination.write_bytes(b'partial')
+                raise IncompleteRead(b'partial', 20)
+            destination.write_bytes(self.data)
+        with patch.object(sources, '_download', side_effect=download):
+            result = sources.fetch_artifact(self.artifact, self.root / 'cache', sources.SourceSettings(
+                repository='https://mirror.example/tools'))
+        self.assertEqual(result.read_bytes(), self.data)
+        self.assertEqual(attempts, [self.artifact.url] * 3 + ['https://mirror.example/tools/example.zip'])
+
+    def test_permission_failure_is_not_retried_or_hidden_by_source_fallback(self):
+        with patch.object(sources, '_download', side_effect=PermissionError('private')) as download:
+            with self.assertRaises(PermissionError):
+                sources.fetch_artifact(self.artifact, self.root / 'cache', sources.SourceSettings(
+                    repository='https://mirror.example/tools'))
+        self.assertEqual(download.call_count, 1)
+
+    def test_wrapped_permission_failure_does_not_retry_or_fallback(self):
+        with patch.object(sources, '_download', side_effect=URLError(PermissionError('private'))) as download:
+            with self.assertRaisesRegex(LauncherError, 'permission'):
+                sources.fetch_artifact(self.artifact, self.root / 'cache', sources.SourceSettings(
+                    repository='https://mirror.example/tools'))
+        self.assertEqual(download.call_count, 1)
+
+    def test_exhausted_corporate_rejections_never_request_public_sources(self):
+        attempts = []
+        def reject(url, *_):
+            attempts.append(url)
+            raise HTTPError(url, 407, 'private', {}, None)
+        with patch.object(sources, '_download', side_effect=reject):
+            with self.assertRaises(sources.ArtifactDownloadError) as caught:
+                sources.fetch_artifact(self.artifact, self.root / 'cache', sources.SourceSettings(
+                    repository='https://selected.example/tools', mode='corporate'))
+        self.assertEqual(caught.exception.status, 407)
+        self.assertEqual(attempts, ['https://selected.example/tools/example.zip',
+                                    'https://selected.example/tools/runtimes/example.zip'])
+
+    def test_exhausted_transient_http_rejections_preserve_the_final_status(self):
+        with patch.object(sources, '_download', side_effect=HTTPError(self.artifact.url, 503, 'private', {}, None)) as download:
+            with self.assertRaises(sources.ArtifactDownloadError) as caught:
+                sources.fetch_artifact(self.artifact, self.root / 'cache', sources.SourceSettings())
+        self.assertEqual(caught.exception.status, 503)
+        self.assertEqual(download.call_count, 3)
+
+    def test_safe_progress_precedes_each_permitted_source_attempt(self):
+        events = []
+        def download(url, destination, context):
+            self.assertTrue(events)
+            self.assertEqual(events[-1][0], 'progress')
+            events.append(('download', url))
+            if url == self.artifact.url:
+                raise HTTPError(url, 403, 'private', {}, None)
+            destination.write_bytes(self.data)
+        settings = sources.SourceSettings(repository='https://mirror.example/tools',
+            progress=lambda message: events.append(('progress', message)))
+        with patch.object(sources, '_download', side_effect=download):
+            result = sources.fetch_artifact(self.artifact, self.root / 'cache', settings)
+        self.assertEqual(result.read_bytes(), self.data)
+        progress = ' '.join(value for kind, value in events if kind == 'progress')
+        self.assertNotIn('https://', progress)
+        self.assertNotIn('private', progress)
 
     def test_cancelled_retrieval_never_starts_an_acquisition_attempt(self):
         stop = threading.Event()
@@ -129,18 +240,22 @@ class SourceTests(unittest.TestCase):
             with self.subTest(target=target), self.assertRaises(LauncherError):
                 redirect.redirect_request(request, None, 302, "found", {}, target)
 
-    def test_authorization_failure_does_not_fallback(self):
-        with patch.object(sources, "_download", side_effect=HTTPError(self.artifact.url, 401, "private", {}, None)) as download:
-            with self.assertRaises(LauncherError):
-                sources.fetch_artifact(self.artifact, self.root / "cache", sources.SourceSettings(repository="https://mirror.example"))
-        self.assertEqual(download.call_count, 1)
+    def test_online_http_rejection_advances_only_to_permitted_repository(self):
+        urls = []
+        def download(url, destination, context):
+            urls.append(url)
+            if url == self.artifact.url:
+                raise HTTPError(url, 401, 'private', {}, None)
+            destination.write_bytes(self.data)
+        with patch.object(sources, '_download', side_effect=download):
+            result = sources.fetch_artifact(self.artifact, self.root / 'cache',
+                sources.SourceSettings(repository='https://mirror.example/tools'))
+        self.assertEqual(result.read_bytes(), self.data)
+        self.assertEqual(urls, [self.artifact.url, 'https://mirror.example/tools/example.zip'])
 
-    def test_http_rejection_preserves_safe_runtime_diagnostics_without_fallback(self):
+    def test_exhausted_http_rejections_preserve_safe_final_runtime_diagnostics(self):
         artifact = sources.Artifact("node", "1", "node.zip", self.artifact.url,
                                     self.artifact.sha256, "zip", "node.exe")
-        offline = self.root / "offline"
-        offline.mkdir()
-        (offline / artifact.filename).write_bytes(self.data)
         marker = "fixture-sensitive-detail"
         for status in (401, 403, 407):
             with self.subTest(status=status):
@@ -151,8 +266,8 @@ class SourceTests(unittest.TestCase):
                 with patch.object(sources, "_download", side_effect=rejected) as download:
                     with self.assertRaises(LauncherError) as raised:
                         sources.fetch_artifact(artifact, cache, sources.SourceSettings(
-                            repository="https://mirror.example/tools", offline_dir=offline))
-                self.assertEqual(download.call_count, 1)
+                            repository="https://mirror.example/tools"))
+                self.assertEqual(download.call_count, 3)
                 self.assertFalse((cache / artifact.filename).exists())
                 error = raised.exception
                 self.assertEqual(getattr(error, "code", None), "artifact_http_rejected")
@@ -169,17 +284,19 @@ class SourceTests(unittest.TestCase):
                 self.assertNotIn("https://", rendered)
                 self.assertTrue(response.closed)
 
-    def test_http_not_found_closes_response_before_local_artifact_fallback(self):
-        offline = self.root / "offline"
-        offline.mkdir()
-        (offline / self.artifact.filename).write_bytes(self.data)
+    def test_http_not_found_closes_response_before_the_next_source(self):
         response = io.BytesIO(b"fixture-sensitive-detail")
         missing = HTTPError(self.artifact.url, 404, "missing", {}, response)
-        with patch.object(sources, "_download", side_effect=missing) as download:
+        def retrieve(url, destination, context):
+            if url == self.artifact.url:
+                raise missing
+            self.assertTrue(response.closed)
+            destination.write_bytes(self.data)
+        with patch.object(sources, "_download", side_effect=retrieve) as download:
             result = sources.fetch_artifact(self.artifact, self.root / "cache",
-                                            sources.SourceSettings(offline_dir=offline))
+                                            sources.SourceSettings(repository='https://mirror.example/tools'))
         self.assertEqual(result.read_bytes(), self.data)
-        self.assertEqual(download.call_count, 1)
+        self.assertEqual(download.call_count, 2)
         self.assertTrue(response.closed)
 
     def test_retryable_http_responses_are_closed_before_the_next_attempt(self):

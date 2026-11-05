@@ -8,7 +8,8 @@ import os
 from pathlib import Path
 import tempfile
 
-from scripts.launcher.installation_permissions import require_private, require_unlinked, secure_path
+from scripts.launcher.installation_permissions import (PERMISSION_CHECK_LABELS, require_private,
+                                                      require_unlinked, secure_path)
 from scripts.launcher.installation_state import private_directory
 from scripts.launcher.model import LauncherError
 from .view_model import DEFAULT_VALUES, FormError, _https
@@ -37,16 +38,6 @@ _REASONS = {
     'too_large': ('Form kaydı 128 KiB sınırını aşıyor.', 'Gereksiz uzun alanları kısaltıp yeniden deneyin.'),
     'io_error': ('Dosya sistemi işlemi tamamlanamadı.', 'Aşağıdaki aşama ve sistem hata koduyla disk / kullanıcı profili erişimini kontrol edin.'),
 }
-_PERMISSION_CHECKS = {
-    'token_open': 'Windows işlem kimliğini açma', 'token_read': 'Windows işlem kimliğini okuma',
-    'sid_read': 'Windows kullanıcı kimliğini okuma', 'acl_build': 'Özel izin tanımını oluşturma',
-    'acl_apply': 'Özel erişim izinlerini uygulama', 'acl_read': 'Mevcut erişim izinlerini okuma',
-    'owner_mismatch': 'Dosya / klasör sahibi mevcut kullanıcıyla eşleşmiyor',
-    'acl_control': 'İzin kalıtım bilgisini okuma', 'acl_inheritance': 'Üst klasörden gelen izinler yalıtılmamış',
-    'acl_information': 'Erişim listesi bilgisini okuma', 'acl_entries': 'Yalnız mevcut kullanıcıya ait tek izin kaydı bekleniyor',
-    'ace_read': 'Erişim kaydını okuma', 'ace_permissions': 'Erişim kapsamı kullanıcıya özel değil',
-    'ace_owner': 'Erişim kaydının sahibi mevcut kullanıcıyla eşleşmiyor',
-}
 
 
 class PreferencesError(LauncherError):
@@ -72,8 +63,8 @@ class PreferencesError(LauncherError):
         for label, value in (('WinError', self.winerror), ('errno', self.errno)):
             if type(value) is int and value > 0:
                 lines.append(f'{label} {value}')
-        if self.permission_code in _PERMISSION_CHECKS:
-            lines.append(f'İzin kontrolü ({self.permission_code}): {_PERMISSION_CHECKS[self.permission_code]}')
+        if self.permission_code in PERMISSION_CHECK_LABELS:
+            lines.append(f'İzin kontrolü ({self.permission_code}): {PERMISSION_CHECK_LABELS[self.permission_code]}')
         if self.cleanup_failed:
             lines.append('Geçici kayıt dosyasının temizlenmesi de tamamlanamadı.')
         return '\n'.join([*lines, 'Çözüm: ' + remedy])

@@ -10,13 +10,33 @@ import stat
 from .model import LauncherError
 
 
+PERMISSION_CHECK_LABELS = {
+    'token_open': 'Windows işlem kimliğini açma', 'token_read': 'Windows işlem kimliğini okuma',
+    'sid_read': 'Windows kullanıcı kimliğini okuma', 'acl_build': 'Özel izin tanımını oluşturma',
+    'acl_apply': 'Özel erişim izinlerini uygulama', 'acl_read': 'Mevcut erişim izinlerini okuma',
+    'owner_mismatch': 'Dosya / klasör sahibi mevcut kullanıcıyla eşleşmiyor',
+    'acl_control': 'İzin kalıtım bilgisini okuma', 'acl_inheritance': 'Üst klasörden gelen izinler yalıtılmamış',
+    'acl_information': 'Erişim listesi bilgisini okuma', 'acl_entries': 'Yalnız mevcut kullanıcıya ait tek izin kaydı bekleniyor',
+    'ace_read': 'Erişim kaydını okuma', 'ace_permissions': 'Erişim kapsamı kullanıcıya özel değil',
+    'ace_owner': 'Erişim kaydının sahibi mevcut kullanıcıyla eşleşmiyor',
+}
+
+
 class PermissionCheckError(LauncherError):
     """An allowlisted check identifier and optional numeric Windows API error."""
 
     def __init__(self, permission_code, *, winerror=None):
-        super().__init__('Owner-only storage permission verification failed')
-        self.permission_code = permission_code
-        self.winerror = winerror
+        self.permission_code = permission_code if permission_code in PERMISSION_CHECK_LABELS else 'permission_failed'
+        self.code = 'storage_' + self.permission_code
+        self.winerror = winerror if type(winerror) is int and winerror > 0 else None
+        label = PERMISSION_CHECK_LABELS.get(self.permission_code, 'Sahiplik veya erişim izinleri doğrulanamadı')
+        message = 'Özel kurulum alanı izin kontrolü: ' + label + '.'
+        if self.winerror is not None:
+            message += f' WinError: {self.winerror}.'
+        self.remedy = ('Kurulumu oluşturan Windows hesabıyla açın. %LOCALAPPDATA%\\AWCenter sahiplik ve yalnız kullanıcıya açık izinlerini BT ile kontrol edin; mevcut profil veya veritabanını silmeyin.'
+                       if self.permission_code in {'owner_mismatch', 'ace_owner'} else
+                       'Kendi Windows hesabınızla açın. %LOCALAPPDATA%\\AWCenter erişimini, izin politikasını ve güvenlik yazılımının engellemesini BT ile kontrol edin; rapordaki izin ve sistem kodunu kullanın.')
+        super().__init__(message)
 
 
 def require_unlinked(path: Path) -> None:

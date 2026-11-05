@@ -1,8 +1,9 @@
 """Independent desktop task lifecycles, without needing a Tk display."""
 from pathlib import Path
+import os
 import threading
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from scripts.manager.controller import ManagerController
 
@@ -77,6 +78,20 @@ class ControllerTests(unittest.TestCase):
         self.assertTrue(Path(output).is_absolute())
         self.assertEqual(self.sessions[0].request['output'], output)
         self.assertIsNone(self.start('bundle', output=output))
+
+    def test_automatic_bundle_output_is_unique_and_claimed_before_worker_starts(self):
+        local = Path.cwd() / 'operator-local'
+        with patch.dict(os.environ, {'LOCALAPPDATA': str(local)}), \
+             patch.object(Path, 'exists', side_effect=AssertionError('No disk checks on Tk')):
+            first = self.start('bundle')
+            second = self.start('bundle')
+        first_output = self.controller.tasks[first].values['output']
+        second_output = self.controller.tasks[second].values['output']
+        self.assertNotEqual(first_output, second_output)
+        self.assertEqual(Path(first_output).parent, local / 'AWCenter' / 'exports')
+        self.assertEqual(self.sessions[0].request['output'], first_output)
+        self.assertTrue(any(claim.path and claim.write and claim.resource == first_output
+                            for claim in self.controller.tasks[first].claims))
 
     def test_ready_provision_releases_setup_claim_for_bundle(self):
         task_id = self.start('provision')

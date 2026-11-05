@@ -84,12 +84,8 @@ class SourceModeTests(unittest.TestCase):
                 flattened = ' '.join(' '.join(command) for command in commands)
                 self.assertNotIn('pypi.org', flattened)
                 self.assertNotIn('registry.npmjs.org', flattened)
-                if mode == 'offline':
-                    self.assertFalse(any('--index-url' in command or '--registry' in command for command in commands))
-                    self.assertTrue(all('--offline' in command for command in commands if 'ci' in command))
-                else:
-                    self.assertIn('https://selected.example/simple', flattened)
-                    self.assertIn('https://selected.example/npm', flattened)
+                self.assertFalse(any('--index-url' in command or '--registry' in command for command in commands))
+                self.assertTrue(all('--offline' in command for command in commands if 'ci' in command))
 
     def test_bundle_acquisition_uses_same_source_policy(self):
         from scripts.launcher import installation_bundle as bundle

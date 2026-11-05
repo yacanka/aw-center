@@ -569,7 +569,7 @@ class ManagerWindow:
         modes = _Card(parent)
         modes.grid(row=0, column=0, sticky="ew")
         ttk.Label(modes, text="Paket kaynakları", style="Manager.Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
-        for column, (value, label) in enumerate((("online", "İnternet"), ('restricted', 'Kısıtlı internet'), ("corporate", "Yalnız kurumsal"), ("offline", "Çevrimdışı"))):
+        for column, (value, label) in enumerate((('restricted', 'Otomatik (önerilen)'), ("online", "Önce internet"), ("corporate", "Yalnız kurumsal"), ("offline", "Çevrimdışı"))):
             button = ttk.Radiobutton(modes, text=label, value=value, variable=self.variables["source_mode"], style="Manager.Source.TRadiobutton")
             button.grid(row=1 + column // 2, column=column % 2, sticky="w", padx=(0, 12), pady=4)
             self._controls.append(button)
@@ -584,11 +584,11 @@ class ManagerWindow:
             ("ca_file", "Kurumsal CA dosyası (PEM)", "certificate"),
             ("assets", "Onaylı asset dizini (isteğe bağlı)", "directory"),
             ("feature_catalog", "Native araç kataloğu (isteğe bağlı)", "catalog"),
-            ("output", "Çevrimdışı paket çıktı dizini", "directory"),
+            ("output", "Paket çıktı klasörü (boşsa otomatik)", "directory"),
             ('manager_distribution', 'Windows Manager paketi (kaynak çalıştırmada)', 'directory'),
         )):
             self._entry(fields, row, key, label, tab=self.source_tab, picker=picker)
-        self._label(parent, "İsteğe bağlı yönetilen Python, Node ve npm arşivleri yönetici paketine dahildir. pip ve npm alanları uygulama bağımlılıklarını belirler; arşiv deposu alanı bunlardan ayrıdır. URL'lere parola veya token yazmayın. TLS ve hash doğrulaması her modda korunur.", style="Manager.TLabel").grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        self._label(parent, "Python, Node ve npm arşivleri yönetici paketine dahildir. Çıktı boşsa paket %LOCALAPPDATA%\\AWCenter\\exports altında hazırlanır; mevcut bir çıktı klasörü seçilirse içinde yeni bir alt klasör oluşturulur. pip ve npm alanları uygulama bağımlılıklarını belirler. URL'lere parola veya token yazmayın. TLS ve hash doğrulaması her modda korunur.", style="Manager.TLabel").grid(row=2, column=0, sticky="ew", pady=(12, 0))
 
     def _build_report(self, parent):
         parent.columnconfigure(0, weight=1)
@@ -806,10 +806,10 @@ class ManagerWindow:
         self.action_buttons['start'].grid()
         self.profile_help_var.set("Dev: yerel geliştirme sunucuları; host 127.0.0.1 ile sınırlıdır." if profile == "dev" else "Prod: HTTPS, sabit IPv4 ve ayrı özel veritabanı / artifact dizinleri.")
         self.source_help_var.set({
-            "online": "İnternet kaynakları kullanılır. İsteğe bağlı kurumsal ve çevrimdışı yedek kaynaklar aşağıdan seçilebilir.",
-            "restricted": "Önce doğrulanmış yerel paketler, sonra seçilen depolar, ardından izin verilen genel internet kaynakları denenir.",
+            "online": "Doğrulanmış yerel paketler kullanılır; eksikler için önce genel internet, ardından seçilen kurumsal kaynaklar denenir.",
+            "restricted": "Önce doğrulanmış yerel paketler, sonra seçilen depolar ve genel internet kaynakları otomatik denenir. Geçici bağlantı hataları yeniden denenir; yalnız çözülemeyen ihtiyaçlar bildirilir.",
             "corporate": "Açıkça belirttiğiniz kurumsal HTTPS depoları veya yerel paket dizinleri kullanılır. CA dosyasını gerekiyorsa seçin.",
-            "offline": "Ağ kullanılmaz. Doğrulanmış uygulama bağımlılıklarını içeren çevrimdışı paket dizini zorunludur.",
+            "offline": "Ağ kullanılmaz. EXE yanındaki doğrulanmış paketler otomatik bulunur; başka bir paket dizini de seçebilirsiniz.",
         }.get(mode, "Kaynak modu seçin."))
         self._update_summary()
         self._paint_status_tile()

@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
+import errno
 import hashlib
 import os
 from pathlib import Path
@@ -11,6 +12,22 @@ from .installation_state import private_directory
 from .model import LauncherError
 
 _held = ContextVar('awcenter_resource_leases', default=None)
+
+
+class ResourceLockError(LauncherError):
+    """A lock conflict or storage failure with no path/OS message disclosure."""
+
+    def __init__(self, *, busy=False, system_error):
+        self.code = 'resource_busy' if busy else 'storage_lock_failed'
+        message = ('Başka bir işlem aynı profil veya kaynakları kullanıyor; işlem başlatılmadı.' if busy else
+                   'Özel kurulum işlem kilidi alanına erişilemedi veya kilit oluşturulamadı.')
+        self.remedy = ('İlgili profili kullanan diğer Manager / launcher görevini durdurun veya tamamlanmasını bekleyip yeniden deneyin.' if busy else
+                       'Kendi Windows hesabınızla %LOCALAPPDATA%\\AWCenter erişimini, disk alanını ve güvenlik yazılımı politikasını kontrol edin; rapordaki sistem kodunu kullanın.')
+        for label, value in (('WinError', getattr(system_error, 'winerror', None)),
+                             ('errno', getattr(system_error, 'errno', None))):
+            if type(value) is int and value > 0:
+                message += f' {label}: {value}.'
+        super().__init__(message)
 
 
 def path_key(path: Path) -> str:
@@ -34,7 +51,15 @@ class _Lease:
         self.write = write
         try:
             secure_path(path)
-            self._lock(write)
+            try:
+                self._lock(write)
+            except OSError as error:
+                # EACCES denotes contention only at the locking call, never
+                # while opening storage. Windows access denial is not a lease.
+                winerror = getattr(error, 'winerror', None)
+                busy = (winerror == 33 or
+                        (winerror is None and error.errno in {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK}))
+                raise ResourceLockError(busy=busy, system_error=error) from None
         except BaseException:
             self.stream.close()
             raise
@@ -82,7 +107,10 @@ class _Lease:
 
 @contextmanager
 def resource_locks(home: Path, claims: dict[str, bool]):
-    directory = private_directory(private_directory(Path(home)) / 'locks')
+    try:
+        directory = private_directory(private_directory(Path(home)) / 'locks')
+    except OSError as error:
+        raise ResourceLockError(system_error=error) from None
     held = dict(_held.get() or {})
     acquired = []
     token = None
@@ -96,8 +124,8 @@ def resource_locks(home: Path, claims: dict[str, bool]):
             filename = hashlib.sha256(name.encode('utf-8')).hexdigest() + '.lock'
             try:
                 lease = _Lease(directory / filename, write)
-            except OSError:
-                raise LauncherError('Başka bir işlem aynı profil veya kaynakları kullanıyor; işlem başlatılmadı.') from None
+            except OSError as error:
+                raise ResourceLockError(system_error=error) from None
             held[identity] = lease
             acquired.append(lease)
         token = _held.set(held)
