@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import faulthandler
 import importlib
 import json
 import os
@@ -122,6 +123,12 @@ class PackageTests(unittest.TestCase):
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE') == '1',
                      'Native packaged Windows acceptance requires AWCENTER_RUN_MANAGER_WINDOWS_SMOKE=1')
 class NativeWindowsPackageTests(unittest.TestCase):
+    def setUp(self):
+        # Stack locations contain no request payloads and expose blocked cleanup
+        # as well as slow provisioning when the runner reconnects after denial.
+        faulthandler.dump_traceback_later(300, repeat=True)
+        self.addCleanup(faulthandler.cancel_dump_traceback_later)
+
     def environment(self, directory, *, network, python_on_path=None):
         system = Path(os.environ['SystemRoot'])
         values = {**os.environ, 'PATH': os.pathsep.join((str(system / 'System32'), str(system))),
@@ -182,6 +189,9 @@ class NativeWindowsPackageTests(unittest.TestCase):
                 event = events.get(timeout=1)
                 self.assertIsNotNone(event, 'Packaged worker exited before its completion event')
                 self.assertIn(event.get('type'), {'phase', 'status', 'checks', 'ready', 'error', 'input', 'done', 'health', 'profile'})
+                if event['type'] in {'phase', 'ready', 'error', 'done'}:
+                    # Never print message, input, environment or process output.
+                    print(f"[native] {event['type']}; {max(0, int(deadline - time.monotonic()))}s remaining", flush=True)
                 return event
             except queue.Empty:
                 self.assertIsNone(child.poll(), 'Packaged worker exited without a structured result')

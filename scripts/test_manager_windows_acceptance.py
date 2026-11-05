@@ -20,6 +20,7 @@ from scripts.manager_windows_acceptance import LiveAcceptance, deny_external_net
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE') == '1',
                      'Requires the packaged native Windows acceptance job')
 class NativeOfflineAcceptance(unittest.TestCase):
+    setUp = fixtures.NativeWindowsPackageTests.setUp
     environment = fixtures.NativeWindowsPackageTests.environment
     start_worker = fixtures.NativeWindowsPackageTests.start_worker
     stop_worker = staticmethod(fixtures.NativeWindowsPackageTests.stop_worker)

@@ -80,7 +80,7 @@ jobs:
         env:
           AWCENTER_RUN_MANAGER_WINDOWS_SMOKE: '1'
           AWCENTER_MANAGER_EXE: ${{ runner.temp }}\awcenter-manager-portable\AWCenterManager.exe
-        run: python -m unittest -v scripts.test_manager_package.NativeWindowsPackageTests scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+        run: python -m unittest -f -v scripts.test_manager_package.NativeWindowsPackageTests scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
       - name: Upload manager ZIP and reviewable checksum inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
