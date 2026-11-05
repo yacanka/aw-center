@@ -306,7 +306,9 @@ def validate_tls_identity(
     """Use the project interpreter so the launcher itself needs only the standard library."""
 
     run(
-        [project.python, "-m", "scripts.launcher.tls", certificate_file, private_key_file, host],
+        # Cold provisioning calls this before the managed runtime environment is
+        # active; keep the verified interpreter inventory immutable here too.
+        [project.python, "-B", "-m", "scripts.launcher.tls", certificate_file, private_key_file, host],
         project.root,
         capture=True,
     )

@@ -105,6 +105,22 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(actual.package_json.parent.name, "frontend")
 
 class DependencyTests(unittest.TestCase):
+    def test_tls_probe_cannot_write_managed_runtime_bytecode(self):
+        from scripts.launcher import runtime
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            with mock.patch.object(runtime, 'run') as probe:
+                runtime.validate_tls_identity(project, Path('cert.pem'), Path('key.pem'), '192.0.2.10')
+            command = probe.call_args.args[0]
+            with mock.patch.dict('os.environ', {'PYTHONDONTWRITEBYTECODE': ''}):
+                result = subprocess.run(
+                    [sys.executable, *command[1:command.index('-m')], '-c',
+                     'import sys; print(sys.dont_write_bytecode)'],
+                    capture_output=True, text=True, check=True,
+                )
+            self.assertEqual(result.stdout.strip(), 'True')
+
     """Validate explicit online and offline dependency behavior."""
 
     def test_cli_backend_install_uses_scoped_package_trust(self):
