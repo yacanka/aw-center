@@ -146,6 +146,11 @@ def _configuration(profile):
 
 
 def _validate_options(profile):
+    modes = profile.get('port_modes')
+    if modes is not None and (not isinstance(modes, dict) or
+            set(modes) != {'backend_port', 'frontend_port'} or
+            any(value not in {'automatic', 'manual'} for value in modes.values())):
+        raise LauncherError('Invalid profile port selection policy')
     for field in ('python_executable', 'node_executable'):
         executable = profile.get(field)
         if executable is not None and (not isinstance(executable, str) or not Path(executable).is_absolute()
@@ -341,7 +346,7 @@ def _recover_pending(project, name, home, path, env, pending):
             raise ValueError
         document = json.loads(pending.read_text(encoding='utf-8'))
         candidate = document['profile']
-        if (document['version'] != 1 or document['operation'] not in {'create', 'assets'} or
+        if (document['version'] != 1 or document['operation'] not in {'create', 'assets', 'connection'} or
                 candidate['version'] != PROFILE_VERSION or candidate['name'] != name or
                 candidate['source_root'] != str(project.root.resolve()) or
                 candidate['installation_home'] != str(home) or candidate['env_file'] != str(env)):
@@ -353,10 +358,15 @@ def _recover_pending(project, name, home, path, env, pending):
             return candidate  # No environment was published, so fresh keys are safe.
         require_private(env)
         current_digest = _digest(env.read_bytes())
-        if document['operation'] == 'assets' and current_digest == document.get('previous_environment_sha256'):
+        if document['operation'] in {'assets', 'connection'} and current_digest == document.get('previous_environment_sha256'):
             if not path.exists() or _digest(path.read_bytes()) != document['previous_profile_sha256']:
                 raise ValueError
-            values = _asset_values(candidate, read_environment(env))
+            if document['operation'] == 'connection':
+                from .installation_connection import connection_environment
+                values = connection_environment(json.loads(path.read_text(encoding='utf-8')),
+                                                candidate, read_environment(env))
+            else:
+                values = _asset_values(candidate, read_environment(env))
             content = _environment_content(values)
             if _digest(content) != document['environment_sha256']:
                 raise ValueError
@@ -374,7 +384,7 @@ def _recover_pending(project, name, home, path, env, pending):
             require_private(path)
             current = json.loads(path.read_text(encoding='utf-8'))
             if current != candidate:
-                if document['operation'] != 'assets' or _digest(path.read_bytes()) != document['previous_profile_sha256']:
+                if document['operation'] not in {'assets', 'connection'} or _digest(path.read_bytes()) != document['previous_profile_sha256']:
                     raise ValueError
                 _write_replace(path, json.dumps(candidate, indent=2) + '\n')
         else:
@@ -428,6 +438,8 @@ def provision_profile(project, name, home=None, **options) -> dict:
         'asset_set': options.get('asset_set') or 'default',
         'exclude_doors': bool(options.get('exclude_doors', False)),
     }
+    if options.get('port_modes') is not None and recovered is None:
+        profile['port_modes'] = options['port_modes']
     _validate_options(profile)
     values = _configuration(profile)
     values['SECRET_KEY'] = secrets.token_urlsafe(64)

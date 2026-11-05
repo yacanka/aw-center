@@ -8,6 +8,7 @@ import os
 import queue
 import sys
 import threading
+import uuid
 
 from scripts.launcher.model import LauncherError
 from scripts.launcher.process import OperationCancelled
@@ -49,6 +50,7 @@ def main(argv=None):
         import ctypes
         ctypes.windll.kernel32.SetDllDirectoryW(None)
     stop, inbox = threading.Event(), queue.Queue(maxsize=1)
+    awaiting = {'kind': None, 'id': None}
     pending = bytearray()
     def read_line():
         # A daemon must never block holding stdin's BufferedReader lock during
@@ -72,24 +74,32 @@ def main(argv=None):
                 value = read_line()
                 if value.get('type') == 'cancel':
                     stop.set()
-                elif value.get('type') == 'admin':
-                    inbox.put_nowait(value.get('value'))
+                elif (value.get('type') == awaiting['kind'] and
+                      (awaiting['kind'] == 'admin' or value.get('request_id') == awaiting['id'])):
+                    try:
+                        inbox.put_nowait(value.get('value'))
+                    except queue.Full:
+                        pass  # A duplicate reply cannot cancel another prompt.
         except Exception:
             stop.set()  # Loss of the owning GUI never leaves a running server.
     threading.Thread(target=controls, daemon=True).start()
-    def admin_provider():
-        emit({'type': 'input', 'kind': 'admin'})
+    def input_provider(kind):
+        request_id = uuid.uuid4().hex
+        awaiting.update(kind=kind, id=request_id)
+        emit({'type': 'input', 'kind': kind, 'request_id': request_id})
         while True:
             if stop.is_set():
                 raise OperationCancelled()
             try:
                 result = inbox.get(timeout=0.2)
-                if result is None:
+                awaiting.update(kind=None, id=None)
+                if result is None or (kind == 'migration' and result is not True):
                     raise OperationCancelled()
                 return result
             except queue.Empty:
                 continue
-    execute(request, emit, admin_provider, stop)
+    execute(request, emit, lambda: input_provider('admin'), stop,
+            migration_provider=lambda: input_provider('migration'))
     return 0
 
 

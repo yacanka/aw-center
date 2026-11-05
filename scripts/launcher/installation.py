@@ -130,6 +130,27 @@ def _runtime_options(profile: dict) -> dict:
 
 
 def _initialize_schema(project: Project, profile: dict, args, tool_env: dict) -> None:
+    if getattr(args, 'manager_ensure', False):
+        from .installation_backup import run_backed_up_migrations
+        from .process import OperationCancelled, check_cancelled
+        database = Path(read_profile_environment(profile)['DATABASE_URL'].removeprefix('sqlite:///'))
+        existing = database.exists()
+        def confirm():
+            if existing and getattr(args, 'migration_policy', 'automatic') == 'confirm':
+                provider = getattr(args, 'migration_provider', None)
+                if provider is None or provider() is not True:
+                    raise OperationCancelled()
+        def check_schema():
+            _django(project, profile, ['migrate', '--check'], tool_env)
+            _django(project, profile, ['check_project_registry'], tool_env)
+        def cancelled():
+            check_cancelled()
+            return False
+        run_backed_up_migrations(project, profile, lambda: backend_inspection(project, profile),
+                                lambda: _django(project, profile, ['migrate', '--noinput'], tool_env),
+                                check_schema, getattr(args, 'progress', None), before_migrate=confirm,
+                                cancelled=cancelled)
+        return
     state = backend_inspection(project, profile)
     if state["schema"] == "error":
         raise LauncherError("Backend yapılandırması veya veritabanı doğrulanamadı; migration uygulanmadı.")
@@ -233,7 +254,7 @@ def _provision(project: Project, args) -> list[dict]:
 
         phase("ön kontrol")
         options = {name: getattr(args, name, None) for name in (
-            "host", "backend_port", "frontend_port", "tls_cert_file", "tls_key_file", "asset_set", "exclude_doors", "env_file")}
+            "host", "backend_port", "frontend_port", "tls_cert_file", "tls_key_file", "asset_set", "exclude_doors", "env_file", "port_modes")}
         assets = getattr(args, "assets", None)
         if bundle and bundle.get("asset_set") and not assets:
             assets = settings.offline_dir / "assets" / bundle["asset_set"]

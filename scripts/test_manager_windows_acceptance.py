@@ -210,8 +210,11 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                     directory = Path(temporary).resolve()
                     source = self.copy_clean_source(self.executable, directory)
                     request = self.provision_request(source, 'offline')
-                    request.update(profile=profile, offline_dir=str(self.executable.parent),
+                    request.update(action='ensure', profile=profile, offline_dir=str(self.executable.parent),
                                    install_python=not system, install_node=not system)
+                    if profile == 'dev':
+                        request.pop('backend_port', None)
+                        request.pop('frontend_port', None)
                     if system:
                         request.update(python_command=str(self.python), node_command=self.node)
                     if profile == 'prod':
@@ -240,9 +243,11 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                             self.assertFalse((directory / 'local/AWCenter/config/dev.env').exists())
                         child, events, admin = self.run_until_ready(directory, request, password)
                         self.assertTrue(admin)
-                        origin = f"https://{host}:{request['backend_port']}" if profile == 'prod' else f"http://127.0.0.1:{request['backend_port']}"
+                        private = directory / 'local/AWCenter'
+                        saved = json.loads((private / 'config' / (profile + '.profile.json')).read_text(encoding='utf-8'))
+                        origin = f"https://{host}:{saved['backend_port']}" if profile == 'prod' else f"http://127.0.0.1:{saved['backend_port']}"
                         certificate = directory / 'cert.pem' if profile == 'prod' else None
-                        frontend = origin if profile == 'prod' else f"http://127.0.0.1:{request['frontend_port']}"
+                        frontend = origin if profile == 'prod' else f"http://127.0.0.1:{saved['frontend_port']}"
                         job_id, digest = LiveAcceptance(origin, certificate, frontend).exercise(password)
                         private = directory / 'local/AWCenter'
                         saved = json.loads((private / 'config' / (profile + '.profile.json')).read_text(encoding='utf-8'))
@@ -272,11 +277,11 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                                         'CLI did not reject the live profile lease')
                         env = private / 'config' / (profile + '.env')
                         identity = hashlib.sha256(env.read_bytes()).hexdigest()
-                        ports = [request['backend_port']] + ([request['frontend_port']] if profile == 'dev' else [])
+                        ports = [saved['backend_port']] + ([saved['frontend_port']] if profile == 'dev' else [])
                         bind = host if profile == 'prod' else '127.0.0.1'
                         self.stop_cleanly(child, events, bind, ports)
                         self.assert_prepared_integrity(actual_source, saved, private)
-                        request['action'] = 'start'
+                        request['action'] = 'ensure'
                         if profile == 'prod' and not system:
                             child, events, admin = self.run_until_ready(directory, request, password)
                             self.stop_worker(child)  # Abrupt owner death must reap the entire tree.

@@ -24,6 +24,8 @@ class ManagerTask:
     result: dict | None = None
     cancel_requested: bool = False
     browser_opened: bool = False
+    resource_values: dict = field(default_factory=dict)
+    input_id: str | None = None
     events: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=256))
 
     @property
@@ -45,6 +47,7 @@ class ManagerController:
         self.browser_opener = browser_opener or webbrowser.open
         self.closing = self.closed = False
         self.inspection_ids = {}
+        self.restarts = {}
         self.view = view_factory(root, self.action, self.stop, self.window_close, source_root=source_root)
         self.view.on_open = self.open_browser
         self.view.on_exit = self.close
@@ -57,7 +60,7 @@ class ManagerController:
         if not isinstance(values, dict) or self.closing:
             return
         profile = values.get('profile', 'dev')
-        if any(task.active and task.action in {'start', 'provision'} and task.values['profile'] == profile
+        if any(task.active and task.action in {'start', 'provision', 'ensure'} and task.values['profile'] == profile
                for task in self.tasks.values()):
             return
         previous = self.tasks.get(self.inspection_ids.get(profile))
@@ -97,6 +100,14 @@ class ManagerController:
                     'remedy': 'LOCALAPPDATA kullanıcı profilini kontrol edin veya bir çıktı klasörü seçin.'})
                 return None
         snapshot = normalize_task_paths(snapshot)
+        if action == 'ensure':
+            for task in self.tasks.values():
+                if (task.active and task.action in {'start', 'provision', 'ensure'} and
+                        task.values['profile'] == snapshot['profile'] and task.status in {'ready', 'degraded'}):
+                    self.restarts[task.id] = snapshot
+                    self._request_stop(task)
+                    self._publish_tasks()
+                    return task.id
         claims = claims_for(action, snapshot)
         for task in self.tasks.values():
             if action != 'inspect' and task.active and conflicts(claims, task.claims):
@@ -142,6 +153,7 @@ class ManagerController:
 
     def stop(self, task_id=None):
         task_id = task_id or self.view.selected_task_id()
+        self.restarts.pop(task_id, None)
         task = self.tasks.get(task_id)
         if task is not None and task.active:
             self._request_stop(task)
@@ -160,6 +172,7 @@ class ManagerController:
             self.root.destroy()
         elif self.view.confirm_stop():
             self.closing = True
+            self.restarts.clear()
             # Deliver every cancellation before touching a potentially broken
             # dialog/renderer, so one view cannot strand other owned workers.
             for task in list(self.tasks.values()):
@@ -230,12 +243,30 @@ class ManagerController:
             try:
                 self.view.dismiss_admin(task.id)
                 self._publish_tasks()
-                if task.action in {'start', 'provision'} and not self.closing:
+                restart = self.restarts.pop(task.id, None)
+                if restart and result.get('ok') and not self.closing:
+                    self.root.after_idle(lambda values=restart: self.action('ensure', values))
+                elif task.action in {'start', 'provision', 'ensure'} and not self.closing:
                     self.root.after_idle(self.inspect_selected)
             finally:
                 if self.closing and not self.busy:
                     self.closed = True
                     self.root.destroy()
+            return
+        if kind == 'resources':
+            if event.get('action') in {'start', 'provision'} and isinstance(event.get('source_root'), str):
+                task.resource_values = {**task.values, 'source_root': event['source_root']}
+                task.claims = claims_for(event['action'], task.resource_values)
+            return
+        if kind == 'input' and event.get('kind') == 'migration':
+            request_id = event.get('request_id')
+            if not isinstance(request_id, str) or len(request_id) != 32:
+                self.stop(task.id)
+            elif self.closing or task.cancel_requested:
+                self.stop(task.id)
+            else:
+                task.input_id = request_id
+                self.view.request_migration(task.id, lambda value: self._migration_response(task.id, request_id, value))
             return
         if kind == 'input' and event.get('kind') == 'admin':
             if self.closing or task.cancel_requested:
@@ -249,7 +280,7 @@ class ManagerController:
         elif kind == 'ready':
             task.status = 'stopping' if task.cancel_requested else 'ready'
             # Provision is now a running server: no setup writes remain.
-            task.claims = claims_for('start', task.values)
+            task.claims = claims_for('start', task.resource_values or task.values)
         elif kind == 'health' and not task.cancel_requested:
             task.status = 'ready' if event.get('healthy') is True else 'degraded'
         if kind in {'done', 'ready', 'health'}:
@@ -270,6 +301,16 @@ class ManagerController:
             self.stop(task_id)
             return
         if value is None:
+            self.stop(task_id)
+
+    def _migration_response(self, task_id, request_id, value):
+        task = self.tasks.get(task_id)
+        if not task or not task.active or task.input_id != request_id or task.cancel_requested or self.closing:
+            return
+        task.input_id = None
+        try:
+            task.session.send({'type': 'migration', 'request_id': request_id, 'value': value is True})
+        except Exception:
             self.stop(task_id)
 
     def open_browser(self, url, task_id=None):

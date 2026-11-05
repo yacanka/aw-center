@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import uuid
+import hashlib
 
 
 def new_bundle_output(parent: Path | None = None) -> Path:
@@ -19,6 +20,7 @@ def new_bundle_output(parent: Path | None = None) -> Path:
 def startup_values(saved: dict, explicit_root: Path | None) -> dict:
     """Read only bounded media metadata here; the worker verifies every byte."""
     values = dict(saved)
+    values.setdefault('source_selection', 'explicit' if saved.get('source_root') else 'automatic')
     if getattr(sys, 'frozen', False):
         directory = Path(sys.executable).resolve().parent
         manifest = directory / 'manager-manifest.json'
@@ -26,15 +28,36 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
             if manifest.stat().st_size <= 8 * 1024 * 1024:
                 metadata = json.loads(manifest.read_text(encoding='utf-8'))
                 if metadata.get('format_version') == 2 and metadata.get('complete') is True:
-                    for field in ('python_command', 'node_command', 'assets', 'feature_catalog', 'ca_file',
-                                  'output', 'env_file', 'tls_cert_file', 'tls_key_file', 'manager_distribution'):
-                        values[field] = ''
-                    values.update(source_root=str(directory / 'source'), offline_dir=str(directory),
-                                  source_mode='offline', repository='', python_index_url='', npm_registry_url='')
+                    context = hashlib.sha256((str(directory) + '\0' + str(metadata.get('source_fingerprint', ''))).encode()).hexdigest()
+                    history = dict(saved.get('_contexts', {}))
+                    previous = saved.get('_media_context')
+                    if previous and previous != context:
+                        history[previous] = {key: value for key, value in saved.items() if not key.startswith('_')}
+                    if previous != context:
+                        if context in history:
+                            values.update(history[context])
+                        else:
+                            if saved and not previous:
+                                legacy = hashlib.sha256(('legacy:' + str(saved.get('source_root', ''))).encode()).hexdigest()
+                                history[legacy] = {key: value for key, value in saved.items() if not key.startswith('_')}
+                            for field in ('python_command', 'node_command', 'assets', 'feature_catalog', 'ca_file',
+                                          'output', 'env_file', 'tls_cert_file', 'tls_key_file', 'manager_distribution',
+                                          'host', 'backend_port', 'frontend_port'):
+                                values[field] = ''
+                            # New media must never broaden an explicit restrictive policy.
+                            mode = 'corporate' if saved.get('source_mode') == 'corporate' else 'offline'
+                            repository = saved.get('repository', '')
+                            values.update(source_root=str(directory / 'source'), source_selection='automatic',
+                                          offline_dir=str(directory), source_mode=mode,
+                                          repository=repository if mode == 'corporate' and repository.startswith('https://') else '')
+                            if mode != 'corporate':
+                                values.update(python_index_url='', npm_registry_url='')
+                    values.update(_media_context=context, _contexts=history)
         except (OSError, ValueError, AttributeError):
             pass  # No claim of verified readiness until worker inspection.
     if explicit_root is not None:
         values['source_root'] = str(explicit_root)
+        values['source_selection'] = 'explicit'
     return values
 
 

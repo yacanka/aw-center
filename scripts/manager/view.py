@@ -120,7 +120,8 @@ class ManagerWindow:
     Call ``handle_event`` and ``set_busy`` only from the Tk event loop.
     """
 
-    _advanced_fields = frozenset({"frontend_port", "install_node",
+    _advanced_fields = frozenset({"profile", "source_root", "host", "backend_port", "tls_cert_file", "tls_key_file",
+                                  "frontend_port", "install_node", "migration_policy",
                                   "migrate", "install_python", "python_command", "node_command", "env_file"})
 
     def __init__(self, root, on_action: Callable, on_stop: Callable,
@@ -165,7 +166,7 @@ class ManagerWindow:
         root.protocol("WM_DELETE_WINDOW", on_close)
         self._build()
         self.variables["profile"].trace_add("write", lambda *_: self._profile_changed())
-        self.variables['source_root'].trace_add('write', lambda *_: self._schedule_inspection())
+        self.variables['source_root'].trace_add('write', lambda *_: self._source_changed())
         self.variables["source_mode"].trace_add("write", lambda *_: self._update_controls())
         self.variables["install_python"].trace_add("write", lambda *_: self._update_controls())
         self.variables["install_node"].trace_add("write", lambda *_: self._update_controls())
@@ -173,8 +174,8 @@ class ManagerWindow:
         root.bind("<Control-r>", lambda _event: self._retry())
         for number, tab in enumerate((self.run_tab, self.source_tab, self.report_tab), start=1):
             root.bind(f"<Control-Key-{number}>", lambda _event, selected=tab: self.tabs.select(selected))
-        if any(self.variables[key].get() != DEFAULT_VALUES[key] for key in self._advanced_fields):
-            self._set_advanced(True)
+        for key in (self._advanced_fields | {'assets', 'feature_catalog'}) - {'profile', 'source_root'}:
+            self.variables[key].trace_add('write', lambda *_: self._update_controls())
         self._update_controls()
         self.root.after(1000, self._tick_progress)
 
@@ -186,6 +187,10 @@ class ManagerWindow:
             if self.on_inspect:
                 self.on_inspect()
         self._inspection_job = self.root.after(250, inspect)
+
+    def _source_changed(self):
+        self.variables['source_selection'].set('explicit' if self.variables['source_root'].get().strip() else 'automatic')
+        self._schedule_inspection()
 
     def _tick_progress(self):
         import time
@@ -385,7 +390,7 @@ class ManagerWindow:
 
     def _build_tasks(self, parent):
         tasks = self.tasks_card = _Card(parent, padding=20)
-        tasks.grid(row=3, column=0, sticky="ew", pady=(18, 0))
+        tasks.grid(row=4, column=0, sticky="ew", pady=(18, 0))
         tasks.columnconfigure(0, weight=1)
         bar = ttk.Frame(tasks, style="Manager.Panel.TFrame")
         bar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
@@ -467,8 +472,8 @@ class ManagerWindow:
         intro.grid(row=0, column=0, sticky="ew", pady=(0, 20))
         intro.columnconfigure(0, weight=1)
         self._label(intro, "ÇALIŞMA ALANI", style="Manager.Eyebrow.TLabel").grid(row=0, column=0, sticky="ew")
-        self._label(intro, "Çalışma ortamınızı yönetin.", style="Manager.Title.TLabel").grid(row=1, column=0, sticky="ew", pady=(5, 0))
-        self._label(intro, "Ortamı yönetin, işlemleri tek yerden izleyin.", style="Manager.Muted.TLabel").grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        self._label(intro, "AW Center hazır olsun.", style="Manager.Title.TLabel").grid(row=1, column=0, sticky="ew", pady=(5, 0))
+        self._label(intro, "Tek tuşla hazırlayın ve açın. Gerekli ayarlar otomatik seçilir.", style="Manager.Muted.TLabel").grid(row=2, column=0, sticky="ew", pady=(6, 0))
         self.profile_badge_var = tk.StringVar(self.root)
         ttk.Label(intro, textvariable=self.profile_badge_var, style="Manager.Badge.TLabel").grid(row=0, column=1, rowspan=2, sticky="ne", padx=(12, 0))
         summary = _Card(parent)
@@ -490,7 +495,7 @@ class ManagerWindow:
                                              style="Manager.TButton", state="disabled")
         self.banner_stop_button.grid(row=0, column=1, padx=(8, 0))
         paths = self.run_settings = _Card(parent, padding=20)
-        paths.grid(row=2, column=0, sticky="ew")
+        paths.grid(row=3, column=0, sticky="ew")
         paths.columnconfigure(0, weight=1)
         ttk.Label(paths, text="Çalışma ayarları", style="Manager.Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
         profile = ttk.Frame(paths, style="Manager.Segment.TFrame", padding=3)
@@ -515,19 +520,20 @@ class ManagerWindow:
             entry.grid(row=1, column=0, sticky="ew")
             self._fields[key], self._field_titles[key], self._field_tabs[key] = entry, title, self.run_tab
             self._controls.append(entry)
-        self._label(paths, "Boş alanlar mevcut profili korur.", style="Manager.PanelMuted.TLabel").grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 12))
+        self._label(paths, "Boş alanlar mevcut profili korur. Yerel portta auto yazılması otomatik seçimi etkinleştirir.", style="Manager.PanelMuted.TLabel").grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 12))
         self.tls_frame = ttk.Frame(paths, style='Manager.Panel.TFrame')
         self.tls_frame.grid(row=4, column=0, columnspan=3, sticky='ew')
         self._entry(self.tls_frame, 0, 'tls_cert_file', 'TLS sertifikası (prod)', tab=self.run_tab, picker='certificate')
         self._entry(self.tls_frame, 1, 'tls_key_file', 'TLS özel anahtarı (prod)', tab=self.run_tab, picker='key')
         ttk.Separator(paths).grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 8))
-        self.advanced_button = ttk.Button(paths, text="Gelişmiş ayarları göster", command=self._toggle_advanced,
+        self.advanced_button = ttk.Button(parent, text="Gelişmiş ayarları göster", command=self._toggle_advanced,
                                           style="Manager.Link.TButton")
-        self.advanced_button.grid(row=7, column=0, columnspan=3, sticky="w")
+        self.advanced_button.grid(row=2, column=0, sticky="w", pady=(0, 12))
         self.advanced_frame = ttk.Frame(paths, style="Manager.Panel.TFrame")
         self.advanced_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self._build_advanced(self.advanced_frame)
         self.advanced_frame.grid_remove()
+        paths.grid_remove()
 
     def _build_advanced(self, parent):
         self._entry(parent, 0, "frontend_port", "Frontend portu (dev)", tab=self.run_tab)
@@ -535,7 +541,13 @@ class ManagerWindow:
         migrate = ttk.Checkbutton(parent, text="Mevcut veritabanının migration işlemlerini uygula",
                                   variable=self.variables["migrate"], style="Manager.TCheckbutton")
         migrate.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        migrate.configure(text='Eski Kur ve başlat işleminde migration’a izin ver')
         self._controls.append(migrate)
+        policy = ttk.Checkbutton(parent, text='Otomatik akışta yedek doğrulandıktan sonra ayrıca onay iste',
+                                 variable=self.variables['migration_policy'], onvalue='confirm', offvalue='automatic',
+                                 style='Manager.TCheckbutton')
+        policy.grid(row=15, column=0, columnspan=3, sticky='w', pady=(8, 0))
+        self._controls.append(policy)
         python = ttk.Checkbutton(parent, text="Her durumda yönetilen Python kurulumunu kullan",
                                  variable=self.variables['install_python'], style="Manager.TCheckbutton")
         python.grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
@@ -554,6 +566,7 @@ class ManagerWindow:
 
     def _set_advanced(self, expanded: bool):
         self.advanced_var.set(expanded)
+        self.run_settings.grid() if expanded else self.run_settings.grid_remove()
         self.advanced_frame.grid() if expanded else self.advanced_frame.grid_remove()
         self.advanced_button.configure(text="Gelişmiş ayarları gizle" if expanded else "Gelişmiş ayarları göster")
 
@@ -686,10 +699,18 @@ class ManagerWindow:
 
     def _retry(self):
         if self.state.last_action:
-            self._dispatch(self.state.last_action, dict(self.state.last_values))
+            self._dispatch(self.state.last_action, {**self.state.last_values, 'migrate': False})
 
     def _profile_presentation(self):
-        return self.task_states.profile_presentation(self.variables['profile'].get())
+        presentation = self.task_states.profile_presentation(self.variables['profile'].get())
+        if presentation['action'] == 'open':
+            state = self.task_states.states[presentation['task_id']]
+            current = self.form_values()
+            fields = (self._advanced_fields | {'assets', 'feature_catalog'}) - {'migrate', 'migration_policy'}
+            if any(current.get(key, DEFAULT_VALUES[key]) != state.last_values.get(key, DEFAULT_VALUES[key])
+                   for key in fields):
+                return {**presentation, 'action': 'ensure', 'label': 'Durdur, uygula ve aç'}
+        return presentation
 
     def _primary_action(self):
         action = self._profile_presentation()['action']
@@ -906,6 +927,12 @@ class ManagerWindow:
 
     def handle_event(self, event: dict):
         self.task_states.handle_event(event)
+        if event.get('type') == 'error' and event.get('field') in self._fields:
+            field = event['field']
+            if field in self._advanced_fields:
+                self._set_advanced(True)
+            self.tabs.select(self._field_tabs[field])
+            self._fields[field].focus_set()
         if event.get("task_id") is not None and event["task_id"] != self.selected_task_id():
             self._update_controls()
             return
@@ -1017,6 +1044,23 @@ class ManagerWindow:
         dialog.bind("<Return>", lambda _event: submit())
         dialog.bind("<Destroy>", lambda event: self._finish_admin(task_id, None) if event.widget is dialog else None)
         fields["username"].focus_set()
+
+    def request_migration(self, task_id, callback):
+        """One-operation confirmation; the verified snapshot already exists."""
+        if task_id in self._admin_dialogs:
+            return
+        dialog = tk.Toplevel(self.root)
+        dialog.title('Veritabanı güncellemesi')
+        dialog.transient(self.root)
+        body = ttk.Frame(dialog, padding=20)
+        body.grid(sticky='nsew')
+        self._admin_dialogs[task_id] = {'dialog': dialog, 'variables': {}, 'callback': callback}
+        ttk.Label(body, text='Veritabanı ve özel dosyaların yedeği doğrulandı. Bekleyen migration işlemleri uygulansın mı?',
+                  wraplength=460).grid(row=0, column=0, columnspan=2, pady=(0, 16))
+        ttk.Button(body, text='İptal', command=lambda: self._finish_admin(task_id, False)).grid(row=1, column=0)
+        ttk.Button(body, text='Uygula', command=lambda: self._finish_admin(task_id, True)).grid(row=1, column=1)
+        dialog.protocol('WM_DELETE_WINDOW', lambda: self._finish_admin(task_id, False))
+        dialog.bind('<Escape>', lambda _event: self._finish_admin(task_id, False))
 
     def dismiss_admin(self, task_id: str) -> None:
         """Wipe a task's prompt after cancellation without invoking its reply."""

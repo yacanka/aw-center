@@ -92,6 +92,11 @@ yetki çağıran feature'da kalır. `integrations.assessment` mevcut DDF/Watcher
 ve hata sözleşmesini bu client'a uyarlar; ayrı konuşmalar arasında history veya
 mutable HTTP session paylaşılmaz.
 
+AI transport, diğer entegrasyonlarla ortak `integrations.tls` altyapısını
+kullanır; bu modül iş mantığı veya Django bağımlılığı içermez. AI sınır testi
+bu ortak modülü de denetler: iş modülleri, kullanıcı modelleri, jobs ve Django
+bağımlılıkları TLS üzerinden dolaylı olarak da çekirdeğe taşınamaz.
+
 `integrations.assistant` salt okunur yetkili rehber kataloğu, bounded bağlam,
 prompt, sonuç doğrulaması ve authenticated catalog/chat endpoint'lerini sahiplenir.
 Model yalnız o request'in yetkili kimliklerini önerebilir; backend bunları

@@ -35,6 +35,15 @@ class PreferencesTests(unittest.TestCase):
         raw = (self.home / 'manager.json').read_text(encoding='utf-8')
         self.assertNotIn('must-not-persist', raw)
 
+    def test_media_context_history_is_filtered_and_round_trips(self):
+        context = 'a' * 64
+        self.preferences.save_preferences(self.home, {'node_command': 'node', '_media_context': context,
+            '_contexts': {'b' * 64: {'env_file': '/old/path.env', 'password': 'must-not-persist', 'migrate': True}}})
+        restored = self.preferences.load_preferences(self.home)
+        self.assertEqual(restored['_media_context'], context)
+        self.assertEqual(restored['_contexts']['b' * 64], {'env_file': '/old/path.env'})
+        self.assertNotIn('must-not-persist', (self.home / 'manager.json').read_text())
+
     def test_node_commands_and_quoted_paths_survive_restart_without_interpretation(self):
         for selection in ('node', 'node.exe', '"C:/Node 24/node.exe"', './tools/Node 24'):
             with self.subTest(selection=selection):

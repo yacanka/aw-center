@@ -16,7 +16,7 @@ MAX_MESSAGE = 64 * 1024
 MAX_OUTBOUND = 8
 IO_POLL_INTERVAL = 0.05
 CANCEL_DELIVERY_TIMEOUT = 1.0
-EVENT_TYPES = {'phase', 'status', 'checks', 'ready', 'error', 'input', 'done', 'profile', 'health'}
+EVENT_TYPES = {'phase', 'status', 'checks', 'ready', 'error', 'input', 'done', 'profile', 'health', 'resources'}
 
 
 def _encode(value):

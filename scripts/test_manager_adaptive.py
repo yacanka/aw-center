@@ -89,9 +89,9 @@ class AdaptiveStateTests(unittest.TestCase):
         states = ManagerTaskStates()
         states.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'not_installed', 'checks': []})
         self.assertTrue(hasattr(states, 'profile_presentation'), 'Independent profile presentation is missing')
-        self.assertEqual(states.profile_presentation('dev')['action'], 'provision')
+        self.assertEqual(states.profile_presentation('dev')['action'], 'ensure')
         states.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped', 'checks': []})
-        self.assertEqual(states.profile_presentation('dev')['action'], 'start')
+        self.assertEqual(states.profile_presentation('dev')['action'], 'ensure')
         self.assertIsNone(states.selected_id)
 
 
@@ -100,6 +100,29 @@ class AdaptiveControllerTests(unittest.TestCase):
     cleanup = fixtures.ControllerTests.cleanup
     start = fixtures.ControllerTests.start
     event = fixtures.ControllerTests.event
+
+    def test_ensure_tracks_lifecycle_and_uses_resolved_source_claims(self):
+        task = self.start('ensure')
+        self.assertIsNotNone(task)
+        self.event(task, type='resources', action='provision', source_root='/resolved-source')
+        self.assertTrue(any(claim.path and claim.write and claim.resource == '/resolved-source'
+                            for claim in self.controller.tasks[task].claims))
+        self.event(task, type='ready', url='http://127.0.0.1:5173/app/')
+        self.assertFalse(any(claim.write and claim.path for claim in self.controller.tasks[task].claims))
+
+    def test_apply_after_stop_waits_for_actual_child_cleanup(self):
+        task = self.start('ensure')
+        self.event(task, type='ready', url='http://127.0.0.1:5173/app/')
+        self.controller.action('ensure', {'profile': 'dev', 'source_root': '/source', 'frontend_port': '15173'})
+        self.assertTrue(self.sessions[0].stopped)
+        self.assertEqual(len(self.sessions), 1)
+        self.event(task, type='done', ok=True, cancelled=True)
+        self.assertEqual(len(self.sessions), 1)
+        self.event(task, type='_closed')
+        callback = self.root.after_idle.call_args.args[0]
+        callback()
+        self.assertEqual(len(self.sessions), 2)
+        self.assertEqual(self.sessions[1].request['frontend_port'], '15173')
 
     def test_window_close_minimizes_active_work_without_cancelling(self):
         self.start('start')

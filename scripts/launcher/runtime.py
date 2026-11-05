@@ -326,6 +326,14 @@ def frontend_env(backend_url: str) -> dict[str, str]:
     return {"VITE_API_URL": backend_url, "NUMARATOR_API_KEY": ""}
 
 
+class PortUnavailable(LauncherError):
+    """Confirmed address-in-use only; other bind failures are never retryable."""
+
+    def __init__(self, host, port):
+        self.port = port
+        super().__init__(f"port is unavailable: {host}:{port}")
+
+
 def require_port(host: str, port: int | None) -> None:
     """Reject invalid or occupied ports instead of silently changing them."""
     if port is None:
@@ -336,6 +344,9 @@ def require_port(host: str, port: int | None) -> None:
         try:
             probe.bind((host, port))
         except OSError as error:
+            import errno
+            if error.errno == errno.EADDRINUSE or getattr(error, 'winerror', None) == 10048:
+                raise PortUnavailable(host, port) from error
             raise LauncherError(f"port is unavailable: {host}:{port}") from error
 
 

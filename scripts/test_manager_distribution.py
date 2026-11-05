@@ -55,6 +55,25 @@ class DistributionTests(unittest.TestCase):
             explicit = self.root / 'operator-source'
             self.assertEqual(paths.startup_values(old, explicit)['source_root'], str(explicit))
 
+    def test_same_media_preserves_advanced_values_and_moved_media_keeps_history(self):
+        distribution = self.module()
+        (self.media / 'install-manifest.json').write_text('{}')
+        distribution.seal_distribution(self.media, complete=True)
+        from scripts.manager import paths
+        with patch.object(paths.sys, 'frozen', True, create=True), \
+             patch.object(paths.sys, 'executable', str(self.media / 'AWCenterManager.exe')):
+            initial = paths.startup_values({}, None)
+            selected = {**initial, 'source_mode': 'corporate', 'node_command': 'C:/chosen/node.exe',
+                        'repository': 'https://packages.example'}
+            restored = paths.startup_values(selected, None)
+            self.assertEqual(restored['node_command'], 'C:/chosen/node.exe')
+            self.assertEqual(restored['source_mode'], 'corporate')
+            older = {**selected, '_media_context': 'a' * 64}
+            moved = paths.startup_values(older, None)
+            self.assertEqual(moved['node_command'], '')
+            self.assertEqual(moved['source_mode'], 'corporate')
+            self.assertEqual(moved['_contexts']['a' * 64]['node_command'], 'C:/chosen/node.exe')
+
     def test_distribution_copy_rejects_different_source(self):
         distribution = self.module()
         distribution.seal_distribution(self.media)

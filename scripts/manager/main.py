@@ -126,7 +126,8 @@ def main(argv=None):
         root.mainloop()
         if not args.smoke_test:
             try:
-                save_preferences(preferences_directory or preferences_home(), controller.view.form_values())
+                metadata = {key: initial_values[key] for key in ('_media_context', '_contexts') if key in initial_values}
+                save_preferences(preferences_directory or preferences_home(), {**metadata, **controller.view.form_values()})
             except PreferencesError as error:
                 _preferences_warning(error)
         if args.smoke_test:

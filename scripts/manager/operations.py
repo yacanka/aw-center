@@ -28,18 +28,26 @@ def arguments(request):
     sources = {'repository', 'offline_dir', 'python_index_url', 'npm_registry_url', 'ca_file'}
     fields = (sources if action == 'test-sources' else
               sources | {'assets', 'feature_catalog', 'output', 'python_command', 'node_command', 'manager_distribution'} if action == 'bundle' else
-              PATH_FIELDS | TEXT_FIELDS if action == 'provision' else {'python_command', 'node_command'} if action == 'inspect' else {'env_file'} if action in {'start', 'doctor'} else set())
+              PATH_FIELDS | TEXT_FIELDS if action in {'provision', 'ensure'} else {'python_command', 'node_command'} if action == 'inspect' else {'env_file'} if action in {'start', 'doctor'} else set())
     values = {'profile': profile, 'source_mode': mode, 'no_admin': False, 'use_saved_sources': False,
               'migrate': request.get('migrate') is True, 'exclude_doors': None,
               'install_python': request.get('install_python') is True}
     values['install_node'] = request.get('install_node') is True
+    values['source_selection'] = request.get('source_selection', 'explicit' if request.get('source_root') else 'automatic')
+    values['migration_policy'] = request.get('migration_policy', 'automatic')
+    if values['source_selection'] not in {'automatic', 'explicit'} or values['migration_policy'] not in {'automatic', 'confirm'}:
+        raise LauncherError('Geçersiz otomasyon seçimi.')
+    values['automatic_ports'] = tuple(field for field in ('backend_port', 'frontend_port')
+                                     if request.get(field) == 'auto')
     for field in PATH_FIELDS | TEXT_FIELDS:
         value = request.get(field) if field in fields else None
         if value is not None and (not isinstance(value, str) or len(value) > 8192 or any(c in value for c in '\0\r\n')):
             raise LauncherError('Geçersiz alan değeri.')
         values[field] = Path(value) if value and field in PATH_FIELDS else value or None
     for field in ('backend_port', 'frontend_port'):
-        raw = request.get(field) if action == 'provision' else None
+        raw = request.get(field) if action in {'provision', 'ensure'} else None
+        if raw == 'auto':
+            raw = None
         value = int(raw) if raw not in ('', None) else None
         if value is not None and not 1 <= value <= 65535:
             raise LauncherError('Geçersiz port.')
@@ -93,6 +101,9 @@ def _failure_reason(error):
     from scripts.launcher.installation_permissions import PermissionCheckError
     from scripts.launcher.resource_locks import ResourceLockError
     from scripts.launcher.installation_dependencies import PackageCommandError, PackageTimeoutError
+    from scripts.launcher.installation_connection import ConnectionError
+    if isinstance(error, ConnectionError):
+        return error.code, str(error)
     if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError)):
         return error.code, str(error)
     if not isinstance(error, LauncherError):
@@ -128,7 +139,7 @@ def _failure_reason(error):
             return code, reason
     return 'operation_failed', 'İşlem tamamlanamadı; Kontrol et raporundaki eksikleri inceleyin.'
 
-def execute(request, emit, admin_provider, stop):
+def execute(request, emit, admin_provider, stop, migration_provider=None):
     """Map only declared results/errors; a failure belongs to this worker alone."""
     phase = 'Hazırlık'
     try:
@@ -140,6 +151,7 @@ def execute(request, emit, admin_provider, stop):
         from .paths import default_source_root
         args.source_root = request.get('source_root') or str(default_source_root())
         args.admin_provider = admin_provider
+        args.migration_provider = migration_provider
         def progress(label):
             nonlocal phase
             check_cancelled()
@@ -156,6 +168,8 @@ def execute(request, emit, admin_provider, stop):
     except Exception as error:
         code, reason = _failure_reason(error)
         remedies = {
+            'port_unavailable': 'Gelişmiş ayarlarda ilgili yerel port için auto yazın veya boş bir port seçin. Başka uygulamalar otomatik kapatılmaz.',
+            'connection_override_invalid': 'Gelişmiş bağlantı ayarlarını ve varsa özel .env içindeki origin/reset/invitation adreslerini birlikte kontrol edin.',
             'manager_distribution_required': 'Aynı sürümden Windows Manager ZIP paketinin tamamını çıkarın. Kaynak çalıştırmada Windows Manager paketi alanını seçin; EXE ile açıldığında dağıtım otomatik bulunur.',
             'bundle_output_invalid': 'Çıktı için bir klasör seçin veya alanı boş bırakın; mevcut dosyalar korunarak yeni bir paket dizini oluşturulur.',
             'storage_path_unsafe': 'Bağlantı / junction içermeyen yerel bir klasör kullanın. Mevcut profil ve veritabanını silmeyin.',
@@ -175,7 +189,10 @@ def execute(request, emit, admin_provider, stop):
         from scripts.launcher.resource_locks import ResourceLockError
         from scripts.launcher.installation_dependencies import PackageCommandError, PackageTimeoutError
         remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError)) else remedies.get(code, _remedy(phase))
-        emit({'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy})
+        event = {'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy}
+        if getattr(error, 'field', None) in PATH_FIELDS | TEXT_FIELDS | {'backend_port', 'frontend_port', 'profile'}:
+            event['field'] = error.field
+        emit(event)
         emit({'type': 'done', 'ok': False})
 
 
@@ -231,6 +248,9 @@ def _bundle_output(args, home, source):
 
 
 def _dispatch(action, args, emit):
+    if action == 'ensure':
+        from .ensure import run
+        return run(args, emit)
     if action in {'provision', 'start', 'bundle'}:
         from scripts.launcher.resource_locks import path_claims, resource_locks
         from scripts.launcher.installation_profiles import installation_home
@@ -300,7 +320,10 @@ def _lifecycle(project, action, args, emit):
         _run_lifecycle(project, action, args, emit)
 
 
-def _run_lifecycle(project, action, args, emit):
+def _run_lifecycle(project, action, args, emit, *, ensured=False):
+    if getattr(args, 'manager_ensure', False) and not ensured:
+        from .ensure import claimed
+        return claimed(project, action, args, emit)
     from scripts.launcher.installation import provision, start_profile
     if action == 'provision':
         if args.env_file:

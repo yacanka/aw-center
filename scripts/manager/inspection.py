@@ -11,6 +11,9 @@ from scripts.launcher.toolchain import inspect_toolchain
 def inspect_profile(args, emit):
     require_windows()
     home = installation_home()
+    if getattr(args, 'source_selection', None) == 'automatic':
+        from .ensure import resolve_source
+        resolve_source(args, home)
     path = home / 'config' / (args.profile + '.profile.json')
     require_unlinked(path)
     if not path.exists():
@@ -44,7 +47,7 @@ def inspect_profile(args, emit):
         if schema in {'pending', 'error', 'missing'}:
             from scripts.launcher.installation_profiles import read_profile_environment
             database = Path(read_profile_environment(profile)['DATABASE_URL'].removeprefix('sqlite:///'))
-            status = 'blocked' if database.exists() else 'incomplete'
+            status = 'incomplete' if schema == 'pending' or not database.exists() else 'blocked'
     tools = ' · '.join(f"{label}: {'sistem kurulumu' if profile.get(field) else 'yönetilen kurulum'}"
                       for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))
     emit({'type': 'profile', 'profile': args.profile, 'status': status, 'checks': checks,

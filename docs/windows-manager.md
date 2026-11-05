@@ -8,22 +8,35 @@ Pencerenin açılması uygulamanın hazır olduğu anlamına gelmez. Güncel tam
 
 ## Sade yönetim ekranı
 
+Yeni kullanıcı için varsayılan yerel geliştirme profilidir. **AW Center’ı aç**,
+teknik alan doldurmadan eksik kurulumu hazırlar ve uygulamayı başlatır. Gerekli
+Python/Node, kilitli bağımlılıklar, özel yapılandırma, veritabanı ve worker aynı
+akışta ele alınır. İlk aktif yönetici yoksa kullanıcı adı ve parola sorulur.
+Hazır ortam yeniden kurulmadan açılır. Pencerenin açılması tek başına kurulum,
+migration veya sunucu başlatmaz.
+
+Profil, kaynak, bağlantı, araç ve `.env` alanları **Gelişmiş ayarları göster**
+altındadır; kayıtlı değerler olsa da bu panel başlangıçta kapalıdır. Kaynaklar ve
+Rapor görünümleri isteğe bağlıdır. Ana eylem, gelişmiş değişiklikleri uygular veya
+ilgili engeli açıklar. Çalışan profilin ayarları değişirse **Durdur, uygula ve aç**
+yalnız sahip olunan süreçleri temizledikten sonra yeni ayarlarla devam eder.
+
 Ana ekran seçili **profilin gerçek durumu**, **ana eylem** ve **işlem ilerlemesi**
 üzerine kuruludur. Açılışta ve kaynak/profil değişiminde arka planda salt okunur
 inceleme yapılır; eski inceleme yeni seçimi değiştiremez.
 
 | Durum | Ana eylem |
 | --- | --- |
-| Kurulmamış | Kur ve başlat |
-| Hazırlanmış, durmuş | Başlat |
-| Tamamlanabilir yarım kurulum | Tamamla ve başlat |
+| Kurulmamış | AW Center’ı aç |
+| Hazırlanmış, durmuş | AW Center’ı aç |
+| Tamamlanabilir yarım kurulum | Tamamla ve aç |
 | Çalışıyor ve sağlıklı | Tarayıcıda aç |
 | Müdahale gerekiyor | Eksikleri göster |
 
 Kaynaklar ve Rapor düğmeleri ilgili görünümü açar; Ctrl+1/2/3 korunur.
 Kaynak testi veya başka bir rapor seçmek çalışan profilin Tarayıcıda aç/Durdur
-kontrollerini değiştirmez. Üretimde IPv4, sertifika ve özel anahtar alanları
-ana ekranda görünür. Gelişmiş ayarlar isteğe bağlıdır. Açık/koyu tema, sistem
+kontrollerini değiştirmez. Üretimde eksik IPv4, sertifika ve özel anahtar alanları
+gerektiğinde gelişmiş panelde gösterilir. Açık/koyu tema, sistem
 fontu, klavye odağı ve küçük pencerede kaydırma korunur.
 
 İlerleme geçerli aşama, geçen süre ve bekleme nedenini gösterir; tahmini yüzde
@@ -78,6 +91,10 @@ Yalnız dosya yolları kaydedilir; `.env`, sertifika ve özel anahtar içerikler
 
 ## .env dosyası seçimi
 
+Ana **AW Center’ı aç** eylemi seçilen ayarları kayıtlı profille karşılaştırır;
+değişiklik varsa hazırlama yolunu, yoksa normal başlatmayı kullanır. Gelişmiş
+paneldeki eski **Kur ve başlat** ve salt okunur denetim işlemleri de korunur.
+
 Çalışma sekmesindeki **.env dosyası (isteğe bağlı)** alanının **Seç…** düğmesiyle kendi dosyanızı seçebilirsiniz. Boş bırakılırsa mevcut profil kullanılır; yeni profilde varsayılan özel yapılandırma üretilir. Seçilen dosyanın yolu görev seçeneklerine alınır; içeriği arayüz veya rapora aktarılmaz.
 
 **Kur ve başlat**, literal `KEY=value` biçimindeki dosyayı doğrular ve ayarlarını `%LOCALAPPDATA%\AWCenter\config\dev.env` veya `prod.env` içindeki owner-only kopyaya aktarır. Kaynak dosyanın içeriği ve izinleri değiştirilmez. Kaynak dosyanızın izinlerini ayrıca koruyun; uygulama yalnız özel profil kopyasını kullanır. UTF-8/BOM desteklenir; yinelenen anahtar, symlink/junction, normal dosya olmayan yol, geçersiz sözdizimi veya 128 KiB üzeri dosya reddedilir. Shell komutu/variable interpolation yapılmaz; süreç başlatma ve başka env dosyasına yönlendirme ayarları kabul edilmez.
@@ -104,7 +121,38 @@ Kimlik tüm dağıtılabilir kaynak envanterinin SHA-256 değeridir. Aynı kayna
 
 Dağıtılmış `source/manager-source-manifest.json` dosyasını koruyun. Manifest taşınan kaynağın eksiksizliğini ve bütünlüğünü denetler; dijital imza değildir. ZIP checksum'unu güvenilir bir dağıtım kanalından doğrulayın. Git checkout'undan geliştirme sırasında üretim kopyası hazırlanabilir; manifesti olmayan rastgele çıkarılmış bir kaynak dizini kabul edilmez.
 
-Üretim için makineye atanmış sabit IPv4, kaynak ağacının dışındaki mevcut TLS sertifikası ve özel anahtar gerekir. Profiller ve özel durum `%LOCALAPPDATA%\AWCenter` altında ayrılır. Geliştirme ve üretim aynı veritabanını, özel dosyaları veya anahtarları paylaşmaz. Mevcut üretim veritabanındaki bekleyen migration yalnız açık migration seçimiyle uygulanır; önce yedeği doğrulayın.
+Üretim için makineye atanmış sabit IPv4, kaynak ağacının dışındaki mevcut TLS sertifikası ve özel anahtar gerekir. Profiller ve özel durum `%LOCALAPPDATA%\AWCenter` altında ayrılır. Geliştirme ve üretim aynı veritabanını, özel dosyaları veya anahtarları paylaşmaz. CLI ve gelişmiş eski kurulum işleminin migration onayı değişmez; ana otomatik akış aşağıdaki yedek politikasını kullanır.
+
+### Otomatik portlar ve migration
+
+Yeni yerel kurulumda portlar boş bırakılabilir. Önce backend için 8000, frontend
+için 5173 denenir; doluysa farklı boş loopback portları seçilir. Otomatik seçilmiş
+portlar sonraki açılışta uygunsa korunur. Elle seçilmiş ve önceki sürümden kalmış
+portlar sabittir; yerel port alanına `auto` yazarak otomatik seçim açılabilir.
+Üretim portu sabit kalır. Port değiştiğinde otomatik üretilmiş CSRF/origin ve
+reset/invitation adresleri birlikte güncellenir; özel `.env` adresleri çelişiyorsa
+işlem açıklamayla durur. Başka uygulamalar kapatılmaz; doğrulanmış port
+çakışmasında en fazla üç seçim denenir.
+
+Ana akışta mevcut ve tanınan veritabanının bekleyen migration'ları, uygulama
+durmuşken SQLite ve özel dosya yedeği doğrulandıktan sonra otomatik uygulanır.
+Gelişmiş panelde yedek sonrası ayrıca onay isteme seçilebilir. Yedekler
+`%LOCALAPPDATA%\AWCenter\backups\<profil>\<kimlik>` altında owner-only tutulur;
+eski yedekler silinmez veya üzerlerine yazılmaz. Manifest içerik yerine hash ve
+işlem kimliklerini taşır; mevcut anahtarlar özel environment dosyasında korunur.
+Bu yerel migration yedeği, ayrı ortamda saklanan felaket kurtarma yedeğinin yerini
+almaz.
+
+Bozuk/bilinmeyen şema, aktif SQLite WAL/yazıcı, değişen dosyalar, disk/izin veya
+yedek doğrulama hatası migration'ı engeller. Yarım kalan migration otomatik tekrar
+edilmez; tüm migration'lar uygulanmışsa yalnız eşleşen işlem kaydı ve son
+kontrollerle tamamlanabilir. Reset, fake migration ve otomatik geri yükleme yoktur.
+
+Aynı paket yeniden açıldığında gelişmiş tercihler korunur. Paket yolu veya kaynak
+kimliği değiştiğinde eski makine yolları otomatik uygulanmaz; önceki tercihler
+filtrelenmiş bağlam geçmişinde saklanır. Kurumsal/çevrimdışı sınır otomatik olarak
+genel internete açılmaz. Açık kaynak seçimi yoksa doğrulanmış kayıtlı kurulum
+kullanılır; yeni paket açmak mevcut release'i yükseltmez.
 
 ## Paket kaynakları
 
@@ -139,7 +187,7 @@ Tam paket hazırlığı araçlar için indirdiği doğrulanmış arşivleri tekr
 kullanır; canlı runtime veya uygulama bağımlılıklarını değiştirmez.
 
 Kullanıcı müdahalesi gereken örnekler: ilk yönetici bilgileri, yeni production
-profilinin IPv4/TLS dosyaları, mevcut veritabanı migration onayı, güvenilen kurum
+profilinin IPv4/TLS dosyaları, seçilmişse yedek sonrası migration onayı, güvenilen kurum
 CA'sı/proxy erişimi, bozuk medya veya tüm izinli kaynaklarda bulunmayan paket.
 Paket komutu hataları `package_tls_failed`, `package_integrity_failed`,
 `package_disk_full`, `package_access_denied` veya `package_command_failed` ile
@@ -332,3 +380,9 @@ Dev kopyalanan kaynakta, prod ayrı yönetilen release alanında çalışır. İ
 başlangıçta tam manifest algılanır, paket yollarıyla çevrimdışı mod seçilir;
 açık `--root` önceliklidir ve başka makineden kalmış araç/TLS/env yolları taşınmaz.
 Sürüm yükseltme, imzalama, otomatik yayın, servis ve sistem tepsisi kapsam dışıdır.
+
+Yukarıdaki CI kanıtı önceki pakete aittir. Tek tuşlu `ensure` akışını, boş yerel
+portları ve aynı akışla yeniden başlatmayı kapsayan yeni native kabul testleri
+Windows üzerinde yeniden çalıştırılmadan bu değişiklik için Windows yayın kabulü
+iddia edilmez. Snapshot write-through ve güç kesintisi dayanıklılığı da native
+Windows kabulünün parçasıdır.

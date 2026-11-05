@@ -16,8 +16,9 @@ DEFAULT_VALUES = {
     "frontend_port": "", "tls_cert_file": "", "tls_key_file": "",
     "migrate": False, "install_python": False, "install_node": False, "python_command": "", "node_command": "",
     "output": "", "env_file": "", "manager_distribution": "",
+    "source_selection": "automatic", "migration_policy": "automatic",
 }
-SOURCE_ACTIONS = {"provision", "test-sources", "bundle"}
+SOURCE_ACTIONS = {"provision", "ensure", "test-sources", "bundle"}
 CHECK_LABELS = {
     "ready": "HAZIR", "available": "HAZIR", "missing": "EKSİK",
     "blocked": "ENGEL", "unverified": "DOĞRULANAMADI",
@@ -63,12 +64,14 @@ def _validate_sources(values: dict) -> None:
 def _validate_provision(values: dict) -> None:
     for field in ("backend_port", "frontend_port"):
         value = values[field]
+        if value == 'auto' and values['profile'] == 'dev':
+            continue
         if value and (not value.isascii() or not value.isdigit() or not 1 <= int(value) <= 65535):
             raise FormError(field, "Port 1 ile 65535 arasında bir tam sayı olmalıdır.")
     if values["profile"] == "dev":
         if values["host"] and values["host"] != "127.0.0.1":
             raise FormError("host", "Geliştirme profili için 127.0.0.1 kullanın.")
-        if values["backend_port"] and values["backend_port"] == values["frontend_port"]:
+        if values["backend_port"] not in {'', 'auto'} and values["backend_port"] == values["frontend_port"]:
             raise FormError("frontend_port", "Frontend ve backend portları farklı olmalıdır.")
         return
     if not values["host"]:
@@ -91,6 +94,10 @@ def normalize_values(action: str, values: dict) -> dict[str, str | bool]:
         raise FormError("profile", "Geliştirme veya üretim profilini seçin.")
     if result["source_mode"] not in {"online", "restricted", "corporate", "offline"}:
         raise FormError("source_mode", "Geçerli bir kaynak modu seçin.")
+    if result['migration_policy'] not in {'automatic', 'confirm'}:
+        raise FormError('migration_policy', 'Geçerli bir migration politikası seçin.')
+    if result['source_selection'] not in {'automatic', 'explicit'}:
+        raise FormError('source_root', 'Geçerli bir kaynak seçimi kullanın.')
     if result["source_mode"] == "offline":
         for field in ("repository", "python_index_url", "npm_registry_url"):
             result[field] = ""
@@ -100,7 +107,7 @@ def normalize_values(action: str, values: dict) -> dict[str, str | bool]:
         result["tls_cert_file"] = result["tls_key_file"] = ""
     if action in SOURCE_ACTIONS:
         _validate_sources(result)
-    if action == "provision":
+    if action in {"provision", "ensure"}:
         _validate_provision(result)
     return result
 
@@ -277,7 +284,7 @@ class ManagerTaskStates:
     def profile_presentation(self, profile: str) -> dict:
         """Live profile ownership wins over read-only inspection and task selection."""
         for task in reversed(list(self.tasks.values())):
-            if task['profile'] != profile or task['action'] not in {'start', 'provision'}:
+            if task['profile'] != profile or task['action'] not in {'start', 'provision', 'ensure'}:
                 continue
             if task['status'] not in self.ACTIVE_STATUSES:
                 continue
@@ -288,8 +295,8 @@ class ManagerTaskStates:
                     'url': state.ready_url if ready else '', 'detail': state.status}
         snapshot = self.profiles.get(profile, {})
         status = snapshot.get('status', 'inspecting')
-        actions = {'not_installed': ('provision', 'Kur ve başlat'), 'stopped': ('start', 'Başlat'),
-                   'incomplete': ('provision', 'Tamamla ve başlat'), 'blocked': ('doctor', 'Eksikleri göster')}
+        actions = {'not_installed': ('ensure', 'AW Center’ı aç'), 'stopped': ('ensure', 'AW Center’ı aç'),
+                   'incomplete': ('ensure', 'Tamamla ve aç'), 'blocked': ('doctor', 'Eksikleri göster')}
         action, label = actions.get(status, (None, 'Denetleniyor…'))
         return {'status': status, 'action': action, 'label': label, 'task_id': None, 'url': '',
                 'detail': snapshot.get('detail', ''), 'tools': snapshot.get('tools', '')}

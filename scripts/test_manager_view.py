@@ -281,6 +281,7 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.window._advanced_fields = self.window.__class__._advanced_fields
         self.window.advanced_var = tk.BooleanVar(interpreter, value=False)
         self.window.advanced_frame = Mock()
+        self.window.run_settings = Mock()
         self.window.advanced_button = Mock()
         self.window.summary_title_var = tk.StringVar(interpreter)
         self.window.summary_context_var = tk.StringVar(interpreter)
@@ -367,8 +368,8 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.assertIsNone(window.selected_task_id())
         self.assertEqual(window.state.error_code, "invalid_form")
 
-    def test_basic_and_source_errors_do_not_expand_advanced_settings(self):
-        for field in ("backend_port", "offline_dir"):
+    def test_source_errors_do_not_expand_advanced_settings(self):
+        for field in ("offline_dir",):
             with self.subTest(field=field):
                 window = self.window
                 window.tabs.select.reset_mock()
@@ -377,6 +378,17 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
                 window._fields[field].focus_set.assert_called_once()
                 self.assertIs(window.advanced_var.get(), False)
         self.window.advanced_frame.grid.assert_not_called()
+
+    def test_live_asset_change_offers_stop_apply_and_open(self):
+        window = self.window
+        for key, value in window.state.last_values.items():
+            window.variables[key].set(value)
+        window.handle_event({'type': 'ready', 'task_id': 'dev', 'url': 'http://127.0.0.1:5173/app/'})
+        self.assertEqual(window._profile_presentation()['action'], 'open')
+        for field in ('assets', 'feature_catalog'):
+            window.variables[field].set('C:/new-choice')
+            self.assertEqual(window._profile_presentation()['action'], 'ensure')
+            window.variables[field].set('')
 
     def test_summary_follows_selected_profile_without_private_form_paths(self):
         window = self.window
@@ -478,6 +490,12 @@ class NativeWindowSmokeTests(unittest.TestCase):
         root.deiconify()
         root.update()
         card = window.run_settings
+        self.assertFalse(card.winfo_viewable())
+        action = window.action_buttons['start']
+        self.assertLessEqual(action.winfo_rooty() + action.winfo_height(),
+                             window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height())
+        window._set_advanced(True)
+        root.update()
         host, port = window._fields['host'], window._fields['backend_port']
         picker = window._pickers['source_root']
         right = card.winfo_rootx() + card.winfo_width() - 20
@@ -700,20 +718,20 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(str(window._fields['python_command']['state']), 'normal')
         self.assertEqual(window.form_values()['python_command'], 'C:/Python 311/python.exe')
 
-    def test_restored_node_selection_reveals_advanced_settings(self):
+    def test_restored_node_selection_keeps_advanced_settings_optional(self):
         import tkinter as tk
         from scripts.manager.view import ManagerWindow
         root = tk.Toplevel(self.root)
         try:
             window = ManagerWindow(root, lambda *_: None, lambda: None, lambda: None,
                                    initial_values={'node_command': 'C:/Node 24/node.exe'})
-            self.assertTrue(window.advanced_var.get())
+            self.assertFalse(window.advanced_var.get())
             self.assertEqual(window.form_values()['node_command'], 'C:/Node 24/node.exe')
             self.assertEqual(window._fields['node_command'].master, window.advanced_frame)
         finally:
             root.destroy()
 
-    def test_restored_advanced_inputs_are_visible_and_readable_after_window_closes(self):
+    def test_restored_advanced_inputs_are_preserved_with_panel_collapsed(self):
         import tkinter as tk
         from scripts.manager.view import ManagerWindow
         root = tk.Tk()
@@ -722,7 +740,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
             window = ManagerWindow(root, lambda *_: None, lambda: None, lambda: None,
                 source_root='C:/explicit', initial_values={'source_root': 'C:/saved', 'env_file': 'C:/private/dev.env',
                     'python_command': 'python', 'source_mode': 'corporate', 'migrate': True})
-            self.assertTrue(window.advanced_var.get())
+            self.assertFalse(window.advanced_var.get())
             self.assertFalse(window.variables['migrate'].get())
             self.assertEqual(window.variables['source_root'].get(), 'C:/explicit')
         finally:
@@ -760,7 +778,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(str(window.action_buttons["start"]["state"]), "normal")
         self.assertEqual(str(window.stop_button["state"]), "normal")
         window.action_buttons["start"].invoke()
-        self.assertEqual(actions[-1][0], "start")
+        self.assertEqual(actions[-1][0], "ensure")
         self.assertEqual(actions[-1][1]["source_root"], "D:/changed-source")
         self.assertEqual(str(window._fields["source_root"]["state"]), "normal")
         window.stop_button.invoke()

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import os
 
 
-ACTION_LABELS = {'provision': 'Kur ve başlat', 'start': 'Başlat', 'doctor': 'Kontrol et',
+ACTION_LABELS = {'ensure': 'AW Center’ı aç', 'provision': 'Kur ve başlat', 'start': 'Başlat', 'doctor': 'Kontrol et',
                  'test-sources': 'Kaynak testi', 'bundle': 'Offline paket hazırla', 'inspect': 'Ortam denetimi'}
 
 
@@ -25,6 +25,11 @@ def _path(value):
 def claims_for(action: str, values: dict) -> tuple[Claim, ...]:
     """Reserve real mutations and per-profile lifecycle, never a global UI lock."""
     profile = values.get('profile', 'dev')
+    if action == 'ensure':
+        # Worker acquires authoritative branch-specific OS leases after its
+        # read-only decision. A blanket runtime write claim would block starting
+        # a prepared prod while dev is already running.
+        return (Claim(f'lifecycle:{profile}', write=True),)
     if action in {'doctor', 'test-sources', 'inspect'}:
         return (Claim(f'{action}:{profile}', write=True),)
     claims = [Claim('managed-runtime', write=action == 'provision')]

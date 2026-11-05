@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -21,7 +23,9 @@ from .model import LauncherError
 
 def inspect_sqlite(database: Path, required_migrations: set[tuple[str, str]], *, user_table='auth_user') -> dict:
     """Read an immutable SQLite snapshot, refusing active WAL rather than mutating it."""
-    result = {'schema': 'missing', 'admin_exists': None, 'diagnostics': []}
+    result = {'schema': 'missing', 'admin_exists': None, 'diagnostics': [], 'auto_migrate_safe': False,
+              'migration_plan': {'required': [list(item) for item in sorted(required_migrations)],
+                                 'applied': [], 'pending': [list(item) for item in sorted(required_migrations)]}}
     require_unlinked(database)
     if not database.is_file():
         return result
@@ -35,9 +39,16 @@ def inspect_sqlite(database: Path, required_migrations: set[tuple[str, str]], *,
             connection.execute('PRAGMA query_only=ON')
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if 'django_migrations' not in tables:
+                result['auto_migrate_safe'] = not tables
                 return result
             applied = set(connection.execute('SELECT app, name FROM django_migrations'))
             result['schema'] = 'ready' if required_migrations <= applied else 'pending'
+            result['auto_migrate_safe'] = bool(applied) and applied <= required_migrations
+            result['migration_plan'] = {
+                'required': [list(item) for item in sorted(required_migrations)],
+                'applied': [list(item) for item in sorted(applied)],
+                'pending': [list(item) for item in sorted(required_migrations - applied)],
+            }
             if user_table in tables:
                 # The identifier comes from Django model metadata, never from operator input.
                 quoted_table = '"' + user_table.replace('"', '""') + '"'
@@ -62,6 +73,22 @@ def inspect_backend() -> dict:
     loader = MigrationLoader(None, ignore_no_migrations=True)
     required = set(loader.disk_migrations)
     result = inspect_sqlite(Path(database['NAME']), required, user_table=get_user_model()._meta.db_table)
+    # Bind the plan to installed Django and project migration code, without
+    # exposing interpreter paths or migration contents in the IPC response.
+    sources = {}
+    for key, migration in sorted(loader.disk_migrations.items()):
+        source = Path(inspect.getfile(type(migration)))
+        require_unlinked(source)
+        sources['/'.join(key)] = hashlib.sha256(source.read_bytes()).hexdigest()
+    result['migration_plan']['source_sha256'] = hashlib.sha256(
+        json.dumps(sources, sort_keys=True).encode()).hexdigest()
+    applied = {tuple(item) for item in result.get('migration_plan', {}).get('applied', [])}
+    # A known migration name alone is insufficient when its parents were skipped.
+    for key in applied:
+        if key in loader.graph.node_map:
+            parents = {node.key for node in loader.graph.node_map[key].parents}
+            if not parents <= applied:
+                result['auto_migrate_safe'] = False
     for name, enabled in (
         ('JIRA', settings.JIRA_ENABLED), ('DOORS', settings.DOORS_ENABLED),
         ('Teamcenter', settings.TEAMCENTER_ENABLED), ('DocProof', settings.DOCPROOF_ENABLED),

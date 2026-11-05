@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import errno
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 
@@ -120,8 +121,25 @@ def _safe_values(values: dict) -> dict:
             continue
         if key == 'source_mode' and value not in {'online', 'restricted', 'corporate', 'offline'}:
             continue
+        if key == 'migration_policy' and value not in {'automatic', 'confirm'}:
+            continue
+        if key == 'source_selection' and value not in {'automatic', 'explicit'}:
+            continue
         result[key] = value
     return result
+
+
+def _context_values(values):
+    """Only bounded, non-secret preference history is retained for moved media."""
+    context = values.get('_media_context')
+    if not isinstance(context, str) or not re.fullmatch(r'[0-9a-f]{64}', context):
+        return {}
+    history = values.get('_contexts', {})
+    if not isinstance(history, dict):
+        history = {}
+    return {'_media_context': context, '_contexts': {
+        key: _safe_values(value) for key, value in history.items()
+        if isinstance(key, str) and re.fullmatch(r'[0-9a-f]{64}', key) and isinstance(value, dict)}}
 
 
 def load_preferences(home: Path) -> dict:
@@ -152,10 +170,10 @@ def _read_preferences(path, private_paths, *, legacy=False):
         if len(content) > _LIMIT:
             raise PreferencesError('decode', 'too_large', legacy=legacy)
         document = json.loads(content)
-        if (not isinstance(document, dict) or document.get('version') != 1 or
+        if (not isinstance(document, dict) or document.get('version') not in {1, 2} or
                 not isinstance(document.get('values'), dict)):
             raise ValueError
-        return _safe_values(document['values'])
+        return {**_safe_values(document['values']), **_context_values(document)}
     except (ValueError, UnicodeError, RecursionError):
         raise PreferencesError('decode', 'invalid_format', legacy=legacy) from None
 
@@ -163,7 +181,9 @@ def _read_preferences(path, private_paths, *, legacy=False):
 def save_preferences(home: Path, values: dict) -> None:
     """Atomically replace only supported inputs; never read selected file contents."""
     try:
-        content = json.dumps({'version': 1, 'values': _safe_values(values)}, ensure_ascii=False).encode('utf-8')
+        contexts = _context_values(values)
+        content = json.dumps({'version': 2 if contexts else 1, 'values': _safe_values(values), **contexts},
+                             ensure_ascii=False).encode('utf-8')
     except UnicodeError:
         raise PreferencesError('encode', 'invalid_format') from None
     if len(content) > _LIMIT:

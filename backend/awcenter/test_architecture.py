@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -44,26 +46,35 @@ class ArchitectureFitnessTests(SimpleTestCase):
             if module == "integrations.ai" or module.startswith("integrations.ai.")
         }
         self.assertTrue(ai_modules, "The central AI package must exist")
+        # Shared TLS is infrastructure, not a feature. Audit it too so the AI
+        # boundary cannot acquire business or Django dependencies indirectly.
+        boundary_modules = {
+            module: path for module, path in modules.items()
+            if module in ai_modules or module == "integrations.tls"
+        }
         violations = []
-        for module, path in ai_modules.items():
+        for module, path in boundary_modules.items():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     imports = [alias.name for alias in node.names]
                 elif isinstance(node, ast.ImportFrom):
                     base = resolve_from_module(module, path.name == "__init__.py", node)
-                    imports = [base, *(f"{base}.{alias.name}" for alias in node.names)]
+                    imports = [f"{base}.{alias.name}" for alias in node.names]
                 else:
                     continue
                 for imported in imports:
                     root = imported.split(".", 1)[0]
-                    forbidden_feature = root in FEATURE_PACKAGES or root == "jobs"
-                    within_ai = imported == "integrations.ai" or imported.startswith("integrations.ai.")
+                    forbidden_feature = root in FEATURE_PACKAGES or root in {"jobs", "users"}
+                    within_ai = module in ai_modules and (
+                        imported == "integrations.ai" or imported.startswith("integrations.ai.")
+                    )
+                    within_tls = longest_module_prefix(imported, modules) == "integrations.tls"
                     forbidden_django = imported.startswith("django.") and not (
                         module == "integrations.ai.config"
                         and (imported == "django.conf" or imported.startswith("django.conf."))
                     )
-                    if (forbidden_feature and not within_ai) or forbidden_django or root == "awcenter":
+                    if (forbidden_feature and not (within_ai or within_tls)) or forbidden_django or root == "awcenter":
                         violations.append(f"{module}:{node.lineno} -> {imported}")
         self.assertEqual(violations, [])
 
@@ -195,6 +206,64 @@ class ArchitectureFitnessTests(SimpleTestCase):
             }:
                 continue
             self.assertTrue(route.startswith("api/"), route)
+
+
+class AIBoundaryRuleTests(SimpleTestCase):
+    def check_boundary(self, source, *, module="integrations.ai.transport", tls_source=""):
+        # Supply a small source tree to the real import scanner, never import it.
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, content in {module: source, "integrations.tls": tls_source}.items():
+                path = root.joinpath(*name.split(".")).with_suffix(".py")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            with patch(__name__ + ".BACKEND_ROOT", root):
+                ArchitectureFitnessTests(
+                    "test_ai_core_does_not_import_features_or_models"
+                ).test_ai_core_does_not_import_features_or_models()
+
+    def test_ai_transport_can_use_framework_independent_tls(self):
+        for source in (
+            "from integrations.tls import tls_post",
+            "from ..tls import tls_post",
+            "from integrations import tls",
+        ):
+            with self.subTest(source=source):
+                self.check_boundary(source, tls_source="import ssl\nimport requests")
+
+    def test_ai_core_still_rejects_business_and_framework_imports(self):
+        for source in (
+            "from integrations.assessment import ask_assessment",
+            "from .. import assistant",
+            "from orgs.models import Project",
+            "from users.models import User",
+            "from jobs import models",
+            "from awcenter import settings",
+            "from django.db import models",
+            "from django.conf import settings",
+            "from integrations.tls_helpers import tls_post",
+        ):
+            with self.subTest(source=source), self.assertRaises(AssertionError):
+                self.check_boundary(source)
+
+    def test_shared_tls_cannot_hide_business_or_framework_dependencies(self):
+        for source in (
+            "from integrations.assessment import ask_assessment",
+            "from . import assistant",
+            "from integrations.ai import client",
+            "from orgs.models import Project",
+            "from users.models import User",
+            "from jobs import models",
+            "from awcenter import settings",
+            "from django.conf import settings",
+        ):
+            with self.subTest(source=source), self.assertRaises(AssertionError):
+                self.check_boundary("import requests", tls_source=source)
+
+    def test_only_ai_configuration_can_import_django_settings(self):
+        self.check_boundary("from django.conf import settings", module="integrations.ai.config")
+        with self.assertRaises(AssertionError):
+            self.check_boundary("from django.db import models", module="integrations.ai.config")
 
 
 def production_modules() -> dict[str, Path]:
