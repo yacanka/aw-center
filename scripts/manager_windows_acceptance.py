@@ -63,14 +63,16 @@ def acceptance_programs(executable, directory, source, python, node):
     """
     from scripts.launcher.installation_sources import load_catalog
     from scripts.launcher.toolchain import _directory
-    from scripts.manager.payload import verify_source_payload
+    from scripts.manager.payload import production_source_path, verify_source_payload
     home = directory / 'local/AWCenter'
-    release = home / 'releases' / verify_source_payload(source)['fingerprint'] / 'source'
+    fingerprint = verify_source_payload(source)['fingerprint']
+    release = production_source_path(home, fingerprint)
+    legacy = home / 'releases' / fingerprint / 'source'
     catalog = load_catalog()
     programs = [executable, python, node]
     programs.extend(_directory(home, catalog[name]) / catalog[name].executable
                     for name in ('python', 'node'))
-    for root in (source, release):
+    for root in (source, release, legacy):
         programs.extend(root / '.venv/Scripts' / name for name in
                         ('python.exe', 'pythonw.exe', 'pip.exe', 'pip3.exe', 'pip3.11.exe'))
     return programs

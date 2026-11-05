@@ -301,6 +301,7 @@ class SystemPythonTests(unittest.TestCase):
             installation.provision(project, args)
             self.assertEqual(ensure.call_args.kwargs['python_executable'], python)
             self.assertEqual(dependencies.call_args.kwargs['expected_python'], python)
+            self.assertEqual(dependencies.call_args.kwargs['cache_root'], home / 'cache' / 'packages')
             self.assertEqual(load_profile(project, 'dev', home)['python_executable'], str(python))
             inspect = mocks.enter_context(patch.object(toolchain, 'inspect_toolchain', return_value=[{'status': 'ready'}]))
             tools = mocks.enter_context(patch.object(toolchain, '_environment', return_value={'AWCENTER_MANAGED_PYTHON': str(python)}))

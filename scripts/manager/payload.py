@@ -189,12 +189,21 @@ def _copy_verified_source(source: Path, target: Path, manifest: dict) -> None:
         raise LauncherError('Manager source changed during its verified copy')
 
 
+def production_source_path(home: Path, fingerprint: str) -> Path:
+    """Keep Windows package paths short; the manifest retains the full SHA-256.
+
+    A directory-prefix collision is rejected by full manifest verification.
+    Existing full-digest releases remain supported without moving their venvs.
+    """
+    return home / 'r' / fingerprint[:12]
+
+
 def _stage_verified(source: Path, home: Path) -> Path:
     manifest = verify_source_payload(source)  # Validate before creating home.
     with installation_lock(home):
-        releases = private_directory(home / 'releases')
-        release = releases / manifest['fingerprint']
-        target = release / 'source'
+        releases = private_directory(home / 'r')
+        target = production_source_path(home, manifest['fingerprint'])
+        release = target
         require_unlinked(target)
         if release.exists():
             if verify_source_payload(target) != manifest:
@@ -202,9 +211,7 @@ def _stage_verified(source: Path, home: Path) -> Path:
             return target
         with tempfile.TemporaryDirectory(prefix='.manager-release-', dir=releases) as temporary:
             staging = Path(temporary) / 'release'
-            staging.mkdir()
-            secure_path(staging)
-            _copy_verified_source(source, staging / 'source', manifest)
+            _copy_verified_source(source, staging, manifest)
             # The installation lock serializes publishers. On the Windows target
             # rename also refuses any existing destination, including empty dirs.
             if release.exists():
@@ -221,12 +228,19 @@ def _selected_paths(source: Path, home: Path) -> tuple[Path, Path, bool]:
         raise LauncherError('Manager installation home and selected source must be separate')
     canonical = False
     if source.resolve().is_relative_to(home.resolve()):
-        relative = source.relative_to(home / 'releases') if source.is_relative_to(home / 'releases') else Path()
-        if (len(relative.parts) != 2 or relative.parts[1] != 'source' or
-                re.fullmatch(r'[0-9a-f]{64}', relative.parts[0]) is None):
+        if source.is_relative_to(home / 'r'):
+            relative = source.relative_to(home / 'r')
+            valid = len(relative.parts) == 1 and re.fullmatch(r'[0-9a-f]{12}', relative.name)
+            identity = relative.name
+        else:
+            relative = source.relative_to(home / 'releases') if source.is_relative_to(home / 'releases') else Path()
+            valid = (len(relative.parts) == 2 and relative.parts[1] == 'source'
+                     and re.fullmatch(r'[0-9a-f]{64}', relative.parts[0]))
+            identity = relative.parts[0] if valid else ''
+        if not valid:
             raise LauncherError('Selected production source must use the canonical release path')
         manifest = verify_source_payload(source)
-        if manifest['fingerprint'] != relative.parts[0]:
+        if identity not in {manifest['fingerprint'], manifest['fingerprint'][:12]}:
             raise LauncherError('Production source fingerprint differs from its canonical path')
         require_private(home)
         canonical = True
@@ -255,14 +269,17 @@ def resolve_production_source(source: Path, home: Path) -> Path:
         return source
     with _selected_source(source) as selected:
         manifest = verify_source_payload(selected)
-        target = home / 'releases' / manifest['fingerprint'] / 'source'
+        target = production_source_path(home, manifest['fingerprint'])
+        require_unlinked(target)
+        if not target.exists():
+            target = home / 'releases' / manifest['fingerprint'] / 'source'
         if verify_source_payload(target) != manifest:
             raise LauncherError('Existing production release differs from the selected source')
         return target
 
 
 def stage_production_source(source: Path, home: Path) -> Path:
-    """Stage source at home/releases/<content-SHA256>/source, never overwrite.
+    """Stage source at home/r/<short-id>, never overwrite.
 
     A development Git checkout is first reduced to the safe release selection.
     Every extracted source must already carry its exact source checksum manifest.

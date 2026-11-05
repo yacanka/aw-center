@@ -98,16 +98,55 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(self.payload.verify_source_payload(target)['fingerprint'],
                          self.payload.verify_source_payload(regenerated)['fingerprint'])
 
-    def test_staging_uses_full_fingerprint_and_reuses_only_verified_identical_release(self):
+    def test_staging_keeps_full_fingerprint_and_reuses_only_verified_identical_release(self):
         source = self.prepare()
         home = self.root / 'home'
         first = self.payload.stage_production_source(source, home)
         manifest = self.payload.verify_source_payload(source)
-        self.assertEqual(first, home / 'releases' / manifest['fingerprint'] / 'source')
+        self.assertEqual(first, home / 'r' / manifest['fingerprint'][:12])
         self.assertEqual(self.payload.stage_production_source(source, home), first)
         self.assertEqual((first / 'launcher.py').read_bytes(), (source / 'launcher.py').read_bytes())
         self.assertEqual(len(manifest['fingerprint']), 64)
         require_private(first)
+
+    def test_production_package_paths_fit_without_machine_long_path_policy(self):
+        from pathlib import PureWindowsPath
+        source = self.prepare()
+        target = self.payload.stage_production_source(source, self.root / 'home')
+        relative = target.relative_to(self.root / 'home')
+        windows_home = PureWindowsPath(r'C:\Users\operator-profile-123\AppData\Local\AWCenter')
+        header = ('torch-2.13.0.dist-info/licenses/third_party/kineto/libkineto/third_party/'
+                  'dynolog/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.5.2/LICENSE.txt')
+        installed = windows_home / relative.as_posix() / '.venv/Lib/site-packages' / header
+        self.assertLess(len(str(installed)), 260)
+        # Short directory names never replace verification of the full digest.
+        self.assertEqual(self.payload.verify_source_payload(target), self.payload.verify_source_payload(source))
+
+    def test_legacy_full_digest_release_remains_readable_and_unchanged(self):
+        source = self.prepare()
+        home = self.root / 'home'
+        staged = self.payload.stage_production_source(source, home)
+        fingerprint = self.payload.verify_source_payload(source)['fingerprint']
+        legacy = home / 'releases' / fingerprint / 'source'
+        if staged != legacy:
+            legacy.parent.mkdir(parents=True)
+            staged.rename(legacy)
+        self.assertEqual(self.payload.resolve_production_source(legacy, home), legacy)
+        self.assertEqual(self.payload.stage_production_source(legacy, home), legacy)
+        self.assertEqual(self.payload.resolve_production_source(source, home), legacy)
+
+    def test_short_directory_collision_never_replaces_a_different_verified_release(self):
+        source = self.prepare()
+        home = self.root / 'home'
+        first = self.payload.stage_production_source(source, home)
+        (self.project.root / 'launcher.py').write_text('# another release\n')
+        other = self.root / 'other-release'
+        self.payload.prepare_source_payload(self.project, other)
+        with patch.object(self.payload, 'production_source_path', return_value=first):
+            with self.assertRaises(LauncherError):
+                self.payload.stage_production_source(other, home)
+        self.assertEqual((first / 'launcher.py').read_bytes(), (source / 'launcher.py').read_bytes())
+        self.payload.verify_source_payload(first)
 
     def test_tampered_existing_release_is_never_overwritten(self):
         source = self.prepare()
@@ -197,7 +236,7 @@ os._exit(0)
         secure_path(home)
         elsewhere = self.root / 'elsewhere'
         elsewhere.mkdir()
-        (home / 'releases').symlink_to(elsewhere, target_is_directory=True)
+        (home / 'r').symlink_to(elsewhere, target_is_directory=True)
         with self.assertRaises(LauncherError):
             self.payload.stage_production_source(source, home)
         self.assertEqual(list(elsewhere.iterdir()), [])

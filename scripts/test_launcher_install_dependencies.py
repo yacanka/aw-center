@@ -216,7 +216,7 @@ class AcquisitionFailureTests(unittest.TestCase):
             for selected in (None, ca_file):
                 observed = []
                 progress = []
-                def packages(project, settings, tool_env, stage):
+                def packages(project, settings, tool_env, stage, *, cache_root=None):
                     bundle = Path(tool_env['NODE_EXTRA_CA_CERTS'])
                     self.assertTrue(bundle.is_file())
                     self.assertEqual(tool_env['PIP_CERT'], str(bundle))

@@ -18,6 +18,12 @@ from .offline_manifest import verify_offline_manifest
 from .process import controlled_run, environment
 
 _STAGE_RECEIPT = '.awcenter-packages.json'
+_PACKAGE_STAGES = frozenset({
+    'Virtual environment oluşturma', 'pip hazırlığı', 'Paket hedefi doğrulaması',
+    'Python paket edinimi', 'Python paket kurulumu', 'Python bağımlılık doğrulaması',
+    'npm paket edinimi', 'Frontend paket kurulumu',
+})
+_WINDOWS_ERROR = re.compile(r'\[winerror ([1-9][0-9]{0,9})\]', re.IGNORECASE)
 _FATAL_PACKAGE_FAILURES = (
     ((r'\b(?:sslerror|sslcertverificationerror|certificateerror|certificate_verify_failed)\b',
       r'\b(?:unable_to_verify_leaf_signature|unable_to_get_issuer_cert_locally|depth_zero_self_signed_cert|self_signed_cert_in_chain|cert_has_expired|cert_not_yet_valid|err_tls_cert_altname_invalid)\b',
@@ -32,11 +38,19 @@ _FATAL_PACKAGE_FAILURES = (
       r'\bdo not match the hashes\b'), 'package_integrity_failed',
      'Paket dosyalarının bütünlüğü doğrulanamadı; dosyalar kullanılmadı.',
      'Onaylı paket veya depodan doğrulanmış dosyaları yeniden edinin; hash denetimini kapatmayın.'),
-    ((r'\bno space\b', r'\benospc\b', r'\bdisk full\b'), 'package_disk_full',
+    ((r'\[winerror 206\]', r'\bfilename or extension is too long\b',
+      r'\bdoes not have windows long path support enabled\b'), 'package_path_too_long',
+     'Paket kurulumu Windows dosya yolu uzunluğu sınırına takıldı.',
+     'Güncel Manager ile Hazırla ve Başlat işlemini yeniden çalıştırın; yeni prod kurulumları kısa kaynak yolunu kullanır. '
+     'Özel/dev kaynak yolu çok uzunsa daha kısa yerel bir kaynak seçin.'),
+    ((r'\[winerror (?:32|33)\]', r'\bbeing used by another process\b'), 'package_file_in_use',
+     'Paket dosyası başka bir işlem tarafından kullanılıyor.',
+     'İlgili ortamı kullanan uygulama ve Python/Node süreçlerini kapatıp yeniden deneyin.'),
+    ((r'\bno space\b', r'\benospc\b', r'\bdisk full\b', r'\[winerror (?:39|112)\]'), 'package_disk_full',
      'Paket işlemi için yeterli disk alanı bulunamadı.',
      'Kurulum ve geçici dosya disklerinde boş alan açıp yeniden deneyin.'),
     ((r'\baccess is denied\b', r'\bpermission denied\b', r'\beacces\b', r'\beperm\b',
-      r'\boperation not permitted\b'), 'package_access_denied',
+      r'\boperation not permitted\b', r'\[winerror 5\]'), 'package_access_denied',
      'Paket işlemi için gerekli dosya veya çalıştırma izni sağlanamadı.',
      'Seçili dizin ve araçların erişim izinlerini veya kurumun çalıştırma politikasını kontrol edin.'),
 )
@@ -47,6 +61,9 @@ def _package_failure(output: str) -> tuple[str, str, str]:
     for patterns, code, message, remedy in _FATAL_PACKAGE_FAILURES:
         if any(re.search(pattern, text) for pattern in patterns):
             return code, message, remedy
+    if _WINDOWS_ERROR.search(output):
+        return ('package_system_error', 'Paket işlemi Windows sistem hatasıyla durdu.',
+                'Raporlanan Windows sistem koduyla kurulum dizini ve araçların durumunu kontrol edin.')
     return ('package_command_failed', 'Paket aracı işlemi tamamlayamadı.',
             'Seçili paket kaynaklarını ve Python/Node araçlarını kontrol edip yeniden deneyin.')
 
@@ -54,8 +71,14 @@ def _package_failure(output: str) -> tuple[str, str, str]:
 class PackageCommandError(LauncherError):
     """Expose only reviewed package failure details, never tool diagnostics."""
 
-    def __init__(self, result):
-        self.code, message, self.remedy = _package_failure((result.stdout or '') + '\n' + (result.stderr or ''))
+    def __init__(self, result, stage=None):
+        output = (result.stdout or '') + '\n' + (result.stderr or '')
+        self.code, message, self.remedy = _package_failure(output)
+        if stage in _PACKAGE_STAGES:
+            message = stage + ': ' + message
+        system_error = _WINDOWS_ERROR.search(output)
+        if system_error:
+            message += f' WinError: {int(system_error[1])}.'
         if type(result.returncode) is int and result.returncode > 0:
             message += f' Süreç çıkış kodu: {result.returncode}.'
         super().__init__(message)
@@ -204,7 +227,7 @@ def capture(command: list, project: Project, overrides: dict | None = None, *, t
 
 def _succeeded(result, stage: str) -> None:
     if result.returncode:
-        raise PackageCommandError(result)
+        raise PackageCommandError(result, stage)
 
 
 def _offline_candidates(settings: SourceSettings):
@@ -378,24 +401,55 @@ def _prepare_venv(project: Project, tool_env: dict, *, expected_python: Path | N
         marker.unlink()
 
 
-def _python_packages(project: Project, settings: SourceSettings, tool_env: dict, stage: Path) -> None:
+def _package_target(project: Project, tool_env: dict, *, npm=False):
+    if npm:
+        node = tool_env.get('AWCENTER_MANAGED_NODE') or shutil.which('node', path=tool_env.get('PATH'))
+        if not node:
+            raise LauncherError('Node paket hedefi doğrulanamadı.')
+        command = [node, '-p', 'JSON.stringify([process.versions.node,process.platform,process.arch])']
+    else:
+        command = [project.python, '-I', '-B', '-c',
+                   'import json,sys,platform,sysconfig; print(json.dumps([sys.implementation.name,platform.python_version(),sysconfig.get_platform()]))']
+    result = capture(command, project, tool_env, timeout=60)
+    _succeeded(result, 'Paket hedefi doğrulaması')
+    try:
+        target = json.loads(result.stdout) if len(result.stdout) <= 1024 else None
+        if (not isinstance(target, list) or len(target) != 3 or
+                any(not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,100}', value)
+                    for value in target)):
+            raise ValueError('invalid target')
+    except (ValueError, TypeError):
+        raise LauncherError('Paket hedefi doğrulanamadı.') from None
+    return target
+
+
+def _python_packages(project: Project, settings: SourceSettings, tool_env: dict, stage: Path, *,
+                     cache_root: Path | None = None) -> None:
+    from .package_cache import acquire_cached
     if not project.requirements:
         raise LauncherError("Python requirements lock dosyası bulunamadı.")
     offline = _offline_dependencies(project, settings)
     wheelhouse = offline / 'wheels' if offline else None
     indexes = acquisition_urls(settings, "https://pypi.org/simple", settings.python_index_url)
+    target = _package_target(project, tool_env) if cache_root and indexes and offline is None else None
     for number, index in enumerate(indexes if wheelhouse is None else []):
-        candidate = stage / f'wheels-{number}'
-        candidate.mkdir()
-        settings.report(f'Python paketleri: izinli kaynak {number + 1}/{len(indexes)} deneniyor')
-        result = capture([project.python, "-m", "pip", "wheel", "--wheel-dir", candidate,
-                          "--index-url", index, "-r", project.requirements], project, tool_env, progress=settings.progress)
-        if not result.returncode:
-            wheelhouse = candidate
+        candidate = stage / f'w{number}'
+        def acquire():
+            candidate.mkdir()
+            settings.report(f'Python paketleri: izinli kaynak {number + 1}/{len(indexes)} deneniyor')
+            result = capture([project.python, "-m", "pip", "wheel", "--wheel-dir", candidate,
+                              "--index-url", index, "-r", project.requirements], project, tool_env, progress=settings.progress)
+            if not result.returncode:
+                return True
+            if not availability_failure(result.stdout + result.stderr, restricted=True):
+                _succeeded(result, "Python paket edinimi")
+            settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
+            return False
+        wheelhouse = acquire_cached(cache_root, kind='python', locks=(project.requirements,), target=target,
+                                    mode=settings.mode, source=index, candidate=candidate,
+                                    acquire=acquire, report=settings.report)
+        if wheelhouse is not None:
             break
-        if not availability_failure(result.stdout + result.stderr, restricted=True):
-            _succeeded(result, "Python paket edinimi")
-        settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
     if wheelhouse is None:
         offline = _offline_dependencies(project, settings)
         if not offline:
@@ -415,50 +469,65 @@ def _npm_command(tool_env: dict) -> list[str]:
     return [npm]
 
 
-def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dict, stage: Path) -> None:
+def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dict, stage: Path, *,
+                       cache_root: Path | None = None) -> None:
+    from .package_cache import acquire_cached
     npm = _npm_command(tool_env)
     offline = _offline_dependencies(project, settings)
     cache = None
     timeout_error = None
     registries = acquisition_urls(settings, "https://registry.npmjs.org", settings.npm_registry_url)
+    target = _package_target(project, tool_env, npm=True) if cache_root and registries and offline is None else None
     for number, registry in enumerate(registries if offline is None else []):
-        tree, candidate = stage / f'npm-source-{number}', stage / f'npm-cache-{number}'
-        tree.mkdir()
-        for name in ('package.json', 'package-lock.json'):
-            source = project.frontend / name
-            if not source.is_file():
-                raise LauncherError('Frontend lock dosyası eksik.')
-            shutil.copyfile(source, tree / name)
-        settings.report(f'npm paketleri: izinli kaynak {number + 1}/{len(registries)} deneniyor')
-        try:
+        tree, candidate = stage / f'n{number}', stage / f'c{number}'
+        def acquire():
+            tree.mkdir()
+            for name in ('package.json', 'package-lock.json'):
+                source = project.frontend / name
+                if not source.is_file():
+                    raise LauncherError('Frontend lock dosyası eksik.')
+                shutil.copyfile(source, tree / name)
+            settings.report(f'npm paketleri: izinli kaynak {number + 1}/{len(registries)} deneniyor')
             result = capture([*npm, "ci", "--prefix", tree, "--ignore-scripts", "--cache", candidate,
                               "--registry", registry, "--replace-registry-host=npmjs", "--no-audit", "--no-fund"],
                              project, tool_env)
+            if not result.returncode:
+                return True
+            if not availability_failure(result.stdout + result.stderr, restricted=True):
+                _succeeded(result, "npm paket edinimi")
+            settings.report('npm kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
+            return False
+        try:
+            cache = acquire_cached(cache_root, kind='npm',
+                                   locks=(project.frontend / 'package-lock.json', project.package_json), target=target,
+                                   mode=settings.mode, source=registry, candidate=candidate,
+                                   acquire=acquire, report=settings.report)
         except PackageTimeoutError as error:
             timeout_error = error
             settings.report('npm kaynağı süre sınırında yanıt vermedi; sıradaki izinli kaynak deneniyor')
             continue
         timeout_error = None
-        if not result.returncode:
-            cache = candidate
+        if cache is not None:
+            if cache_root is not None:
+                # npm writes cache indices and diagnostics even during offline
+                # installation. Never let it mutate a completed shared entry.
+                shutil.copytree(cache, stage / 'ni')
+                cache = stage / 'ni'
             break
-        if not availability_failure(result.stdout + result.stderr, restricted=True):
-            _succeeded(result, "npm paket edinimi")
-        settings.report('npm kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
     if cache is None:
         offline = offline or _offline_dependencies(project, settings)
         if not offline:
             if timeout_error is not None:
                 raise timeout_error
             raise LauncherError("Kilitli npm paketleri internet, seçilen depo veya offline dizinde bulunamadı.")
-        cache = stage / "offline-npm-cache"
+        cache = stage / 'no'
         shutil.copytree(offline / "npm-cache", cache)
     _succeeded(capture([*npm, "ci", "--prefix", project.frontend, "--offline", "--cache", cache,
                        "--no-audit", "--no-fund"], project, tool_env), "Frontend paket kurulumu")
 
 
 def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None,
-                         repair_venv: bool = False) -> None:
+                         repair_venv: bool = False, cache_root: Path | None = None) -> None:
     """Use one source per acquisition attempt; never fallback after installation fails."""
     settings.report('Python sanal ortamı doğrulanıyor')
     _ensure_venv(project, tool_env, expected_python=expected_python,
@@ -469,15 +538,17 @@ def install_dependencies(project: Project, settings: SourceSettings, tool_env: d
     settings.report('Paket bağlantıları için güven deposu hazırlanıyor')
     with package_trust_environment(tool_env, ca_file=settings.ca_file, python=project.python,
                                    node=node, progress=settings.report) as trusted_env, \
-         tempfile.TemporaryDirectory(prefix="awcenter-packages-") as temporary:
-        stage = Path(temporary)
+         tempfile.TemporaryDirectory(prefix='aw-p-') as temporary:
+        stage = Path(temporary).resolve()
         print("Python paketleri hazırlanıyor…", flush=True)
         settings.report('Python bağımlılıkları hazırlanıyor')
         if not dependency_stage(project.venv, project.requirements,
-                                lambda: _python_packages(project, settings, trusted_env, stage)):
+                                lambda: _python_packages(project, settings, trusted_env, stage,
+                                                         cache_root=cache_root)):
             settings.report('Python bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')
         print("Frontend paketleri hazırlanıyor…", flush=True)
         settings.report('Frontend bağımlılıkları hazırlanıyor')
         if not dependency_stage(project.frontend / 'node_modules', project.frontend / 'package-lock.json',
-                                lambda: _frontend_packages(project, settings, trusted_env, stage)):
+                                lambda: _frontend_packages(project, settings, trusted_env, stage,
+                                                           cache_root=cache_root)):
             settings.report('npm bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')

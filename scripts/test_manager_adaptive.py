@@ -10,11 +10,17 @@ from scripts import test_manager_controller as fixtures
 
 class InspectionTests(unittest.TestCase):
     def test_canonical_prod_provision_acquires_write_claim_before_nested_lifecycle(self):
+        self._check_prod_write_claim('releases/' + 'a' * 64 + '/source')
+
+    def test_compact_prod_provision_acquires_write_claim_before_nested_lifecycle(self):
+        self._check_prod_write_claim('r/' + 'a' * 12)
+
+    def _check_prod_write_claim(self, relative):
         from scripts.manager import operations
         from scripts.launcher_test_support import create_project
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary).resolve() / 'home'
-            source = home / 'releases' / ('a' * 64) / 'source'
+            source = home / relative
             source.mkdir(parents=True)
             from scripts.launcher.installation_permissions import secure_path
             secure_path(home)

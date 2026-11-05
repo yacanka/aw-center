@@ -237,12 +237,18 @@ class ProfileTests(unittest.TestCase):
         self.assertFalse(self.home.exists())
 
     def test_prod_state_and_secrets_are_separate_and_assets_canonical(self):
+        self._check_prod_isolation('releases/approved-1/source')
+
+    def test_compact_prod_state_and_secrets_remain_separate(self):
+        self._check_prod_isolation('r/' + 'a' * 12)
+
+    def _check_prod_isolation(self, relative):
         dev = self.provision()
         certificate = self.root / 'certificate.pem'
         key = self.root / 'key.pem'
         certificate.write_text('operator supplied')
         key.write_text('operator supplied')
-        release = self.home / 'releases/approved-1/source'
+        release = self.home / relative
         (release / 'backend').mkdir(parents=True)
         (release / 'frontend').mkdir()
         prod_project = Project(release, release / 'backend/manage.py', release / 'frontend/package.json', None)

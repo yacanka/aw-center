@@ -74,6 +74,7 @@ class ContainmentTests(unittest.TestCase):
             self.assertIn(Path(path), programs)
         home = directory / 'local/AWCenter'
         self.assertIn(home / 'releases' / ('a' * 64) / 'source/.venv/Scripts/python.exe', programs)
+        self.assertIn(home / 'r' / ('a' * 12) / '.venv/Scripts/python.exe', programs)
         for name in ('python', 'node'):
             artifact = load_catalog()[name]
             self.assertIn(_directory(home, artifact) / artifact.executable, programs)

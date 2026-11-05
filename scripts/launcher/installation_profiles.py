@@ -170,12 +170,14 @@ def _validate_options(profile):
     source = Path(profile['source_root'])
     require_unlinked(source)
     require_unlinked(source / '.venv')
-    try:
-        release = source.relative_to(Path(profile['installation_home']) / 'releases')
-    except ValueError:
-        raise LauncherError('Production requires a separate release under installation home/releases/<release-id>/source') from None
-    if len(release.parts) != 2 or release.parts[-1] != 'source' or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', release.parts[0]):
-        raise LauncherError('Production requires a separate release under installation home/releases/<release-id>/source')
+    home = Path(profile['installation_home'])
+    compact = source.relative_to(home / 'r') if source.is_relative_to(home / 'r') else Path()
+    legacy = source.relative_to(home / 'releases') if source.is_relative_to(home / 'releases') else Path()
+    compact_valid = len(compact.parts) == 1 and re.fullmatch(r'[0-9a-f]{12}', compact.name)
+    legacy_valid = (len(legacy.parts) == 2 and legacy.parts[-1] == 'source'
+                    and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', legacy.parts[0]))
+    if not compact_valid and not legacy_valid:
+        raise LauncherError('Production requires a separate release under installation home/r/<release-id> or home/releases/<release-id>/source')
     from .runtime import require_production_host
     require_production_host(profile['host'])
     for key in ('tls_cert_file', 'tls_key_file'):

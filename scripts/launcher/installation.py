@@ -282,6 +282,7 @@ def _provision(project: Project, args) -> list[dict]:
         phase("kilitli bağımlılıklar")
         install_dependencies(project, settings, tool_env,
                              expected_python=Path(tool_env['AWCENTER_MANAGED_PYTHON']),
+                             cache_root=home / 'cache' / 'packages',
                              repair_venv=bool(getattr(args, 'manager_ensure', False) or
                                               getattr(args, 'manager_repair_venv', False)))
         if args.profile == 'prod':

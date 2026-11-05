@@ -167,10 +167,10 @@ AWCenterManager.exe --root "C:\AWCenter\source"
 Geliştirme profili `127.0.0.1` üzerinde çalışır; sanal ortam ve frontend paketleri seçilen kaynak dizinine kurulur. Üretim profili ayrı kaynak ve sanal ortam kullanır. Yönetici kaynak envanterini doğrular ve yalnız kaynak dosyalarını şu dizine kopyalar:
 
 ```text
-%LOCALAPPDATA%\AWCenter\releases\<kaynak-SHA256>\source
+%LOCALAPPDATA%\AWCenter\r\<12-karakter-kaynak-kimliği>
 ```
 
-Kimlik tüm dağıtılabilir kaynak envanterinin SHA-256 değeridir. Aynı kaynak tekrar seçildiğinde mevcut kopya yeniden doğrulanır. Değişmiş bir release dosyası, beklenmeyen kaynak dosyası, symlink veya junction hata verir; yönetici mevcut release'i onarmaz veya üzerine yazmaz. Bilinen üretilmiş sanal ortam, npm paketleri, build çıktıları, Python cache ve geliştirme SQLite dosyaları kaynak karşılaştırmasına girmez.
+Manifest kimliği tüm dağıtılabilir kaynak envanterinin tam SHA-256 değeridir. Klasör adında ilk 12 karakter kullanılarak Windows paket yolları kısa tutulur; aynı kısa kimlik farklı tam manifest ile çakışırsa mevcut kaynak değiştirilmez. Eski `releases/<tam-SHA256>/source` kurulumları taşınmadan okunmaya devam eder. Aynı kaynak tekrar seçildiğinde mevcut kopya yeniden doğrulanır. Değişmiş bir release dosyası, beklenmeyen kaynak dosyası, symlink veya junction hata verir; yönetici mevcut release'i onarmaz veya üzerine yazmaz. Bilinen üretilmiş sanal ortam, npm paketleri, build çıktıları, Python cache ve geliştirme SQLite dosyaları kaynak karşılaştırmasına girmez.
 
 Dağıtılmış `source/manager-source-manifest.json` dosyasını koruyun. Manifest taşınan kaynağın eksiksizliğini ve bütünlüğünü denetler; dijital imza değildir. ZIP checksum'unu güvenilir bir dağıtım kanalından doğrulayın. Git checkout'undan geliştirme sırasında üretim kopyası hazırlanabilir; manifesti olmayan rastgele çıkarılmış bir kaynak dizini kabul edilmez.
 
@@ -459,3 +459,27 @@ bu başlatmaya ait worker kimliğini ve heartbeat güncelliğini denetler. Manag
 süresi dolmuş veya başka worker'a ait kayıt hazır kabul edilmez. Durdurma ve
 başlatma hatalarında sağlık süreci diğer alt süreçlerle birlikte kapatılır.
 PowerShell, yönetici yetkisi veya güvenlik doğrulamasını kapatma gerekmez.
+
+### Paket indirmelerini tekrar kullanma
+
+Kurulum yardımcısı tamamlanan Python wheel ve npm paket edinimlerini
+`%LOCALAPPDATA%\AWCenter\cache\packages` altında kullanıcıya özel saklar.
+Dev ve prod sanal ortamları ayrıdır; aynı kilit dosyaları, hedef runtime ve
+kaynak politikası için doğrulanmış indirmeler paylaşılır. Paket kurulumu veya
+sonraki bir aşama başarısız olursa tamamlanmış indirmeler kaybolmaz. Başarılı
+kurulumun aşama kaydı da aynı kilit ve dosyalar için tekrar kurulumu atlar.
+
+Önbellek okunmadan SHA-256 envanteri doğrulanır. Yarım edinimler yayımlanmaz;
+bozulmuş içerik, değişen hedef runtime veya farklı kaynak politikasına ait bir
+önbellek sessizce kullanılmaz. Açıkça seçilen doğrulanmış çevrimdışı paket
+önceliklidir. npm kurulumları önbelleğin geçici kopyası üzerinde çalışır;
+paylaşılan edinim sonradan değiştirilemez. Kaynak adresleri bizim önbellek
+manifestimize yazılmaz; npm'in çevrimdışı çözümleme için gereken özel indeks
+metadatası kullanıcıya özel cache içinde kalır.
+
+Yeni prod kaynakları kısa `r/<12-karakter-kaynak-kimliği>` yolunu kullanır.
+Bu, özellikle Torch'un derin paket dosyalarında Windows uzun yol politikasını
+veya yönetici yetkisini değiştirmeden varsayılan kurulum yolunu kısaltır.
+Paket hatalarında tanınan uzun yol, dosya kullanımda, erişim ve disk sorunları,
+kurulum aşaması ve sayısal WinError ayrı gösterilir; özel yollar veya ham araç
+çıktıları rapora eklenmez.

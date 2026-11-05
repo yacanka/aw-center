@@ -107,7 +107,8 @@ def _failure_reason(error):
     from scripts.launcher.installation_connection import ConnectionError
     from scripts.launcher.certificates import PackageTrustError
     from scripts.launcher.installation_readiness import StartupReadinessError
-    if isinstance(error, (PackageTrustError, StartupReadinessError)):
+    from scripts.launcher.package_cache import PackageCacheError
+    if isinstance(error, (PackageTrustError, StartupReadinessError, PackageCacheError)):
         return error.code, str(error)
     if isinstance(error, ConnectionError):
         return error.code, str(error)
@@ -229,7 +230,8 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
         from scripts.build_manager import ManagerBuildError
         from scripts.launcher.certificates import PackageTrustError
         from scripts.launcher.installation_readiness import StartupReadinessError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError, PackageTrustError, StartupReadinessError)) else remedies.get(code, _remedy(phase))
+        from scripts.launcher.package_cache import PackageCacheError
+        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError, PackageTrustError, StartupReadinessError, PackageCacheError)) else remedies.get(code, _remedy(phase))
         event = {'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy}
         if getattr(error, 'field', None) in PATH_FIELDS | TEXT_FIELDS | {'backend_port', 'frontend_port', 'profile'}:
             event['field'] = error.field
@@ -299,7 +301,8 @@ def _dispatch(action, args, emit):
         home, source = installation_home(), Path(args.source_root).absolute()
         # A selected canonical release is also the mutable destination. Claim
         # it upfront: leases deliberately never upgrade an existing read claim.
-        mutable_source = args.profile == 'dev' or source.is_relative_to(home / 'releases')
+        mutable_source = args.profile == 'dev' or any(
+            source.is_relative_to(home / name) for name in ('releases', 'r'))
         claims = path_claims(source, write=action == 'provision' and mutable_source)
         if action == 'bundle':
             args.output = _bundle_output(args, home, source)
