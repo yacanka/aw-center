@@ -16,7 +16,7 @@ from unittest import mock
 from scripts.launcher.model import Project, Scope
 from scripts.launcher.runtime import dev, prod
 from scripts.launcher.job_worker import start_job_workers
-from scripts.test_launcher import create_project
+from scripts.launcher_test_support import create_project
 
 
 def add_worker_command(project: Project) -> None:

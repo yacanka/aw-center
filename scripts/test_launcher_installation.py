@@ -13,7 +13,7 @@ from unittest import mock
 
 from scripts.launcher.model import LauncherError
 from scripts.launcher.parser import build_parser
-from scripts.test_launcher import create_project
+from scripts.launcher_test_support import create_project
 
 
 class InstallationParserTests(unittest.TestCase):
