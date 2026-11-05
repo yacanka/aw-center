@@ -105,6 +105,9 @@ def _failure_reason(error):
                                                           VirtualEnvironmentError, VirtualEnvironmentRepairError)
     from scripts.build_manager import ManagerBuildError
     from scripts.launcher.installation_connection import ConnectionError
+    from scripts.launcher.certificates import PackageTrustError
+    if isinstance(error, PackageTrustError):
+        return error.code, str(error)
     if isinstance(error, ConnectionError):
         return error.code, str(error)
     if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError)):
@@ -223,7 +226,8 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
         from scripts.launcher.installation_dependencies import (PackageCommandError, PackageTimeoutError,
                                                               VirtualEnvironmentError, VirtualEnvironmentRepairError)
         from scripts.build_manager import ManagerBuildError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError)) else remedies.get(code, _remedy(phase))
+        from scripts.launcher.certificates import PackageTrustError
+        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError, PackageTrustError)) else remedies.get(code, _remedy(phase))
         event = {'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy}
         if getattr(error, 'field', None) in PATH_FIELDS | TEXT_FIELDS | {'backend_port', 'frontend_port', 'profile'}:
             event['field'] = error.field

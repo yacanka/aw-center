@@ -1,19 +1,70 @@
 """Package trust unions retain native/tool roots without distributable PEM state."""
 
 from pathlib import Path
+import json
 import shutil
 import ssl
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from scripts.launcher import certificates
 from scripts.launcher.model import LauncherError
 
 
 class PackageTrustTests(unittest.TestCase):
+    def test_target_python_with_real_startup_truststore_hook_can_export_pip_roots(self):
+        venv = self.root / 'python-tools'
+        subprocess.run([sys.executable, '-m', 'venv', str(venv)], check=True,
+                       capture_output=True, timeout=60)
+        python = venv / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
+        location = subprocess.run([str(python), '-c',
+            'import json,sysconfig; print(json.dumps(sysconfig.get_path("purelib")))'],
+            capture_output=True, text=True, check=True, timeout=10)
+        site = Path(json.loads(location.stdout))
+        (site / 'truststore-fixture.pth').write_text(
+            'import pip._vendor.truststore as truststore; truststore.inject_into_ssl()\n', encoding='ascii')
+        probe = subprocess.run([str(python), '-I', '-B', '-c',
+                                'import ssl; print(ssl.SSLContext.__module__)'],
+                               capture_output=True, text=True, check=True, timeout=10)
+        self.assertEqual(probe.stdout.strip(), 'pip._vendor.truststore._api')
+        exported = certificates._python_roots(python, {})
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=exported)
+        self.assertGreater(len(context.get_ca_certs()), 0)
+
+    def test_managed_trust_export_with_real_injected_truststore_keeps_provider_and_roots(self):
+        program = '''import json, os, ssl, sys, threading
+from pathlib import Path
+from pip._vendor import truststore
+from scripts.launcher import certificates
+from scripts.launcher.process import operation_control
+expected = set(ssl.create_default_context().get_ca_certs(binary_form=True))
+python = sys.executable
+truststore.inject_into_ssl()
+provider = ssl.SSLContext
+if os.name == 'nt':
+    sys.executable = str(Path(python).with_name('pythonw.exe'))
+with operation_control(threading.Event()):
+    with certificates.package_trust_environment({}, python=python, node=sys.argv[1] or None) as values:
+        path = Path(values['PIP_CERT'])
+        context = ssl._ssl._SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cafile=str(path))
+        assert expected.issubset(context.get_ca_certs(binary_form=True))
+        assert ssl.SSLContext is provider
+        assert values['NODE_TLS_REJECT_UNAUTHORIZED'] == '1'
+        assert values['NPM_CONFIG_STRICT_SSL'] == 'true'
+    assert not path.exists()
+print(json.dumps({'ready': True, 'provider_preserved': ssl.SSLContext is provider}))
+'''
+        result = subprocess.run([sys.executable, '-c', program, shutil.which('node') or ''],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {'ready': True, 'provider_preserved': True})
+
     def test_isolated_python_trust_probe_cannot_write_runtime_bytecode(self):
         with patch.object(certificates, '_tool_roots') as probe:
             certificates._python_roots(sys.executable, {})
@@ -22,6 +73,27 @@ class PackageTrustTests(unittest.TestCase):
                                  'import sys; print(sys.dont_write_bytecode)'],
                                 capture_output=True, text=True, check=True)
         self.assertEqual(result.stdout.strip(), 'True')
+
+    def test_native_export_filters_windows_roots_by_server_auth_without_changing_ssl(self):
+        provider = ssl.SSLContext
+        unsupported = Mock()
+        unsupported.get_ca_certs.side_effect = NotImplementedError
+        empty = self.root / 'empty.pem'
+        empty.write_bytes(b'')
+        stores = {
+            'CA': [(self.roots[0], 'x509_asn', True),
+                   (self.roots[2], 'x509_asn', {'1.3.6.1.5.5.7.3.2'})],
+            'ROOT': [(self.roots[1], 'x509_asn', {'1.3.6.1.5.5.7.3.1'}),
+                     (self.roots[3], 'pkcs_7_asn', True)],
+        }
+        with patch.dict('os.environ', {'SSL_CERT_FILE': str(empty), 'SSL_CERT_DIR': str(self.root)}), \
+             patch.object(certificates.ssl, 'create_default_context', return_value=unsupported), \
+             patch.object(sys, 'platform', 'win32'), \
+             patch.object(ssl, 'enum_certificates', side_effect=stores.__getitem__, create=True), \
+             certificates.package_trust_environment({}) as values:
+            _, roots = self.read_bundle(values)
+            self.assertEqual(roots, set(self.roots[:2]))
+            self.assertIs(ssl.SSLContext, provider)
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -156,6 +228,47 @@ class PackageTrustTests(unittest.TestCase):
                  self.assertRaises(LauncherError) as raised:
                 certificates._tool_roots(['local-tool'], {})
             self.assertNotIn('synthetic-private-detail', str(raised.exception))
+
+    def test_ascii_certificate_export_is_not_broken_by_legacy_stderr_bytes(self):
+        program = 'import os,sys; os.write(1, sys.argv[1].encode("ascii")); os.write(2, b"\\x81\\xfe")'
+        exported = certificates._tool_roots([sys.executable, '-c', program, self.pem(0)], {})
+        self.assertEqual(exported, self.pem(0))
+
+    def test_invalid_tool_output_is_rejected_and_cancellation_is_preserved(self):
+        from scripts.launcher.process import OperationCancelled
+        invalid = subprocess.CompletedProcess([], 0, b'\x81', b'synthetic-private-detail')
+        with patch.object(certificates, 'controlled_run', return_value=invalid), \
+             self.assertRaises(certificates.PackageTrustError) as caught:
+            certificates._tool_roots(['tool'], {}, stage='node')
+        self.assertEqual(caught.exception.code, 'package_trust_node')
+        self.assertIn('UnicodeError', str(caught.exception))
+        self.assertNotIn('synthetic-private-detail', str(caught.exception))
+        with patch.object(certificates, 'controlled_run', side_effect=OperationCancelled()), \
+             self.assertRaises(OperationCancelled):
+            certificates._tool_roots(['tool'], {})
+
+    def test_trust_failure_reaches_manager_with_exact_stage_and_safe_exception_type(self):
+        from scripts.manager import operations
+        cases = (
+            ('export_context', NotImplementedError('synthetic-private-detail'), 'system', 'NotImplementedError'),
+            ('_python_roots', TypeError('synthetic-private-detail'), 'python', 'TypeError'),
+            ('_node_roots', RuntimeError('synthetic-private-detail'), 'node', 'RuntimeError'),
+        )
+        for method, failure, stage, diagnostic in cases:
+            def dispatch(action, args, emit):
+                with certificates.package_trust_environment({}, python=sys.executable,
+                                                            node='diagnostic-node-fixture'):
+                    self.fail('An invalid trust store must not reach package installation')
+            with self.subTest(stage=stage), \
+                 patch.object(certificates, method, side_effect=failure), \
+                 patch.object(operations, '_dispatch', side_effect=dispatch):
+                events = []
+                operations.execute({'action': 'ensure'}, events.append, lambda: None, threading.Event())
+                error = next(event for event in events if event['type'] == 'error')
+                self.assertEqual(error['code'], 'package_trust_' + stage)
+                self.assertIn(diagnostic, error['message'])
+                self.assertNotIn('synthetic-private-detail', json.dumps(events))
+                self.assertEqual(events[-1], {'type': 'done', 'ok': False})
 
 
 if __name__ == '__main__':

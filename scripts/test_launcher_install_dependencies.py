@@ -239,6 +239,10 @@ class AcquisitionFailureTests(unittest.TestCase):
                 self.assertFalse(observed[0].exists())
                 self.assertEqual(progress, ['Python sanal ortamı doğrulanıyor',
                     'Paket bağlantıları için güven deposu hazırlanıyor',
+                    'Sistem sertifikaları hazırlanıyor',
+                    *(['Seçilen ek sertifikalar hazırlanıyor'] if selected else []),
+                    'Python/pip sertifikaları hazırlanıyor', 'Node.js sertifikaları hazırlanıyor',
+                    'Birleşik sertifika dosyası hazırlanıyor',
                     'Python bağımlılıkları hazırlanıyor', 'Frontend bağımlılıkları hazırlanıyor'])
 
     def test_only_availability_failures_allow_package_source_fallback(self):

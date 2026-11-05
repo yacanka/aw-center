@@ -149,7 +149,8 @@ def _install_build_dependencies(python: Path, source: Path, work: Path, settings
         raise ManagerBuildError(dependencies=True)
     project = Project(work, work / 'manage.py', work / 'package.json', None)
     timeout = None
-    with package_trust_environment(env, ca_file=settings.ca_file, python=python) as trusted:
+    with package_trust_environment(env, ca_file=settings.ca_file, python=python,
+                                   progress=settings.report) as trusted:
         for index, url in enumerate(indexes):
             settings.report(f'Manager derleme paketleri: izinli kaynak {index + 1}/{len(indexes)} deneniyor')
             wheels = work / ('build-wheels-' + str(index))

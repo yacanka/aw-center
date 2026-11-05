@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import runpy
 import secrets
 import shutil
 import socket
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 import zipfile
 
@@ -27,6 +29,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageTests(unittest.TestCase):
+    def test_spec_ships_certificate_exporter_at_the_external_probe_path(self):
+        observed = {}
+        def analysis(*args, **kwargs):
+            observed.update(kwargs)
+            return SimpleNamespace(pure=[], scripts=[], binaries=[], datas=kwargs['datas'])
+        with patch.dict(os.environ, {'AWCENTER_MANAGER_SOURCE': str(ROOT)}):
+            runpy.run_path(str(ROOT / 'packaging/manager.spec'), init_globals={
+                'Analysis': analysis, 'PYZ': lambda *a, **k: None,
+                'EXE': lambda *a, **k: None, 'COLLECT': lambda *a, **k: None})
+        source = ROOT / 'scripts/launcher/certificate_store.py'
+        self.assertIn((str(source), 'scripts/launcher'), observed['datas'])
+        self.assertTrue(source.is_file())
+        # The file is executed by an external Python, independently of the
+        # frozen module archive and without application packages on sys.path.
+        isolated = self.root / 'scripts/launcher'
+        isolated.mkdir(parents=True)
+        shutil.copy2(source, isolated / source.name)
+        result = subprocess.run([sys.executable, '-I', '-B', '-c',
+            'import runpy,sys; c=runpy.run_path(sys.argv[1])["export_context"](); '
+            'assert isinstance(c.get_ca_certs(binary_form=True), list)', str(isolated / source.name)],
+            capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def setUp(self):
         try:
             self.builder = importlib.import_module('scripts.build_manager')

@@ -80,6 +80,26 @@ paketleri olarak ayrı ilerleme bildirir. Dosya erişimi, disk doluluğu, eksik
 yol ve uzun yol hataları güvenli kategori ve varsa `WinError`/`errno` ile
 raporlanır; dosya adları, komut satırları ve kimlik bilgileri gösterilmez.
 
+`truststore` veya onu başlangıçta etkinleştiren `pip-system-certs` bulunan
+Python kurulumlarında, HTTPS doğrulaması çalışsa da `get_ca_certs()` sertifika
+listeleme çağrısı desteklenmeyebilir. Önceki Manager bu `NotImplementedError`
+hatasını genel `operation_failed` olarak gösteriyordu.
+Sertifika aktarımı artık bu durumda CPython'un yerel OpenSSL bağlamını yalnız
+listeleme için kullanır: Windows `CA` ve `ROOT` depolarından sunucu doğrulamasına
+izinli sertifikalar, varsayılan OpenSSL kökleri, pip/Node kökleri ve seçilen ek
+CA dosyaları birleştirilir. Kurulu SSL sağlayıcısı değiştirilmez; kurum paketi
+kaldırılmaz ve TLS doğrulaması kapatılmaz. Aynı yardımcı hem Manager içinde
+hem hedef Python'da, kurulum ve çevrimdışı paket hazırlığında kullanılır.
+[Truststore'un SSL sağlayıcısı](https://github.com/sethmlarson/truststore/blob/main/src/truststore/_api.py)
+bu listeleme metodunun desteklenmediğini açıkça belirtir.
+
+Güven deposu hazırlığı sistem, ek CA, Python/pip, Node.js ve birleşik dosya
+adımlarını ayrı raporlar. Başarısızlıkta `package_trust_<aşama>` kodu ve
+güvenli hata türü (örneğin `NotImplementedError`, `SSLError`) gösterilir;
+ham hata metni, sertifika içeriği veya özel dosya yolu gösterilmez.
+Bu tanı ayrımı, farklı bir makinedeki arızayı yalnız genel hata mesajından
+tahmin etmeye ihtiyaç bırakmaz.
+
 Python 3.11.3 x64 dahil CPython 3.11 yama sürümleri kabul edilir. Etkileşimli `python` ekranının açılması, `venv` ve `ensurepip` desteğinin hazır olduğunu tek başına göstermez. Manager artık süreç başlatma hatasını (`system_python_start_failed`, varsa `WinError`/`errno`), süreç çıkışını (`system_python_process_failed` ve sayısal çıkış kodu), denetim zaman aşımını (`system_python_timeout`), eksik `venv`/`ensurepip` modülünü ve standart modül yükleme hatasını ayrı raporlar. Ham stderr, dosya yolları veya exception içeriği rapora aktarılmaz. Eski genel “Python bulunamadı” mesajı bu nedenleri ayırt ettirmez.
 
 Python aramasının toplam bütçesi **120 saniye**, tek adayın üst sınırı **60 saniyedir**. Node/npm araması ortak **60 saniyelik** bütçe kullanır; tek denetim en fazla **30 saniye** sürer. Arama başlamadan durum bilgisi gösterilir ve **Durdur** denetim sürerken de kullanılabilir. Aynı dosyaya giden PATH yazımları aynı aramada tekrar denenmez; doğrudan çalıştırılıp bütün kontrolleri geçen Python hemen ikinci kez başlatılmaz. Launcher veya sanal ortam farklı bir temel yorumlayıcı bildirirse temel dosya ayrıca doğrulanır. Zaman aşımı, süreç hatası veya geçersiz yanıt araç yok sayılarak indirmeye dönüştürülmez. Yeniden deneme, açık yol seçimi veya yönetilen araç seçimi gerekir; sistem kurulumu değiştirilmez.

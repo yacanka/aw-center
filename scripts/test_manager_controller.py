@@ -90,7 +90,7 @@ class ControllerTests(unittest.TestCase):
         self.assertNotEqual(first_output, second_output)
         self.assertEqual(Path(first_output).parent, local / 'AWCenter' / 'exports')
         self.assertEqual(self.sessions[0].request['output'], first_output)
-        self.assertTrue(any(claim.path and claim.write and claim.resource == first_output
+        self.assertTrue(any(claim.path and claim.write and Path(claim.resource) == Path(first_output)
                             for claim in self.controller.tasks[first].claims))
 
     def test_ready_provision_releases_setup_claim_for_bundle(self):

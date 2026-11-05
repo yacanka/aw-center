@@ -11,6 +11,7 @@ data_names = (
     'installation_python_startup.sha256',
     'installation_verify_python.py',
     'child_bootstrap.py',
+    'certificate_store.py',
 )
 datas = [(str(launcher / name), 'scripts/launcher') for name in data_names]
 # Launcher uses lazy imports for optional installation phases. Freeze only its

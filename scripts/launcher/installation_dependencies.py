@@ -437,7 +437,8 @@ def install_dependencies(project: Project, settings: SourceSettings, tool_env: d
     if not node:
         raise LauncherError('Node bulunamadı; paket güven deposu hazırlanamadı.')
     settings.report('Paket bağlantıları için güven deposu hazırlanıyor')
-    with package_trust_environment(tool_env, ca_file=settings.ca_file, python=project.python, node=node) as trusted_env, \
+    with package_trust_environment(tool_env, ca_file=settings.ca_file, python=project.python,
+                                   node=node, progress=settings.report) as trusted_env, \
          tempfile.TemporaryDirectory(prefix="awcenter-packages-") as temporary:
         stage = Path(temporary)
         print("Python paketleri hazırlanıyor…", flush=True)

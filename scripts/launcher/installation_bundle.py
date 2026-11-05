@@ -573,7 +573,8 @@ def _prepare_dependencies(project: Project, directory: Path, settings) -> None:
                      PIP_NO_CACHE_DIR='1')
     with package_trust_environment(overrides, ca_file=settings.ca_file,
                                    python=overrides.get('AWCENTER_MANAGED_PYTHON', sys.executable),
-                                   node=overrides.get('AWCENTER_MANAGED_NODE') or required_tool('node')) as trusted_env:
+                                   node=overrides.get('AWCENTER_MANAGED_NODE') or required_tool('node'),
+                                   progress=settings.report) as trusted_env:
         directory.mkdir(parents=True)
         settings.report('Çevrimdışı Python bağımlılıkları hazırlanıyor')
         _acquire_wheels(project, directory / 'wheels', settings, trusted_env)

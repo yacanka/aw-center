@@ -105,7 +105,7 @@ class AdaptiveControllerTests(unittest.TestCase):
         task = self.start('ensure')
         self.assertIsNotNone(task)
         self.event(task, type='resources', action='provision', source_root='/resolved-source')
-        self.assertTrue(any(claim.path and claim.write and claim.resource == '/resolved-source'
+        self.assertTrue(any(claim.path and claim.write and Path(claim.resource) == Path('/resolved-source').absolute()
                             for claim in self.controller.tasks[task].claims))
         self.event(task, type='ready', url='http://127.0.0.1:5173/app/')
         self.assertFalse(any(claim.write and claim.path for claim in self.controller.tasks[task].claims))
