@@ -256,8 +256,16 @@ kapanması ve yeniden başlatmada hesap/anahtar/eski çıktı korunması kapsan�
 HTTP/API mock kullanılmaz. Eski pencere/proxy smoke testleri bu kapının yerine
 geçmez. Network engeli uygulama için bir ürün özelliği değildir.
 
-05.11.2026 uygulaması macOS üzerinde geliştirilmiştir. Windows EXE üretimi,
-NTFS/Job Object/Firewall kabulü ve gerçek kurumsal ağ bu ortamda çalıştırılamaz.
+05.11.2026 saat 07:36 (Europe/Istanbul) itibarıyla
+[Windows CI koşusu 41961724839](https://github.com/yacanka/aw-center/actions/runs/41961724839)
+`5ef3e184095f8e3741dc7e4be3744f9b2ff0bc96` üzerinde başarılıdır:
+Windows EXE/ZIP build'i, beş paket yaşam döngüsü testi ve dört bağımsız
+çevrimdışı dev/prod × sistem/yönetilen araç senaryosu geçti. NTFS, Job Object
+ve gerçek Firewall kabulü Windows runner üzerinde çalıştı.
+[Tam Windows paketi](https://github.com/yacanka/aw-center/actions/runs/41961724839/artifacts/13386701085)
+ZIP, checksum ve envanteri içerir; GitHub artifact saklama süresi geçerlidir.
+
+Geliştirme macOS üzerinde yapılmıştır; gerçek kurumsal ağ doğrulanmamıştır.
 Yayın için Windows CI sonucuna ek olarak araçsız **temiz Windows** ve standart
 kullanıcı hesabında saha kabulü gerekir; zorlanmış yönetilen araç seçimi temiz
 makine kanıtı değildir. Açık/koyu tema, %100/%150/%200 ölçek, küçük pencere,
