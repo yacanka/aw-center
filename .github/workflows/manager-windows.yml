@@ -92,15 +92,32 @@ jobs:
           if-no-files-found: warn
 
   native-acceptance:
+    name: Native Windows - ${{ matrix.name }}
     needs: windows-manager
     runs-on: windows-latest
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        suite:
-          - scripts.test_manager_package.NativeWindowsPackageTests
-          - scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+        include:
+          - name: packaged lifecycle
+            suite: scripts.test_manager_package.NativeWindowsPackageTests
+          - name: offline dev system
+            suite: scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+            profile: dev
+            tools: system
+          - name: offline dev managed
+            suite: scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+            profile: dev
+            tools: managed
+          - name: offline prod system
+            suite: scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+            profile: prod
+            tools: system
+          - name: offline prod managed
+            suite: scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+            profile: prod
+            tools: managed
     env:
       PYTHONUTF8: '1'
     defaults:
@@ -134,4 +151,6 @@ jobs:
         env:
           AWCENTER_RUN_MANAGER_WINDOWS_SMOKE: '1'
           AWCENTER_MANAGER_EXE: ${{ runner.temp }}\awcenter-manager-portable\AWCenterManager.exe
+          AWCENTER_ACCEPTANCE_PROFILE: ${{ matrix.profile }}
+          AWCENTER_ACCEPTANCE_TOOLS: ${{ matrix.tools }}
         run: python -m unittest -f -v ${{ matrix.suite }}

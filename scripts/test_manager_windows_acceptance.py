@@ -19,7 +19,29 @@ from scripts import test_manager_package as fixtures
 from scripts.manager_windows_acceptance import LiveAcceptance, acceptance_programs, deny_external_network
 
 
+def acceptance_matrix(environment):
+    profile = environment.get('AWCENTER_ACCEPTANCE_PROFILE', '')
+    tools = environment.get('AWCENTER_ACCEPTANCE_TOOLS', '')
+    if not profile and not tools:
+        return ('dev', 'prod'), (True, False)
+    if profile not in {'dev', 'prod'} or tools not in {'system', 'managed'}:
+        raise ValueError('Native acceptance requires a valid profile and tool selection together')
+    return (profile,), (tools == 'system',)
+
+
 class ContainmentTests(unittest.TestCase):
+    def test_default_acceptance_runs_all_four_cases_and_ci_selection_fails_closed(self):
+        self.assertEqual(acceptance_matrix({}), (('dev', 'prod'), (True, False)))
+        for profile in ('dev', 'prod'):
+            for tools in ('system', 'managed'):
+                self.assertEqual(acceptance_matrix({'AWCENTER_ACCEPTANCE_PROFILE': profile,
+                    'AWCENTER_ACCEPTANCE_TOOLS': tools}), ((profile,), (tools == 'system',)))
+        for values in ({'AWCENTER_ACCEPTANCE_PROFILE': 'dev'},
+                       {'AWCENTER_ACCEPTANCE_TOOLS': 'managed'},
+                       {'AWCENTER_ACCEPTANCE_PROFILE': 'unknown', 'AWCENTER_ACCEPTANCE_TOOLS': 'system'}):
+            with self.assertRaises(ValueError):
+                acceptance_matrix(values)
+
     def test_firewall_requires_explicit_programs_and_never_blocks_the_ci_host(self):
         with patch('scripts.manager_windows_acceptance.subprocess.run') as run:
             with self.assertRaises(ValueError), deny_external_network('10.0.0.10', []):
@@ -179,8 +201,9 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
         # A genuinely clean standard-user machine is also a release field gate.
         host = socket.gethostbyname(socket.gethostname())
         self.assertFalse(host.startswith('127.'), 'Production acceptance needs an assigned IPv4')
-        for profile in ('dev', 'prod'):
-            for system in (True, False):
+        profiles, tools = acceptance_matrix(os.environ)
+        for profile in profiles:
+            for system in tools:
                 with self.subTest(profile=profile, system_tools=system), tempfile.TemporaryDirectory(prefix='awc-offline-') as temporary, ExitStack() as processes:
                     self.case_processes = processes
                     print(f'[native] offline profile={profile}, system_tools={system}', flush=True)
