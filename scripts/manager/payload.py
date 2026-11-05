@@ -53,6 +53,9 @@ GENERATED_DIRECTORIES = {
 }
 GENERATED_FILES = {
     'backend/db.sqlite3', 'backend/db.sqlite3-wal', 'backend/db.sqlite3-shm',
+    # A stopped SQLite writer can leave rollback data for the next connection.
+    # Verification must neither classify it as source nor delete recovery data.
+    'backend/db.sqlite3-journal',
 }
 
 

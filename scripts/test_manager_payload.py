@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import importlib
+from contextlib import closing
 import json
+import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -133,6 +137,27 @@ class PayloadTests(unittest.TestCase):
         (target / 'backend/unknown.py').write_text('unexpected', encoding='utf-8')
         with self.assertRaises(LauncherError):
             self.payload.stage_production_source(source, home)
+
+    def test_sqlite_rollback_journal_survives_source_verification_after_crash(self):
+        source = self.prepare()
+        database = source / 'backend/db.sqlite3'
+        script = '''import os, sqlite3, sys
+connection = sqlite3.connect(sys.argv[1])
+connection.execute('CREATE TABLE preserved (value INTEGER)')
+connection.execute('INSERT INTO preserved VALUES (0)')
+connection.commit()
+connection.execute('BEGIN IMMEDIATE')
+connection.execute('UPDATE preserved SET value = 1')
+os._exit(0)
+'''
+        subprocess.run([sys.executable, '-c', script, str(database)], check=True, timeout=10)
+        journal = database.with_name(database.name + '-journal')
+        self.assertTrue(journal.is_file())
+        before = journal.read_bytes()
+        self.payload.verify_source_payload(source)
+        self.assertEqual(journal.read_bytes(), before, 'Verification must leave recovery data to SQLite')
+        with closing(sqlite3.connect(database)) as connection:
+            self.assertEqual(connection.execute('SELECT value FROM preserved').fetchone(), (0,))
 
     @unittest.skipUnless(hasattr(Path, 'symlink_to'), 'symlinks unavailable')
     def test_input_symlink_and_release_parent_symlink_are_rejected(self):
