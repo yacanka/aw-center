@@ -100,11 +100,13 @@ def _failure_reason(error):
     from scripts.launcher.system_python import SystemPythonError
     from scripts.launcher.installation_permissions import PermissionCheckError
     from scripts.launcher.resource_locks import ResourceLockError
-    from scripts.launcher.installation_dependencies import PackageCommandError, PackageTimeoutError
+    from scripts.launcher.installation_dependencies import (PackageCommandError, PackageTimeoutError,
+                                                          VirtualEnvironmentError, VirtualEnvironmentRepairError)
+    from scripts.build_manager import ManagerBuildError
     from scripts.launcher.installation_connection import ConnectionError
     if isinstance(error, ConnectionError):
         return error.code, str(error)
-    if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError)):
+    if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError)):
         return error.code, str(error)
     if not isinstance(error, LauncherError):
         return 'operation_failed', 'İşlem tamamlanamadı; yapılandırma veya sistem erişimi doğrulanamadı.'
@@ -152,6 +154,7 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
         args.source_root = request.get('source_root') or str(default_source_root())
         args.admin_provider = admin_provider
         args.migration_provider = migration_provider
+        args.manager_repair_venv = True
         def progress(label):
             nonlocal phase
             check_cancelled()
@@ -187,8 +190,10 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
         from scripts.launcher.system_python import SystemPythonError
         from scripts.launcher.installation_permissions import PermissionCheckError
         from scripts.launcher.resource_locks import ResourceLockError
-        from scripts.launcher.installation_dependencies import PackageCommandError, PackageTimeoutError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError)) else remedies.get(code, _remedy(phase))
+        from scripts.launcher.installation_dependencies import (PackageCommandError, PackageTimeoutError,
+                                                              VirtualEnvironmentError, VirtualEnvironmentRepairError)
+        from scripts.build_manager import ManagerBuildError
+        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError)) else remedies.get(code, _remedy(phase))
         event = {'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy}
         if getattr(error, 'field', None) in PATH_FIELDS | TEXT_FIELDS | {'backend_port', 'frontend_port', 'profile'}:
             event['field'] = error.field
@@ -298,8 +303,6 @@ def _bundle(project, args, emit):
     from .distribution import prepare_full_manager
     args.progress('Windows Manager dağıtımı ve paket hedefi doğrulanıyor')
     distribution = _manager_distribution(project.root, args)
-    if not distribution:
-        raise LauncherError('Windows Manager paketi gerekli; aynı sürümün dağıtımını seçin.')
     args.progress('Tam çevrimdışı Manager paketi hazırlanıyor')
     prepare_full_manager(project, args.output, source_settings(args, project), distribution,
                          assets=args.assets, feature_catalog=args.feature_catalog)

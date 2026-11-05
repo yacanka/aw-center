@@ -28,6 +28,8 @@ from scripts.launcher.offline_manifest import file_sha256
 SOURCE_MANIFEST = 'manager-source-manifest.json'
 MANAGER_SOURCE_FILES = (
     'AWCenterManager.pyw',
+    'scripts/build_manager.py',
+    'packaging/manager.spec', 'packaging/manager-requirements.txt',
     'backend/users/initial_admin.py',
     'scripts/launcher/system_python.py',
     'scripts/launcher/installation_env.py',

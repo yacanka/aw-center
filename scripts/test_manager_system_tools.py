@@ -99,15 +99,16 @@ class ManagerSystemToolsTests(unittest.TestCase):
             discover.assert_not_called()
             live_tools.assert_not_called()
 
-    def test_bundle_requires_matching_manager_distribution(self):
+    def test_bundle_prepares_distribution_when_none_is_selected(self):
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary).resolve())
             args = operations.arguments({'action': 'bundle', 'output': '/unused-output'})
             args.progress = lambda _: None
+            events = []
             with patch('scripts.manager.distribution.prepare_full_manager') as prepare:
-                with self.assertRaisesRegex(installation.LauncherError, 'Windows Manager'):
-                    operations._bundle(project, args, lambda _: None)
-            prepare.assert_not_called()
+                operations._bundle(project, args, events.append)
+            self.assertIsNone(prepare.call_args.args[3])
+            self.assertEqual(events[-1]['checks'][0]['status'], 'ready')
 
     def test_node_pointer_is_profile_scoped_and_keeps_private_keys(self):
         with tempfile.TemporaryDirectory() as temporary:

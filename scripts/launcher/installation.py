@@ -281,7 +281,9 @@ def _provision(project: Project, args) -> list[dict]:
         tool_env = ensure_toolchain(home, settings, **runtime_options)
         phase("kilitli bağımlılıklar")
         install_dependencies(project, settings, tool_env,
-                             expected_python=Path(tool_env['AWCENTER_MANAGED_PYTHON']))
+                             expected_python=Path(tool_env['AWCENTER_MANAGED_PYTHON']),
+                             repair_venv=bool(getattr(args, 'manager_ensure', False) or
+                                              getattr(args, 'manager_repair_venv', False)))
         if args.profile == 'prod':
             phase("TLS sertifika ve IP doğrulaması")
             runtime.validate_tls_identity(project, Path(tls['tls_cert_file']), Path(tls['tls_key_file']), tls['host'])

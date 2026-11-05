@@ -221,6 +221,16 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                         self.certificate(directory, host)
                         request.update(host=host, tls_cert_file=str(directory / 'cert.pem'), tls_key_file=str(directory / 'key.pem'))
                     password = secrets.token_urlsafe(48)
+                    if profile == 'dev' and not system:
+                        # Reproduce a checkout carrying a system-Python venv
+                        # before the user selects the managed interpreter.
+                        created = subprocess.run(
+                            [str(self.python), '-m', 'venv', '--without-pip', str(source / '.venv')],
+                            cwd=source, env=self.environment(directory, network=True),
+                            capture_output=True, timeout=60,
+                        )
+                        self.assertEqual(created.returncode, 0, 'Synthetic prior venv could not be created')
+                        (source / '.venv' / 'prior-environment.txt').write_text('preserve', encoding='utf-8')
                     programs = acceptance_programs(self.executable, directory, source, self.python, self.node)
                     with deny_external_network(host, programs):
                         for address in ('1.1.1.1', '8.8.8.8'):
@@ -243,6 +253,10 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                             self.assertFalse((directory / 'local/AWCenter/config/dev.env').exists())
                         child, events, admin = self.run_until_ready(directory, request, password)
                         self.assertTrue(admin)
+                        if profile == 'dev' and not system:
+                            preserved = list((source / '.runtime/venv-backups').rglob('prior-environment.txt'))
+                            self.assertEqual(len(preserved), 1)
+                            self.assertEqual(preserved[0].read_text(encoding='utf-8'), 'preserve')
                         private = directory / 'local/AWCenter'
                         saved = json.loads((private / 'config' / (profile + '.profile.json')).read_text(encoding='utf-8'))
                         origin = f"https://{host}:{saved['backend_port']}" if profile == 'prod' else f"http://127.0.0.1:{saved['backend_port']}"

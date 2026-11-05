@@ -71,12 +71,16 @@ CMD denetimi geçmesine rağmen eski Manager paketleri `system_python_timeout` v
 
 Kutu seçilirse paketteki veya seçilen kaynaklardaki SHA-256 sabitlenmiş yönetilen Python kullanılır. Bu seçim Node/npm hazırlığından ayrıdır. Her iki durumda da uygulamanın kilitli pip paketleri proje `.venv` dizinine kurulur; sistem Python paketleri değiştirilmez. Sistem modu işletim sistemindeki mevcut Python'a güvenir, onun dosyalarına yönetilen arşivin hash pinini uygulamaz.
 
-Başarılı bağımlılık hazırlığından sonra seçilen sistem yorumlayıcısı dev/prod profil metadata'sına ayrı ayrı kaydedilir; Başlat ve Kontrol et aynı seçimi kullanır. Özel env, anahtarlar ve mevcut hesaplar değişmez. Mevcut `.venv` farklı bir Python'a bağlıysa Manager onu otomatik silmez veya yeniden bağlamaz; ayrı temiz kaynak dizini kullanın ya da mevcut ortamın Python seçimini koruyun. Profil değişimi sonradan sistem Python'unu kaldırmaz veya güncellemez.
+Başarılı bağımlılık hazırlığından sonra seçilen sistem yorumlayıcısı dev/prod profil metadata'sına ayrı ayrı kaydedilir; Başlat ve Kontrol et aynı seçimi kullanır. Özel env, anahtarlar ve mevcut hesaplar değişmez. Mevcut `.venv` farklı bir Python'a bağlıysa veya yarım kalmışsa hazırlık işlemi eski ortamı kaynak dizininin `.runtime/venv-backups/` alanında korur, seçilen Python ile yeni ortamı oluşturur ve kilitli bağımlılıkları kurarak devam eder. Ayrı kaynak dizini seçmek gerekmez. İşlem kesilirse yeniden açma işlemi hazırlığı sürdürür; eski ortam yedekleri otomatik silinmez. Profil değişimi sonradan sistem Python'unu kaldırmaz veya güncellemez.
 
 Manager üzerinden hazırlanan **tam USB paketi**, üreticide sistem araçları kurulu
 olsa da Python/Node/npm arşivlerini içerir. Araçlar ayrı geçici alanda hazırlanır;
 canlı uygulamanın runtime veya sanal ortamı değiştirilmez. Kaynak üzerinden
-çalıştırmada aynı sürümden önceden derlenmiş Windows Manager dizini seçilmelidir.
+çalıştırmada hazır Windows Manager dağıtımı bulunamazsa aynı kaynak sürümünün
+EXE'si ayrı geçici ortamda otomatik üretilir ve tam pakete eklenir. Hazır Manager
+dizini seçmek gelişmiş kullanıcılar için isteğe bağlıdır. Derleme araçları da
+seçilen kaynak modu, paket indeksi ve CA ayarlarına uyar; ilk hazırlıkta bu
+paketlerin izin verilen kaynaklarda bulunması gerekir.
 Hedefte uyumlu sistem araçları yine önceliklidir. Eski v1/v2 kurulum paketlerinin
 okunması ve v2 `host_runtimes` gereksinimlerinin doğrulanması korunur.
 

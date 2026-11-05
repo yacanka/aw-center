@@ -76,6 +76,28 @@ class PayloadTests(unittest.TestCase):
             self.assertFalse((target / relative).exists(), relative)
         self.payload.verify_source_payload(target)
 
+    def test_extracted_source_keeps_exact_manager_build_inputs_for_automatic_recovery(self):
+        files = {'packaging/manager.spec': '# approved freeze specification\n',
+                 'packaging/manager-requirements.txt': 'PyInstaller==6.22.3\n',
+                 'scripts/build_manager.py': '# approved builder\n'}
+        for name, content in files.items():
+            path = self.source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding='utf-8')
+        (self.source / 'packaging/private.txt').write_text('not distributable')
+        target = self.prepare()
+        for name, content in files.items():
+            self.assertTrue((target / name).is_file(), name)
+            self.assertEqual((target / name).read_text(encoding='utf-8'), content)
+        self.assertFalse((target / 'packaging/private.txt').exists())
+        self.payload.verify_source_payload(target)
+        regenerated = self.root / 'second-generation'
+        extracted = Project(target, target / 'backend/manage.py', target / 'frontend/package.json',
+                            target / 'requirements.txt')
+        self.payload.prepare_source_payload(extracted, regenerated)
+        self.assertEqual(self.payload.verify_source_payload(target)['fingerprint'],
+                         self.payload.verify_source_payload(regenerated)['fingerprint'])
+
     def test_staging_uses_full_fingerprint_and_reuses_only_verified_identical_release(self):
         source = self.prepare()
         home = self.root / 'home'

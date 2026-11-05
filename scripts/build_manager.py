@@ -7,14 +7,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import platform
 import shutil
 import subprocess
 import sys
 import tempfile
-import venv
 import zipfile
 
 if __package__ in {None, ''}:
@@ -30,6 +28,20 @@ from scripts.manager.payload import MANAGER_SOURCE_FILES, prepare_source_payload
 PYINSTALLER_VERSION = '6.22.3'
 MANAGER_MANIFEST = 'manager-manifest.json'
 CORE_RUNTIMES = ('python', 'node', 'npm')
+
+
+class ManagerBuildError(LauncherError):
+    """A source-build failure with safe, actionable desktop diagnostics."""
+
+    def __init__(self, *, dependencies=False):
+        self.code = 'manager_build_dependencies_unavailable' if dependencies else 'manager_build_failed'
+        self.remedy = ('Kaynak modunu ve izin verilen Python paket indeksini kontrol edin. '
+                       'İlk Manager oluşturma işlemi sabitlenmiş derleme paketlerine erişim gerektirir.'
+                       if dependencies else
+                       'Windows x64, Python 3.11/Tk ve derleme araçlarının çalıştırma izinlerini kontrol edin; '
+                       'son gösterilen aşamadan sonra yeniden deneyin.')
+        super().__init__('Manager derleme paketleri izin verilen kaynaklardan edinilemedi.' if dependencies else
+                         'Windows Manager oluşturulamadı; kısmi paket yayımlanmadı.')
 
 
 def _runtime_metadata(catalog: dict) -> dict:
@@ -115,13 +127,113 @@ def write_portable_archive(directory: Path, output: Path, metadata: dict) -> Non
         stream.write(serialized)
 
 
-def _run_build(command: list[str], *, cwd: Path, env: dict, phase: str, timeout: int = 900) -> None:
+def _run_build(command: list[str], *, cwd: Path, env: dict, timeout: int = 900) -> None:
+    from scripts.launcher.installation_dependencies import capture
+    project = Project(cwd, cwd / 'manage.py', cwd / 'package.json', None)
     try:
-        result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, check=False, timeout=timeout)
+        result = capture(command, project, env, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
-        raise LauncherError(phase + ' could not complete; build-tool output was withheld') from None
+        raise ManagerBuildError() from None
     if result.returncode:
-        raise LauncherError(phase + ' failed; build-tool output was withheld to protect package-source credentials')
+        raise ManagerBuildError()
+
+
+def _install_build_dependencies(python: Path, source: Path, work: Path, settings: SourceSettings, env: dict):
+    from scripts.launcher.certificates import package_trust_environment
+    from scripts.launcher.installation_dependencies import (
+        availability_failure, capture, PackageCommandError, PackageTimeoutError,
+    )
+    from scripts.launcher.installation_sources import acquisition_urls
+    indexes = acquisition_urls(settings, 'https://pypi.org/simple', settings.python_index_url)
+    if not indexes:
+        raise ManagerBuildError(dependencies=True)
+    project = Project(work, work / 'manage.py', work / 'package.json', None)
+    timeout = None
+    with package_trust_environment(env, ca_file=settings.ca_file, python=python) as trusted:
+        for index, url in enumerate(indexes):
+            settings.report(f'Manager derleme paketleri: izinli kaynak {index + 1}/{len(indexes)} deneniyor')
+            wheels = work / ('build-wheels-' + str(index))
+            try:
+                result = capture([python, '-m', 'pip', 'download', '--disable-pip-version-check', '--no-input',
+                                  '--only-binary=:all:', '--dest', wheels, '--index-url', url,
+                                  '-r', source / 'packaging/manager-requirements.txt'], project, trusted)
+            except PackageTimeoutError as error:
+                timeout = error
+                settings.report('Manager paket edinimi süre sınırını aştı; sıradaki izinli kaynak deneniyor')
+                continue
+            timeout = None
+            if not result.returncode:
+                break
+            if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=True):
+                raise PackageCommandError(result)
+        else:
+            if timeout is not None:
+                raise timeout from None
+            raise ManagerBuildError(dependencies=True)
+        settings.report('Manager derleme paketleri ayrı ortama kuruluyor')
+        result = capture([python, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-input',
+                          '--no-index', '--find-links', wheels,
+                          '-r', source / 'packaging/manager-requirements.txt'], project, trusted)
+        if result.returncode:
+            raise PackageCommandError(result)
+
+
+def freeze_manager(project: Project, destination: Path, settings: SourceSettings, *, python: Path) -> Path:
+    """Freeze the selected source with an isolated Python; publish only verified files.
+
+    The Python argument must already be selected and validated by the caller.
+    This stage does not prepare the full dependency/runtime installation bundle.
+    """
+    from scripts.launcher.toolchain import MANAGED_RUNTIME_ENVIRONMENT
+    from scripts.manager.distribution import seal_distribution
+    if sys.platform != 'win32' or platform.machine().casefold() not in {'amd64', 'x86_64'}:
+        raise ManagerBuildError()
+    destination = Path(destination).absolute()
+    require_unlinked(destination)
+    if destination.exists():
+        raise LauncherError('Manager build destination must not exist')
+    with tempfile.TemporaryDirectory(prefix='awcenter-manager-freeze-') as temporary:
+        work = Path(temporary).resolve()
+        portable = work / 'portable'
+        source = portable / 'source'
+        prepare_source_payload(project, source)
+        if any(not (source / name).is_file() for name in MANAGER_SOURCE_FILES):
+            raise LauncherError('Desktop manager source is incomplete')
+        builder = work / 'builder'
+        environment = {**MANAGED_RUNTIME_ENVIRONMENT,
+                       'AWCENTER_MANAGER_SOURCE': str(source),
+                       'PYINSTALLER_CONFIG_DIR': str(work / 'pyinstaller-cache')}
+        settings.report('Manager için ayrı Python derleme ortamı hazırlanıyor')
+        _run_build([str(python), '-I', '-B', '-m', 'venv', str(builder)],
+                   cwd=work, env=environment)
+        python = builder / 'Scripts/python.exe'
+        settings.report('Manager Python 3.11/Tk desteği doğrulanıyor')
+        _run_build([str(python), '-I', '-B', '-c',
+                    'import sys, struct, tkinter; assert sys.version_info[:2] == (3, 11); '
+                    'assert struct.calcsize("P") == 8; tkinter.Tcl()'],
+                   cwd=work, env=environment)
+        _install_build_dependencies(python, source, work, settings, environment)
+        _run_build([str(python), '-I', '-B', '-c',
+                    'import PyInstaller; assert PyInstaller.__version__ == "' + PYINSTALLER_VERSION + '"'],
+                   cwd=work, env=environment)
+        settings.report('Windows Manager EXE ve gömülü runtime oluşturuluyor')
+        _run_build([str(python), '-m', 'PyInstaller', '--clean', '--noconfirm',
+                    '--distpath', str(work / 'dist'), '--workpath', str(work / 'pyinstaller-work'),
+                    str(source / 'packaging/manager.spec')],
+                   cwd=work, env=environment)
+        frozen = work / 'dist' / 'AWCenterManager'
+        if not (frozen / 'AWCenterManager.exe').is_file() or not (frozen / '_internal').is_dir():
+            raise ManagerBuildError()
+        for path in frozen.iterdir():
+            require_unlinked(path)
+            if path.name not in {'AWCenterManager.exe', '_internal'}:
+                raise LauncherError('Frozen manager output contains an unexpected root file')
+            shutil.move(str(path), portable / path.name)
+        verify_source_payload(source)
+        seal_distribution(portable)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(portable), destination)
+    return destination
 
 
 def build_manager(repository: Path, output: Path, settings: SourceSettings) -> Path:
@@ -136,42 +248,9 @@ def build_manager(repository: Path, output: Path, settings: SourceSettings) -> P
                       repository / 'frontend/package.json', repository / 'requirements.txt')
     with tempfile.TemporaryDirectory(prefix='awcenter-manager-build-') as temporary:
         work = Path(temporary).resolve()
-        portable = work / 'portable'
-        portable.mkdir()
-        source_metadata = prepare_source_payload(project, portable / 'source')
-        if any(not (portable / 'source' / name).is_file() for name in MANAGER_SOURCE_FILES):
-            raise LauncherError('Desktop manager source is incomplete')
-        runtimes = prepare_runtime_payload(portable / 'runtimes', settings)
-        builder = work / 'builder'
-        venv.EnvBuilder(with_pip=True).create(builder)
-        python = builder / 'Scripts/python.exe'
-        environment = {**os.environ, 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1',
-                       'AWCENTER_MANAGER_SOURCE': str(portable / 'source'),
-                       'PYINSTALLER_CONFIG_DIR': str(work / 'pyinstaller-cache')}
-        environment.pop('PYTHONPATH', None)
-        _run_build([str(python), '-m', 'pip', 'install', '--disable-pip-version-check', '--no-input',
-                    '-r', str(repository / 'packaging/manager-requirements.txt')],
-                   cwd=work, env=environment, phase='Isolated manager build dependency installation')
-        _run_build([str(python), '-c', 'import tkinter; import PyInstaller; assert PyInstaller.__version__ == "' + PYINSTALLER_VERSION + '"'],
-                   cwd=work, env=environment, phase='Python/Tk and pinned PyInstaller verification')
-        _run_build([str(python), '-m', 'PyInstaller', '--clean', '--noconfirm',
-                    '--distpath', str(work / 'dist'), '--workpath', str(work / 'pyinstaller-work'),
-                    str(repository / 'packaging/manager.spec')],
-                   cwd=work, env=environment, phase='Windowed onedir manager freeze')
-        frozen = work / 'dist' / 'AWCenterManager'
-        if not (frozen / 'AWCenterManager.exe').is_file() or not (frozen / '_internal').is_dir():
-            raise LauncherError('Frozen manager executable or embedded runtime is missing')
-        for path in frozen.iterdir():
-            require_unlinked(path)
-            if path.name not in {'AWCenterManager.exe', '_internal'}:
-                raise LauncherError('Frozen manager output contains an unexpected root file')
-            shutil.move(str(path), portable / path.name)
-        verify_source_payload(portable / 'source')
-        verify_runtime_payload(portable / 'runtimes', runtimes)
-        from scripts.manager.distribution import seal_distribution, prepare_full_manager
-        seal_distribution(portable)
+        from scripts.manager.distribution import prepare_full_manager
         full = work / 'complete'
-        prepare_full_manager(project, full, settings, portable)
+        prepare_full_manager(project, full, settings)
         write_portable_archive(full, output, {})
     return output
 

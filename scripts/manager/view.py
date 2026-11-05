@@ -598,10 +598,10 @@ class ManagerWindow:
             ("assets", "Onaylı asset dizini (isteğe bağlı)", "directory"),
             ("feature_catalog", "Native araç kataloğu (isteğe bağlı)", "catalog"),
             ("output", "Paket çıktı klasörü (boşsa otomatik)", "directory"),
-            ('manager_distribution', 'Windows Manager paketi (kaynak çalıştırmada)', 'directory'),
+            ('manager_distribution', 'Hazır Windows Manager paketi (isteğe bağlı)', 'directory'),
         )):
             self._entry(fields, row, key, label, tab=self.source_tab, picker=picker)
-        self._label(parent, "Python, Node ve npm arşivleri yönetici paketine dahildir. Çıktı boşsa paket %LOCALAPPDATA%\\AWCenter\\exports altında hazırlanır; mevcut bir çıktı klasörü seçilirse içinde yeni bir alt klasör oluşturulur. pip ve npm alanları uygulama bağımlılıklarını belirler. URL'lere parola veya token yazmayın. TLS ve hash doğrulaması her modda korunur.", style="Manager.TLabel").grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        self._label(parent, "Python, Node ve npm arşivleri yönetici paketine dahildir. Hazır Manager paketi yoksa otomatik hazırlanır. Çıktı boşsa paket %LOCALAPPDATA%\\AWCenter\\exports altında hazırlanır; mevcut bir çıktı klasörü seçilirse içinde yeni bir alt klasör oluşturulur. pip ve npm alanları paket kaynaklarını belirler. URL'lere parola veya token yazmayın. TLS ve hash doğrulaması her modda korunur.", style="Manager.TLabel").grid(row=2, column=0, sticky="ew", pady=(12, 0))
 
     def _build_report(self, parent):
         parent.columnconfigure(0, weight=1)

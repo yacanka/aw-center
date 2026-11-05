@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -191,7 +192,97 @@ def _offline_dependencies(project: Project, settings: SourceSettings) -> Path | 
     return None
 
 
-def _ensure_venv(project: Project, tool_env: dict, *, expected_python: Path | None = None) -> None:
+class VirtualEnvironmentError(LauncherError):
+    """A known venv compatibility failure, distinct from package or storage errors."""
+
+    def __init__(self, reason):
+        messages = {
+            'incomplete': 'Mevcut .venv eksik.',
+            'interrupted': 'Yarım sanal ortam başka Python veya kaynağa bağlı.',
+            'version': 'Mevcut .venv CPython 3.11 x64 ile oluşturulmalı.',
+            'python_mismatch': 'Mevcut .venv farklı bir Python kullanıyor.',
+            'unusable': 'Mevcut .venv Python süreci başlatılamadı.',
+        }
+        self.code = 'venv_' + reason
+        self.remedy = 'Manager üzerinden Hazırla ve Başlat işlemini yeniden çalıştırın; önceki sanal ortam korunarak yenisi hazırlanır.'
+        super().__init__(messages[reason])
+
+
+class VirtualEnvironmentRepairError(LauncherError):
+    """A replacement could not safely preserve the existing environment."""
+
+    code = 'venv_repair_failed'
+    remedy = ('Bu kaynak dizininin .venv ortamını kullanan süreçleri kapatıp bağımsız Manager ile yeniden deneyin. '
+              'Kaynak dizini erişim izinlerini ve disk alanını kontrol edin; .venv veya profil verilerini silmeyin.')
+
+    def __init__(self, error=None):
+        message = 'Önceki sanal ortam güvenli biçimde yedeklenemedi; mevcut .venv değiştirilmedi.'
+        for label, value in (('WinError', getattr(error, 'winerror', None)),
+                             ('errno', getattr(error, 'errno', None))):
+            if type(value) is int and value > 0:
+                message += f' {label}: {value}.'
+        super().__init__(message)
+
+
+def _same_python(first: Path, second: Path) -> bool:
+    """Accept filesystem aliases without treating a different interpreter as equal."""
+    try:
+        if first.samefile(second):
+            return True
+    except OSError:
+        pass
+    return os.path.normcase(str(first.resolve())) == os.path.normcase(str(second.resolve()))
+
+
+def _preserve_venv(project: Project, expected_python: Path) -> None:
+    from .installation_permissions import require_unlinked, secure_path
+    from .process import check_cancelled
+    check_cancelled()
+    require_unlinked(project.venv)
+    paths = (expected_python, Path(sys.executable), Path(sys.prefix))
+    if (not project.venv.is_dir() or not expected_python.is_file() or
+            any(path.absolute().is_relative_to(project.venv.absolute()) or
+                path.resolve().is_relative_to(project.venv.resolve()) for path in paths)):
+        raise VirtualEnvironmentRepairError()
+    try:
+        # Stay on the source volume and in generated state excluded from Git and
+        # release inventories. A unique wrapper prevents overwriting any backup.
+        directory = project.root / '.runtime' / 'venv-backups'
+        require_unlinked(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        backup = Path(tempfile.mkdtemp(prefix='preserved-', dir=directory))
+        secure_path(backup)
+        project.venv.rename(backup / '.venv')
+    except OSError as error:
+        raise VirtualEnvironmentRepairError(error) from None
+
+
+def _ensure_venv(project: Project, tool_env: dict, *, expected_python: Path | None = None,
+                 repair: bool = False, report=None) -> None:
+    """Repair only declared venv failures under the caller's exclusive source lease.
+
+    The old directory is retained, and a failed replacement keeps its creation
+    marker so the same validated interpreter can resume it on the next attempt.
+    Direct CLI callers retain the strict, non-replacing default.
+    """
+    existed = project.venv.exists()
+    try:
+        _prepare_venv(project, tool_env, expected_python=expected_python)
+        return
+    except VirtualEnvironmentError:
+        if not repair or not existed or expected_python is None:
+            raise
+    selected = Path(tool_env.get('AWCENTER_MANAGED_PYTHON') or expected_python)
+    if not _same_python(selected, expected_python):
+        raise VirtualEnvironmentRepairError()
+    _preserve_venv(project, selected)
+    if report:
+        report('Önceki .venv .runtime/venv-backups altında korundu; seçilen Python ile yeni sanal ortam hazırlanıyor')
+    _prepare_venv(project, {**tool_env, 'AWCENTER_MANAGED_PYTHON': str(selected)},
+                  expected_python=expected_python)
+
+
+def _prepare_venv(project: Project, tool_env: dict, *, expected_python: Path | None = None) -> None:
     from .installation_permissions import require_unlinked
     require_unlinked(project.venv)
     marker = project.venv / '.awcenter-creating.json'
@@ -205,10 +296,10 @@ def _ensure_venv(project: Project, tool_env: dict, *, expected_python: Path | No
         except (OSError, ValueError):
             pass
         if not owned:
-            raise LauncherError('Yarım sanal ortam başka Python veya kaynağa bağlı; mevcut dosyalar değiştirilmedi.')
+            raise VirtualEnvironmentError('interrupted')
     if not project.python.is_file():
         if project.venv.exists() and not owned:
-            raise LauncherError("Mevcut .venv eksik; otomatik silinmedi. Ayrı temiz kaynak dizini kullanın.")
+            raise VirtualEnvironmentError('incomplete')
         if not owned:
             project.venv.mkdir()
             with marker.open('x', encoding='utf-8') as stream:
@@ -216,15 +307,18 @@ def _ensure_venv(project: Project, tool_env: dict, *, expected_python: Path | No
             owned = True
         _succeeded(capture([tool_env["AWCENTER_MANAGED_PYTHON"], "-m", "venv", project.venv], project,
                            tool_env), "Virtual environment oluşturma")
-    result = capture([project.python, "-c", "import sys,struct; print(sys.version_info[:2] == (3,11) and struct.calcsize('P') == 8)"], project, tool_env)
+    try:
+        result = capture([project.python, "-c", "import sys,struct; print(sys.implementation.name == 'cpython' and sys.version_info[:2] == (3,11) and struct.calcsize('P') == 8)"], project, tool_env)
+    except OSError:
+        raise VirtualEnvironmentError('unusable') from None
     if result.returncode or result.stdout.strip() != "True":
-        raise LauncherError("Mevcut .venv CPython 3.11 x64 ile oluşturulmalı; otomatik değiştirilmedi.")
+        raise VirtualEnvironmentError('version')
     if expected_python is not None:
         base = capture([project.python, '-I', '-B', '-c',
                         'import sys; print(getattr(sys, "_base_executable", sys.executable))'], project, tool_env)
         if (base.returncode or not base.stdout.strip() or
-                Path(base.stdout.strip()).resolve() != Path(expected_python).resolve()):
-            raise LauncherError('Mevcut .venv farklı bir Python kullanıyor; otomatik değiştirilmedi. Ayrı temiz kaynak dizini kullanın.')
+                not _same_python(Path(base.stdout.strip()), Path(expected_python))):
+            raise VirtualEnvironmentError('python_mismatch')
     if owned:
         # A crash can occur after python.exe appears but before ensurepip ends.
         _succeeded(capture([project.python, '-m', 'ensurepip', '--upgrade'], project, tool_env), 'pip hazırlığı')
@@ -310,9 +404,11 @@ def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dic
                        "--no-audit", "--no-fund"], project, tool_env), "Frontend paket kurulumu")
 
 
-def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None) -> None:
+def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None,
+                         repair_venv: bool = False) -> None:
     """Use one source per acquisition attempt; never fallback after installation fails."""
-    _ensure_venv(project, tool_env, **({'expected_python': expected_python} if expected_python is not None else {}))
+    _ensure_venv(project, tool_env, expected_python=expected_python,
+                 repair=repair_venv, report=settings.report)
     node = tool_env.get('AWCENTER_MANAGED_NODE') or shutil.which('node', path=tool_env.get('PATH'))
     if not node:
         raise LauncherError('Node bulunamadı; paket güven deposu hazırlanamadı.')

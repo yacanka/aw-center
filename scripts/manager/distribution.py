@@ -61,22 +61,23 @@ def copy_manager(distribution: Path, destination: Path) -> None:
             raise LauncherError('Manager kopyası doğrulanamadı.')
 
 
-def prepare_full_manager(project, output, settings, distribution, *, assets=None, feature_catalog=None):
-    """Never borrow producer runtimes or mutate an active application's tools."""
+def prepare_full_manager(project, output, settings, distribution=None, *, assets=None, feature_catalog=None):
+    """Build missing Manager files from source using isolated, pinned tools."""
     from scripts.launcher.installation import require_windows
     from scripts.launcher.installation_bundle import bundle_input_roots, prepare_install_bundle, validate_bundle_output
     from scripts.launcher.installation_profiles import installation_home
     from scripts.launcher.installation_state import process_environment
     from scripts.launcher.toolchain import ensure_toolchain
     require_windows()
-    distribution = Path(distribution).absolute()
-    runtime_dirs = (*settings.runtime_dirs, distribution)
+    distribution = Path(distribution).absolute() if distribution is not None else None
+    runtime_dirs = (*settings.runtime_dirs, *((distribution,) if distribution is not None else ()))
     if os.environ.get('LOCALAPPDATA'):
         runtime_dirs += (installation_home() / 'cache/runtimes',)
     settings = replace(settings, runtime_dirs=runtime_dirs)
     inputs = bundle_input_roots(settings, assets=assets, manager_distribution=distribution)
     output = validate_bundle_output(project, output, input_roots=inputs)
-    verify_distribution(distribution)
+    if distribution is not None:
+        verify_distribution(distribution)
     settings.report('Tam paket için sabitlenmiş araçlar ayrı hazırlık alanında kuruluyor')
     with tempfile.TemporaryDirectory(prefix='awcenter-full-manager-') as temporary:
         temporary_home = Path(temporary).resolve() / 'tools'
@@ -86,5 +87,10 @@ def prepare_full_manager(project, output, settings, distribution, *, assets=None
         bundle_settings = replace(settings, runtime_dirs=(temporary_home / 'cache/runtimes',
                                                          *settings.runtime_dirs))
         with process_environment(tools):
+            if distribution is None:
+                from scripts.build_manager import freeze_manager
+                settings.report('Windows Manager mevcut kaynaktan otomatik oluşturuluyor')
+                distribution = freeze_manager(project, temporary_home.parent / 'manager', bundle_settings,
+                                              python=Path(tools['AWCENTER_MANAGED_PYTHON']))
             return prepare_install_bundle(project, output, bundle_settings, assets=assets,
                 feature_catalog=feature_catalog, manager_distribution=distribution)

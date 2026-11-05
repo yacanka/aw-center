@@ -41,12 +41,16 @@ class PreparationTests(unittest.TestCase):
         self.assertNotIn('Hazırlık:', error['message'])
         self.assertNotIn(str(missing), json.dumps(events))
 
-    def test_absent_windows_distribution_requests_the_missing_package(self):
-        events = self.execute(output=str(self.root / 'output'))
-        error = next(event for event in events if event['type'] == 'error')
-        self.assertEqual(error['code'], 'manager_distribution_required')
-        self.assertIn('Windows Manager', error['remedy'])
-        self.assertNotIn('Kaynakları ve profil', error['remedy'])
+    def test_absent_windows_distribution_continues_to_automatic_preparation(self):
+        output = self.root / 'output'
+        def prepare(project, destination, settings, distribution, **options):
+            self.assertIsNone(distribution)
+            destination.mkdir()
+            (destination / 'AWCenterManager.exe').write_bytes(b'prepared manager fixture')
+        with patch('scripts.manager.distribution.prepare_full_manager', side_effect=prepare):
+            events = self.execute(output=str(output))
+        self.assertEqual(events[-1], {'type': 'done', 'ok': True})
+        self.assertEqual((output / 'AWCenterManager.exe').read_bytes(), b'prepared manager fixture')
 
     def test_existing_output_directory_is_preserved_and_new_child_is_claimed(self):
         output = self.root / 'selected-output'
@@ -107,6 +111,20 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(error['code'], 'package_tls_failed')
         self.assertIn('CA', error['remedy'])
         self.assertNotIn('withheld', json.dumps(events))
+
+    def test_recovery_failures_keep_specific_safe_diagnostics(self):
+        from scripts.build_manager import ManagerBuildError
+        from scripts.launcher.installation_dependencies import VirtualEnvironmentRepairError
+        for failure in (ManagerBuildError(), ManagerBuildError(dependencies=True),
+                        VirtualEnvironmentRepairError(PermissionError(13, 'private-path-withheld'))):
+            with self.subTest(code=failure.code):
+                events = []
+                with patch.object(operations, '_dispatch', side_effect=failure):
+                    operations.execute({'action': 'bundle'}, events.append, lambda: None, threading.Event())
+                error = next(event for event in events if event['type'] == 'error')
+                self.assertEqual(error['code'], failure.code)
+                self.assertEqual(error['remedy'], failure.remedy)
+                self.assertNotIn('private-path-withheld', json.dumps(events))
 
     def test_output_inside_any_input_tree_is_relocated_before_claims(self):
         for field in ('source_root', 'manager_distribution', 'assets', 'offline_dir', 'repository'):

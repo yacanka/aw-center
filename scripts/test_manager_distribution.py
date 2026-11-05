@@ -113,7 +113,8 @@ class DistributionTests(unittest.TestCase):
         self.assertFalse(marker.exists(), 'Output overlap must be rejected before tools are prepared')
         distribution.verify_distribution(self.media)
 
-    def _prepare_with_runtime_source(self, *, existing_cache, corrupt_cache=False, without_installation=False):
+    def _prepare_with_runtime_source(self, *, existing_cache, corrupt_cache=False, without_installation=False,
+                                     without_distribution=False):
         distribution = self.module()
         bundle = importlib.import_module('scripts.launcher.installation_bundle')
         from scripts.launcher.offline_manifest import artifact_metadata, lock_metadata
@@ -149,7 +150,15 @@ class DistributionTests(unittest.TestCase):
             for artifact in catalog.values():
                 fetch_artifact(artifact, temporary_home / 'cache/runtimes', settings)
             connected = False  # The bundle stage must succeed after connectivity is lost.
-            return {}
+            return {'AWCENTER_MANAGED_PYTHON': str(temporary_home / 'python.exe')}
+        def freeze(project, destination, settings, *, python):
+            self.assertEqual(Path(python).name, 'python.exe')
+            prepare_source_payload(project, destination / 'source')
+            (destination / '_internal').mkdir()
+            (destination / '_internal/python311.dll').write_bytes(b'fresh embedded runtime')
+            (destination / 'AWCenterManager.exe').write_bytes(b'fresh frozen manager')
+            distribution.seal_distribution(destination)
+            return destination
         def selected_home():
             if without_installation:
                 self.fail('Preparing portable media must not require an existing installation home')
@@ -168,6 +177,7 @@ class DistributionTests(unittest.TestCase):
              patch('scripts.launcher.installation.require_windows'), \
              patch('scripts.launcher.installation_profiles.installation_home', side_effect=selected_home), \
              patch('scripts.launcher.toolchain.ensure_toolchain', side_effect=prepare_tools), \
+             patch('scripts.build_manager.freeze_manager', side_effect=freeze), \
              patch('scripts.launcher.installation_sources._retrieve', side_effect=retrieve), \
              patch.object(bundle, 'target_metadata', return_value=target), \
              patch('scripts.launcher.offline_manifest.target_metadata', return_value=target), \
@@ -175,8 +185,12 @@ class DistributionTests(unittest.TestCase):
              patch.object(bundle, '_prepare_dependencies', side_effect=dependencies):
             if without_installation:
                 os.environ.pop('LOCALAPPDATA')
-            distribution.prepare_full_manager(self.project, output, SourceSettings(), self.media)
+            distribution.prepare_full_manager(self.project, output, SourceSettings(),
+                                              None if without_distribution else self.media)
             self.assertTrue(distribution.verify_distribution(output)['complete'])
+            expected_exe = b'fresh frozen manager' if without_distribution else b'manager fixture'
+            self.assertEqual((output / 'AWCenterManager.exe').read_bytes(), expected_exe)
+            self.assertTrue((output / '_internal/python311.dll').is_file())
         for name, payload in payloads.items():
             self.assertEqual((output / 'runtimes' / catalog[name].filename).read_bytes(), payload)
         if existing_cache:
@@ -184,6 +198,9 @@ class DistributionTests(unittest.TestCase):
 
     def test_bundle_reuses_archives_downloaded_for_its_temporary_tools(self):
         self._prepare_with_runtime_source(existing_cache=False)
+
+    def test_missing_distribution_is_built_from_source_and_complete_bundle_is_verified(self):
+        self._prepare_with_runtime_source(existing_cache=False, without_distribution=True)
 
     def test_bundle_reads_existing_runtime_cache_without_mutating_live_tools(self):
         self._prepare_with_runtime_source(existing_cache=True)
