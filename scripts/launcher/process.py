@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import queue
 import shlex
 import shutil
 import signal
@@ -41,15 +42,17 @@ def check_cancelled() -> None:
         raise OperationCancelled("İşlem durduruldu; tamamlanan adımlar korunuyor.")
 
 
-def controlled_run(command, *, safe_boundary=False, **kwargs):
+def controlled_run(command, *, safe_boundary=False, on_output=None, **kwargs):
     """Like subprocess.run; GUI package steps can stop and reap their children.
 
     Migration commands finish before observing cancellation. The worker's outer
     Job Object remains the containment boundary even if a leader exits early.
-    CLI callers retain subprocess.run semantics without the manager context.
+    Callers without live output or a manager context retain subprocess.run semantics.
     """
-    if getattr(_control, "stop", None) is None:
+    if getattr(_control, "stop", None) is None and on_output is None:
         return subprocess.run(command, **kwargs)
+    if on_output is not None and (not kwargs.get("capture_output") or not kwargs.get("text") or "input" in kwargs):
+        raise ValueError("Live output requires text capture without stdin input")
     check_cancelled()
     timeout = kwargs.pop("timeout", None)
     check = kwargs.pop("check", False)
@@ -72,6 +75,13 @@ def controlled_run(command, *, safe_boundary=False, **kwargs):
         child._launcher_group = child.pid
     deadline = time.monotonic() + timeout if timeout is not None else None
     try:
+        if on_output is not None:
+            output, errors = _live_output(child, command, on_output, deadline, timeout, safe_boundary)
+            check_cancelled()
+            result = subprocess.CompletedProcess(command, child.returncode, output, errors)
+            if check:
+                result.check_returncode()
+            return result
         while True:
             if not safe_boundary:
                 check_cancelled()
@@ -96,6 +106,69 @@ def controlled_run(command, *, safe_boundary=False, **kwargs):
             for stream in (child.stdin, child.stdout, child.stderr):
                 if stream is not None:
                     stream.close()
+
+
+def _live_output(child, command, report, deadline, timeout, safe_boundary):
+    """Drain both pipes on Windows too; invoke callbacks on the operation thread.
+
+    Bounded reads/queue prevent a noisy child from starving cancellation. Keep
+    captured diagnostics private and publish only complete, bounded lines.
+    """
+    events = queue.Queue(maxsize=128)
+    stopped = threading.Event()
+
+    def enqueue(event):
+        while not stopped.is_set():
+            try:
+                events.put(event, timeout=.1)
+                return
+            except queue.Full:
+                continue
+
+    def read_pipe(index, stream):
+        try:
+            while not stopped.is_set():
+                line = stream.readline(8192)
+                if not line:
+                    break
+                enqueue((index, line))
+        except (OSError, UnicodeError) as error:
+            enqueue((index, error))
+        finally:
+            enqueue((index, None))
+
+    readers = [threading.Thread(target=read_pipe, args=(index, stream), daemon=True)
+               for index, stream in enumerate((child.stdout, child.stderr))]
+    for reader in readers:
+        reader.start()
+    captured = [[], []]
+    partial = [False, False]
+    ended = 0
+    try:
+        while ended < 2 or child.poll() is None:
+            if not safe_boundary:
+                check_cancelled()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                index, line = events.get(timeout=.1)
+            except queue.Empty:
+                continue
+            if line is None:
+                ended += 1
+                continue
+            if isinstance(line, Exception):
+                raise line
+            captured[index].append(line)
+            if not partial[index] and len(line) < 8192:
+                report(line.rstrip('\r\n'))
+            partial[index] = not line.endswith(('\n', '\r'))
+        return tuple(''.join(parts) for parts in captured)
+    finally:
+        stopped.set()
+        terminate([child])
+        for reader in readers:
+            reader.join()
 
 
 def _controlled_windows(command, kwargs):

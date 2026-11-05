@@ -386,10 +386,10 @@ def _validate_bootstrap(project: Project) -> None:
         raise LauncherError('installation bundle source is incomplete; bootstrap and dependency locks are required')
 
 
-def _capture(command: list, project: Project, overrides: dict):
+def _capture(command: list, project: Project, overrides: dict, *, progress=None):
     from .installation_dependencies import capture
     try:
-        return capture(command, project, overrides)
+        return capture(command, project, overrides, **({"progress": progress} if progress is not None else {}))
     except OSError:
         raise LauncherError('package tool could not run; verify the managed toolchain') from None
 
@@ -482,7 +482,7 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
             attempt = Path(temporary) / str(index)
             attempt.mkdir()
             result = _capture([python, '-m', 'pip', 'wheel', '--wheel-dir', attempt,
-                               '--index-url', url, '-r', requirements], project, overrides)
+                               '--index-url', url, '-r', requirements], project, overrides, progress=settings.progress)
             if not result.returncode:
                 selected = attempt
                 break

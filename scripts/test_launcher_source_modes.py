@@ -71,7 +71,7 @@ class SourceModeTests(unittest.TestCase):
                 stage = self.root / (mode + '-stage')
                 stage.mkdir()
                 commands = []
-                def capture(command, *_):
+                def capture(command, *_, progress=None):
                     commands.append([str(part) for part in command])
                     return subprocess.CompletedProcess(command, 0, '', '')
                 settings = sources.SourceSettings(mode=mode, offline_dir=offline,
@@ -96,7 +96,7 @@ class SourceModeTests(unittest.TestCase):
         (offline / 'npm-cache' / '_cacache' / 'fixture').write_bytes(b'package')
         for mode in ('corporate', 'offline'):
             commands = []
-            def capture(command, *_):
+            def capture(command, *_, progress=None):
                 commands.append([str(part) for part in command])
                 if 'wheel' in command:
                     (Path(command[command.index('--wheel-dir') + 1]) / 'fixture.whl').write_bytes(b'wheel')

@@ -63,7 +63,7 @@ class BundleSafetyTests(unittest.TestCase):
         import subprocess
         from scripts.launcher.installation_dependencies import PackageTimeoutError
         registries = []
-        def capture(command, project, overrides):
+        def capture(command, project, overrides, *, progress=None):
             registry = command[command.index('--registry') + 1]
             registries.append(registry)
             if registry == 'https://selected.example/npm':
@@ -346,7 +346,7 @@ class BundleSafetyTests(unittest.TestCase):
     def test_dedicated_dependency_preparation_is_git_free_and_never_distributes_logs(self):
         from scripts.launcher.installation_sources import SourceSettings
         trust_paths = set()
-        def capture(command, project, overrides):
+        def capture(command, project, overrides, *, progress=None):
             bundle = Path(overrides['PIP_CERT'])
             self.assertTrue(bundle.is_file())
             self.assertEqual(overrides['NPM_CONFIG_CAFILE'], str(bundle))
@@ -395,7 +395,7 @@ class BundleSafetyTests(unittest.TestCase):
     def test_python_package_fallback_happens_only_for_availability_failures(self):
         from scripts.launcher.installation_sources import SourceSettings
         calls = []
-        def capture(command, project, overrides):
+        def capture(command, project, overrides, *, progress=None):
             calls.append(command)
             if '--index-url' in command and 'https://pypi.org/simple' in command:
                 return type('Completed', (), {'returncode':1, 'stdout':'', 'stderr':'NewConnectionError'})()
@@ -434,7 +434,7 @@ class BundleSafetyTests(unittest.TestCase):
         from scripts.launcher.installation_sources import SourceSettings
         source = self._local_dependency_source()
         before = self.bundle.install_inventory(source)
-        def capture(command, project, overrides):
+        def capture(command, project, overrides, *, progress=None):
             self.assertNotIn('--index-url', command, 'Validated local wheels must avoid the network')
             self.assertNotIn('--registry', command, 'Validated local npm cache must avoid the network')
             return type('Completed', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
@@ -467,7 +467,7 @@ class BundleSafetyTests(unittest.TestCase):
         from scripts.launcher.installation_sources import SourceSettings
         settings = SourceSettings(python_index_url='https://selected.example/simple',
                                   npm_registry_url='https://selected.example/npm')
-        def capture(command, project, overrides):
+        def capture(command, project, overrides, *, progress=None):
             if any(url in command for url in ('https://pypi.org/simple', 'https://registry.npmjs.org')):
                 return type('Completed', (), {'returncode': 1, 'stdout': '',
                                              'stderr': 'HTTP error 407 Proxy Authentication Required'})()

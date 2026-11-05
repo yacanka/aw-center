@@ -228,6 +228,11 @@ seçilen modun izin verdiği kaynaklar sırayla denenir. Kesilen runtime transfe
 en fazla üç kez denenir; geçici HTTP/npm hataları diğer izinli kaynakları engellemez.
 Tam uzunluktaki bozuk hash, TLS, izin, disk veya kurulum hatası otomatik fallback
 ile gizlenmez. Kaynak numarası ve gerçek aşama raporda gösterilir.
+Python bağımlılıkları hazırlanırken paket çözümleme, indirilen dosya (pip bildirirse
+boyutuyla), önbellekten alma, wheel derleme ve kurulum adımları komutun bitmesi
+beklenmeden durum alanına ve rapora yansır. Bu gösterim paket/dosya bazındadır;
+indirme yüzdesi veya hız ölçümü değildir. Depo URL'leri, yerel yollar ve ham hata
+çıktıları gösterilmez. Aynı canlı gösterim çevrimdışı paket hazırlığında da kullanılır.
 
 Paket çıktı alanı boşsa her görev için yeni bir
 `%LOCALAPPDATA%\AWCenter\exports\AWCenter-offline-…` dizini seçilir. Mevcut bir

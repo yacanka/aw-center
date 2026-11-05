@@ -333,7 +333,7 @@ class AcquisitionFailureTests(unittest.TestCase):
             project = create_project(root)
             (project.frontend / 'package-lock.json').write_text('{}')
             attempts = []
-            def capture(command, *_):
+            def capture(command, *_, progress=None):
                 if '--registry' in command:
                     registry = command[command.index('--registry') + 1]
                     tree = Path(command[command.index('--prefix') + 1])
@@ -359,7 +359,7 @@ class AcquisitionFailureTests(unittest.TestCase):
             project = create_project(root)
             (project.frontend / 'package-lock.json').write_text('{}')
             registries = []
-            def capture(command, *_):
+            def capture(command, *_, progress=None):
                 self.assertIn('--registry', command)
                 registries.append(command[command.index('--registry') + 1])
                 raise deps.PackageTimeoutError()
@@ -380,7 +380,7 @@ class AcquisitionFailureTests(unittest.TestCase):
             (offline / 'npm-cache').mkdir(parents=True)
             (offline / 'npm-cache/fixture').write_bytes(b'immutable cache')
             commands = []
-            def capture(command, *_):
+            def capture(command, *_, progress=None):
                 commands.append(command)
                 if '--registry' in command:
                     raise deps.PackageTimeoutError()
@@ -404,7 +404,7 @@ class AcquisitionFailureTests(unittest.TestCase):
             project = create_project(root)
             (project.frontend / 'package-lock.json').write_text('{}')
             commands = []
-            def capture(command, *_):
+            def capture(command, *_, progress=None):
                 commands.append(command)
                 if '--offline' in command:
                     raise deps.PackageTimeoutError()
@@ -442,7 +442,7 @@ class AcquisitionFailureTests(unittest.TestCase):
                 stage = root / f'{mode}-stage'
                 stage.mkdir()
                 commands = []
-                def capture(command, *_):
+                def capture(command, *_, progress=None):
                     commands.append(command)
                     self.assertNotIn('--index-url', command)
                     self.assertNotIn('--registry', command)
@@ -487,7 +487,7 @@ class AcquisitionFailureTests(unittest.TestCase):
             (project.frontend / 'package-lock.json').write_text('{}')
             events = []
             registries = []
-            def capture(command, *_):
+            def capture(command, *_, progress=None):
                 if '--registry' in command:
                     self.assertTrue(events)
                     self.assertEqual(events[-1][0], 'progress')
@@ -519,7 +519,7 @@ class AcquisitionFailureTests(unittest.TestCase):
             stage.mkdir()
             calls = []
 
-            def capture(command, *_):
+            def capture(command, *_, progress=None):
                 calls.append(command)
                 if "--offline" not in command:
                     return subprocess.CompletedProcess(command, 1, "", "npm ERR! code ENOTFOUND")

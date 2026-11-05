@@ -140,7 +140,29 @@ def availability_failure(output: str, *, restricted: bool = False) -> bool:
     ))
 
 
-def capture(command: list, project: Project, overrides: dict | None = None, *, timeout=1800):
+def python_package_progress(line: str) -> str | None:
+    """Translate reviewed pip events without exposing URLs, paths or diagnostics."""
+    line = line.strip()
+    name = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,199}"
+    collecting = re.fullmatch(rf"Collecting ({name}(?:==[A-Za-z0-9_.+!-]+)?)(?: \(from [^\r\n]*\))?", line)
+    if collecting:
+        return f"Python: paket çözülüyor — {collecting[1]}"
+    download = re.fullmatch(
+        rf"(Downloading|Using cached) ({name}\.(?:whl|tar\.gz|zip)(?:\.metadata)?)"
+        r"( \([0-9.]+ (?:bytes|kB|MB|GB)\))?", line)
+    if download:
+        action = 'indiriliyor' if download[1] == 'Downloading' else 'önbellekten alınıyor'
+        return f"Python: {action} — {download[2]}{download[3] or ''}"
+    building = re.fullmatch(rf"Building wheel for ({name}) \([A-Za-z0-9_.-]+\): started", line)
+    if building:
+        return f"Python: wheel derleniyor — {building[1]}"
+    installing = re.fullmatch(rf"Installing collected packages: ({name}(?:, {name})*)", line)
+    if installing:
+        return f"Python: kuruluyor — {installing[1]}"[:1000]
+    return None
+
+
+def capture(command: list, project: Project, overrides: dict | None = None, *, timeout=1800, progress=None):
     """Capture diagnostics privately while isolating inherited package settings."""
     values = environment(overrides)
     values = {key: value for key, value in values.items()
@@ -163,11 +185,19 @@ def capture(command: list, project: Project, overrides: dict | None = None, *, t
         # Windows ANSI code page. Native build-tool diagnostics may still use a
         # legacy encoding: retain their bytes as escapes, not a decoding crash.
         values.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
+        live_options = {}
+        if progress is not None:
+            values['PYTHONUNBUFFERED'] = '1'
+            def report_line(line):
+                message = python_package_progress(line)
+                if message:
+                    progress(message)
+            live_options['on_output'] = report_line
         try:
             return controlled_run([str(part) for part in command], cwd=project.root, env=values,
                                   capture_output=True, text=True, encoding='utf-8', errors='backslashreplace',
                                   timeout=timeout, check=False,
-                                  safe_boundary=any(str(part) == "migrate" for part in command))
+                                  safe_boundary=any(str(part) == "migrate" for part in command), **live_options)
         except subprocess.TimeoutExpired:
             raise PackageTimeoutError() from None
 
@@ -359,7 +389,7 @@ def _python_packages(project: Project, settings: SourceSettings, tool_env: dict,
         candidate.mkdir()
         settings.report(f'Python paketleri: izinli kaynak {number + 1}/{len(indexes)} deneniyor')
         result = capture([project.python, "-m", "pip", "wheel", "--wheel-dir", candidate,
-                          "--index-url", index, "-r", project.requirements], project, tool_env)
+                          "--index-url", index, "-r", project.requirements], project, tool_env, progress=settings.progress)
         if not result.returncode:
             wheelhouse = candidate
             break
@@ -372,7 +402,7 @@ def _python_packages(project: Project, settings: SourceSettings, tool_env: dict,
             raise LauncherError("Kilitli Python paketleri internet, seçilen depo veya offline dizinde bulunamadı.")
         wheelhouse = offline / "wheels"
     _succeeded(capture([project.python, "-m", "pip", "install", "--no-index", "--find-links", wheelhouse,
-                       "-r", project.requirements], project, tool_env), "Python paket kurulumu")
+                       "-r", project.requirements], project, tool_env, progress=settings.progress), "Python paket kurulumu")
     _succeeded(capture([project.python, "-m", "pip", "check"], project, tool_env), "Python bağımlılık doğrulaması")
 
 
