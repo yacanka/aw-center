@@ -325,7 +325,7 @@ class NativeWindowsPackageTests(unittest.TestCase):
             home = directory / 'local/AWCenter'
             profile = json.loads((home / 'config/dev.profile.json').read_text(encoding='utf-8'))
             self.assertEqual(Path(profile['python_executable']).resolve(), python)
-            base = subprocess.run([str(source / '.venv/Scripts/python.exe'), '-I', '-c',
+            base = subprocess.run([str(source / '.venv/Scripts/python.exe'), '-I', '-B', '-c',
                                    'import sys; print(sys._base_executable)'],
                                   cwd=source, env=self.environment(directory, network=False),
                                   capture_output=True, text=True, timeout=30, check=False)
