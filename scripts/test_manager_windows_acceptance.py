@@ -260,11 +260,16 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                         duplicate.wait(timeout=30)
                         actual_source = Path(saved['source_root'])
                         self.assert_runtime_network_denied(saved, actual_source, private)
-                        cli = subprocess.run([str(actual_source / '.venv/Scripts/python.exe'),
+                        # Match AWCenter.cmd's immutable-runtime startup policy.
+                        # A bare interpreter would itself create stdlib .pyc
+                        # files before the CLI can reject the competing lease.
+                        cli = subprocess.run([str(actual_source / '.venv/Scripts/python.exe'), '-B', '-X', 'utf8',
                             str(actual_source / 'launcher.py'), 'start', '--profile', profile],
                             cwd=actual_source, env=self.environment(directory, network=True),
                             capture_output=True, timeout=30)
                         self.assertNotEqual(cli.returncode, 0, 'CLI bypassed the live profile lease')
+                        self.assertTrue('Başka bir işlem' in cli.stdout.decode('utf-8'),
+                                        'CLI did not reject the live profile lease')
                         env = private / 'config' / (profile + '.env')
                         identity = hashlib.sha256(env.read_bytes()).hexdigest()
                         ports = [request['backend_port']] + ([request['frontend_port']] if profile == 'dev' else [])
@@ -283,7 +288,7 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                         child, events, admin = self.run_until_ready(directory, request, password)
                         self.assertFalse(admin)
                         self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
-                        live = LiveAcceptance(origin, certificate)
+                        live = LiveAcceptance(origin, certificate, frontend)
                         live.exercise(password)
                         with live.request('/api/jobs/' + job_id + '/download/') as response:
                             self.assertEqual(hashlib.sha256(response.read()).hexdigest(), digest)
