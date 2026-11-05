@@ -268,7 +268,7 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                             cwd=actual_source, env=self.environment(directory, network=True),
                             capture_output=True, timeout=30)
                         self.assertNotEqual(cli.returncode, 0, 'CLI bypassed the live profile lease')
-                        self.assertTrue('Başka bir işlem' in cli.stdout.decode('utf-8'),
+                        self.assertTrue('Başka bir işlem' in cli.stderr.decode('utf-8'),
                                         'CLI did not reject the live profile lease')
                         env = private / 'config' / (profile + '.env')
                         identity = hashlib.sha256(env.read_bytes()).hexdigest()
