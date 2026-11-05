@@ -234,10 +234,18 @@ py -3.11 -m unittest scripts.test_manager_package.NativeWindowsPackageTests
 Tam soğuk çevrimdışı dev/prod kabulü artık workflow'da zorunludur;
 `scripts.test_manager_windows_acceptance.NativeOfflineAcceptance` aynı tam
 paketi sistem araçlarıyla ve yönetilen araç seçimiyle çalıştırır. Test yalnız
-geçici CI Windows makinesinde Windows Firewall ile dış IPv4/IPv6 erişimini
-engeller; loopback ve uygulamanın kendi IPv4 adresi açık kalır. Engelin gerçekten
-çalıştığı TCP bağlantılarıyla doğrulanır. Testin geçici kuralı sonunda kaldırılır.
+geçici CI Windows makinesinde Windows Firewall ile Manager, sistem/yönetilen
+Python ve Node, dev/prod sanal ortamlarının dış IPv4/IPv6 erişimini engeller;
+loopback ve uygulamanın kendi IPv4 adresi açık kalır. CI runner'ın ayrı kontrol
+bağlantısı engellenmez. Kurallar kurulumdan önce, henüz oluşmamış runtime ve
+release yolları dahil tanımlanır. Engelin gerçekten çalıştığı test Python'u ve
+kurulan uygulamanın Python/Node süreçlerinde TCP bağlantılarıyla doğrulanır.
+Testin geçici kuralları sonunda kaldırılır.
 Firewall kurulamazsa test başarısız olur, çevrimdışı kabul atlanmaz.
+
+Paket bir kez üretilir; iki ayrı native kabul işi aynı SHA-256 doğrulanmış ZIP'i
+kullanır. ZIP'in artifact olarak bulunması yayın kabulü değildir: workflow'un
+iki kabul işi de başarılı olmalıdır.
 
 Gerçek HTTPS, ilk yönetici, session cookie/CSRF, frontend, küçük DOCX karşılaştırma
 job'ı, gerçek worker ve yetkili/anonim dosya indirme kontrolleri yapılır. İptalden

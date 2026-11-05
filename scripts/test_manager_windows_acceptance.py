@@ -1,5 +1,6 @@
 """Mandatory packaged dev/prod offline acceptance on a disposable Windows host."""
 import hashlib
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -12,9 +13,48 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from scripts import test_manager_package as fixtures
-from scripts.manager_windows_acceptance import LiveAcceptance, deny_external_network
+from scripts.manager_windows_acceptance import LiveAcceptance, acceptance_programs, deny_external_network
+
+
+class ContainmentTests(unittest.TestCase):
+    def test_firewall_requires_explicit_programs_and_never_blocks_the_ci_host(self):
+        with patch('scripts.manager_windows_acceptance.subprocess.run') as run:
+            with self.assertRaises(ValueError), deny_external_network('10.0.0.10', []):
+                pass
+            run.assert_not_called()
+            run.return_value = subprocess.CompletedProcess([], 0, b'', b'')
+            programs = [Path('/test/manager.exe'), Path('/test/python.exe')]
+            with self.assertRaisesRegex(RuntimeError, 'test failure'):
+                with deny_external_network('10.0.0.10', programs):
+                    raise RuntimeError('test failure')
+            commands = [call.args[0] for call in run.call_args_list]
+            adds = [command for command in commands if 'add' in command]
+            deletes = [command for command in commands if 'delete' in command]
+            self.assertEqual(len(adds), len(programs))
+            self.assertEqual(len(deletes), len(programs))
+            for command, program in zip(adds, programs):
+                self.assertIn('program=' + str(program.resolve()), command)
+                self.assertIn('action=block', command)
+                self.assertIn(',::/1,8000::/1', command[-1])
+
+    def test_containment_covers_future_system_managed_and_release_interpreters(self):
+        from scripts.launcher.installation_sources import load_catalog
+        from scripts.launcher.toolchain import _directory
+        directory, source = Path('/acceptance'), Path('/acceptance/source')
+        with patch('scripts.manager.payload.verify_source_payload', return_value={'fingerprint': 'a' * 64}):
+            programs = acceptance_programs(Path('/bundle/Manager.exe'), directory, source,
+                                           Path('/system/python.exe'), Path('/system/node.exe'))
+        for path in ('/bundle/Manager.exe', '/system/python.exe', '/system/node.exe',
+                     '/acceptance/source/.venv/Scripts/python.exe'):
+            self.assertIn(Path(path), programs)
+        home = directory / 'local/AWCenter'
+        self.assertIn(home / 'releases' / ('a' * 64) / 'source/.venv/Scripts/python.exe', programs)
+        for name in ('python', 'node'):
+            artifact = load_catalog()[name]
+            self.assertIn(_directory(home, artifact) / artifact.executable, programs)
 
 
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE') == '1',
@@ -22,11 +62,15 @@ from scripts.manager_windows_acceptance import LiveAcceptance, deny_external_net
 class NativeOfflineAcceptance(unittest.TestCase):
     setUp = fixtures.NativeWindowsPackageTests.setUp
     environment = fixtures.NativeWindowsPackageTests.environment
-    start_worker = fixtures.NativeWindowsPackageTests.start_worker
     stop_worker = staticmethod(fixtures.NativeWindowsPackageTests.stop_worker)
     next_event = fixtures.NativeWindowsPackageTests.next_event
     copy_clean_source = fixtures.NativeWindowsPackageTests.copy_clean_source
     provision_request = staticmethod(fixtures.NativeWindowsPackageTests.provision_request)
+
+    def start_worker(self, *args, **kwargs):
+        child, events = fixtures.NativeWindowsPackageTests.start_worker(self, *args, **kwargs)
+        self.case_processes.callback(self.stop_worker, child)
+        return child, events
 
     @classmethod
     def setUpClass(cls):
@@ -99,6 +143,22 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                 probe.settimeout(1)
                 self.assertNotEqual(probe.connect_ex((host, port)), 0)
 
+    def assert_runtime_network_denied(self, saved, actual_source, home):
+        from scripts.launcher.installation_sources import load_catalog
+        from scripts.launcher.toolchain import _directory
+        node = saved.get('node_executable')
+        if not node:
+            artifact = load_catalog()['node']
+            node = _directory(home, artifact) / artifact.executable
+        probes = (
+            [str(actual_source / '.venv/Scripts/python.exe'), '-I', '-B', '-c',
+             "import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(int(s.connect_ex(('1.1.1.1',443)) == 0))"],
+            [str(node), '-e', "const s=require('net').connect(443,'1.1.1.1'); s.on('connect',()=>process.exit(1)); s.on('error',()=>process.exit(0)); s.setTimeout(2000,()=>{s.destroy();process.exit(0)});"],
+        )
+        for command in probes:
+            result = subprocess.run(command, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, 'Application runtime bypassed OS network denial')
+
     def test_dev_prod_system_and_managed_tools_with_real_network_denial(self):
         # Forced managed runs complement discovery's missing-tools unit tests.
         # A genuinely clean standard-user machine is also a release field gate.
@@ -106,7 +166,9 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
         self.assertFalse(host.startswith('127.'), 'Production acceptance needs an assigned IPv4')
         for profile in ('dev', 'prod'):
             for system in (True, False):
-                with self.subTest(profile=profile, system_tools=system), tempfile.TemporaryDirectory(prefix='awc-offline-') as temporary:
+                with self.subTest(profile=profile, system_tools=system), tempfile.TemporaryDirectory(prefix='awc-offline-') as temporary, ExitStack() as processes:
+                    self.case_processes = processes
+                    print(f'[native] offline profile={profile}, system_tools={system}', flush=True)
                     directory = Path(temporary).resolve()
                     source = self.copy_clean_source(self.executable, directory)
                     request = self.provision_request(source, 'offline')
@@ -118,7 +180,8 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                         self.certificate(directory, host)
                         request.update(host=host, tls_cert_file=str(directory / 'cert.pem'), tls_key_file=str(directory / 'key.pem'))
                     password = secrets.token_urlsafe(48)
-                    with deny_external_network(host):
+                    programs = acceptance_programs(self.executable, directory, source, self.python, self.node)
+                    with deny_external_network(host, programs):
                         for address in ('1.1.1.1', '8.8.8.8'):
                             with self.assertRaises(OSError):
                                 socket.create_connection((address, 443), timeout=2)
@@ -158,6 +221,7 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                                 break
                         duplicate.wait(timeout=30)
                         actual_source = Path(saved['source_root'])
+                        self.assert_runtime_network_denied(saved, actual_source, private)
                         cli = subprocess.run([str(actual_source / '.venv/Scripts/python.exe'),
                             str(actual_source / 'launcher.py'), 'start', '--profile', profile],
                             cwd=actual_source, env=self.environment(directory, network=True),

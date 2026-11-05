@@ -17,13 +17,18 @@ import zipfile
 
 
 @contextmanager
-def deny_external_network(host):
+def deny_external_network(host, programs):
     """Disposable CI host only; test application keeps its ordinary token.
 
     Rule names are random and only these rules are removed. Loopback and the
-    application's own IPv4 remain reachable; all other IPv4/IPv6 is denied.
+    application's own IPv4 remain reachable; all other IPv4/IPv6 is denied
+    for the explicit application interpreters and executables. The CI runner
+    must retain its separate control-plane connection.
     Failure to install the OS rule fails acceptance, never silently skips it.
     """
+    programs = tuple(dict.fromkeys(str(Path(program).resolve()) for program in programs))
+    if not programs:
+        raise ValueError('Explicit application programs are required for network containment')
     networks = [ipaddress.ip_network('0.0.0.0/0')]
     for exclusion in (ipaddress.ip_network('127.0.0.0/8'), ipaddress.ip_network(host + '/32')):
         networks = [part for network in networks for part in
@@ -32,20 +37,43 @@ def deny_external_network(host):
     remote = ','.join(map(str, networks)) + ',::/1,8000::/1'
     names = []
     try:
-        name = 'AWC-acceptance-' + uuid.uuid4().hex
-        result = subprocess.run(['netsh', 'advfirewall', 'firewall', 'add', 'rule',
-            'name=' + name, 'dir=out', 'action=block', 'enable=yes', 'profile=any',
-            'remoteip=' + remote], capture_output=True, timeout=30)
-        if result.returncode:
-            raise AssertionError('Windows Firewall rule creation failed: ' +
-                                 result.stdout.decode(errors='replace')[:2000] +
-                                 result.stderr.decode(errors='replace')[:2000])
-        names.append(name)
+        for program in programs:
+            name = 'AWC-acceptance-' + uuid.uuid4().hex
+            result = subprocess.run(['netsh', 'advfirewall', 'firewall', 'add', 'rule',
+                'name=' + name, 'dir=out', 'action=block', 'enable=yes', 'profile=any',
+                'program=' + program, 'remoteip=' + remote], capture_output=True, timeout=30)
+            if result.returncode:
+                raise AssertionError('Windows Firewall rule creation failed: ' +
+                                     result.stdout.decode(errors='replace')[:2000] +
+                                     result.stderr.decode(errors='replace')[:2000])
+            names.append(name)
         yield
     finally:
         for name in names:
             subprocess.run(['netsh', 'advfirewall', 'firewall', 'delete', 'rule', 'name=' + name],
                            capture_output=True, timeout=30, check=True)
+
+
+def acceptance_programs(executable, directory, source, python, node):
+    """Cover system/managed tools and future dev/prod venv paths before setup.
+
+    pip runs through Python and npm through Node. No installer needs a separate
+    downloader process. Paths are derived from the same pinned catalog and
+    source fingerprint as installation, including files not created yet.
+    """
+    from scripts.launcher.installation_sources import load_catalog
+    from scripts.launcher.toolchain import _directory
+    from scripts.manager.payload import verify_source_payload
+    home = directory / 'local/AWCenter'
+    release = home / 'releases' / verify_source_payload(source)['fingerprint'] / 'source'
+    catalog = load_catalog()
+    programs = [executable, python, node]
+    programs.extend(_directory(home, catalog[name]) / catalog[name].executable
+                    for name in ('python', 'node'))
+    for root in (source, release):
+        programs.extend(root / '.venv/Scripts' / name for name in
+                        ('python.exe', 'pythonw.exe', 'pip.exe', 'pip3.exe', 'pip3.11.exe'))
+    return programs
 
 
 def docx_bytes(text):

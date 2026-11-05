@@ -59,7 +59,7 @@ jobs:
           sc start MpsSvc
           netsh advfirewall set allprofiles state on
           if errorlevel 1 exit /b 1
-          python -c "import socket; from scripts.manager_windows_acceptance import deny_external_network; exec('with deny_external_network(socket.gethostbyname(socket.gethostname())):\n    pass')"
+          python -c "import socket, sys; from scripts.manager_windows_acceptance import deny_external_network; exec('with deny_external_network(socket.gethostbyname(socket.gethostname()), [sys.executable]):\n    pass')"
       - name: Record source manager startup evidence
         run: |
           if not exist "%RUNNER_TEMP%\manager-ui-evidence" mkdir "%RUNNER_TEMP%\manager-ui-evidence"
@@ -74,13 +74,6 @@ jobs:
         run: python -m unittest discover -s scripts -p "test_manager*.py"
       - name: Build portable windowed ZIP with reviewed runtime archives
         run: python scripts/build_manager.py --output "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip"
-      - name: Extract the complete portable ZIP
-        run: python -m zipfile -e "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip" "%RUNNER_TEMP%\awcenter-manager-portable"
-      - name: Native packaged window and private worker acceptance
-        env:
-          AWCENTER_RUN_MANAGER_WINDOWS_SMOKE: '1'
-          AWCENTER_MANAGER_EXE: ${{ runner.temp }}\awcenter-manager-portable\AWCenterManager.exe
-        run: python -m unittest -f -v scripts.test_manager_package.NativeWindowsPackageTests scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
       - name: Upload manager ZIP and reviewable checksum inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -97,3 +90,48 @@ jobs:
           name: AWCenterManager-ui-evidence
           path: ${{ runner.temp }}/manager-ui-evidence
           if-no-files-found: warn
+
+  native-acceptance:
+    needs: windows-manager
+    runs-on: windows-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - scripts.test_manager_package.NativeWindowsPackageTests
+          - scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '26.12.1'
+          architecture: x64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: AWCenterManager-windows-x64
+          path: ${{ runner.temp }}
+      - name: Verify and extract the exact build artifact
+        run: |
+          python -c "import hashlib, os, pathlib; p=pathlib.Path(os.environ['RUNNER_TEMP'])/'AWCenterManager-windows-x64.zip'; assert hashlib.file_digest(p.open('rb'), 'sha256').hexdigest() == p.with_suffix('.zip.sha256').read_text().split()[0]"
+          if errorlevel 1 exit /b 1
+          python -m zipfile -e "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip" "%RUNNER_TEMP%\awcenter-manager-portable"
+      - name: Require Windows Firewall
+        run: |
+          sc start MpsSvc
+          netsh advfirewall set allprofiles state on
+          if errorlevel 1 exit /b 1
+      - name: Native packaged acceptance
+        env:
+          AWCENTER_RUN_MANAGER_WINDOWS_SMOKE: '1'
+          AWCENTER_MANAGER_EXE: ${{ runner.temp }}\awcenter-manager-portable\AWCenterManager.exe
+        run: python -m unittest -f -v ${{ matrix.suite }}
