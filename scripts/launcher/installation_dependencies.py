@@ -159,9 +159,14 @@ def capture(command: list, project: Project, overrides: dict | None = None, *, t
             values["NPM_CONFIG_" + kind.upper() + "CONFIG"] = str(path)
         if overrides:
             values.update(overrides)
+        # Package tools emit UTF-8, independently of the windowed Manager's
+        # Windows ANSI code page. Native build-tool diagnostics may still use a
+        # legacy encoding: retain their bytes as escapes, not a decoding crash.
+        values.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
         try:
             return controlled_run([str(part) for part in command], cwd=project.root, env=values,
-                                  capture_output=True, text=True, timeout=timeout, check=False,
+                                  capture_output=True, text=True, encoding='utf-8', errors='backslashreplace',
+                                  timeout=timeout, check=False,
                                   safe_boundary=any(str(part) == "migrate" for part in command))
         except subprocess.TimeoutExpired:
             raise PackageTimeoutError() from None
@@ -425,19 +430,23 @@ def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dic
 def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None,
                          repair_venv: bool = False) -> None:
     """Use one source per acquisition attempt; never fallback after installation fails."""
+    settings.report('Python sanal ortamı doğrulanıyor')
     _ensure_venv(project, tool_env, expected_python=expected_python,
                  repair=repair_venv, report=settings.report)
     node = tool_env.get('AWCENTER_MANAGED_NODE') or shutil.which('node', path=tool_env.get('PATH'))
     if not node:
         raise LauncherError('Node bulunamadı; paket güven deposu hazırlanamadı.')
+    settings.report('Paket bağlantıları için güven deposu hazırlanıyor')
     with package_trust_environment(tool_env, ca_file=settings.ca_file, python=project.python, node=node) as trusted_env, \
          tempfile.TemporaryDirectory(prefix="awcenter-packages-") as temporary:
         stage = Path(temporary)
         print("Python paketleri hazırlanıyor…", flush=True)
+        settings.report('Python bağımlılıkları hazırlanıyor')
         if not dependency_stage(project.venv, project.requirements,
                                 lambda: _python_packages(project, settings, trusted_env, stage)):
             settings.report('Python bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')
         print("Frontend paketleri hazırlanıyor…", flush=True)
+        settings.report('Frontend bağımlılıkları hazırlanıyor')
         if not dependency_stage(project.frontend / 'node_modules', project.frontend / 'package-lock.json',
                                 lambda: _frontend_packages(project, settings, trusted_env, stage)):
             settings.report('npm bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')

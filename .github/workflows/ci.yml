@@ -231,7 +231,7 @@ jobs:
       - name: Run managed installation unit contracts
         shell: cmd
         env:
-          AWCENTER_EXPECT_PYTHON_VERSION: "3.11.9"
+          TEST_EXPECT_PYTHON_VERSION: "3.11.9"
         run: >-
           python -m unittest
           scripts.test_launcher_profiles

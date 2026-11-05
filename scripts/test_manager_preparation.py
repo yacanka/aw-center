@@ -1,5 +1,6 @@
 """Automatic desktop admission preserves files, leases and safe diagnostics."""
 from contextlib import nullcontext
+import errno
 import json
 from pathlib import Path
 import tempfile
@@ -125,6 +126,33 @@ class PreparationTests(unittest.TestCase):
                 self.assertEqual(error['code'], failure.code)
                 self.assertEqual(error['remedy'], failure.remedy)
                 self.assertNotIn('private-path-withheld', json.dumps(events))
+
+    def test_dependency_system_errors_report_category_and_numeric_codes_without_private_data(self):
+        cases = (
+            (PermissionError(errno.EACCES, 'private-path-withheld'), 5, 'system_access_denied'),
+            (OSError(errno.ENOSPC, 'private-path-withheld'), 112, 'system_disk_full'),
+            (FileNotFoundError(errno.ENOENT, 'private-path-withheld'), 2, 'system_path_missing'),
+            (OSError(errno.ENAMETOOLONG, 'private-path-withheld'), 206, 'system_path_too_long'),
+            (OSError(errno.EIO, 'private-path-withheld'), 1117, 'system_io_failed'),
+            (UnicodeDecodeError('utf-8', b'private-path-withheld', 0, 1, 'private-path-withheld'),
+             None, 'process_output_invalid'),
+        )
+        for failure, winerror, code in cases:
+            failure.winerror = winerror
+            def fail(action, args, emit):
+                args.progress('Python sanal ortamı doğrulanıyor')
+                raise failure
+            with self.subTest(code=code), patch.object(operations, '_dispatch', side_effect=fail):
+                events = []
+                operations.execute({'action': 'ensure'}, events.append, lambda: None, threading.Event())
+            error = next(event for event in events if event['type'] == 'error')
+            self.assertEqual(error['code'], code)
+            self.assertIn('Python sanal ortamı', error['message'])
+            if winerror:
+                self.assertIn(f'WinError: {winerror}', error['message'])
+            self.assertNotIn('Kaynakları test edin', error['remedy'])
+            self.assertNotIn('private-path-withheld', json.dumps(events))
+            self.assertEqual(events[-1], {'type': 'done', 'ok': False})
 
     def test_output_inside_any_input_tree_is_relocated_before_claims(self):
         for field in ('source_root', 'manager_distribution', 'assets', 'offline_dir', 'repository'):

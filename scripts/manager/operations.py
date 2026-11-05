@@ -6,6 +6,7 @@ threads sharing an interpreter. Imports for an action stay in its own path.
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 from pathlib import Path
 import sys
@@ -108,6 +109,10 @@ def _failure_reason(error):
         return error.code, str(error)
     if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError)):
         return error.code, str(error)
+    if isinstance(error, UnicodeError):
+        return 'process_output_invalid', 'Alt süreç çıktısının karakter kodlaması okunamadı.'
+    if isinstance(error, OSError):
+        return _system_failure(error)
     if not isinstance(error, LauncherError):
         return 'operation_failed', 'İşlem tamamlanamadı; yapılandırma veya sistem erişimi doğrulanamadı.'
     text = str(error).casefold()
@@ -141,6 +146,25 @@ def _failure_reason(error):
             return code, reason
     return 'operation_failed', 'İşlem tamamlanamadı; Kontrol et raporundaki eksikleri inceleyin.'
 
+def _system_failure(error):
+    """Keep actionable OS codes without filenames, command lines or OS text."""
+    number, winerror = error.errno, getattr(error, 'winerror', None)
+    if number in {errno.EACCES, errno.EPERM} or winerror in {5, 32, 33}:
+        code, message = 'system_access_denied', 'Dosya veya süreç erişimi engellendi ya da dosya başka bir işlemde açık.'
+    elif number == errno.ENOSPC or winerror == 112:
+        code, message = 'system_disk_full', 'İşlem için yeterli disk alanı yok.'
+    elif number == errno.ENAMETOOLONG or winerror == 206:
+        code, message = 'system_path_too_long', 'Dosya yolu Windows uzunluk sınırını aşıyor.'
+    elif number == errno.ENOENT or winerror in {2, 3}:
+        code, message = 'system_path_missing', 'Gerekli dosya, klasör veya çalıştırılabilir araç bulunamadı.'
+    else:
+        code, message = 'system_io_failed', 'Dosya veya alt süreç işlemi tamamlanamadı.'
+    for label, value in (('WinError', winerror), ('errno', number)):
+        if type(value) is int and value > 0:
+            message += f' {label}: {value}.'
+    return code, message
+
+
 def execute(request, emit, admin_provider, stop, migration_provider=None):
     """Map only declared results/errors; a failure belongs to this worker alone."""
     phase = 'Hazırlık'
@@ -171,6 +195,12 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
     except Exception as error:
         code, reason = _failure_reason(error)
         remedies = {
+            'process_output_invalid': 'Güncel Manager ile yeniden deneyin; mevcut ortam ve tamamlanan kurulum aşamaları korunur.',
+            'system_access_denied': 'Bu kaynak dizinini kullanan diğer AW Center işlemlerini kapatıp yeniden deneyin. Devam ederse klasör yazma izinlerini ve güvenlik yazılımının kaydını kontrol edin; ortamı silmeyin.',
+            'system_disk_full': 'Kurulum ve Windows geçici dosya diskinde boş alan açıp yeniden deneyin; tamamlanan aşamalar korunur.',
+            'system_path_too_long': 'Proje ZIP paketini daha kısa bir yerel yola çıkarıp bu kaynağı seçin; mevcut profil ve veritabanını silmeyin.',
+            'system_path_missing': 'ZIP paketinin tamamının çıkarıldığını ve seçilen Python/Node dosyalarının mevcut olduğunu kontrol edip yeniden deneyin.',
+            'system_io_failed': 'Rapordaki son aşama ve sayısal sistem kodunu kullanarak disk veya çalıştırma erişimini kontrol edin; tamamlanan aşamalar korunur.',
             'port_unavailable': 'Gelişmiş ayarlarda ilgili yerel port için auto yazın veya boş bir port seçin. Başka uygulamalar otomatik kapatılmaz.',
             'connection_override_invalid': 'Gelişmiş bağlantı ayarlarını ve varsa özel .env içindeki origin/reset/invitation adreslerini birlikte kontrol edin.',
             'manager_distribution_required': 'Aynı sürümden Windows Manager ZIP paketinin tamamını çıkarın. Kaynak çalıştırmada Windows Manager paketi alanını seçin; EXE ile açıldığında dağıtım otomatik bulunur.',

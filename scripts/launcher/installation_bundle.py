@@ -21,6 +21,7 @@ from .model import LauncherError, Project, Scope
 from .offline_manifest import (artifact_metadata, ensure_wheels_only, file_sha256,
                                lock_metadata, target_metadata, verify_offline_manifest)
 from .packaging import EXCLUDED_NAMES, EXCLUDED_PARTS, EXCLUDED_SUFFIXES
+from .process import controlled_run
 
 INSTALL_MANIFEST = 'install-manifest.json'
 ASSET_MANIFEST = 'asset-manifest.json'
@@ -245,7 +246,7 @@ def _source_files(project: Project) -> list[Path]:
             _safe_path(root, path)
             selected.append(path)
     if checkout:
-        completed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z'],
+        completed = controlled_run(['git', '-C', str(root), 'ls-files', '-z'],
                                    check=False, capture_output=True)
         if completed.returncode:
             raise LauncherError('safe tracked source inventory requires Git in a checkout')
@@ -360,7 +361,7 @@ def source_provenance(project: Project) -> str:
     """Use a real commit when available, otherwise fingerprint distributed source."""
     if (project.root / '.git').exists() and shutil.which('git'):
         try:
-            result = subprocess.run(['git', '-C', str(project.root), 'rev-parse', 'HEAD'],
+            result = controlled_run(['git', '-C', str(project.root), 'rev-parse', 'HEAD'],
                                     capture_output=True, text=True, check=False, timeout=10)
             if result.returncode == 0 and re.fullmatch(r'[0-9a-f]{40,64}', result.stdout.strip()):
                 return result.stdout.strip()

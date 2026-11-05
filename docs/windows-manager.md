@@ -49,6 +49,15 @@ Aktif işlem varken **X** görev çubuğuna küçültür. **Çıkış**, mevcut 
 durdurma akışını çalıştırır; süreçler temizlendikten sonra kapanır. Aktif işlem
 yokken X doğrudan kapatır. Sistem tepsisi veya Windows servisi kurulmaz.
 
+`AWCenterManager.pyw` ve paketlenmiş EXE üzerinden çalıştırılan kurulum,
+pip/npm, Git sorguları ve uygulama süreçleri siyah konsol penceresi açmaz.
+Komut kapısı, konsolu olmayan Manager altında gizli bir konsol oluşturur;
+ensurepip ve npm'in kendi alt süreçleri de bu konsolu miras alır.
+Yalnız ilk sürece `CREATE_NO_WINDOW` vermek bu mirası sağlamaz;
+[Windows süreç oluşturma bayrakları](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags)
+ve `STARTUPINFO` pencere ayarı birlikte kullanılır. Terminalden çalıştırılan
+launcher'ın mevcut konsolu korunur. İşlem iptali ve Job Object sınırı değişmez.
+
 ## Sistem Python ve Node.js seçimi
 
 Manager varsayılan olarak önce sistemdeki uygun Python ve Node.js kurulumlarını arar; bulunan aracı indirmez veya değiştirmez. Python için mevcut CPython, `py -3.11`, PATH'in tüm dizinleri, Windows Python kayıtlarının 32/64 bit görünümleri ve yaygın kurulum dizinleri üzerinden tam **CPython 3.11 x64** aranır. `venv` ve `ensurepip` desteği de doğrulanır. Otomatik aramada uygun Python bulunamazsa seçilen kaynak politikasına göre yönetilen Python hazırlanır. **Her durumda yönetilen Python kurulumunu kullan** kutusu bu otomatik tercihi açıkça geçersiz kılar. Store yürütme alias'ı başlatılmaz; Python launcher'ın otomatik kurulum seçeneği sorguda kapalıdır. [Python Windows launcher ayarları](https://docs.python.org/3/using/windows.html) bu ortam seçeneklerini açıklar.
@@ -60,6 +69,16 @@ Otomatik tespit yeterli olmazsa **Gelişmiş ayarlar → Python komutu / yolu (i
 Seçilen Node yanındaki kararlı **npm 10.9.4+ (10.x) veya 11.x** CLI da kullanılır. Örneğin Node 26.12.1 ile kurulu npm 11.18.0, yalnız daha yeni olduğu için yeniden kurulmaz. Uygun npm eksikse doğrulanmış yönetilen **npm 10.9.4** arşivi hazırlanır; katalog pini ve dependency lock dosyaları değişmez. npm doğrudan seçilen Node ile çalıştırılır, `.cmd` üzerinden shell komutu yürütülmez. Python ve Node yolları profil bazında kaydedilir; Başlat ve Durumu denetle aynı araçları yeniden doğrular.
 
 Runtime hazırlığı, arşiv edinme/açma, sürüm denetimi ve kayıt yazma aşamalarını ayrı gösterir. Sürüm denetimi de Manager'ın iptal edilebilir süreç yolunu ve ayrı stdin'i kullanır. Başlatma, 30 saniyelik zaman aşımı, süreç çıkışı ve katalog sürüm uyuşmazlığı `runtime_validation_…` kodlarıyla raporlanır; ham stdout/stderr veya dosya yolu gösterilmez. pip/npm alt süreçleri için kullanıcı ve global npm ayarları iki farklı boş geçici dosyayla ayrılır; aynı null dosyasının iki kez yüklenmesi önlenir ve dosyalar işlem sonunda temizlenir.
+
+Paket komutlarının Python çıktısı ve Manager okuması açıkça UTF-8 kullanır;
+Windows'un yerel ANSI kod sayfasına veya devralınan `PYTHONIOENCODING` değerine
+bağlı değildir. Eski kod sayfasıyla yazan yerel araçların tanılama baytları
+kaçış biçiminde korunur; çıktı çözümlemesi başarılı komutu hataya çevirmez veya
+başarısız komutun çıkış kodunu gizlemez. Ham araç çıktısı rapora aktarılmaz.
+Bağımlılık aşaması sanal ortam, güven deposu, Python paketleri ve frontend
+paketleri olarak ayrı ilerleme bildirir. Dosya erişimi, disk doluluğu, eksik
+yol ve uzun yol hataları güvenli kategori ve varsa `WinError`/`errno` ile
+raporlanır; dosya adları, komut satırları ve kimlik bilgileri gösterilmez.
 
 Python 3.11.3 x64 dahil CPython 3.11 yama sürümleri kabul edilir. Etkileşimli `python` ekranının açılması, `venv` ve `ensurepip` desteğinin hazır olduğunu tek başına göstermez. Manager artık süreç başlatma hatasını (`system_python_start_failed`, varsa `WinError`/`errno`), süreç çıkışını (`system_python_process_failed` ve sayısal çıkış kodu), denetim zaman aşımını (`system_python_timeout`), eksik `venv`/`ensurepip` modülünü ve standart modül yükleme hatasını ayrı raporlar. Ham stderr, dosya yolları veya exception içeriği rapora aktarılmaz. Eski genel “Python bulunamadı” mesajı bu nedenleri ayırt ettirmez.
 

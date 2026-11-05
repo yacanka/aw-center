@@ -242,7 +242,8 @@ def _start_windows(command, cwd, extra_env):
         [python, str(Path(__file__).with_name("child_bootstrap.py")),
          *[str(part) for part in command]],
         cwd=cwd, env=environment(extra_env), stdin=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | (subprocess.CREATE_NO_WINDOW if getattr(sys, "frozen", False) else 0),
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | (subprocess.CREATE_NO_WINDOW if
+            getattr(sys, "frozen", False) or getattr(_control, "stop", None) is not None else 0),
         **({"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if getattr(_control, "stop", None) is not None else {}),
     )
     try:

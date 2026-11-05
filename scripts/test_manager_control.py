@@ -1,17 +1,102 @@
 """Cancellation and containment regressions for desktop-managed operations."""
 from pathlib import Path
+from contextlib import ExitStack
+import ctypes
+import json
 import os
 import subprocess
+import shutil
 import sys
+import tempfile
 import textwrap
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from scripts.launcher import process
 
 
 class ManagerControlTests(unittest.TestCase):
+    def test_windowless_gate_starts_hidden_console_for_command_and_descendants(self):
+        from scripts.launcher import child_bootstrap
+        for attached in (False, True):
+            with self.subTest(attached=attached), ExitStack() as stack:
+                kernel = Mock()
+                kernel.GetConsoleWindow.return_value = int(attached)
+                startup = Mock(dwFlags=0, wShowWindow=1)
+                stack.enter_context(patch.object(child_bootstrap.os, 'name', 'nt'))
+                stack.enter_context(patch.object(ctypes, 'WinDLL', return_value=kernel, create=True))
+                stack.enter_context(patch.object(subprocess, 'STARTUPINFO', return_value=startup, create=True))
+                for name, value in (('CREATE_NEW_CONSOLE', 16), ('STARTF_USESHOWWINDOW', 1), ('SW_HIDE', 0)):
+                    stack.enter_context(patch.object(subprocess, name, value, create=True))
+                stack.enter_context(patch.object(child_bootstrap.os, 'read', return_value=b'go\n'))
+                spawn = stack.enter_context(patch.object(subprocess, 'call', return_value=0))
+                self.assertEqual(child_bootstrap.main(arguments=['tool', 'argument']), 0)
+                options = spawn.call_args.kwargs
+                self.assertEqual(options['stdin'], subprocess.DEVNULL)
+                if attached:
+                    self.assertNotIn('creationflags', options)
+                    self.assertNotIn('startupinfo', options)
+                else:
+                    self.assertEqual(options.get('creationflags'), 16)
+                    self.assertEqual(options['startupinfo'].dwFlags & 1, 1)
+                    self.assertEqual(options['startupinfo'].wShowWindow, 0)
+
+    def test_source_manager_server_gate_is_hidden_while_cli_keeps_its_console(self):
+        for managed in (False, True):
+            with self.subTest(managed=managed), ExitStack() as stack:
+                if managed:
+                    stack.enter_context(process.operation_control(threading.Event()))
+                stack.enter_context(patch.object(sys, 'frozen', False, create=True))
+                stack.enter_context(patch.object(subprocess, 'CREATE_NEW_PROCESS_GROUP', 512, create=True))
+                stack.enter_context(patch.object(subprocess, 'CREATE_NO_WINDOW', 0x08000000, create=True))
+                spawn = stack.enter_context(patch.object(subprocess, 'Popen'))
+                stack.enter_context(patch('scripts.launcher.windows_job.WindowsJob'))
+                process._start_windows(['tool'], Path.cwd(), {})
+                self.assertEqual(bool(spawn.call_args.kwargs['creationflags'] & 0x08000000), managed)
+
+    @unittest.skipUnless(os.name == 'nt', 'Requires native Windows console visibility')
+    def test_managed_commands_and_grandchildren_have_no_visible_console(self):
+        code = '''import ctypes, json, subprocess, sys
+kernel = ctypes.WinDLL('kernel32')
+kernel.GetConsoleWindow.restype = ctypes.c_void_p
+user = ctypes.WinDLL('user32')
+user.IsWindowVisible.argtypes = [ctypes.c_void_p]
+window = kernel.GetConsoleWindow()
+print(json.dumps({'visible': bool(window and user.IsWindowVisible(window))}), flush=True)
+if len(sys.argv) > 1:
+    raise SystemExit(subprocess.call([sys.executable, '-c', sys.argv[1]]))
+'''
+        console = Path(sys.executable).with_name('python.exe')
+        for name in ('python.exe', 'pythonw.exe'):
+            with self.subTest(gate=name), patch.object(sys, 'executable', str(console.with_name(name))), \
+                    process.operation_control(threading.Event()):
+                result = process.controlled_run([str(console), '-c', code, code],
+                    capture_output=True, text=True, timeout=10, check=True)
+            self.assertEqual([json.loads(line) for line in result.stdout.splitlines()],
+                             [{'visible': False}, {'visible': False}])
+
+    @unittest.skipUnless(shutil.which('git'), 'Requires local Git metadata commands')
+    def test_packaging_metadata_obeys_manager_cancellation_before_spawning(self):
+        from scripts.launcher import installation_bundle, offline_manifest, packaging
+        from scripts.launcher_test_support import create_project
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            (project.root / '.git').mkdir()
+            commands = (
+                lambda: installation_bundle._source_files(project),
+                lambda: installation_bundle.source_provenance(project),
+                lambda: packaging.git_paths(project, ['ls-files']),
+                lambda: offline_manifest.git_commit(project.root),
+                lambda: offline_manifest.command_version('git'),
+            )
+            stop = threading.Event()
+            stop.set()
+            for index, command in enumerate(commands):
+                with self.subTest(command=index), process.operation_control(stop):
+                    with self.assertRaises(process.OperationCancelled):
+                        command()
+
     def run_with_open_control_pipe(self, statement):
         program = '''import os, sys, threading
 from scripts.launcher import process

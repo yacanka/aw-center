@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import shutil
 import zipfile
 from datetime import datetime
@@ -11,6 +10,7 @@ from pathlib import Path
 from .dependencies import require_files
 from .model import LauncherError, Project, Scope
 from .offline_manifest import MANIFEST_NAME, verify_offline_manifest
+from .process import controlled_run
 
 EXCLUDED_NAMES = {".env", ".env.local", ".DS_Store", "db.sqlite3"}
 EXCLUDED_PARTS = {
@@ -135,7 +135,7 @@ def in_scope(project: Project, scope: Scope, path: Path) -> bool:
 
 def git_paths(project: Project, arguments: list[str]) -> list[Path]:
     """Read repository-relative paths from one non-mutating Git command."""
-    completed = subprocess.run(
+    completed = controlled_run(
         ["git", "-C", str(project.root), *arguments],
         check=False,
         capture_output=True,

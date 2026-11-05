@@ -20,7 +20,7 @@ from scripts.launcher_test_support import create_project
 class WindowsPythonIdentityTests(unittest.TestCase):
     def test_pythonw_selection_repairs_once_and_reuses_unicode_path_environment(self):
         self.assertEqual(sys.version_info[:2], (3, 11))
-        expected_version = os.environ.get('AWCENTER_EXPECT_PYTHON_VERSION')
+        expected_version = os.environ.get('TEST_EXPECT_PYTHON_VERSION')
         if expected_version:
             self.assertEqual('.'.join(map(str, sys.version_info[:3])), expected_version)
         base = Path(getattr(sys, '_base_executable', sys.executable)).resolve()

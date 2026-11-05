@@ -6,12 +6,11 @@ import hashlib
 import importlib.metadata
 import json
 import platform
-import subprocess
 import sys
 from pathlib import Path
 
 from .model import LauncherError, Project, Scope
-from .process import required_tool
+from .process import controlled_run, required_tool
 
 MANIFEST_NAME = "manifest.json"
 MANIFEST_VERSION = 1
@@ -125,7 +124,7 @@ def file_sha256(path: Path) -> str:
 
 
 def git_commit(root: Path) -> str:
-    completed = subprocess.run(
+    completed = controlled_run(
         ["git", "-C", str(root), "rev-parse", "HEAD"],
         check=False,
         capture_output=True,
@@ -138,7 +137,7 @@ def git_commit(root: Path) -> str:
 
 def command_version(command: str) -> str:
     executable = required_tool(command)
-    completed = subprocess.run(
+    completed = controlled_run(
         [executable, "--version"], check=False, capture_output=True, text=True
     )
     if completed.returncode:

@@ -7,6 +7,7 @@ import subprocess
 import ssl
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -17,6 +18,39 @@ from scripts.launcher_test_support import create_project
 
 
 class PackageConfigurationIsolationTests(unittest.TestCase):
+    def test_capture_preserves_utf8_output_under_windows_ansi_parent_encoding(self):
+        from scripts.launcher.installation_dependencies import capture
+        from scripts.launcher.process import operation_control
+        message = 'Python ortamı hazır: İışğ 中文'
+        program = 'import sys; print(sys.argv[1]); print(sys.argv[1], file=sys.stderr)'
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            for utf8, encoding in (('1', 'utf-8'), ('0', 'ascii')):
+                with self.subTest(encoding=encoding), operation_control(threading.Event()), \
+                     mock.patch('subprocess._text_encoding', return_value='cp1254'), \
+                     mock.patch.dict(os.environ, {'PYTHONIOENCODING': encoding, 'PYTHONUTF8': utf8}):
+                    result = capture([sys.executable, '-c', program, message], project)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout.strip(), message)
+                    self.assertEqual(result.stderr.strip(), message)
+
+    def test_legacy_diagnostic_bytes_do_not_mask_package_exit_status(self):
+        from scripts.launcher.installation_dependencies import capture, _succeeded, PackageCommandError
+        program = 'import os,sys; os.write(2, b"permission denied: \\xfe\\xff"); raise SystemExit(int(sys.argv[1]))'
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            for exit_code in (0, 17):
+                with self.subTest(exit_code=exit_code), \
+                        mock.patch('subprocess._text_encoding', return_value='utf-8'):
+                    result = capture([sys.executable, '-c', program, str(exit_code)], project)
+                    self.assertEqual(result.returncode, exit_code)
+                    if exit_code == 0:
+                        _succeeded(result, 'Python paket kurulumu')
+                    else:
+                        with self.assertRaises(PackageCommandError) as caught:
+                            _succeeded(result, 'Python paket kurulumu')
+                        self.assertEqual(caught.exception.code, 'package_access_denied')
+
     def test_capture_provides_distinct_empty_npm_configs_and_removes_them_after_exit(self):
         from scripts.launcher.installation_dependencies import capture
         program = '''import json, os, pathlib, sys
@@ -181,6 +215,7 @@ class AcquisitionFailureTests(unittest.TestCase):
             ca_file.write_text(ssl.DER_cert_to_PEM_cert(roots[0]), encoding='ascii')
             for selected in (None, ca_file):
                 observed = []
+                progress = []
                 def packages(project, settings, tool_env, stage):
                     bundle = Path(tool_env['NODE_EXTRA_CA_CERTS'])
                     self.assertTrue(bundle.is_file())
@@ -198,10 +233,13 @@ class AcquisitionFailureTests(unittest.TestCase):
                      mock.patch.object(dependencies, '_python_packages', side_effect=packages), \
                      mock.patch.object(dependencies, '_frontend_packages', side_effect=packages):
                     import sys
-                    dependencies.install_dependencies(project, SourceSettings(ca_file=selected),
+                    dependencies.install_dependencies(project, SourceSettings(ca_file=selected, progress=progress.append),
                                                        {'AWCENTER_MANAGED_PYTHON': sys.executable})
                 self.assertEqual(len(observed), 2)
                 self.assertFalse(observed[0].exists())
+                self.assertEqual(progress, ['Python sanal ortamı doğrulanıyor',
+                    'Paket bağlantıları için güven deposu hazırlanıyor',
+                    'Python bağımlılıkları hazırlanıyor', 'Frontend bağımlılıkları hazırlanıyor'])
 
     def test_only_availability_failures_allow_package_source_fallback(self):
         from scripts.launcher.installation_dependencies import availability_failure

@@ -281,7 +281,7 @@ class DependencyTests(unittest.TestCase):
             self.assertEqual(command[1], "ci")
             self.assertIn("--ignore-scripts", command)
 
-    @mock.patch("scripts.launcher.offline_manifest.subprocess.run")
+    @mock.patch("scripts.launcher.offline_manifest.controlled_run")
     @mock.patch(
         "scripts.launcher.offline_manifest.required_tool",
         return_value=r"C:\\Program Files\\nodejs\\npm.cmd",
