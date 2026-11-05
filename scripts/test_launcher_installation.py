@@ -47,6 +47,67 @@ class ManagedReadinessTests(unittest.TestCase):
                 "http://127.0.0.1:8000/health/live/", "http://127.0.0.1:5173/app/",
             ])
 
+    def test_timeout_identifies_only_components_that_are_not_ready(self):
+        from scripts.launcher.installation_readiness import wait_until_ready
+        from scripts.manager.operations import _failure_reason
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name in ('job', 'notification', 'cleanup'):
+                (directory / name).touch()
+            process = mock.Mock()
+            process.poll.return_value = None
+            profile = {'name': 'dev', 'host': '127.0.0.1', 'backend_port': 8000,
+                       'frontend_port': 5173}
+            with mock.patch('scripts.launcher.installation_readiness.probe_http', return_value=True):
+                with self.assertRaises(LauncherError) as caught:
+                    wait_until_ready([process], profile, directory, worker_check=lambda: False, timeout=0)
+            code, reason = _failure_reason(caught.exception)
+            self.assertEqual(code, 'startup_not_ready')
+            self.assertIn('worker heartbeat', reason)
+            self.assertNotIn('frontend', reason)
+
+    def test_worker_health_reads_current_receipt_without_booting_django(self):
+        from scripts.launcher.installation import _worker_ready
+        import time
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / 'job').write_text('worker-current')
+            now = time.time()
+            receipt = {'worker_id': 'worker-current', 'checked_at': now, 'valid_until': now + 10}
+            (directory / 'worker-health.json').write_text(json.dumps(receipt))
+            with mock.patch('scripts.launcher.installation.controlled_run',
+                            side_effect=AssertionError('health check rebooted Django')):
+                self.assertTrue(_worker_ready(create_project(directory), directory))
+                for changes in ({'worker_id': 'another-worker'}, {'checked_at': now - 10},
+                                {'valid_until': now - 1}, {'valid_until': float('nan')}, {'valid_until': 10 ** 400}):
+                    (directory / 'worker-health.json').write_text(json.dumps({**receipt, **changes}))
+                    self.assertFalse(_worker_ready(None, directory))
+
+    def test_slow_health_monitor_can_finish_without_being_restarted(self):
+        import sys
+        import threading
+        from scripts.launcher.installation import _worker_ready
+        from scripts.launcher.installation_readiness import wait_until_ready
+        from scripts.launcher.process import operation_control, start, starting_processes, terminate
+        with tempfile.TemporaryDirectory() as temporary, operation_control(threading.Event()):
+            directory = Path(temporary)
+            for name in ('job', 'notification', 'cleanup'):
+                (directory / name).write_text('owned-worker')
+            program = ("import json,sys,time; from pathlib import Path; time.sleep(6); "
+                       "now=time.time(); Path(sys.argv[1]).write_text(json.dumps({"
+                       "'worker_id':'owned-worker','checked_at':now,'valid_until':now+10})); time.sleep(30)")
+            project = create_project(directory)
+            with starting_processes() as children:
+                children.append(start([sys.executable, '-c', program, directory / 'worker-health.json'], directory))
+                try:
+                    with mock.patch('scripts.launcher.installation_readiness.probe_http', return_value=True):
+                        wait_until_ready(children, {'name': 'dev', 'host': '127.0.0.1',
+                            'backend_port': 8000, 'frontend_port': 5173}, directory,
+                            worker_check=lambda: _worker_ready(project, directory), timeout=15)
+                    self.assertIsNone(children[0].poll())
+                finally:
+                    terminate(children)
+
     def test_exited_owned_process_fails_startup(self):
         from scripts.launcher.installation_readiness import wait_until_ready
 

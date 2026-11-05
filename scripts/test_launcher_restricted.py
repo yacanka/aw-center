@@ -135,7 +135,7 @@ class RestrictedDependenciesTests(unittest.TestCase):
             stage = root / 'stage'
             stage.mkdir()
             calls = []
-            def execute(command, *_):
+            def execute(command, *_, progress=None):
                 calls.append(command)
                 if 'wheel' in command or '--registry' in command:
                     self.fail('Local complete package must not contact a registry')
@@ -157,7 +157,7 @@ class RestrictedDependenciesTests(unittest.TestCase):
             project = create_project(root)
             (project.frontend / 'package-lock.json').write_text('{}')
             attempts = []
-            def execute(command, *_):
+            def execute(command, *_, progress=None):
                 if '--registry' in command:
                     tree = Path(command[command.index('--prefix') + 1])
                     attempts.append((command[command.index('--registry') + 1], tree))

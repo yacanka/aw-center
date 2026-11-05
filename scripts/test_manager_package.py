@@ -213,7 +213,7 @@ class NativeWindowsPackageTests(unittest.TestCase):
             try:
                 event = events.get(timeout=1)
                 self.assertIsNotNone(event, 'Packaged worker exited before its completion event')
-                self.assertIn(event.get('type'), {'phase', 'status', 'checks', 'ready', 'error', 'input', 'done', 'health', 'profile'})
+                self.assertIn(event.get('type'), {'phase', 'status', 'checks', 'ready', 'error', 'input', 'done', 'health', 'profile', 'resources'})
                 if event['type'] in {'phase', 'ready', 'error', 'done'}:
                     # Never print message, input, environment or process output.
                     print(f"[native] {event['type']}; {max(0, int(deadline - time.monotonic()))}s remaining", flush=True)

@@ -206,6 +206,7 @@ class EngineHookTests(unittest.TestCase):
                  mock.patch('scripts.launcher.installation_features.feature_environment', return_value={}), \
                  mock.patch.object(installation, 'runtime_session', return_value=nullcontext(root)), \
                  mock.patch.object(installation, '_django'), \
+                 mock.patch('scripts.launcher.process.start'), \
                  mock.patch.object(installation, 'wait_until_ready', side_effect=lambda *_, **__: events.append('checked')), \
                  mock.patch.object(installation.runtime, 'dev', side_effect=run):
                 installation.start_profile(project, 'dev', on_ready=lambda ready: events.append(ready['name']))

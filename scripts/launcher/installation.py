@@ -339,13 +339,21 @@ def _provision(project: Project, args) -> list[dict]:
 
 
 def _worker_ready(project: Project, directory: Path) -> bool:
-    command = [project.python, project.manage_py, "check_job_worker_health", "--worker-id-file", directory / "job"]
+    # The persistent monitor owns Django startup; polling never spawns Python.
+    import math
+    import time
     try:
-        result = controlled_run([str(part) for part in command], cwd=project.root,
-                                env=environment(), stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, timeout=5, check=False)
-        return result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
+        with (directory / 'worker-health.json').open(encoding='utf-8') as stream:
+            receipt = json.loads(stream.read(4097))
+        with (directory / 'job').open(encoding='utf-8') as stream:
+            identity = stream.read(129).strip()
+        checked, valid = receipt['checked_at'], receipt['valid_until']
+        now = time.time()
+        return (bool(identity) and len(identity) <= 128 and receipt['worker_id'] == identity
+                and type(checked) in (int, float) and type(valid) in (int, float)
+                and math.isfinite(checked) and math.isfinite(valid)
+                and 0 <= now - checked <= 5 and now < valid)
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         return False
 
 
@@ -365,21 +373,29 @@ def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None
     require_windows()
     profile = load_profile(project, name)
     home = Path(profile.get("installation_home", Path(profile["env_file"]).parent.parent))
-    checks = inspect_toolchain(home, **_runtime_options(profile))
-    if any(check["status"] != "ready" for check in checks):
-        raise LauncherError("Managed runtime eksik veya değişmiş; açık provision gerekli.")
+    def progress(message):
+        if on_health is not None:
+            on_health({'type': 'phase', 'message': message})
+    progress('Başlatma: Python ve Node bütünlüğü doğrulanıyor')
     from .toolchain import toolchain_environment
     from .installation_features import feature_environment
     tools = toolchain_environment(home, **_runtime_options(profile))
+    progress('Başlatma: profil ve ek araç ayarları okunuyor')
     with process_environment(tools):
         selected = profile_environment(profile)
         pointers = {key: selected[key] for key in ("AWCENTER_ENV_FILE", "DJANGO_SETTINGS_MODULE") if key in selected}
         values = {**tools, **pointers, **feature_environment(project, profile)}
     with process_environment(values), runtime_session(profile) as directory:
+        progress('Başlatma: veritabanı şeması doğrulanıyor')
         _django(project, profile, ["migrate", "--check"], {})
         def ready(processes):
+            from .process import start
+            processes.append(start([project.python, project.manage_py, 'check_job_worker_health',
+                                    '--worker-id-file', directory / 'job', '--watch',
+                                    '--status-file', directory / 'worker-health.json'],
+                                   project.backend, extra_env=non_notification_environment()))
             wait_until_ready(processes, profile, directory,
-                             worker_check=lambda: _worker_ready(project, directory))
+                             worker_check=lambda: _worker_ready(project, directory), progress=progress)
             from .resource_locks import downgrade_runtime_claims
             downgrade_runtime_claims()
             if on_ready is not None:
@@ -389,6 +405,7 @@ def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None
         if on_health is not None:
             from .installation_readiness import HealthMonitor, healthy
             options['health'] = HealthMonitor(lambda: healthy(profile, lambda: _worker_ready(project, directory)), on_health)
+        progress('Başlatma: web ve worker süreçleri açılıyor')
         if name == "dev":
             runtime.dev(project, Scope(), host=profile["host"], backend_port=profile["backend_port"],
                         frontend_port=profile["frontend_port"], no_backend_reload=False, **options)

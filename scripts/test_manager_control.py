@@ -152,16 +152,16 @@ assert entered.wait(2)
 
     def test_worker_readiness_does_not_consume_control_pipe(self):
         output = self.run_with_open_control_pipe('''
-            import tempfile
+            import tempfile, json, time
             from pathlib import Path
-            from types import SimpleNamespace
             from scripts.launcher.installation import _worker_ready
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
-                script = root / 'health.py'
-                script.write_text('import sys; assert sys.stdin.read() == ""', encoding='utf-8')
-                project = SimpleNamespace(python=sys.executable, manage_py=script, root=root)
-                assert _worker_ready(project, root), 'Health process could not finish with the control pipe open'
+                (root / 'job').write_text('owned-worker')
+                now = time.time()
+                (root / 'worker-health.json').write_text(json.dumps({
+                    'worker_id': 'owned-worker', 'checked_at': now, 'valid_until': now + 10}))
+                assert _worker_ready(None, root), 'Health receipt could not be read with the control pipe open'
             print('ready')
         ''')
         self.assertEqual(output.splitlines(), [b'ready'])

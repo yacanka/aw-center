@@ -106,7 +106,8 @@ def _failure_reason(error):
     from scripts.build_manager import ManagerBuildError
     from scripts.launcher.installation_connection import ConnectionError
     from scripts.launcher.certificates import PackageTrustError
-    if isinstance(error, PackageTrustError):
+    from scripts.launcher.installation_readiness import StartupReadinessError
+    if isinstance(error, (PackageTrustError, StartupReadinessError)):
         return error.code, str(error)
     if isinstance(error, ConnectionError):
         return error.code, str(error)
@@ -227,7 +228,8 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
                                                               VirtualEnvironmentError, VirtualEnvironmentRepairError)
         from scripts.build_manager import ManagerBuildError
         from scripts.launcher.certificates import PackageTrustError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError, PackageTrustError)) else remedies.get(code, _remedy(phase))
+        from scripts.launcher.installation_readiness import StartupReadinessError
+        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError, PackageTrustError, StartupReadinessError)) else remedies.get(code, _remedy(phase))
         event = {'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy}
         if getattr(error, 'field', None) in PATH_FIELDS | TEXT_FIELDS | {'backend_port', 'frontend_port', 'profile'}:
             event['field'] = error.field
@@ -375,4 +377,9 @@ def _run_lifecycle(project, action, args, emit, *, ensured=False):
         url = (f"https://{profile['host']}:{profile['backend_port']}/app/" if profile['name'] == 'prod' else
                f"http://{profile['host']}:{profile['frontend_port']}/app/")
         emit({'type': 'ready', 'url': url})
-    start_profile(project, args.profile, on_ready=ready, on_health=emit)
+    def lifecycle_event(event):
+        if event.get('type') == 'phase':
+            args.progress(event['message'])
+        else:
+            emit(event)
+    start_profile(project, args.profile, on_ready=ready, on_health=lifecycle_event)

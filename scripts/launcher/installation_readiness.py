@@ -13,6 +13,13 @@ from .model import LauncherError
 from .process import check_cancelled
 
 
+class StartupReadinessError(LauncherError):
+    code = 'startup_not_ready'
+    remedy = ('Raporda beklenen bileşenleri kontrol edin. Hazırla ve Başlat ile yeniden deneyebilirsiniz; '
+              'mevcut ortam ve veritabanı korunur.')
+
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
         return None
@@ -74,23 +81,38 @@ def wait_until_ready(
     *,
     worker_check: Callable[[], bool] = lambda: False,
     timeout: float = 60,
+    progress=None,
 ) -> None:
     """Require HTTP and this launch's worker identities before announcing readiness."""
     deadline = time.monotonic() + timeout
+    previous = None
     while True:
         check_cancelled()
-        if any(process.poll() is not None for process in processes):
-            raise LauncherError("Başlatılan bir süreç kapandı; uygulama hazır değil.")
+        for index, process in enumerate(processes):
+            code = process.poll()
+            if code is not None:
+                raise StartupReadinessError(f'Başlatılan süreç {index + 1} kapandı (çıkış kodu: {int(code)}); uygulama hazır değil.')
         production = profile["name"] == "prod"
         host, port = profile["host"], profile["backend_port"]
         origin = f"https://{host}:{port}" if production else f"http://{host}:{port}"
         path = "/health/ready/" if production else "/health/live/"
-        http_ready = probe_http(origin + path, profile.get("tls_cert_file") if production else None)
-        if not production:
-            http_ready = probe_http(f"http://{host}:{profile['frontend_port']}/app/") and http_ready
-        markers_ready = all((heartbeat_dir / name).is_file() for name in ("job", "notification", "cleanup"))
-        if http_ready and markers_ready and worker_check():
+        pending = []
+        if not probe_http(origin + path, profile.get('tls_cert_file') if production else None):
+            pending.append('backend HTTP')
+        if not production and not probe_http(f"http://{host}:{profile['frontend_port']}/app/"):
+            pending.append('frontend HTTP')
+        for name, label in (('job', 'iş worker kimliği'), ('notification', 'bildirim worker'),
+                            ('cleanup', 'temizlik worker')):
+            if not (heartbeat_dir / name).is_file():
+                pending.append(label)
+        if not worker_check():
+            pending.append('worker heartbeat')
+        if not pending:
             return
+        message = 'Hazır olması bekleniyor: ' + ', '.join(pending)
+        if progress is not None and message != previous:
+            progress(message)
+            previous = message
         if time.monotonic() >= deadline:
-            raise LauncherError("Uygulama süre sınırında hazır olmadı; web ve worker kontrollerini inceleyin.")
+            raise StartupReadinessError('Başlatma süresinde hazır olmayan bileşenler: ' + ', '.join(pending) + '.')
         time.sleep(min(0.25, max(0, deadline - time.monotonic())))

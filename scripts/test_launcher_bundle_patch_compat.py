@@ -19,7 +19,7 @@ class WheelPatchCompatibilityTests(unittest.TestCase):
             project.requirements.write_text('old-patch==2 ; python_full_version < "3.11.3"\n')
             original_capture = bundle._capture
             resolutions = []
-            def capture(command, project, overrides):
+            def capture(command, project, overrides, *, progress=None):
                 if '-c' in command:
                     return original_capture(command, project, overrides)
                 resolutions.append(Path(command[command.index('-r') + 1]).read_text())

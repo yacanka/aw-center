@@ -444,3 +444,18 @@ portları ve aynı akışla yeniden başlatmayı kapsayan yeni native kabul test
 Windows üzerinde yeniden çalıştırılmadan bu değişiklik için Windows yayın kabulü
 iddia edilmez. Snapshot write-through ve güç kesintisi dayanıklılığı da native
 Windows kabulünün parçasıdır.
+
+### Başlatma ve worker sağlık denetimi
+
+Manager başlatırken Python/Node doğrulaması, profil okuma, şema kontrolü ve
+web/worker hazırlığı ayrı aşamalar olarak raporlanır. Hazır olma süresi dolarsa
+backend HTTP, frontend HTTP, bildirim/temizlik worker veya iş worker heartbeat
+kontrollerinden hangisinin tamamlanmadığı gösterilir (`startup_not_ready`).
+
+İş worker sağlık denetimi Django'yu her kontrolde yeniden açmaz. Launcher'ın
+sahip olduğu tek `check_job_worker_health --watch` süreci aynı veritabanındaki
+bu başlatmaya ait worker kimliğini ve heartbeat güncelliğini denetler. Manager,
+özel runtime oturumundaki atomik sağlık kaydını okur; beş saniyeden eski,
+süresi dolmuş veya başka worker'a ait kayıt hazır kabul edilmez. Durdurma ve
+başlatma hatalarında sağlık süreci diğer alt süreçlerle birlikte kapatılır.
+PowerShell, yönetici yetkisi veya güvenlik doğrulamasını kapatma gerekmez.

@@ -366,6 +366,58 @@ class JobWorkerTests(JobTestCase):
         with self.assertRaises(CommandError):
             call_command("check_job_worker_health", worker_id_file=str(worker_id_file))
 
+    def test_health_receipt_requires_owned_fresh_database_heartbeat(self):
+        import json
+        from jobs.management.commands.check_job_worker_health import Command
+        directory = self.media_directory
+        identity = directory / 'job'
+        status = directory / 'worker-health.json'
+        identity.write_text('worker-current', encoding='utf-8')
+        WorkerHeartbeat.objects.create(worker_id='worker-other', heartbeat_at=timezone.now())
+        command = Command()
+        self.assertTrue(hasattr(command, 'publish_health'), 'Persistent health probe is missing')
+        command.publish_health(identity, status)
+        self.assertFalse(status.exists())
+        WorkerHeartbeat.objects.create(worker_id='worker-current', heartbeat_at=timezone.now())
+        command.publish_health(identity, status)
+        receipt = json.loads(status.read_text())
+        self.assertEqual(receipt['worker_id'], 'worker-current')
+        self.assertGreater(receipt['valid_until'], receipt['checked_at'])
+        WorkerHeartbeat.objects.filter(worker_id='worker-current').update(
+            heartbeat_at=timezone.now() - timedelta(minutes=1))
+        command.publish_health(identity, status)
+        self.assertFalse(status.exists())
+
+    def test_health_monitor_survives_windows_reader_sharing_violation(self):
+        from jobs.management.commands.check_job_worker_health import Command
+        identity = self.media_directory / 'job'
+        status = self.media_directory / 'worker-health.json'
+        identity.write_text('worker-current')
+        WorkerHeartbeat.objects.create(worker_id='worker-current', heartbeat_at=timezone.now())
+        command = Command()
+        command.publish_health(identity, status)
+        previous = status.read_bytes()
+        with patch('jobs.management.commands.check_job_worker_health.os.replace', side_effect=PermissionError), \
+             patch.object(Path, 'unlink', side_effect=PermissionError):
+            command.publish_health(identity, status)
+        self.assertEqual(status.read_bytes(), previous)
+        command.publish_health(identity, status)
+        self.assertTrue(status.is_file())
+
+    def test_health_publication_recovers_after_concurrent_receipt_read(self):
+        from jobs.management.commands.check_job_worker_health import Command
+        identity = self.media_directory / 'job'
+        status = self.media_directory / 'worker-health.json'
+        identity.write_text('worker-current')
+        WorkerHeartbeat.objects.create(worker_id='worker-current', heartbeat_at=timezone.now())
+        command = Command()
+        command.publish_health(identity, status)
+        with status.open() as reader:
+            command.publish_health(identity, status)
+            self.assertIn('worker-current', reader.read())
+        command.publish_health(identity, status)
+        self.assertTrue(status.is_file())
+
     def test_worker_rejects_corrupted_stored_input(self):
         """Artifact integrity is rechecked before an external process starts."""
 
