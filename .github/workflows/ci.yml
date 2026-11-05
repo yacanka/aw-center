@@ -222,7 +222,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.9"
           cache: pip
 
       - name: Install Python dependencies
@@ -230,6 +230,8 @@ jobs:
 
       - name: Run managed installation unit contracts
         shell: cmd
+        env:
+          AWCENTER_EXPECT_PYTHON_VERSION: "3.11.9"
         run: >-
           python -m unittest
           scripts.test_launcher_profiles
@@ -241,6 +243,8 @@ jobs:
           scripts.test_launcher_installation
           scripts.test_launcher_system_python
           scripts.test_launcher_env_selection
+          scripts.test_launcher_venv_repair
+          scripts.test_launcher_windows_python_identity
 
       - name: Run native CMD bootstrap and owner-only ACL smoke
         shell: cmd

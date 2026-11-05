@@ -142,10 +142,18 @@ def _excluded(path):
     return False
 
 
+def _console_python(path: Path) -> Path:
+    # A Manager started through .pyw inherits pythonw.exe. Venv's console
+    # redirector reports the sibling python.exe as its base interpreter.
+    if sys.platform == 'win32' and path.name.casefold() == 'pythonw.exe':
+        return path.with_name('python.exe')
+    return path
+
+
 @bounded(120, SystemPythonError)
 def validate_python(executable: Path) -> Path:
     """Require full CPython 3.11 x64 with venv/ensurepip; never use a frozen EXE."""
-    path = Path(executable)
+    path = _console_python(Path(executable))
     if not path.is_absolute() or not path.is_file():
         raise SystemPythonError('path_missing')
     if _excluded(path):
@@ -235,7 +243,8 @@ def discover_python(selection: str | None = None) -> Path:
     failures = []
     for command in (_selected_candidates(selection) if selection else _candidates()):
         remaining(PROBE_TIMEOUT_SECONDS, SystemPythonError)
-        executable = Path(command[0])
+        executable = _console_python(Path(command[0]))
+        command = [str(executable), *command[1:]]
         if _excluded(executable):
             failures.append(SystemPythonError('excluded'))
             continue

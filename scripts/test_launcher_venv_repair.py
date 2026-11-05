@@ -1,7 +1,8 @@
 """Provisioning preserves incompatible virtual environments before rebuilding."""
 import json
+import io
 import os
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 import subprocess
 import sys
@@ -42,7 +43,7 @@ class VenvRepairTests(unittest.TestCase):
             self.project.python.write_bytes(b'new executable')
             self.base = self.selected
             self.version = 'True'
-        output = str(self.base) if '_base_executable' in str(command) else self.version
+        output = json.dumps(str(self.base)) if '_base_executable' in str(command) else self.version
         return subprocess.CompletedProcess(command, 0, output, '')
 
     def repair(self):
@@ -68,6 +69,22 @@ class VenvRepairTests(unittest.TestCase):
         self.repair()
         self.assertEqual(self.project.python.read_bytes(), b'old executable')
         self.assertEqual(self.backups(), [])
+
+    def test_previous_windowed_creation_resumes_without_archiving_healthy_environment(self):
+        self.selected = self.root / 'python.exe'
+        self.selected.touch()
+        windowed = self.root / 'pythonw.exe'
+        windowed.touch()
+        self.tools['AWCENTER_MANAGED_PYTHON'] = str(self.selected)
+        self.base = self.selected
+        marker = self.project.venv / '.awcenter-creating.json'
+        marker.write_text(json.dumps({'version': 1, 'python': str(windowed),
+                                      'source': str(self.project.root)}))
+        with patch.object(sys, 'platform', 'win32'):
+            self.repair()
+        self.assertEqual(self.project.python.read_bytes(), b'old executable')
+        self.assertEqual(self.backups(), [])
+        self.assertFalse(marker.exists())
 
     def test_hardlinked_interpreter_alias_reuses_existing_environment(self):
         os.link(self.selected, self.base)
@@ -106,6 +123,61 @@ class VenvRepairTests(unittest.TestCase):
         self.repair()
         self.assertEqual(self.backups(), [backup])
         self.assertEqual(self.project.python.read_bytes(), b'new executable')
+
+    def test_failed_replacement_validation_does_not_repeat_backups(self):
+        for failure in ('python_mismatch', 'version', 'unusable'):
+            with self.subTest(failure=failure):
+                original_capture = self.capture
+                def still_invalid(command, *args, **kwargs):
+                    result = original_capture(command, *args, **kwargs)
+                    if self.project.python.read_bytes() == b'new executable':
+                        if failure == 'unusable' and '-c' in command:
+                            raise OSError(8, 'private diagnostic')
+                        if failure == 'version' and 'struct' in str(command):
+                            return subprocess.CompletedProcess(command, 0, 'False', '')
+                        if failure == 'python_mismatch' and '_base_executable' in str(command):
+                            value = str(self.root / 'different-python.exe')
+                            return subprocess.CompletedProcess(command, 0,
+                                json.dumps(value) if 'json.dumps' in str(command) else value, '')
+                    return result
+                # Each case starts with one unknown environment to preserve.
+                self.project.python.write_bytes(b'old executable')
+                self.base = self.root / 'previous-python.exe'
+                marker = self.project.venv / '.awcenter-creating.json'
+                marker.unlink(missing_ok=True)
+                before = len(self.backups())
+                with patch.object(deps, 'capture', side_effect=still_invalid):
+                    for attempt in range(3):
+                        with self.assertRaises(deps.VirtualEnvironmentError):
+                            deps._ensure_venv(self.project, self.tools, expected_python=self.selected, repair=True)
+                        self.assertEqual(len(self.backups()), before + 1, f'Retry {attempt} archived the replacement')
+                        self.assertTrue(marker.exists())
+                self.base, self.version = self.selected, 'True'
+                self.repair()
+                self.assertEqual(len(self.backups()), before + 1)
+                self.assertFalse(marker.exists())
+
+    def test_unicode_base_path_survives_windows_stdio_code_page(self):
+        self.selected = self.root / 'Python-İş-中文' / 'python.exe'
+        self.selected.parent.mkdir()
+        self.selected.touch()
+        self.tools['AWCENTER_MANAGED_PYTHON'] = str(self.selected)
+        def probe(command, *args, **kwargs):
+            code = command[command.index('-c') + 1]
+            raw = io.BytesIO()
+            output = io.TextIOWrapper(raw, encoding='cp1252', errors='strict')
+            try:
+                with patch.object(sys, '_base_executable', str(self.selected)), redirect_stdout(output):
+                    exec(code, {})
+                output.flush()
+                value = raw.getvalue().decode('utf-8')
+            except UnicodeError:
+                return subprocess.CompletedProcess(command, 1, '', 'encoding failure')
+            return subprocess.CompletedProcess(command, 0, value, '')
+        with patch.object(deps, 'capture', side_effect=probe):
+            deps._ensure_venv(self.project, self.tools, expected_python=self.selected)
+        self.assertEqual(self.backups(), [])
+        self.assertEqual(self.project.python.read_bytes(), b'old executable')
 
     def test_cancellation_does_not_archive_existing_environment(self):
         with patch.object(deps, 'capture', side_effect=OperationCancelled('stopped')):

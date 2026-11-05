@@ -47,7 +47,7 @@ class ResumeTests(unittest.TestCase):
                 if '-m' in command and 'venv' in command:
                     project.python.parent.mkdir(parents=True, exist_ok=True)
                     project.python.touch()
-                output = tools['AWCENTER_MANAGED_PYTHON'] if '_base_executable' in str(command) else 'True'
+                output = json.dumps(tools['AWCENTER_MANAGED_PYTHON']) if '_base_executable' in str(command) else 'True'
                 return subprocess.CompletedProcess(command, 0, output, '')
             with patch.object(deps, 'capture', side_effect=finish):
                 deps._ensure_venv(project, tools, expected_python=Path(tools['AWCENTER_MANAGED_PYTHON']))

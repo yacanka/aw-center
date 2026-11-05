@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: '3.11'
+          python-version: '3.11.9'
           architecture: x64
       - name: Reproduce the reported system Node version
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -65,7 +65,9 @@ jobs:
           if not exist "%RUNNER_TEMP%\manager-ui-evidence" mkdir "%RUNNER_TEMP%\manager-ui-evidence"
           python -m scripts.manager.main --smoke-test "%RUNNER_TEMP%\manager-ui-evidence\startup.json"
       - name: Verify system tools, bundle prerequisites and permission diagnostics
-        run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_system_node scripts.test_launcher_runtime_validation scripts.test_launcher_install_dependencies scripts.test_manager_system_tools scripts.test_manager_tool_paths scripts.test_launcher_bundle scripts.test_launcher_bundle_patch_compat scripts.test_launcher_env_selection scripts.test_launcher_permissions scripts.test_launcher_restricted scripts.test_launcher_resource_locks scripts.test_launcher_health scripts.test_launcher_preflight scripts.test_launcher_resume
+        env:
+          AWCENTER_EXPECT_PYTHON_VERSION: '3.11.9'
+        run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_system_node scripts.test_launcher_runtime_validation scripts.test_launcher_install_dependencies scripts.test_manager_system_tools scripts.test_manager_tool_paths scripts.test_launcher_bundle scripts.test_launcher_bundle_patch_compat scripts.test_launcher_env_selection scripts.test_launcher_permissions scripts.test_launcher_restricted scripts.test_launcher_resource_locks scripts.test_launcher_health scripts.test_launcher_preflight scripts.test_launcher_resume scripts.test_launcher_venv_repair scripts.test_launcher_windows_python_identity
       - name: Verify issue 131 with real Node 26 and npm archives
         env:
           AWCENTER_RUN_RUNTIME_PROBE_SMOKE: '1'

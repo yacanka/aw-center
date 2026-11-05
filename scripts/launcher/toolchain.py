@@ -319,6 +319,11 @@ def toolchain_environment(home: Path, *, python_executable: Path | None = None,
     """Return existing verified runtimes without retrieval, extraction or writes."""
     options = {}
     if python_executable is not None:
+        # Older profiles can retain the Manager's windowed interpreter. Keep
+        # the validated console base in the returned process environment too.
+        if Path(python_executable).name.casefold() == 'pythonw.exe':
+            from .system_python import validate_python
+            python_executable = validate_python(python_executable)
         options['python_executable'] = python_executable
     if node_executable is not None:
         options['node_executable'] = node_executable

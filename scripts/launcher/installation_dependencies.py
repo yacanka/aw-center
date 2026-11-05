@@ -195,7 +195,7 @@ def _offline_dependencies(project: Project, settings: SourceSettings) -> Path | 
 class VirtualEnvironmentError(LauncherError):
     """A known venv compatibility failure, distinct from package or storage errors."""
 
-    def __init__(self, reason):
+    def __init__(self, reason, *, repairable=True):
         messages = {
             'incomplete': 'Mevcut .venv eksik.',
             'interrupted': 'Yarım sanal ortam başka Python veya kaynağa bağlı.',
@@ -204,7 +204,11 @@ class VirtualEnvironmentError(LauncherError):
             'unusable': 'Mevcut .venv Python süreci başlatılamadı.',
         }
         self.code = 'venv_' + reason
+        self.repairable = repairable
         self.remedy = 'Manager üzerinden Hazırla ve Başlat işlemini yeniden çalıştırın; önceki sanal ortam korunarak yenisi hazırlanır.'
+        if not repairable:
+            self.remedy = ('Oluşturulan ortam korunuyor; seçilen Python kurulumunun çalışabildiğini doğrulayın. '
+                           'Yeniden denemede aynı ortam denetlenir, tekrar yedeklenmez.')
         super().__init__(messages[reason])
 
 
@@ -269,8 +273,8 @@ def _ensure_venv(project: Project, tool_env: dict, *, expected_python: Path | No
     try:
         _prepare_venv(project, tool_env, expected_python=expected_python)
         return
-    except VirtualEnvironmentError:
-        if not repair or not existed or expected_python is None:
+    except VirtualEnvironmentError as error:
+        if not repair or not existed or expected_python is None or not error.repairable:
             raise
     selected = Path(tool_env.get('AWCENTER_MANAGED_PYTHON') or expected_python)
     if not _same_python(selected, expected_python):
@@ -292,7 +296,14 @@ def _prepare_venv(project: Project, tool_env: dict, *, expected_python: Path | N
     owned = False
     if marker.exists():
         try:
-            owned = marker.stat().st_size < 8192 and json.loads(marker.read_text(encoding='utf-8')) == identity
+            saved = json.loads(marker.read_text(encoding='utf-8')) if marker.stat().st_size < 8192 else None
+            if (isinstance(saved, dict) and isinstance(saved.get('python'), str)
+                    and Path(saved['python']).is_absolute()):
+                # Resume markers written by .pyw-based Manager versions. The
+                # actual venv binding is still independently checked below.
+                from .system_python import _console_python
+                saved['python'] = str(_console_python(Path(saved['python'])).resolve())
+            owned = saved == identity
         except (OSError, ValueError):
             pass
         if not owned:
@@ -310,15 +321,22 @@ def _prepare_venv(project: Project, tool_env: dict, *, expected_python: Path | N
     try:
         result = capture([project.python, "-c", "import sys,struct; print(sys.implementation.name == 'cpython' and sys.version_info[:2] == (3,11) and struct.calcsize('P') == 8)"], project, tool_env)
     except OSError:
-        raise VirtualEnvironmentError('unusable') from None
+        raise VirtualEnvironmentError('unusable', repairable=not owned) from None
     if result.returncode or result.stdout.strip() != "True":
-        raise VirtualEnvironmentError('version')
+        raise VirtualEnvironmentError('version', repairable=not owned)
     if expected_python is not None:
         base = capture([project.python, '-I', '-B', '-c',
-                        'import sys; print(getattr(sys, "_base_executable", sys.executable))'], project, tool_env)
-        if (base.returncode or not base.stdout.strip() or
-                not _same_python(Path(base.stdout.strip()), Path(expected_python))):
-            raise VirtualEnvironmentError('python_mismatch')
+                        'import json,sys; print(json.dumps(getattr(sys, "_base_executable", sys.executable), ensure_ascii=True))'], project, tool_env)
+        # -I ignores PYTHONUTF8. ASCII JSON keeps paths intact even when the
+        # Windows child and Manager use different stdio code pages.
+        try:
+            value = json.loads(base.stdout) if not base.returncode and len(base.stdout) <= 64 * 1024 else None
+            matches = (isinstance(value, str) and Path(value).is_absolute()
+                       and _same_python(Path(value), Path(expected_python)))
+        except (ValueError, OSError):
+            matches = False
+        if not matches:
+            raise VirtualEnvironmentError('python_mismatch', repairable=not owned)
     if owned:
         # A crash can occur after python.exe appears but before ensurepip ends.
         _succeeded(capture([project.python, '-m', 'ensurepip', '--upgrade'], project, tool_env), 'pip hazırlığı')

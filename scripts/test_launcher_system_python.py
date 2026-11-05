@@ -403,7 +403,7 @@ class SystemPythonTests(unittest.TestCase):
             project.python.parent.mkdir(parents=True)
             project.python.write_text('fixture')
             answers = [subprocess.CompletedProcess([], 0, 'True\n', ''),
-                       subprocess.CompletedProcess([], 0, str(project.root / 'other-python') + '\n', '')]
+                       subprocess.CompletedProcess([], 0, json.dumps(str(project.root / 'other-python')) + '\n', '')]
             with patch('scripts.launcher.installation_dependencies.capture', side_effect=answers):
                 with self.assertRaisesRegex(LauncherError, '.venv'):
                     _ensure_venv(project, {}, expected_python=Path(sys.executable).resolve())
@@ -466,6 +466,79 @@ class SystemPythonTests(unittest.TestCase):
              patch('scripts.launcher.system_python._probe', return_value=None):
             with self.assertRaisesRegex(LauncherError, '3.11'):
                 discover_python()
+
+
+class WindowsConsolePythonTests(unittest.TestCase):
+    def setUp(self):
+        from scripts.launcher import system_python
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve() / 'Python İstanbul'
+        self.root.mkdir()
+        self.windowed = self.root / 'pythonw.exe'
+        self.console = self.root / 'python.exe'
+        self.windowed.write_bytes(b'windowed fixture')
+        self.console.write_bytes(b'console fixture')
+        self.version = [3, 11]
+        self.probed = []
+        self.enterContext(patch.object(sys, 'platform', 'win32'))
+        self.enterContext(patch.object(system_python, 'controlled_run', side_effect=self.probe))
+
+    def probe(self, command, **options):
+        executable = Path(command[0])
+        self.probed.append(executable)
+        if not executable.is_file():
+            raise FileNotFoundError()
+        value = {'version': self.version if executable == self.console else [3, 11],
+                 'micro': 9, 'bits': 64, 'implementation': 'cpython',
+                 'platform': 'win-amd64', 'base': str(executable),
+                 'modules': {'sysconfig': 'ok', 'venv': 'ok', 'ensurepip': 'ok'}}
+        return subprocess.CompletedProcess(command, 0, json.dumps(value), '')
+
+    def test_explicit_windowed_python_uses_validated_console_sibling(self):
+        from scripts.launcher.system_python import discover_python, validate_python
+        self.assertEqual(discover_python(str(self.windowed)), self.console)
+        self.assertEqual(validate_python(self.windowed), self.console)
+        self.assertEqual(self.probed, [self.console, self.console])
+
+    def test_automatic_windowed_manager_selection_returns_console_python(self):
+        from scripts.launcher.system_python import discover_python
+        with patch.object(sys, '_base_executable', str(self.windowed)), \
+             patch.object(sys, 'frozen', False, create=True):
+            self.assertEqual(discover_python(), self.console)
+
+    def test_windowed_python_does_not_hide_incompatible_console_sibling(self):
+        from scripts.launcher.system_python import SystemPythonError, discover_python
+        self.version = [3, 12]
+        with self.assertRaises(SystemPythonError) as caught:
+            discover_python(str(self.windowed))
+        self.assertEqual(caught.exception.code, 'system_python_version')
+
+    def test_missing_console_sibling_does_not_accept_windowed_interpreter(self):
+        from scripts.launcher.system_python import SystemPythonError, validate_python
+        self.console.unlink()
+        with self.assertRaises(SystemPythonError) as caught:
+            validate_python(self.windowed)
+        self.assertEqual(caught.exception.code, 'system_python_path_missing')
+
+    def test_non_windows_executable_name_is_not_rewritten(self):
+        from scripts.launcher.system_python import validate_python
+        with patch.object(sys, 'platform', 'linux'):
+            self.assertEqual(validate_python(self.windowed), self.windowed)
+
+    def test_saved_windowed_profile_environment_uses_console_python(self):
+        home = self.root / 'private'
+        with patch.object(toolchain, '_trusted_inventory', return_value={}), \
+             patch.object(toolchain, '_inventory', return_value={}):
+            for name, artifact in load_catalog().items():
+                if name == 'python':
+                    continue
+                target = toolchain._directory(home, artifact)
+                target.mkdir(parents=True)
+                (target / toolchain.RECEIPT).write_text(json.dumps({
+                    'name': name, 'version': artifact.version, 'sha256': artifact.sha256}))
+            values = toolchain.toolchain_environment(home, python_executable=self.windowed)
+        self.assertEqual(values['AWCENTER_MANAGED_PYTHON'], str(self.console))
 
 
 if __name__ == '__main__':

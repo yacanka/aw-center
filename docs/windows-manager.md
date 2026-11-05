@@ -73,6 +73,16 @@ Kutu seçilirse paketteki veya seçilen kaynaklardaki SHA-256 sabitlenmiş yöne
 
 Başarılı bağımlılık hazırlığından sonra seçilen sistem yorumlayıcısı dev/prod profil metadata'sına ayrı ayrı kaydedilir; Başlat ve Kontrol et aynı seçimi kullanır. Özel env, anahtarlar ve mevcut hesaplar değişmez. Mevcut `.venv` farklı bir Python'a bağlıysa veya yarım kalmışsa hazırlık işlemi eski ortamı kaynak dizininin `.runtime/venv-backups/` alanında korur, seçilen Python ile yeni ortamı oluşturur ve kilitli bağımlılıkları kurarak devam eder. Ayrı kaynak dizini seçmek gerekmez. İşlem kesilirse yeniden açma işlemi hazırlığı sürdürür; eski ortam yedekleri otomatik silinmez. Profil değişimi sonradan sistem Python'unu kaldırmaz veya güncellemez.
 
+Windows CPython **3.11.9 x64** desteklenir. `.pyw` üzerinden açılışta bulunan
+`pythonw.exe`, aynı kurulumdaki `python.exe` doğrulanarak kullanılır; eski profil
+seçimleri ve yarım kalmış oluşturma kayıtları da bu eşleştirmeyle okunur.
+[CPython 3.11.9 venv](https://github.com/python/cpython/blob/v3.11.9/Lib/venv/__init__.py#L299-L306)
+iki EXE'yi de oluşturur; konsol ortamının temel yorumlayıcısı pencere kipindeki
+EXE'den farklı adla bildirilebilir. Yorumlayıcı yolu ASCII JSON olarak taşınır;
+Türkçe karakterli dizinlerde farklı Windows kod sayfaları karşılaştırmayı bozmaz.
+Yeni oluşturulan ortam doğrulanamazsa aynı oluşturma kaydı korunur ve sonraki
+denemelerde yeniden yedeklenmez. Önceki sürümlerin oluşturduğu yedekler silinmez.
+
 Manager üzerinden hazırlanan **tam USB paketi**, üreticide sistem araçları kurulu
 olsa da Python/Node/npm arşivlerini içerir. Araçlar ayrı geçici alanda hazırlanır;
 canlı uygulamanın runtime veya sanal ortamı değiştirilmez. Kaynak üzerinden
