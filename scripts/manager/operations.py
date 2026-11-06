@@ -108,7 +108,8 @@ def _failure_reason(error):
     from scripts.launcher.certificates import PackageTrustError
     from scripts.launcher.installation_readiness import StartupReadinessError
     from scripts.launcher.package_cache import PackageCacheError
-    if isinstance(error, (PackageTrustError, StartupReadinessError, PackageCacheError)):
+    from .payload import ProductionSourceNotPrepared
+    if isinstance(error, (PackageTrustError, StartupReadinessError, PackageCacheError, ProductionSourceNotPrepared)):
         return error.code, str(error)
     if isinstance(error, ConnectionError):
         return error.code, str(error)
@@ -231,7 +232,8 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
         from scripts.launcher.certificates import PackageTrustError
         from scripts.launcher.installation_readiness import StartupReadinessError
         from scripts.launcher.package_cache import PackageCacheError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError, PackageTrustError, StartupReadinessError, PackageCacheError)) else remedies.get(code, _remedy(phase))
+        from .payload import ProductionSourceNotPrepared
+        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError, PackageTrustError, StartupReadinessError, PackageCacheError, ProductionSourceNotPrepared)) else remedies.get(code, _remedy(phase))
         event = {'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy}
         if getattr(error, 'field', None) in PATH_FIELDS | TEXT_FIELDS | {'backend_port', 'frontend_port', 'profile'}:
             event['field'] = error.field
@@ -294,6 +296,11 @@ def _dispatch(action, args, emit):
     if action == 'ensure':
         from .ensure import run
         return run(args, emit)
+    if action in {'start', 'doctor'}:
+        # Match inspection/ensure: updated media is not a new installed profile.
+        # Resolve before start's leases so they protect the recorded source.
+        from .ensure import resolve_source
+        resolve_source(args)
     if action in {'provision', 'start', 'bundle'}:
         from scripts.launcher.resource_locks import path_claims, resource_locks
         from scripts.launcher.installation_profiles import installation_home

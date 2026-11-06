@@ -174,6 +174,18 @@ Manifest kimliği tüm dağıtılabilir kaynak envanterinin tam SHA-256 değerid
 
 Dağıtılmış `source/manager-source-manifest.json` dosyasını koruyun. Manifest taşınan kaynağın eksiksizliğini ve bütünlüğünü denetler; dijital imza değildir. ZIP checksum'unu güvenilir bir dağıtım kanalından doğrulayın. Git checkout'undan geliştirme sırasında üretim kopyası hazırlanabilir; manifesti olmayan rastgele çıkarılmış bir kaynak dizini kabul edilmez.
 
+Otomatik kaynak seçiminde **AW Center’ı aç**, **Başlat** ve **Kontrol et** kayıtlı
+profilin kaynak dizinini kullanır. Manager veya dağıtım paketi güncellense de
+mevcut prod kurulumu yeni sürüme kendiliğinden bağlanmaz. Kontrol et mevcut
+prod'un manifestini ve profilini salt okunur doğrular; paket indirmez, yeni
+release oluşturmaz, veritabanını veya anahtarları değiştirmez.
+
+Gelişmiş ayarlarda açıkça seçilen kaynak bu otomatik seçimi geçersiz kılar.
+Seçilen sürüm için hazırlanmış prod kopyası yoksa `production_source_not_prepared`
+gösterilir. Mevcut prod'u denetlemek veya başlatmak için Proje kaynak dizini
+alanını boş bırakarak otomatik seçime dönün. Eksik release, kaynak ZIP'in bozuk
+olduğu anlamına gelmez; bütünlük veya izin hataları ayrıca denetlenmeye devam eder.
+
 Üretim için makineye atanmış sabit IPv4, kaynak ağacının dışındaki mevcut TLS sertifikası ve özel anahtar gerekir. Profiller ve özel durum `%LOCALAPPDATA%\AWCenter` altında ayrılır. Geliştirme ve üretim aynı veritabanını, özel dosyaları veya anahtarları paylaşmaz. CLI ve gelişmiş eski kurulum işleminin migration onayı değişmez; ana otomatik akış aşağıdaki yedek politikasını kullanır.
 
 ### Otomatik portlar ve migration

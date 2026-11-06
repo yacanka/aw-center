@@ -62,6 +62,17 @@ GENERATED_FILES = {
 }
 
 
+class ProductionSourceNotPrepared(LauncherError):
+    code = 'production_source_not_prepared'
+    remedy = ('Mevcut prod kurulumunu kullanmak için Proje kaynak dizini alanını boş bırakın; '
+              'kayıtlı kaynak otomatik seçilir. İlk kurulum için AW Center’ı aç işlemini kullanın. '
+              'Mevcut prod profilini veya veritabanını silmeyin.')
+
+    def __init__(self):
+        super().__init__('Seçilen kaynak sürümü için hazırlanmış bir prod kopyası bulunamadı; '
+                         'kaynak paketi doğrulandı, mevcut kurulum değiştirilmedi.')
+
+
 def default_source_root() -> Path:
     """Use source beside the portable EXE; development uses this repository."""
     if getattr(sys, 'frozen', False):
@@ -273,6 +284,9 @@ def resolve_production_source(source: Path, home: Path) -> Path:
         require_unlinked(target)
         if not target.exists():
             target = home / 'releases' / manifest['fingerprint'] / 'source'
+            require_unlinked(target)
+            if not target.exists():
+                raise ProductionSourceNotPrepared()
         if verify_source_payload(target) != manifest:
             raise LauncherError('Existing production release differs from the selected source')
         return target
