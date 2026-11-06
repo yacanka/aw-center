@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.utils import timezone
 from jira import JIRAError
@@ -133,6 +134,15 @@ def get_jira_session(owner):
 
 
 def require_jira_session(owner):
+    """Recheck account access before exposing a credential to a provider caller."""
+
+    # Workers can retain a user instance after an administrator disables it.
+    # Check persisted state at each provider boundary, including superusers.
+    if not get_user_model().objects.filter(
+        pk=owner_identifier(owner), is_active=True,
+    ).exists():
+        clear_jira_session(owner)
+        raise JiraSessionNotConnected()
     record = get_jira_session(owner)
     if record is None:
         raise JiraSessionNotConnected()

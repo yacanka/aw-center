@@ -23,7 +23,7 @@ from rest_framework.exceptions import ValidationError
 
 from orgs.models import Panel, Person, Project, ProjectRoleAssignment, ResponsibleAssignment
 
-from .models import ComplianceDocument, CoverPage, ImportAudit, TrackingProfile, WorkflowEvent
+from .models import ComplianceDocument, CoverPage, ImportAudit, ReviewTask, TrackingProfile, WorkflowEvent
 from .imports import execute_plan, plan_fingerprint, prepare_plan, prepare_tabular_plan
 
 
@@ -579,6 +579,85 @@ class ComplianceImportTests(TestCase):
         document.refresh_from_db()
         self.assertEqual(document.name, "Imported Document")
         self.assertIsNone(document.panel_id)
+
+    def test_omitted_columns_preserve_panel_and_shared_cover_issue(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-I", issue="A")
+        document = ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Imported Document", panel=self.panel,
+        )
+        sibling = ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Not imported", panel=self.panel,
+        )
+        review = ReviewTask.objects.create(
+            document=sibling, kind=ReviewTask.Kind.REVIEW, assignee=self.user,
+            assignee_username=self.user.username, requested_by=self.user,
+            requested_by_username=self.user.username, request_note="Review revision A.",
+            source_version=1,
+        )
+        content = self.workbook()
+
+        preview = self.preview(content)
+        self.assertEqual(preview.status_code, 200, preview.data)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(confirmed.status_code, 201, confirmed.data)
+        self.assertEqual(confirmed.data["updated_count"], 1)
+        document.refresh_from_db()
+        cover.refresh_from_db()
+        sibling.refresh_from_db()
+        review.refresh_from_db()
+        self.assertEqual(document.number, "TD-I")
+        self.assertEqual(document.panel_id, self.panel.pk)
+        self.assertEqual(cover.issue, "A")
+        self.assertEqual(cover.version, 1)
+        self.assertEqual(sibling.version, 1)
+        self.assertEqual(review.status, ReviewTask.Status.PENDING)
+
+    def test_omitted_columns_do_not_make_an_unchanged_row_an_update(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-I", issue="A")
+        document = ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Imported Document",
+            number="TD-I", panel=self.panel,
+        )
+        content = self.workbook()
+
+        preview = self.preview(content)
+
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertEqual(preview.data["unchanged_count"], 1)
+        self.assertEqual(preview.data["updated_count"], 0)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(confirmed.status_code, 201, confirmed.data)
+        document.refresh_from_db()
+        self.assertEqual(document.version, 1)
+
+    def test_explicit_blank_columns_still_clear_panel_and_shared_cover_issue(self):
+        cover = CoverPage.objects.create(project=self.project, number="CP-I", issue="A")
+        document = ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Imported Document", panel=self.panel,
+        )
+        sibling = ComplianceDocument.objects.create(
+            project=self.project, cover_page=cover, name="Not imported",
+        )
+        output = BytesIO()
+        pd.DataFrame([{
+            "Document Name": document.name, "Cover Page Number": cover.number,
+            "Panel": None, "ATA Chapter": None, "Cover Page Issue": None,
+        }]).to_excel(output, index=False)
+        content = output.getvalue()
+
+        preview = self.preview(content)
+        self.assertEqual(preview.status_code, 200, preview.data)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(confirmed.status_code, 201, confirmed.data)
+        document.refresh_from_db()
+        cover.refresh_from_db()
+        sibling.refresh_from_db()
+        self.assertIsNone(document.panel_id)
+        self.assertIsNone(cover.issue)
+        self.assertEqual(cover.version, 2)
+        self.assertEqual(sibling.version, 2)
 
     def test_new_matching_target_after_preview_returns_version_conflict(self):
         content = self.workbook()

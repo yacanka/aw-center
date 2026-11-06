@@ -55,6 +55,41 @@
       <n-alert v-if="publicationJob" type="info" :bordered="false">
         Publication is running as job {{ publicationJob.id }}. Follow progress in Job Center.
       </n-alert>
+      <n-alert v-if="hasSaveConflict" type="warning" title="The saved draft changed">
+        <n-space vertical>
+          <n-text>
+            Your edits are preserved. Compare version {{ draft.version }} below before continuing.
+            Keeping your edits will replace its editable fields when you next save.
+          </n-text>
+          <n-collapse>
+            <n-collapse-item
+              :title="`Latest saved values (version ${draft.version})`"
+              name="latest"
+            >
+              <n-space vertical>
+                <n-text>Project: {{ draft.project_key }}</n-text>
+                <n-text>Summary: {{ draft.summary }}</n-text>
+                <n-input
+                  :value="draft.description"
+                  type="textarea"
+                  readonly
+                  :autosize="{ minRows: 3, maxRows: 12 }"
+                  aria-label="Latest saved explainable findings"
+                />
+                <n-text v-for="(value, field) in draft.extra_fields" :key="field">
+                  {{ field }}: {{ value }}
+                </n-text>
+              </n-space>
+            </n-collapse-item>
+          </n-collapse>
+          <n-space>
+            <n-button :disabled="busy" @click="reloadSavedDraft">Use latest saved values</n-button>
+            <n-button :disabled="busy || !canEdit || locked" @click="keepEditsAfterConflict"
+              >Keep my edits for version {{ draft.version }}</n-button
+            >
+          </n-space>
+        </n-space>
+      </n-alert>
       <n-form label-placement="top" :disabled="locked || !canEdit">
         <n-form-item label="JIRA project key">
           <n-input v-model:value="form.project_key" maxlength="20" />
@@ -94,7 +129,12 @@
         A user with the JIRA draft publish permission must inspect JIRA requirements and publish.
       </n-alert>
       <n-space v-if="!locked && (canEdit || canApprove)">
-        <n-button v-if="canEdit" :loading="busy" :disabled="!dirty" @click="saveDraft">
+        <n-button
+          v-if="canEdit"
+          :loading="busy"
+          :disabled="!dirty || hasSaveConflict"
+          @click="saveDraft"
+        >
           Save draft
         </n-button>
         <n-button
@@ -183,12 +223,15 @@ const {
   isJiraConnected,
   statusType,
   dirty,
+  hasSaveConflict,
   projectOptions,
   projectsLoading,
   publicationJob,
   selectedProjectSlugs,
   prepareDraft,
   saveDraft,
+  keepEditsAfterConflict,
+  reloadSavedDraft,
   approveDraft,
   checkPreflight,
   setExtraField,

@@ -4,6 +4,9 @@ import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from cryptography.fernet import Fernet
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from openpyxl import Workbook
@@ -19,6 +22,7 @@ from .subtask_contracts import sanitize_subtask_fields, validate_item_field_cont
 from .subtask_jobs import JOB_KIND, enqueue_subtask_batch, enqueue_subtask_resume
 from .subtask_serializers import SubtaskBatchSerializer
 from .subtask_views import workbook_items
+from .sessions import owner_cache_key, store_jira_session
 
 
 @override_settings(JIRA_ENABLED=True)
@@ -32,6 +36,45 @@ class JiraSubtaskJobTests(JobTestCase):
             domain=ProjectRoleAssignment.Domain.JIRA,
             role=ProjectRoleAssignment.Role.OPERATOR,
         )
+
+    @override_settings(DEBUG=True, JIRA_SESSION_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"))
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_account_disabled_before_or_during_execution_blocks_provider_writes(self, connector_type):
+        for disable_before_claim in (True, False):
+            with self.subTest(disable_before_claim=disable_before_claim):
+                get_user_model().objects.filter(pk=self.user.pk).update(is_active=True)
+                store_jira_session(self.user, "owner-session-fixture", {"username": "owner"})
+                self.addCleanup(cache.delete, owner_cache_key(self.user))
+                job, _ = enqueue_subtask_batch(
+                    self.user, "CHN-42", [self.project],
+                    [{"summary": "Panel review", "fields": {}}],
+                    f"disabled-owner-{disable_before_claim}",
+                )
+                client = Mock()
+                client.find_issue_by_label.return_value = None
+                client.get_subtask_fields.return_value = []
+                client.build_subtask_fields.return_value = {"summary": "Panel review"}
+                client.create_subtask_from_fields.return_value = SimpleNamespace(key="CHN-100")
+                connector_type.return_value = client
+
+                def disable_owner():
+                    get_user_model().objects.filter(pk=self.user.pk).update(is_active=False)
+                    return []
+
+                if disable_before_claim:
+                    disable_owner()
+                else:
+                    client.get_subtask_fields.side_effect = disable_owner
+                claimed = claim_next_job("disabled-owner-worker", eligible_kinds=(JOB_KIND,))
+                execute_claimed_job(claimed, lambda _kind: execute_jira_subtask_batch)
+
+                job.refresh_from_db()
+                self.assertEqual(job.status, JobStatus.FAILED)
+                self.assertEqual(job.error_code, "JIRA_RECONNECT_REQUIRED")
+                self.assertFalse(job.retryable)
+                self.assertFalse(job.output_file)
+                client.create_subtask_from_fields.assert_not_called()
+                self.assertIsNone(cache.get(owner_cache_key(self.user)))
 
     @patch("integrations.jira.subtask_views.inspect_subtask_target")
     def test_api_queues_credential_free_manual_plan(self, inspect_target):

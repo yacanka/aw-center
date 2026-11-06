@@ -149,49 +149,49 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(rows).toHaveCount(2)
       const timeline = page.locator('.timeline-surface canvas')
       await timeline.scrollIntoViewIfNeeded()
-      // Read the real vue-chartjs instance to target a known intermediate day.
-      const hoverPoint = await timeline.evaluate((canvas) => {
-        const component = (
-          canvas as unknown as {
-            __vueParentComponent: { exposed: { chart: { value: import('chart.js').Chart } } }
-          }
-        ).__vueParentComponent
-        const chart = component.exposed.chart.value
+      // Use the loaded Chart.js module's public registry in the production artifact.
+      const chartHandle = await timeline.evaluateHandle(async (canvas) => {
+        const chartUrl = performance
+          .getEntriesByType('resource')
+          .map((resource) => new URL(resource.name))
+          .find(
+            (url) =>
+              url.origin === location.origin &&
+              /^\/core\/assets\/chart-[^/]+\.js$/.test(url.pathname)
+          )
+        if (!chartUrl) throw new Error('The compiled Chart.js module was not loaded')
+        const chartModule: Record<string, unknown> = await import(chartUrl.href)
+        const ChartJS = Object.values(chartModule).find(
+          (value): value is typeof import('chart.js').Chart =>
+            typeof value === 'function' &&
+            'getChart' in value &&
+            typeof value.getChart === 'function'
+        )
+        const chart = ChartJS?.getChart(canvas as HTMLCanvasElement)
+        if (!chart) throw new Error('The timeline chart was not registered')
+        return chart
+      })
+      const hoverPoint = await chartHandle.evaluate((chart) => {
         const x = chart.scales.x.getPixelForValue(new Date(2026, 6, 5).getTime())
         return { x, y: (chart.chartArea.top + chart.chartArea.bottom) / 2 }
       })
       await timeline.hover({ position: hoverPoint })
       await expect
         .poll(() =>
-          timeline.evaluate((canvas) => {
-            const chart = (
-              canvas as unknown as {
-                __vueParentComponent: { exposed: { chart: { value: import('chart.js').Chart } } }
-              }
-            ).__vueParentComponent.exposed.chart.value
-            return chart.tooltip?.dataPoints?.map((item) => ({
+          chartHandle.evaluate((chart) =>
+            chart.tooltip?.dataPoints?.map((item) => ({
               label: item.dataset.label,
               value: item.parsed.y
             }))
-          })
+          )
         )
         .toEqual([
           { label: 'Scheduled', value: 0 },
           { label: 'Actual', value: 7 },
           { label: 'Revised scheduled', value: 7 }
         ])
-      await expect
-        .poll(() =>
-          timeline.evaluate((canvas) => {
-            const chart = (
-              canvas as unknown as {
-                __vueParentComponent: { exposed: { chart: { value: import('chart.js').Chart } } }
-              }
-            ).__vueParentComponent.exposed.chart.value
-            return chart.tooltip?.opacity
-          })
-        )
-        .toBe(1)
+      await expect.poll(() => chartHandle.evaluate((chart) => chart.tooltip?.opacity)).toBe(1)
+      await chartHandle.dispose()
       await page.screenshot({ path: `test-results/burndown-${theme}-${width}.png` })
       await expect(rows.first()).toContainText('27, 28')
       await rows.first().dblclick()

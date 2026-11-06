@@ -2,6 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { reactive } from 'vue'
+import { create, NSelect } from 'naive-ui'
+import { NAIVE_UI_COMPONENTS } from '@/app/plugins/naiveUi'
+import { NAIVE_UI_FEATURE_COMPONENTS } from '@/app/plugins/naiveUiFeatures'
 import SubtaskList from './SubtaskList.vue'
 
 const http = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }))
@@ -89,5 +92,55 @@ describe('saved JIRA lists', () => {
     expect(wrapper.find('input').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Account A')
     wrapper.unmount()
+  })
+
+  it('saves selected columns and retains newer edits while their save is pending', async () => {
+    const description = { id: 'description', name: 'Description', schema: { type: 'string' } }
+    const list = {
+      title: 'Review checklist',
+      list: [{ summary: 'Review', fields: {} }],
+      fields: []
+    }
+    http.get.mockResolvedValue({ data: { lists: [list], version: 1 } })
+    let finishSave!: (value: unknown) => void
+    http.put.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishSave = resolve
+      })
+    )
+    const wrapper = mount(SubtaskList, {
+      props: { fields: [description] },
+      global: {
+        plugins: [create({ components: [...NAIVE_UI_COMPONENTS, ...NAIVE_UI_FEATURE_COMPONENTS] })]
+      }
+    })
+    await flushPromises()
+    const selector = wrapper.findComponent(NSelect)
+    selector.vm.$emit('update:value', ['description'])
+    await flushPromises()
+    const save = wrapper.findAll('button').find((button) => button.text() === 'Save')!
+
+    await save.trigger('click')
+
+    expect(save.attributes('disabled')).toBeDefined()
+    expect(http.put).toHaveBeenCalledWith('integrations/jira/subtasks/saved-lists/', {
+      lists: [{ ...list, fields: [description] }],
+      version: 1
+    })
+    selector.vm.$emit('update:value', [])
+    await flushPromises()
+    finishSave({ data: { lists: [{ ...list, fields: [description] }], version: 2 } })
+    await flushPromises()
+
+    expect(selector.props('value')).toEqual([])
+    expect(save.attributes('disabled')).toBeUndefined()
+    http.put.mockResolvedValueOnce({ data: { lists: [list], version: 3 } })
+    await save.trigger('click')
+    await flushPromises()
+    expect(http.put).toHaveBeenLastCalledWith('integrations/jira/subtasks/saved-lists/', {
+      lists: [list],
+      version: 2
+    })
+    expect(save.attributes('disabled')).toBeDefined()
   })
 })

@@ -92,4 +92,48 @@ describe('release note acknowledgement batches', () => {
     expect(store.loading).toBe(false)
     expect(apiClient.post).not.toHaveBeenCalled()
   })
+
+  it('shows pending mandatory notes one at a time until each is acknowledged', async () => {
+    const first = { ...latest, id: 3, requires_ack: true }
+    const second = { ...latest, id: 2, requires_ack: true }
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ data: { latest: first, mark_seen_ids: [3] } })
+      .mockResolvedValueOnce({ data: { latest: second, mark_seen_ids: [2] } })
+      .mockResolvedValueOnce({ status: 204, data: undefined })
+    vi.mocked(apiClient.post).mockResolvedValue({ data: { ok: true } })
+    const store = useReleaseNotesStore()
+    await store.checkUnseen()
+
+    await store.acknowledge()
+
+    expect(store.current).toEqual(second)
+    expect(store.show).toBe(true)
+    await store.acknowledge()
+    expect(store.current).toBeNull()
+    expect(store.show).toBe(false)
+    expect(store.unseen_ids).toEqual([])
+    expect(vi.mocked(apiClient.post).mock.calls.map(([url]) => url)).toEqual([
+      'releases/release-notes/bulk-seen',
+      'releases/release-notes/3/ack',
+      'releases/release-notes/bulk-seen',
+      'releases/release-notes/2/ack'
+    ])
+  })
+
+  it('retains a required note when acknowledgement fails', async () => {
+    const required = { ...latest, requires_ack: true }
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: { latest: required, mark_seen_ids: [required.id] }
+    })
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ data: { ok: true } })
+    const store = useReleaseNotesStore()
+    await store.checkUnseen()
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Offline'))
+
+    await expect(store.acknowledge()).rejects.toThrow('Offline')
+
+    expect(store.current).toEqual(required)
+    expect(store.show).toBe(true)
+    expect(store.loading).toBe(false)
+  })
 })

@@ -28,6 +28,7 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
   const selectedProjectSlugs = ref<string[]>([])
   const projectsLoading = ref(false)
   let selectionRevision = 0
+  const editingVersion = ref(0)
   let disposed = false
   let publicationAttempt: { fingerprint: string; key: string } | null = null
   const form = reactive({
@@ -63,6 +64,9 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
   const statusType = computed(() => draftStatusType(draft.value))
   const dirty = computed(
     () => draft.value != null && draftFingerprint(draft.value) != formFingerprint(form)
+  )
+  const hasSaveConflict = computed(
+    () => dirty.value && draft.value?.version !== editingVersion.value
   )
 
   watch(() => selectedJob().id, loadExistingDraft, { immediate: true, flush: 'sync' })
@@ -116,9 +120,27 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
 
   async function saveDraft(): Promise<void> {
     const current = draft.value
-    if (!current || !canActOnDraft() || !canEdit.value || locked.value || !dirty.value) return
-    const values = { ...form, version: current.version }
+    if (
+      !current ||
+      !canActOnDraft() ||
+      !canEdit.value ||
+      locked.value ||
+      !dirty.value ||
+      hasSaveConflict.value
+    )
+      return
+    const values = { ...form, version: editingVersion.value }
     await run(() => updateJiraIssueDraft(current.id, values), setDraft, 'Draft saved.')
+  }
+
+  function keepEditsAfterConflict(): void {
+    if (!hasSaveConflict.value || !canActOnDraft() || !canEdit.value || locked.value) return
+    editingVersion.value = draft.value!.version
+  }
+
+  function reloadSavedDraft(): void {
+    if (!hasSaveConflict.value || !canActOnDraft()) return
+    setDraft(draft.value!)
   }
 
   async function approveDraft(): Promise<void> {
@@ -224,16 +246,37 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
   async function recoverDraft(isCurrent: () => boolean): Promise<void> {
     const current = draft.value
     if (!current) return
+    // Keep field editors available for corrections without reusing publication readiness.
+    const previousPreflight = preflight.value
+    preflight.value =
+      previousPreflight && previousPreflight.project_key === form.project_key
+        ? {
+            ...previousPreflight,
+            ready: false,
+            missing_fields: [],
+            invalid_fields: [],
+            unsupported_fields: [],
+            warnings: []
+          }
+        : null
     try {
       const recovered = await fetchJiraIssueDraft(current.id)
-      if (isCurrent()) setDraft(recovered)
+      if (!isCurrent()) return
+      if (!dirty.value || formFingerprint(form) === draftFingerprint(recovered)) {
+        setDraft(recovered)
+        return
+      }
+      // Keep the editing CAS version until the user compares and resolves the conflict.
+      draft.value = recovered
+      selectedProjectSlugs.value = [...recovered.project_slugs]
     } catch {
-      if (isCurrent()) draft.value = null
+      // Keep the last known version and form during an outage; retries still use server CAS.
     }
   }
 
   function setDraft(value: JiraIssueDraft, preservePreflight = false): void {
     draft.value = value
+    editingVersion.value = value.version
     form.project_key = value.project_key
     form.summary = value.summary
     form.description = value.description
@@ -246,6 +289,7 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
     busy.value = false
     projectsLoading.value = false
     draft.value = null
+    editingVersion.value = 0
     preflight.value = null
     publicationJob.value = null
     publicationAttempt = null
@@ -294,12 +338,15 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
     isJiraConnected,
     statusType,
     dirty,
+    hasSaveConflict,
     projectOptions,
     projectsLoading,
     publicationJob,
     selectedProjectSlugs,
     prepareDraft,
     saveDraft,
+    keepEditsAfterConflict,
+    reloadSavedDraft,
     approveDraft,
     checkPreflight,
     setExtraField,

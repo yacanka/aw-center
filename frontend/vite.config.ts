@@ -8,7 +8,22 @@ export default defineConfig(({ mode }) => {
   loadEnv(mode, process.cwd(), '')
 
   return {
-    plugins: [vue()],
+    plugins: [
+      vue(),
+      {
+        name: 'django-preview-paths',
+        configurePreviewServer(server) {
+          server.middlewares.use((request, _response, next) => {
+            // Django serves the SPA/PWA at /app/ and compiled assets at /core/.
+            // Preview's base middleware otherwise rejects the canonical /app/ URLs.
+            if (request.url?.startsWith('/app/')) {
+              request.url = `${server.config.base.replace(/\/$/, '')}${request.url}`
+            }
+            next()
+          })
+        }
+      }
+    ],
     define:
       mode === 'test'
         ? {

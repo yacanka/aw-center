@@ -188,8 +188,21 @@ test('dynamic columns can be selected, cleared and selected again across list ta
       await expect(page.locator('.subtask-bulk-fields > *')).toHaveCount(selected.size + 1)
       expect(errors).toEqual([])
     }
+    let releaseSave!: () => void
+    state.saveReady = new Promise<void>((resolve) => {
+      releaseSave = resolve
+    })
+    const savedVersion = state.content.version
+    const savedResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname === '/api/integrations/jira/subtasks/saved-lists/'
+    )
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+    expect(state.content.version).toBe(savedVersion)
+    releaseSave()
+    expect((await savedResponse).status()).toBe(200)
     expect(
       state.content.lists
         .find((list) => list.title === title)!
@@ -595,6 +608,7 @@ async function jiraShell(
       ] as ISubtaskListItem[]
     },
     failSave: false,
+    saveReady: null as Promise<void> | null,
     created: null as unknown,
     workbookBody: ''
   }
@@ -607,6 +621,7 @@ async function jiraShell(
   await page.route('**/api/users/preferences/', (route) => json(route, { theme: 'system' }))
   await page.route('**/api/integrations/jira/subtasks/saved-lists/', async (route) => {
     if (route.request().method() === 'PUT') {
+      if (state.saveReady) await state.saveReady
       if (state.failSave)
         return json(route, { detail: 'Saved lists could not be saved.', code: 'SAVE_FAILED' }, 503)
       const payload = route.request().postDataJSON()
@@ -628,6 +643,9 @@ async function jiraShell(
   )
   await page.route('**/api/integrations/jira/session/', (route) =>
     json(route, { state: 'connected', expires_at: '2027-01-01T00:00:00Z' })
+  )
+  await page.route('**/api/integrations/jira/watcher/preferences/', (route) =>
+    json(route, { outstanding_only: false, detail_fields: {}, component_fields: {} })
   )
   await page.route('**/api/integrations/jira/records/**', (route) =>
     json(route, { count: 0, next: null, previous: null, results: [] })

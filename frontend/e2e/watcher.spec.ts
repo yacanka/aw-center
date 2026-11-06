@@ -286,7 +286,11 @@ test('filters, retries and keyboard details work in landscape with reduced motio
   await expect(page.getByText('Software review', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Safety review', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Close details' }).click()
-  await page.getByRole('button', { name: 'More actions for CHN-42' }).focus()
+  // Drawer teardown restores focus before the next keyboard interaction.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const moreActions = page.getByRole('button', { name: 'More actions for CHN-42' })
+  await moreActions.focus()
+  await expect(moreActions).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('menu', { name: 'Actions for CHN-42' })).toBeVisible()
   await page.keyboard.press('ArrowDown')

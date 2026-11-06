@@ -29,7 +29,7 @@ from scripts.launcher.offline_manifest import (
     verify_offline_manifest,
     write_offline_manifest,
 )
-from scripts.launcher.packaging import package_offline, write_zip
+from scripts.launcher.packaging import package_changes, package_offline, write_zip
 from scripts.launcher.runtime import (
     dev,
     frontend_env,
@@ -685,6 +685,72 @@ class PackagingTests(unittest.TestCase):
             wheel.write_bytes(b"tampered")
             with self.assertRaises(LauncherError):
                 verify_offline_manifest(project, Scope(), project.root / "offline")
+
+
+class GitPackagingTests(unittest.TestCase):
+    """Exercise Git's actual filename serialization through the resulting ZIP."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.project = create_project(Path(temporary.name))
+        self._git("init", "--template=", "--quiet")
+        self._git("config", "core.quotePath", "true")
+
+    def _git(self, *arguments: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(self.project.root), *arguments],
+            check=True,
+            capture_output=True,
+        )
+
+    def _assert_offline_preserves_filename(self, filename: str) -> None:
+        source = self.project.backend / filename
+        source.write_bytes(b"# tracked source\n")
+        self._git("add", "--", "backend")
+        output = self.project.root / "offline.zip"
+
+        package_offline(
+            self.project, Scope(), self.project.root / "offline", output, include_packages=False
+        )
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertIn(f"backend/{filename}", archive.namelist())
+            self.assertEqual(archive.read(f"backend/{filename}"), b"# tracked source\n")
+
+    def _assert_changes_preserve_filenames(self, filename: str) -> None:
+        tracked = self.project.backend / filename
+        tracked.write_bytes(b"# original source\n")
+        self._git("add", "--", ".")
+        self._git(
+            "-c", "user.name=AW Center test", "-c", "user.email=test@example.invalid",
+            "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Initial test source",
+        )
+        tracked.write_bytes(b"# changed source\n")
+        untracked = self.project.frontend / filename
+        untracked.write_bytes(b"# untracked source\n")
+        output = self.project.root / "changes.zip"
+
+        self.assertEqual(package_changes(self.project, output), output)
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(set(archive.namelist()), {f"backend/{filename}", f"frontend/{filename}"})
+            self.assertEqual(archive.read(f"backend/{filename}"), b"# changed source\n")
+            self.assertEqual(archive.read(f"frontend/{filename}"), b"# untracked source\n")
+
+    def test_offline_package_preserves_unicode_filename(self) -> None:
+        self._assert_offline_preserves_filename("Türkçe.py")
+
+    @unittest.skipIf(sys.platform == "win32", "Windows filenames cannot contain newlines.")
+    def test_offline_package_preserves_newline_filename(self) -> None:
+        self._assert_offline_preserves_filename("line\nbreak.py")
+
+    def test_changes_package_preserves_unicode_tracked_and_untracked_filenames(self) -> None:
+        self._assert_changes_preserve_filenames("Türkçe.py")
+
+    @unittest.skipIf(sys.platform == "win32", "Windows filenames cannot contain newlines.")
+    def test_changes_package_preserves_newline_tracked_and_untracked_filenames(self) -> None:
+        self._assert_changes_preserve_filenames("line\nbreak.py")
 
 
 class CliTests(unittest.TestCase):

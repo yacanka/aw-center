@@ -338,7 +338,7 @@ def prepare_tabular_plan(
     for _, normalized_row in normalized:
         cover_data = normalized_row["payload"]["cover_page"]
         cover_key = _canonical_identity(cover_data["number"])
-        if not cover_key:
+        if not cover_key or "issue" not in cover_data:
             continue
         cover_issue_requests.setdefault(cover_key, set()).add(
             _normalized_cover_issue(cover_data.get("issue"))
@@ -428,13 +428,16 @@ def prepare_tabular_plan(
             payload["cover_page"]["version"] = cover_page.version
 
         reference = normalized_row["panel_reference"]
+        serializer_payload = dict(payload)
+        if "panel" in payload:
+            serializer_payload["panel"] = reference.panel
         serializer = ComplianceDocumentSerializer(
             target,
-            data={**payload, "panel": reference.panel},
+            data=serializer_payload,
             partial=target is not None,
             context={"request": request, "project": project, "import_identity_ids": identity_ids},
         )
-        serializer.fields["panel"] = PlannedPanelField(allow_null=True)
+        serializer.fields["panel"] = PlannedPanelField(allow_null=True, required=False)
         if not serializer.is_valid():
             errors.append(
                 {
@@ -517,11 +520,12 @@ def _normalize_row(source, panels):
         if values.get(field) not in (None, "")
     }
     payload["name"] = name
-    payload["panel"] = panel.pk if panel else None
-    payload["cover_page"] = {
-        "number": cover_number,
-        "issue": values.get("cover_page_issue"),
-    }
+    # Omitted optional columns preserve existing values; explicit blank cells clear them.
+    if "panel" in values or "ata" in values:
+        payload["panel"] = panel.pk if panel else None
+    payload["cover_page"] = {"number": cover_number}
+    if "cover_page_issue" in values:
+        payload["cover_page"]["issue"] = values["cover_page_issue"]
     for field in ("target_date", "revised_target_date", "release_date"):
         if field in values:
             payload[field] = _parse_import_date(values[field], field)
@@ -644,7 +648,7 @@ def _resolve_action(target, validated_data, workflow_events):
     cover_data = validated_data.get("cover_page")
     if cover_data and (
         target.cover_page.number != cover_data["number"]
-        or target.cover_page.issue != cover_data.get("issue")
+        or "issue" in cover_data and target.cover_page.issue != cover_data["issue"]
     ):
         return "update"
     for field, value in validated_data.items():
@@ -838,16 +842,13 @@ def _apply_plan(plan, project, request, audit):
     for row in plan.rows:
         if row.action == "unchanged":
             continue
+        payload = dict(row.payload)
+        panel = row.panel_reference.panel
+        if panel is not None and panel.ata in panels:
+            payload["panel"] = panels[panel.ata].pk
         serializer = ComplianceDocumentSerializer(
             row.target,
-            data={
-                **row.payload,
-                "panel": (
-                    panels[row.panel_reference.panel.ata].pk
-                    if row.panel_reference.panel is not None and row.panel_reference.panel.ata in panels
-                    else row.payload["panel"]
-                ),
-            },
+            data=payload,
             partial=row.target is not None,
             context={"request": request, "project": project},
         )

@@ -16,18 +16,22 @@ class UnseenReleaseNotesView(APIView):
     def get(self, request):
         qs = ReleaseNote.objects.filter(is_active=True).order_by("-published_at")
 
-        seen_ids = set(
+        seen = dict(
             ReleaseNoteSeen.objects.filter(user=request.user)
-            .values_list("release_note_id", flat=True)
+            .values_list("release_note_id", "acknowledged_at")
         )
 
-        unseen = [n for n in qs if n.id not in seen_ids]
+        unseen = [
+            note for note in qs
+            if note.id not in seen or (note.requires_ack and seen[note.id] is None)
+        ]
 
         if not unseen:
             return Response(status=204)
 
-        latest = unseen[0]
-        mark_seen_ids = [n.id for n in unseen]
+        # Required notes must each be presented and explicitly acknowledged.
+        latest = next((note for note in unseen if note.requires_ack), unseen[0])
+        mark_seen_ids = [latest.id] if latest.requires_ack else [note.id for note in unseen]
 
         return Response({
             "latest": ReleaseNoteSerializer(latest).data,

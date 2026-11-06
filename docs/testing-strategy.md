@@ -86,6 +86,8 @@ npm --prefix frontend run test:e2e
 
 CI, `frontend/` çalışma dizininde `npx playwright install --with-deps chromium` kullanır ve ardından aynı `npm run test:e2e` gate'ini çalıştırır. Browser binary/cache'i source veya release manifestine eklenmez.
 
+E2E gate'i her çalıştırmada production frontend build'ini üretir ve Vite preview ile sunar; açık bir geliştirme sunucusunu yeniden kullanmaz. Böylece test süreleri, her navigasyonda kaynak modüllerini dönüştüren development/HMR sunucusuna bağlı kalmaz. Preview, Django'nun `/app/` SPA/PWA ve `/core/` derlenmiş asset URL sınırlarını korur. API fixture'ları aynı-origin `/api/` isteklerini karşılar. Paylaşılan geliştirme/CI makinelerinde tarayıcı ve trace belleğini sınırlamak için tek worker kullanılır; tüm testler çalışır, test beklentileri, timeout ve retry politikaları değiştirilmez.
+
 Launcher/release:
 
 ```bash

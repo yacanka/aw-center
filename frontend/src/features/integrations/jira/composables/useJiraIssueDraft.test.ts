@@ -244,6 +244,145 @@ describe('JIRA draft selection ownership', () => {
     expect(api.fetchJiraIssueDraft).toHaveBeenCalledTimes(2)
   })
 
+  it.each([400, 409, 'network'] as const)(
+    'preserves edits after a %s save failure while refreshing server permissions',
+    async (failure) => {
+      const { state } = panel()
+      await flushPromises()
+      const edits = {
+        project_key: 'EDITED',
+        summary: '',
+        description: 'Unsaved findings that must remain available for correction.',
+        extra_fields: { customfield_10000: ['unsaved value'] }
+      }
+      Object.assign(state.form, edits)
+      state.preflight.value = readyPreflight
+      const recovered = {
+        ...draft('A', 'approved'),
+        version: 2,
+        allowed_actions: { edit: false, approve: false, preflight: false, publish: false }
+      }
+      vi.mocked(api.updateJiraIssueDraft).mockRejectedValueOnce(
+        failure === 'network'
+          ? new Error('Network unavailable')
+          : { response: { status: failure, data: { code: 'SAVE_FAILED', detail: 'Save failed.' } } }
+      )
+      vi.mocked(api.fetchJiraIssueDraft).mockResolvedValueOnce(recovered)
+
+      await state.saveDraft()
+
+      expect(state.form).toEqual(edits)
+      expect(state.draft.value).toEqual(recovered)
+      expect(state.dirty.value).toBe(true)
+      expect(state.canEdit.value).toBe(false)
+      expect(state.canApprove.value).toBe(false)
+      expect(state.canPublish.value).toBe(false)
+      expect(state.preflight.value).toBeNull()
+      expect(state.busy.value).toBe(false)
+    }
+  )
+
+  it('keeps the editable draft visible when save and recovery both fail', async () => {
+    const { state } = panel()
+    await flushPromises()
+    state.form.description = 'Unsaved findings during an outage.'
+    state.preflight.value = readyPreflight
+    vi.mocked(api.updateJiraIssueDraft).mockRejectedValueOnce(new Error('Network unavailable'))
+    vi.mocked(api.fetchJiraIssueDraft).mockRejectedValueOnce(new Error('Still unavailable'))
+
+    await state.saveDraft()
+
+    expect(state.draft.value?.id).toBe('draft-A')
+    expect(state.form.description).toBe('Unsaved findings during an outage.')
+    expect(state.dirty.value).toBe(true)
+    expect(state.preflight.value?.ready).toBe(false)
+    expect(state.busy.value).toBe(false)
+  })
+
+  it('requires an explicit conflict choice before retrying edits against a newer version', async () => {
+    const { state } = panel()
+    await flushPromises()
+    state.form.summary = 'My unsaved summary'
+    vi.mocked(api.updateJiraIssueDraft).mockRejectedValueOnce({
+      response: { status: 409, data: { code: 'CONFLICT', detail: 'Version changed.' } }
+    })
+    const latestDraft = { ...draft('A'), description: 'Another reviewer updated this.', version: 2 }
+    vi.mocked(api.fetchJiraIssueDraft).mockResolvedValueOnce(latestDraft)
+    await state.saveDraft()
+    vi.mocked(api.updateJiraIssueDraft).mockClear()
+
+    await state.saveDraft()
+
+    expect(api.updateJiraIssueDraft).not.toHaveBeenCalled()
+    expect(state.hasSaveConflict.value).toBe(true)
+    expect(state.draft.value?.description).toBe('Another reviewer updated this.')
+    state.keepEditsAfterConflict()
+    vi.mocked(api.updateJiraIssueDraft).mockResolvedValueOnce({
+      ...latestDraft,
+      summary: 'My unsaved summary',
+      description: '',
+      version: 3
+    })
+    await state.saveDraft()
+    expect(api.updateJiraIssueDraft).toHaveBeenCalledWith(
+      'draft-A',
+      expect.objectContaining({
+        version: 2,
+        summary: 'My unsaved summary'
+      })
+    )
+    expect(state.hasSaveConflict.value).toBe(false)
+  })
+
+  it('lets the user replace conflicting edits with the latest saved draft explicitly', async () => {
+    const { state } = panel()
+    await flushPromises()
+    state.form.summary = 'My unsaved summary'
+    vi.mocked(api.updateJiraIssueDraft).mockRejectedValueOnce(new Error('Conflict'))
+    const latestDraft = { ...draft('A'), summary: 'Remote summary', version: 2 }
+    vi.mocked(api.fetchJiraIssueDraft).mockResolvedValueOnce(latestDraft)
+    await state.saveDraft()
+
+    state.reloadSavedDraft()
+
+    expect(state.form.summary).toBe('Remote summary')
+    expect(state.dirty.value).toBe(false)
+    expect(state.hasSaveConflict.value).toBe(false)
+  })
+
+  it('refreshes a clean form after an approval conflict without inventing unsaved edits', async () => {
+    const { state } = panel()
+    await flushPromises()
+    vi.mocked(api.approveJiraIssueDraft).mockRejectedValueOnce(new Error('Conflict'))
+    const latestDraft = { ...draft('A'), summary: 'Remote summary', version: 2 }
+    vi.mocked(api.fetchJiraIssueDraft).mockResolvedValueOnce(latestDraft)
+
+    await state.approveDraft()
+
+    expect(state.form.summary).toBe('Remote summary')
+    expect(state.dirty.value).toBe(false)
+    expect(state.hasSaveConflict.value).toBe(false)
+    expect(state.draft.value?.version).toBe(2)
+  })
+
+  it('clears conflict resolution when another job is selected', async () => {
+    const { state, wrapper } = panel()
+    await flushPromises()
+    state.form.summary = 'My unsaved summary'
+    vi.mocked(api.updateJiraIssueDraft).mockRejectedValueOnce(new Error('Conflict'))
+    vi.mocked(api.fetchJiraIssueDraft).mockResolvedValueOnce({ ...draft('A'), version: 2 })
+    await state.saveDraft()
+    await wrapper.setProps({ job: job('B') })
+    await flushPromises()
+    state.form.summary = 'Unsaved B'
+
+    state.reloadSavedDraft()
+    state.keepEditsAfterConflict()
+
+    expect(state.form.summary).toBe('Unsaved B')
+    expect(state.hasSaveConflict.value).toBe(false)
+  })
+
   it('does not approve, check or publish an unsaved selection', async () => {
     const { state } = panel()
     await flushPromises()
@@ -364,6 +503,107 @@ describe('JIRA draft selection ownership', () => {
     await flushPromises()
     expect(api.publishJiraIssueDraft).toHaveBeenCalledOnce()
     expect(api.preflightJiraIssueDraft).not.toHaveBeenCalled()
+  })
+
+  it('shows complete object references safely when comparing a conflicting draft', async () => {
+    vi.mocked(api.fetchJiraIssueDraft)
+      .mockResolvedValueOnce(draft('A'))
+      .mockResolvedValueOnce({
+        ...draft('A'),
+        version: 2,
+        extra_fields: {
+          customfield_10000: [
+            {
+              id: '17',
+              name: 'Hardware <script>unsafe</script>',
+              child: { id: '18', value: 'Safety' }
+            }
+          ]
+        }
+      })
+    vi.mocked(api.updateJiraIssueDraft).mockRejectedValueOnce(new Error('Conflict'))
+    const wrapper = mount(JiraIssueDraftPanel, {
+      props: { job: job('A') },
+      global: {
+        plugins: [
+          createPinia(),
+          create({ components: [...NAIVE_UI_COMPONENTS, ...NAIVE_UI_FEATURE_COMPONENTS] })
+        ]
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('input[maxlength="255"]').setValue('My unsaved summary')
+    const save = wrapper.findAll('button').find((button) => button.text() === 'Save draft')!
+    await save.trigger('click')
+    await flushPromises()
+    const latest = wrapper
+      .findAll('.n-collapse-item__header-main')
+      .find((header) => header.text() === 'Latest saved values (version 2)')!
+    await latest.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Hardware <script>unsafe</script>')
+    expect(wrapper.text()).toContain('Safety')
+    expect(wrapper.text()).not.toContain('[object Object]')
+    expect(wrapper.find('script').exists()).toBe(false)
+  })
+
+  it('keeps custom-field editors available after a rejected save without retaining readiness', async () => {
+    vi.mocked(api.fetchJiraIssueDraft).mockResolvedValue(draft('A', 'approved'))
+    vi.mocked(api.preflightJiraIssueDraft).mockResolvedValue({
+      ...readyPreflight,
+      fields: [{ id: 'customfield_10000', name: 'Review code', schema: { type: 'string' } }]
+    })
+    vi.mocked(api.updateJiraIssueDraft).mockRejectedValueOnce({
+      response: { status: 400, data: { code: 'VALIDATION_ERROR', detail: 'Invalid review code.' } }
+    })
+    const wrapper = mount(JiraIssueDraftPanel, {
+      props: { job: job('A') },
+      global: {
+        plugins: [
+          createPinia(),
+          create({ components: [...NAIVE_UI_COMPONENTS, ...NAIVE_UI_FEATURE_COMPONENTS] })
+        ]
+      }
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const check = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Check connection and requirements')!
+    await check.trigger('click')
+    await flushPromises()
+    await wrapper.get('input[placeholder="Review code"]').setValue('invalid')
+    const save = wrapper.findAll('button').find((button) => button.text() === 'Save draft')!
+    await save.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('input[placeholder="Review code"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('is ready for safe publication')
+    expect(
+      wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Publish approved Task')!
+        .attributes('disabled')
+    ).toBeDefined()
+    await wrapper.get('input[placeholder="Review code"]').setValue('corrected')
+    vi.mocked(api.updateJiraIssueDraft).mockResolvedValueOnce({
+      ...draft('A'),
+      version: 2,
+      extra_fields: { customfield_10000: 'corrected' }
+    })
+    await save.trigger('click')
+    await flushPromises()
+
+    expect(api.updateJiraIssueDraft).toHaveBeenLastCalledWith(
+      'draft-A',
+      expect.objectContaining({
+        version: 1,
+        extra_fields: { customfield_10000: 'corrected' }
+      })
+    )
+    expect(wrapper.text()).not.toContain('The form contains unsaved changes.')
   })
 
   it.each(['not-ready', 'disconnected', 'no-permission'] as const)(

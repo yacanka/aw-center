@@ -41,7 +41,12 @@ export const useReleaseNotesStore = defineStore('releaseNotes', {
           'releases/release-notes/unseen'
         )
 
-        if (!res.data) return
+        if (!res.data) {
+          this.current = null
+          this.unseen_ids = []
+          this.show = false
+          return
+        }
 
         this.current = res.data.latest
         this.unseen_ids = res.data.mark_seen_ids
@@ -66,12 +71,19 @@ export const useReleaseNotesStore = defineStore('releaseNotes', {
     },
 
     async acknowledge() {
-      if (!this.current) return
-
-      await axios.post(`releases/release-notes/${this.current.id}/ack`)
+      if (!this.current || this.loading) return
+      this.loading = true
+      try {
+        await axios.post(`releases/release-notes/${this.current.id}/ack`)
+      } finally {
+        this.loading = false
+      }
 
       this.show = false
       this.current = null
+      this.unseen_ids = []
+      this._checkedThisSession = false
+      await this.checkUnseen()
     },
 
     async closeIfAllowed() {

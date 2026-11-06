@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from datetime import date
 
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
@@ -312,6 +313,8 @@ def _json_snapshot(validated_data):
             }
         elif hasattr(value, "pk"):
             snapshot[field] = value.pk
+        elif isinstance(value, date):
+            snapshot[field] = value.isoformat()
         else:
             snapshot[field] = value
     return snapshot

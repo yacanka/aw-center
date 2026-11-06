@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import zipfile
 from datetime import datetime
@@ -136,14 +137,14 @@ def in_scope(project: Project, scope: Scope, path: Path) -> bool:
 def git_paths(project: Project, arguments: list[str]) -> list[Path]:
     """Read repository-relative paths from one non-mutating Git command."""
     completed = controlled_run(
-        ["git", "-C", str(project.root), *arguments],
+        ["git", "-C", str(project.root), *arguments, "-z"],
         check=False,
         capture_output=True,
-        text=True,
     )
     if completed.returncode:
         raise LauncherError("Git repository metadata is required for safe packaging")
-    return [Path(line) for line in completed.stdout.splitlines() if line]
+    # NUL records avoid Git quoting and preserve newlines inside file names.
+    return [Path(os.fsdecode(name)) for name in completed.stdout.split(b"\0") if name]
 
 
 def packageable(path: Path) -> bool:

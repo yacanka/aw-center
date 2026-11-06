@@ -5,6 +5,7 @@
     :title="store.current ? `AW Center (v${store.current.version}) Release Notes` : 'Update'"
     :closable="store.current ? !store.current.requires_ack : true"
     :mask-closable="store.current ? !store.current.requires_ack : true"
+    :close-on-esc="store.current ? !store.current.requires_ack : true"
     class="app-modal app-modal--large"
     @close="store.closeIfAllowed"
   >

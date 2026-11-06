@@ -17,13 +17,16 @@ from orgs.models import Project, ProjectRoleAssignment
 
 from integrations.jira.sessions import (
     JiraSessionConfigurationError,
+    JiraSessionNotConnected,
     clear_jira_session,
     connect_jira_session,
     ensure_jira_enabled,
     get_jira_session,
     jira_connector_for,
     owner_cache_key,
+    require_jira_session,
     session_cipher,
+    store_jira_session,
 )
 from integrations.jira.client import validated_session_id
 
@@ -56,6 +59,26 @@ class JiraSessionTests(TestCase):
             validated_session_id("  opaque-session-value  "),
             "opaque-session-value",
         )
+
+    def test_disabled_owner_cannot_reuse_a_cached_session_through_a_stale_user(self):
+        store_jira_session(self.other_user, "other-session-fixture", {"username": "other"})
+        for is_superuser in (False, True):
+            for use_identifier in (False, True):
+                with self.subTest(is_superuser=is_superuser, use_identifier=use_identifier):
+                    get_user_model().objects.filter(pk=self.user.pk).update(
+                        is_active=True, is_superuser=is_superuser,
+                    )
+                    self.user.refresh_from_db()
+                    store_jira_session(self.user, "owner-session-fixture", {"username": "owner"})
+                    owner = self.user.pk if use_identifier else self.user
+                    self.assertIsNotNone(require_jira_session(owner))
+                    get_user_model().objects.filter(pk=self.user.pk).update(is_active=False)
+
+                    with self.assertRaises(JiraSessionNotConnected):
+                        require_jira_session(owner)
+
+                    self.assertIsNone(cache.get(owner_cache_key(self.user)))
+                    self.assertIsNotNone(require_jira_session(self.other_user))
 
     @patch("integrations.jira.sessions.JiraConnector")
     def test_post_encrypts_credential_and_returns_only_public_identity_and_state(self, connector):

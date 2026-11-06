@@ -2,6 +2,7 @@
 
 import shutil
 import tempfile
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -147,6 +148,52 @@ class CoverPageNumberingTests(TestCase):
         self.assertEqual(ComplianceDocument.objects.count(), 1)
         client.generate_number.assert_called_once()
         client.mark_used.assert_called_once_with(41)
+
+    @patch("compliance.numbering_executor.NumaratorClient")
+    def test_calendar_dates_survive_idempotent_allocation_and_worker_execution(self, client_class):
+        client = client_class.return_value
+        client.generate_number.return_value = GeneratedNumber(
+            42, "CP-2026-0042", "COVER_PAGE", "active", "num-request-1",
+        )
+        client.mark_used.return_value = GeneratedNumber(
+            42, "CP-2026-0042", "COVER_PAGE", "used", "num-request-2",
+        )
+        payload = self.payload()
+        dates = {
+            "target_date": "2026-11-06",
+            "revised_target_date": "2026-11-07",
+            "release_date": "2026-11-08",
+        }
+        payload["document"].update(dates)
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 202, response.data)
+        allocation = CoverPageNumberAllocation.objects.get(pk=response.data["id"])
+        for field, value in dates.items():
+            self.assertEqual(allocation.document_snapshot[field], value)
+        replay = self.client.post(self.url, payload, format="json")
+        self.assertEqual(replay.status_code, 202, replay.data)
+        self.assertEqual(replay.data["id"], response.data["id"])
+        self.assertEqual(Job.objects.count(), 1)
+
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+
+        allocation.refresh_from_db()
+        self.assertEqual(allocation.status, CoverPageNumberAllocation.Status.COMPLETED)
+        self.assertEqual(allocation.current_job.status, JobStatus.SUCCEEDED)
+        self.assertEqual(allocation.document.target_date, date(2026, 11, 6))
+        self.assertEqual(allocation.document.revised_target_date, date(2026, 11, 7))
+        self.assertEqual(allocation.document.release_date, date(2026, 11, 8))
+        completed_replay = self.client.post(self.url, payload, format="json")
+        self.assertEqual(completed_replay.status_code, 200, completed_replay.data)
+        for field, value in dates.items():
+            self.assertEqual(completed_replay.data["document"][field], value)
+        payload["document"]["target_date"] = "2026-11-09"
+        conflict = self.client.post(self.url, payload, format="json")
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.data["code"], "NUMARATOR_ALLOCATION_CONFLICT")
+        self.assertEqual(CoverPageNumberAllocation.objects.count(), 1)
 
     @patch("compliance.numbering_executor.NumaratorClient")
     def test_worker_rejects_an_allocation_after_project_is_disabled(self, client_class):

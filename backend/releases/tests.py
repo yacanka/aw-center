@@ -12,6 +12,76 @@ from .models import ReleaseNote, ReleaseNoteSeen
 
 
 BULK_SEEN_URL = "/api/releases/release-notes/bulk-seen"
+UNSEEN_URL = "/api/releases/release-notes/unseen"
+
+
+class RequiredAcknowledgementTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="ack-reader")
+        self.client = APIClient()
+        self.client.force_login(self.user)
+
+    def test_seen_required_note_remains_pending_until_acknowledged(self):
+        note = ReleaseNote.objects.create(version="1.0", title="Required", requires_ack=True)
+        for url, payload in (
+            (f"/api/releases/release-notes/{note.id}/seen", {}),
+            (BULK_SEEN_URL, {"ids": [note.id]}),
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.post(url, payload, format="json").status_code, 200)
+                self.assertIsNone(ReleaseNoteSeen.objects.get(
+                    user=self.user, release_note=note
+                ).acknowledged_at)
+
+                reloaded = self.client.get(UNSEEN_URL)
+
+                self.assertEqual(reloaded.status_code, 200)
+                self.assertEqual(reloaded.data["latest"]["id"], note.id)
+
+        self.assertEqual(self.client.post(
+            f"/api/releases/release-notes/{note.id}/ack", {}, format="json"
+        ).status_code, 200)
+        self.assertEqual(self.client.get(UNSEEN_URL).status_code, 204)
+
+    def test_required_notes_are_presented_before_ordinary_notes_and_acknowledged_in_order(self):
+        first = ReleaseNote.objects.create(version="1.0", title="First", requires_ack=True)
+        second = ReleaseNote.objects.create(version="1.1", title="Second", requires_ack=True)
+        ordinary = ReleaseNote.objects.create(version="1.2", title="Ordinary")
+        latest = ReleaseNote.objects.create(version="1.3", title="Latest ordinary")
+
+        for note in (second, first):
+            response = self.client.get(UNSEEN_URL)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data["latest"]["id"], note.id)
+            self.assertEqual(response.data["mark_seen_ids"], [note.id])
+            self.client.post(BULK_SEEN_URL, {"ids": response.data["mark_seen_ids"]}, format="json")
+            self.assertEqual(self.client.get(UNSEEN_URL).data["latest"]["id"], note.id)
+            self.client.post(f"/api/releases/release-notes/{note.id}/ack", {}, format="json")
+
+        remaining = self.client.get(UNSEEN_URL)
+        self.assertEqual(remaining.data["latest"]["id"], latest.id)
+        self.assertEqual(remaining.data["mark_seen_ids"], [latest.id, ordinary.id])
+        self.client.post(BULK_SEEN_URL, {"ids": remaining.data["mark_seen_ids"]}, format="json")
+        self.assertEqual(self.client.get(UNSEEN_URL).status_code, 204)
+
+    def test_other_users_acknowledgements_do_not_hide_required_notes(self):
+        note = ReleaseNote.objects.create(version="1.0", title="Required", requires_ack=True)
+        other = get_user_model().objects.create_user(username="other-ack-reader")
+        ReleaseNoteSeen.objects.create(
+            user=other, release_note=note, acknowledged_at=timezone.now()
+        )
+
+        response = self.client.get(UNSEEN_URL)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["latest"]["id"], note.id)
+
+    def test_inactive_required_notes_are_not_presented(self):
+        ReleaseNote.objects.create(
+            version="1.0", title="Inactive", requires_ack=True, is_active=False
+        )
+
+        self.assertEqual(self.client.get(UNSEEN_URL).status_code, 204)
 
 
 class BulkSeenTests(TestCase):
