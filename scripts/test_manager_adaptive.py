@@ -157,3 +157,31 @@ class AdaptiveControllerTests(unittest.TestCase):
         self.view.handle_event.assert_not_called()
         self.event(new, type='profile', profile='dev', status='not_installed')
         self.assertEqual(self.view.handle_event.call_args.args[0]['status'], 'not_installed')
+
+    def test_tls_path_inspection_errors_keep_connection_recovery_available(self):
+        self.view.form_values.return_value = {'profile': 'prod', 'source_root': '/source'}
+        self.controller.inspect_selected()
+        task = self.controller.inspection_ids['prod']
+        states = ManagerTaskStates()
+        self.view.handle_event.side_effect = states.handle_event
+        for code in ('tls_file_missing', 'tls_file_absolute', 'tls_file_unavailable', 'tls_file_internal'):
+            with self.subTest(code=code):
+                self.event(task, type='error', code=code, message='TLS path requires replacement.',
+                           remedy='Select an external certificate and key.')
+                event = self.view.handle_event.call_args.args[0]
+                self.assertEqual(event['status'], 'incomplete')
+                self.assertEqual(states.profile_presentation('prod')['action'], 'ensure')
+                self.assertIn('Select an external certificate and key.', event['detail'])
+
+    def test_unknown_and_integrity_inspection_errors_remain_blocked(self):
+        self.view.form_values.return_value = {'profile': 'prod', 'source_root': '/source'}
+        self.controller.inspect_selected()
+        task = self.controller.inspection_ids['prod']
+        states = ManagerTaskStates()
+        self.view.handle_event.side_effect = states.handle_event
+        for code in ('integrity_failed', 'tls_failed', 'tls_file_unknown', 'unknown_failure', None):
+            with self.subTest(code=code):
+                self.event(task, type='error', code=code, message='Profile validation failed.')
+                event = self.view.handle_event.call_args.args[0]
+                self.assertEqual(event['status'], 'blocked')
+                self.assertEqual(states.profile_presentation('prod')['action'], 'doctor')

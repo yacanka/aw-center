@@ -79,7 +79,8 @@ def update_connection(project, profile, changes):
     pending = path.with_name(profile['name'] + '.pending.json')
     require_unlinked(pending)
     profiles._recover_pending(project, profile['name'], home, path, env, pending)
-    current = profiles.load_profile(project, profile['name'], home)
+    replacements = {key: value for key, value in changes.items() if key in profiles.TLS_PATH_FIELDS}
+    current = profiles.load_profile(project, profile['name'], home, tls_replacements=replacements)
     if current != profile:
         raise ConnectionError('profile')
     updated = {**current, **changes}

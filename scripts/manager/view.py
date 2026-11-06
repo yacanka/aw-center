@@ -508,6 +508,8 @@ class ManagerWindow:
         source.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         source.columnconfigure(1, weight=1)
         self._entry(source, 1, "source_root", "Proje kaynak dizini", tab=self.run_tab, picker="directory", stacked=True)
+        self._label(source, "Kayıtlı kurulumu kullanmak için boş bırakın. Git deposunu seçmek depodaki sürümü seçer; kurulu prod'u otomatik güncellemez.",
+                    style="Manager.Muted.TLabel").grid(row=2, column=0, columnspan=3, sticky="ew")
         connection = ttk.Frame(paths, style="Manager.Panel.TFrame")
         connection.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         for column, (key, title) in enumerate((("host", "Host / statik IPv4"), ("backend_port", "Backend / HTTPS portu"))):

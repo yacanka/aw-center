@@ -118,3 +118,14 @@ class InstalledSourceTests(unittest.TestCase):
         self.assertEqual(events[-1], {'type': 'done', 'ok': False})
         self.assertEqual(next(event['code'] for event in events if event['type'] == 'error'), 'integrity_failed')
         self.assertEqual(self.snapshot(), before)
+
+    def test_missing_saved_tls_file_names_the_field_without_misleading_source_phase(self):
+        (self.root / 'certificate.pem').unlink()
+        events = self.execute('ensure')
+        error = next(event for event in events if event['type'] == 'error')
+        self.assertEqual(error['code'], 'tls_file_unavailable')
+        self.assertEqual(error['field'], 'tls_cert_file')
+        self.assertNotIn('Production kaynakları', error['message'])
+        self.assertNotIn(str(self.root), json.dumps(events))
+        self.assertNotIn('migration', error['remedy'])
+        self.assertIn('seç', error['remedy'])

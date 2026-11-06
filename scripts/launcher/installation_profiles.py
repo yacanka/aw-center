@@ -16,6 +16,24 @@ from .model import LauncherError
 
 
 PROFILE_VERSION = 1
+TLS_PATH_FIELDS = frozenset({'tls_cert_file', 'tls_key_file'})
+
+
+class TLSFileError(LauncherError):
+    """Safe, field-specific TLS path failure; never includes the selected path."""
+
+    def __init__(self, field, reason):
+        self.field = field
+        self.code = 'tls_file_' + reason
+        label = 'TLS sertifikası' if field == 'tls_cert_file' else 'TLS özel anahtarı'
+        detail = {'missing': 'seçilmemiş', 'absolute': 'tam dosya yolu olmalı',
+                  'unavailable': 'bulunamadı veya normal bir dosya değil',
+                  'internal': 'prod kaynak klasörünün dışında saklanmalı'}[reason]
+        self.remedy = (f'Gelişmiş ayarlarda {label} alanından mevcut dosyayı seçip AW Center’ı aç işlemini çalıştırın. '
+                       'Yeni dosyalar doğrulandıktan sonra kayıtlı yollar güncellenir; mevcut veriler ve anahtarlar korunur.')
+        super().__init__(f'{label}: {detail}.')
+
+
 INSTALLER_ENVIRONMENT_KEYS = {
     'AWCENTER_MANAGED_PYTHON', 'AWCENTER_MANAGED_NODE', 'AWCENTER_MANAGED_NPM_CLI',
     'AWCENTER_PACKAGE_REPOSITORY', 'AWCENTER_OFFLINE_DIR',
@@ -182,11 +200,15 @@ def _validate_options(profile):
     require_production_host(profile['host'])
     for key in ('tls_cert_file', 'tls_key_file'):
         if not profile.get(key):
-            raise LauncherError('Production requires operator-supplied TLS certificate and private key')
+            raise TLSFileError(key, 'missing')
         path = Path(profile[key])
         require_unlinked(path)
-        if not path.is_absolute() or not path.is_file() or path.resolve().is_relative_to(Path(profile['source_root']).resolve()):
-            raise LauncherError('Production TLS files must be existing external regular files')
+        if not path.is_absolute():
+            raise TLSFileError(key, 'absolute')
+        if not path.is_file():
+            raise TLSFileError(key, 'unavailable')
+        if path.resolve().is_relative_to(source.resolve()):
+            raise TLSFileError(key, 'internal')
 
 
 def _validate_environment(profile, values):
@@ -240,8 +262,16 @@ def _require_separate(home, name, values, source_root):
             raise LauncherError('Development and production must not share secrets or state')
 
 
-def load_profile(project, name, home=None) -> dict:
-    """Load and validate a profile without creating files or repairing permissions."""
+def load_profile(project, name, home=None, *, tls_replacements=None) -> dict:
+    """Validate persisted state, returning its original metadata for equality checks.
+
+    Connection preparation may validate explicitly selected TLS paths in place
+    of unavailable old files. This never changes stored metadata or bypasses
+    source, environment, identity or permission checks. Startup uses no overlay.
+    """
+    if tls_replacements is not None and (not isinstance(tls_replacements, dict) or
+                                         set(tls_replacements) - TLS_PATH_FIELDS):
+        raise LauncherError('Only TLS file paths may be supplied as connection replacements')
     home, path, env = _paths(project, name, home)
     try:
         require_private(home)
@@ -254,7 +284,7 @@ def load_profile(project, name, home=None) -> dict:
             raise LauncherError('Installation profile belongs to a different source checkout')
         if profile.get('env_file') != str(env) or profile.get('installation_home') != str(home):
             raise LauncherError('Installation profile environment pointer is invalid')
-        _validate_options(profile)
+        _validate_options({**profile, **(tls_replacements or {})})
         values = read_environment(env)
         _validate_environment(profile, values)
         _require_separate(home, name, values, profile['source_root'])

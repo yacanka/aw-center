@@ -42,6 +42,11 @@ def _profile_path(args):
     return profiles.installation_home() / 'config' / (args.profile + '.profile.json')
 
 
+def _tls_replacements(args):
+    return {key: str(getattr(args, key)) for key in profiles.TLS_PATH_FIELDS
+            if getattr(args, key, None)}
+
+
 def connection_changes(profile, args):
     changes = {key: str(getattr(args, key)) if key.startswith('tls_') else getattr(args, key)
                for key in CONNECTION_FIELDS - {'port_modes'} if getattr(args, key, None) is not None}
@@ -88,7 +93,9 @@ def needs_preparation(project, args):
         require_unlinked(candidate)
     if path.with_name(args.profile + '.pending.json').exists() or not path.exists():
         return True
-    profile = profiles.load_profile(project, args.profile)
+    args.progress('Kayıtlı profil ve TLS dosya yolları denetleniyor' if args.profile == 'prod' else
+                  'Kayıtlı profil denetleniyor')
+    profile = profiles.load_profile(project, args.profile, tls_replacements=_tls_replacements(args))
     if connection_changes(profile, args) or _optional_changes(profile, args):
         return True
     from scripts.launcher.installation_backup import has_unresolved_migration
@@ -140,7 +147,7 @@ def prepare_connection(project, args):
     home, path, env = profiles._paths(project, args.profile, None)
     pending = path.with_name(args.profile + '.pending.json')
     profiles._recover_pending(project, args.profile, home, path, env, pending)
-    profile = profiles.load_profile(project, args.profile) if path.exists() else None
+    profile = profiles.load_profile(project, args.profile, tls_replacements=_tls_replacements(args)) if path.exists() else None
     changes = connection_changes(profile, args)
     if profile is None:
         if args.profile == 'prod':
@@ -157,6 +164,7 @@ def prepare_connection(project, args):
     if args.profile == 'prod' and changes:
         from scripts.launcher.installation import _tls_preflight
         from scripts.launcher.runtime import validate_tls_identity
+        args.progress('Seçilen TLS sertifikası, özel anahtar ve IPv4 eşleşmesi doğrulanıyor')
         _tls_preflight(project, candidate)
         validate_tls_identity(project, Path(candidate['tls_cert_file']), Path(candidate['tls_key_file']), candidate['host'])
     if args.env_file:

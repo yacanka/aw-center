@@ -229,8 +229,13 @@ class ManagerController:
                 self.view.handle_event({'type': 'profile', 'profile': task.values['profile'],
                     'status': 'inspecting', 'detail': event.get('message', '')})
             elif kind == 'error':
+                # Re-selecting a TLS file needs the ensure action. Other
+                # integrity/permission failures remain inspect-only blockers.
+                recoverable = event.get('code') in {'tls_file_missing', 'tls_file_absolute',
+                                                   'tls_file_unavailable', 'tls_file_internal'}
                 self.view.handle_event({'type': 'profile', 'profile': task.values['profile'],
-                    'status': 'blocked', 'detail': event.get('message', 'Ortam doğrulanamadı.') +
+                    'status': 'incomplete' if recoverable else 'blocked',
+                    'detail': event.get('message', 'Ortam doğrulanamadı.') +
                     ' ' + event.get('remedy', '')})
             elif kind == 'done':
                 task.result = event

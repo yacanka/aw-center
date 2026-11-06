@@ -188,6 +188,20 @@ olduğu anlamına gelmez; bütünlük veya izin hataları ayrıca denetlenmeye d
 
 Üretim için makineye atanmış sabit IPv4, kaynak ağacının dışındaki mevcut TLS sertifikası ve özel anahtar gerekir. Profiller ve özel durum `%LOCALAPPDATA%\AWCenter` altında ayrılır. Geliştirme ve üretim aynı veritabanını, özel dosyaları veya anahtarları paylaşmaz. CLI ve gelişmiş eski kurulum işleminin migration onayı değişmez; ana otomatik akış aşağıdaki yedek politikasını kullanır.
 
+Kayıtlı TLS sertifikası veya özel anahtar taşınmışsa, gelişmiş ayarlardan mevcut
+dosyayı seçip **AW Center’ı aç** işlemini çalıştırın. Manager eski dosyanın hâlâ
+var olmasını şart koşmadan seçilen yeni yolları değerlendirir. Profilin sahipliği,
+kaynak kimliği, `.env`, anahtarlar ve ayrı veri yolları doğrulanmaya devam eder.
+Yeni sertifika/anahtar eşleşmesi, geçerlilik süresi ve IPv4 kimliği doğrulanmadan
+yollar kaydedilmez. Güncelleme mevcut kesintiye dayanıklı profil kaydı üzerinden
+yapılır; veritabanı ve uygulama anahtarları korunur. Başlat/Kontrol et işlemleri
+dosya yollarını kendiliğinden onarmaz.
+
+Dosya yolu hatalarında rapor hangi alanın eksik, bulunamayan, göreli veya prod
+kaynağı içinde olduğunu belirtir (`tls_file_*`); ham dosya yolları gösterilmez.
+Bu kontrol HTTPS bağlantı testinden ayrıdır. Kullanılabilir bir sertifika/anahtar
+yoksa Manager güvenilir bir kurumsal sertifika üretemez; uygun dosyalar seçilmelidir.
+
 ### Otomatik portlar ve migration
 
 Yeni yerel kurulumda portlar boş bırakılabilir. Önce backend için 8000, frontend
