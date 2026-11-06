@@ -54,6 +54,11 @@ for (const theme of ['light', 'dark'] as const) {
         path: `test-results/login-particles-${theme}-${width}.png`,
         fullPage: true
       })
+      // After the intro has settled, the heading must still be made of moving dots.
+      const before = await particles.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())
+      await expect
+        .poll(() => particles.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL()))
+        .not.toBe(before)
       if (theme === 'light' && width === 1440) {
         await page.mouse.move(geometry.aw.left + 70, geometry.aw.top + 45)
         await page.waitForTimeout(750)

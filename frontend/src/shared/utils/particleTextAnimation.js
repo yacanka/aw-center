@@ -12,13 +12,14 @@ export default class ParticleAnimation {
     this.playing = true
     this.frameId = null
     this.lastFrameTime = null
+    this.elapsed = 0
     this.resizeTimer = null
     this.tick = (time) => this.render(time)
 
     this.configureCanvas()
 
     this.mouseRadius = Math.min(this.ww / 10, 80)
-    this.size = 3
+    this.size = 1.5
     this.amount = 0
 
     this.initScene()
@@ -31,10 +32,14 @@ export default class ParticleAnimation {
     this.ww = Math.max(1, bounds.width)
     this.wh = Math.max(1, bounds.height)
     // Retain sharp edges on Retina screens without unbounded full-screen buffers.
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+    const pixelRatio = Math.min(
+      window.devicePixelRatio || 1,
+      2,
+      Math.sqrt(4_000_000 / (this.ww * this.wh))
+    )
     this.pixelRatio = pixelRatio
-    this.canvas.width = Math.round(this.ww * pixelRatio)
-    this.canvas.height = Math.round(this.wh * pixelRatio)
+    this.canvas.width = Math.floor(this.ww * pixelRatio)
+    this.canvas.height = Math.floor(this.wh * pixelRatio)
     this.ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
   }
 
@@ -47,6 +52,12 @@ export default class ParticleAnimation {
     const fontFamily = style.fontFamily || 'sans-serif'
     const headingBounds = this.heading.getBoundingClientRect()
     const canvasBounds = this.canvas.getBoundingClientRect()
+    this.headingBounds = {
+      left: headingBounds.left - canvasBounds.left,
+      top: headingBounds.top - canvasBounds.top,
+      width: headingBounds.width,
+      height: headingBounds.height
+    }
     const offsetX = Math.floor((headingBounds.left - canvasBounds.left) / this.size) * this.size
     const offsetY = Math.floor((headingBounds.top - canvasBounds.top) / this.size) * this.size
     mask.width = Math.max(1, Math.min(this.ww, Math.ceil(headingBounds.width + fontSize / 2)))
@@ -64,23 +75,29 @@ export default class ParticleAnimation {
       )
     }
     const data = ctx.getImageData(0, 0, mask.width, mask.height).data
-    this.particles = []
+    const targets = []
     for (let x = 0; x < mask.width; x += this.size) {
       for (let y = 0; y < mask.height; y += this.size) {
-        if (data[(x + y * mask.width) * 4 + 3] > 0) {
-          this.particles.push(new Particle(x + offsetX, y + offsetY, this.colors))
+        if (data[(Math.floor(x) + Math.floor(y) * mask.width) * 4 + 3] > 0) {
+          targets.push({ x: x + offsetX, y: y + offsetY })
         }
       }
     }
 
+    // Sample uniformly across all glyphs: truncating would drop the last letters.
+    const budget = this.ww <= 760 ? 2400 : 6000
+    const count = Math.min(targets.length, budget)
+    this.particles = Array.from({ length: count }, (_, index) => {
+      const target = targets[Math.floor((index * targets.length) / count)]
+      return new Particle(target.x, target.y, this.colors, this.elapsed === 0)
+    })
     this.amount = this.particles.length
     this.createSprites()
   }
 
   createSprites() {
-    // Fill more of the existing three-pixel grid without adding particles or draws.
-    // Keep the four-pixel sprite footprint, including room for antialiased edges.
-    const radius = this.ww <= 500 ? 1.2 : 1.35
+    // Smaller dots keep the denser text visibly particulate instead of a solid fill.
+    const radius = this.ww <= 760 ? 0.65 : 0.75
     this.spriteSize = Math.ceil(radius * 2 + 1)
     this.sprites.clear()
     for (const color of new Set(this.colors)) {
@@ -105,7 +122,6 @@ export default class ParticleAnimation {
       },
       mousemove: (event) => this.onMouseMove(event),
       touchmove: (event) => this.onTouchMove(event),
-      click: () => this.onMouseClick(),
       touchend: () => this.onTouchEnd(),
       mouseleave: () => this.onTouchEnd()
     }
@@ -139,10 +155,6 @@ export default class ParticleAnimation {
     this.mouse.y = -100
   }
 
-  onMouseClick() {
-    this.radius = (this.radius + 1) % 3
-  }
-
   resize() {
     this.configureCanvas()
     this.mouseRadius = Math.min(this.ww / 10, 80)
@@ -160,9 +172,19 @@ export default class ParticleAnimation {
   render(time = 0) {
     if (!this.playing || document.hidden) return
     this.frameId = requestAnimationFrame(this.tick)
-    // Keep the original 60 Hz physics, without extra work on 120/144 Hz displays.
-    const interval = 1000 / 60
+    // Ambient motion needs only 30 Hz. Pointer interaction gets a 60 Hz budget.
+    const bounds = this.headingBounds
+    const nearHeading =
+      this.mouse.x > bounds.left - this.mouseRadius &&
+      this.mouse.x < bounds.left + bounds.width + this.mouseRadius &&
+      this.mouse.y > bounds.top - this.mouseRadius &&
+      this.mouse.y < bounds.top + bounds.height + this.mouseRadius
+    const interval = 1000 / (nearHeading ? 60 : 30)
     if (this.lastFrameTime !== null && time - this.lastFrameTime < interval - 0.5) return
+    // Clamp resume/slow-frame deltas so the spring cannot explode after a stall.
+    const delta =
+      this.lastFrameTime === null ? 1 : Math.min((time - this.lastFrameTime) / (1000 / 60), 2)
+    this.elapsed += delta / 60
     this.lastFrameTime =
       this.lastFrameTime === null
         ? time
@@ -172,7 +194,7 @@ export default class ParticleAnimation {
     // loses the overlapping alpha that gives the text its soft, filled outline.
     const halfSize = this.spriteSize / 2
     for (const particle of this.particles) {
-      particle.update(this.mouse, this.radius, this.mouseRadius)
+      particle.update(this.mouse, this.radius, this.mouseRadius, delta, this.elapsed)
       this.ctx.drawImage(
         this.sprites.get(particle.color),
         particle.x - halfSize,
@@ -212,39 +234,41 @@ export default class ParticleAnimation {
 }
 
 class Particle {
-  constructor(x, y, colors) {
-    this.x = x
-    this.y = y
+  constructor(x, y, colors, intro) {
+    this.phase = Math.random() * Math.PI * 2
+    this.drift = Math.random() < 0.08 ? 5 : 0.9
+    const spread = intro ? 8 + Math.random() * 20 : 0
+    this.x = x + Math.cos(this.phase) * spread
+    this.y = y + Math.sin(this.phase) * spread
     this.dest = { x, y }
 
     this.vx = 0
     this.vy = 0
     this.accX = 0
     this.accY = 0
-    this.friction = Math.random() * 0.035 + 0.92
     this.color = colors[Math.floor(Math.random() * colors.length)]
   }
 
-  update(mouse, radius, mouseRadius) {
-    this.accX = (this.dest.x - this.x) / 300
-    this.accY = (this.dest.y - this.y) / 300
-    this.vx += this.accX
-    this.vy += this.accY
-    this.vx *= this.friction
-    this.vy *= this.friction
-
-    this.x += this.vx
-    this.y += this.vy
+  update(mouse, radius, mouseRadius, delta = 1, elapsed = 0) {
+    // Most dots stay close to the glyph; a few drift around its edge like dust.
+    const targetX = this.dest.x + Math.cos(elapsed * 1.4 + this.phase) * this.drift
+    const targetY = this.dest.y + Math.sin(elapsed * 1.1 + this.phase) * this.drift
+    this.accX = (targetX - this.x) * 0.018
+    this.accY = (targetY - this.y) * 0.018
+    this.vx = (this.vx + this.accX * delta) * Math.pow(0.82, delta)
+    this.vy = (this.vy + this.accY * delta) * Math.pow(0.82, delta)
 
     const dx = this.x - mouse.x
     const dy = this.y - mouse.y
     const interactionRadius = mouseRadius * radius
-
-    if (dx * dx + dy * dy < interactionRadius * interactionRadius) {
-      this.accX = (this.x - mouse.x) / 50
-      this.accY = (this.y - mouse.y) / 50
-      this.vx += this.accX
-      this.vy += this.accY
+    const distanceSquared = dx * dx + dy * dy
+    if (distanceSquared < interactionRadius * interactionRadius) {
+      const distance = Math.sqrt(distanceSquared)
+      const force = (1 - distance / interactionRadius) * 1.8 * delta
+      this.vx += (distance > 0 ? dx / distance : Math.cos(this.phase)) * force
+      this.vy += (distance > 0 ? dy / distance : Math.sin(this.phase)) * force
     }
+    this.x += this.vx * delta
+    this.y += this.vy * delta
   }
 }

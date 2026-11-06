@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ParticleAnimation from './particleTextAnimation.js'
 
-function setup() {
+function setup(solidMask = false) {
+  vi.spyOn(Math, 'random').mockReturnValue(0.25)
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -18,7 +19,9 @@ function setup() {
     measureText: vi.fn(() => ({ width: 200 })),
     fillText: vi.fn(),
     getImageData: vi.fn((_x, _y, width, height) => ({
-      data: new Uint8ClampedArray(width * height * 4).fill(255)
+      data: Uint8ClampedArray.from({ length: width * height * 4 }, (_, index) =>
+        solidMask || Math.floor(index / 4) % width < 60 ? 255 : 0
+      )
     })),
     beginPath: vi.fn(),
     moveTo: vi.fn(),
@@ -80,20 +83,34 @@ describe('particle heading animation', () => {
     animation.particles[0].x = 700
     animation.particles[0].y = 500
     context.drawImage.mockClear()
-    animation.render(17)
+    animation.render(34)
     expect(context.drawImage.mock.calls[0][1]).toBeGreaterThan(560)
     animation.destroy()
   })
 
-  it('starts with a readable heading before pointer interaction scatters particles', () => {
+  it('assembles nearby particles and keeps moving without pointer interaction', () => {
     const { animation } = setup()
     const first = animation.particles[0]
-    expect(Math.abs(first.x - first.dest.x)).toBeLessThan(10)
-    expect(Math.abs(first.y - first.dest.y)).toBeLessThan(10)
-    expect(first.vx).toBe(0)
-    expect(first.vy).toBe(0)
-    first.update({ x: first.x - 20, y: first.y }, 1, 80)
-    expect(first.vx).not.toBe(0)
+    const distance = () => Math.hypot(first.x - first.dest.x, first.y - first.dest.y)
+    expect(distance()).toBeGreaterThan(4)
+    expect(distance()).toBeLessThan(40)
+    for (let frame = 1; frame <= 180; frame++) animation.tick(frame * 34)
+    expect(distance()).toBeLessThan(8)
+    const settled = { x: first.x, y: first.y }
+    for (let frame = 181; frame <= 210; frame++) animation.tick(frame * 34)
+    expect(Math.hypot(first.x - settled.x, first.y - settled.y)).toBeGreaterThan(0.05)
+    animation.destroy()
+  })
+
+  it.each([
+    [1440, 6000],
+    [390, 2400]
+  ])('bounds particles at %ipx without losing the end of the text', (width, budget) => {
+    vi.stubGlobal('innerWidth', width)
+    const { animation } = setup(true)
+    expect(animation.amount).toBeLessThanOrEqual(budget)
+    expect(animation.amount).toBeGreaterThan(budget * 0.9)
+    expect(Math.max(...animation.particles.map((particle) => particle.dest.y))).toBeGreaterThan(340)
     animation.destroy()
   })
 
@@ -133,7 +150,7 @@ describe('particle heading animation', () => {
     const oldSprite = animation.sprites.get('#00000088')
     animation.setColors(['#ffffff88'])
     context.drawImage.mockClear()
-    animation.render(17)
+    animation.render(34)
     expect(context.fillStyle).toBe('#ffffff88')
     expect(context.drawImage).toHaveBeenCalledTimes(animation.amount)
     expect(context.drawImage.mock.calls[0][0]).not.toBe(oldSprite)
@@ -151,29 +168,29 @@ describe('particle heading animation', () => {
     }
     context.drawImage.mockClear()
     context.fillText.mockClear()
-    animation.tick(17)
+    animation.tick(34)
     expect(context.drawImage).toHaveBeenCalledTimes(animation.amount)
     expect(context.fillText).not.toHaveBeenCalled()
     context.drawImage.mockClear()
     animation.particles[0].x += 20
-    animation.tick(34)
+    animation.tick(68)
     expect(context.drawImage).toHaveBeenCalledTimes(animation.amount)
     expect(context.fillText).not.toHaveBeenCalled()
     animation.destroy()
   })
 
-  it('keeps a three-pixel sampling grid and aligns both lines to the heading', () => {
+  it('uses a denser sampling grid and aligns both lines to the heading', () => {
     vi.stubGlobal('innerWidth', 1279)
     vi.stubGlobal('innerHeight', 719)
     const { animation, context } = setup()
     for (const particle of animation.particles) {
-      expect(particle.dest.x % 3).toBe(0)
-      expect(particle.dest.y % 3).toBe(0)
+      expect(particle.dest.x % 1.5).toBe(0)
+      expect(particle.dest.y % 1.5).toBe(0)
     }
     const first = animation.particles[0]
-    expect(first.dest.x).toBe(18)
-    expect(context.fillText).toHaveBeenNthCalledWith(1, 'AW', 2, 0)
-    expect(context.fillText).toHaveBeenNthCalledWith(2, 'Center', 2, 100)
+    expect(first.dest.x).toBe(19.5)
+    expect(context.fillText).toHaveBeenNthCalledWith(1, 'AW', 0.5, 0)
+    expect(context.fillText).toHaveBeenNthCalledWith(2, 'Center', 0.5, 100)
     animation.destroy()
   })
 
@@ -189,11 +206,12 @@ describe('particle heading animation', () => {
     animation.destroy()
   })
 
-  it('caps rendering at 60 Hz and resumes without creating duplicate loops', () => {
+  it('caps idle rendering at 30 Hz and resumes without creating duplicate loops', () => {
     const { animation, context } = setup()
     animation.tick(8)
-    expect(context.drawImage).toHaveBeenCalledTimes(animation.amount)
     animation.tick(17)
+    expect(context.drawImage).toHaveBeenCalledTimes(animation.amount)
+    animation.tick(34)
     expect(context.drawImage).toHaveBeenCalledTimes(animation.amount * 2)
     animation.stop()
     expect(cancelAnimationFrame).toHaveBeenCalled()
@@ -201,6 +219,46 @@ describe('particle heading animation', () => {
     const calls = vi.mocked(requestAnimationFrame).mock.calls.length
     animation.play()
     expect(requestAnimationFrame).toHaveBeenCalledTimes(calls)
+    animation.destroy()
+  })
+
+  it('raises the frame budget to 60 Hz near the heading and bounds long-frame physics', () => {
+    const { animation, context } = setup()
+    animation.onMouseMove({ clientX: 150, clientY: 220 })
+    animation.tick(8)
+    expect(context.drawImage).toHaveBeenCalledTimes(animation.amount)
+    animation.tick(17)
+    expect(context.drawImage).toHaveBeenCalledTimes(animation.amount * 2)
+    animation.onTouchEnd()
+    animation.tick(60_000)
+    for (const particle of animation.particles) {
+      expect(Math.hypot(particle.x - particle.dest.x, particle.y - particle.dest.y)).toBeLessThan(
+        40
+      )
+    }
+    animation.destroy()
+  })
+
+  it('caps backing-buffer memory even on large high-DPI displays', () => {
+    vi.stubGlobal('innerWidth', 3840)
+    vi.stubGlobal('innerHeight', 2160)
+    vi.stubGlobal('devicePixelRatio', 3)
+    const { animation } = setup()
+    expect(animation.canvas.width * animation.canvas.height).toBeLessThanOrEqual(4_000_000)
+    animation.destroy()
+  })
+
+  it('keeps pointer repulsion enabled after clicking the login form', () => {
+    const { animation } = setup()
+    for (let i = 0; i < 3; i++) {
+      window.dispatchEvent(new MouseEvent('click'))
+      const particle = animation.particles[0]
+      particle.x = particle.dest.x
+      particle.y = particle.dest.y
+      particle.vx = particle.vy = 0
+      particle.update({ x: particle.x, y: particle.y }, animation.radius, animation.mouseRadius)
+      expect(Math.hypot(particle.vx, particle.vy)).toBeGreaterThan(1)
+    }
     animation.destroy()
   })
 
