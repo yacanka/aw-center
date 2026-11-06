@@ -483,3 +483,18 @@ veya yönetici yetkisini değiştirmeden varsayılan kurulum yolunu kısaltır.
 Paket hatalarında tanınan uzun yol, dosya kullanımda, erişim ve disk sorunları,
 kurulum aşaması ve sayısal WinError ayrı gösterilir; özel yollar veya ham araç
 çıktıları rapora eklenmez.
+
+### Prod başlangıcında backend HTTPS hazır değil
+
+Prod ASGI sunucusu sertifika ve özel anahtarla HTTPS açar; Manager
+`https://<IPv4>:<port>/health/ready/` adresini aynı sertifikayla doğrular.
+Eski raporlardaki `backend HTTP` etiketi protokol seçimi değildi; yeni
+raporlarda prod için `backend HTTPS` yazılır.
+
+Başlatma raporu TLS sertifika doğrulama kodunu, bağlantı reddini, bağlantı/yanıt
+zaman aşımını (tek istek için 1 saniye) ve HTTP durumunu ayrı belirtir. HTTP 503
+yanıtında yalnız bilinen veritabanı, önbellek ve frontend hazır olma sonuçları
+aktarılır. Ham yanıt, sertifika ayrıntısı, özel adres/yol veya yönlendirme hedefi
+rapora eklenmez. Proxy kullanmama, yönlendirmeyi izlememe ve TLS doğrulaması
+korunur. Bu ayrıntı görülmeden aynı genel hatayı sertifika veya yavaş başlangıç
+sorunu olarak varsaymayın.

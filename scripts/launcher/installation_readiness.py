@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import ssl
 import time
 from collections.abc import Callable
@@ -25,16 +26,58 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def probe_http(url: str, certificate: str | None = None) -> bool:
+def _http_failure(error: HTTPError) -> str:
+    message = f'HTTP {error.code}'
+    if error.code != 503:
+        return message
+    # Only the readiness contract's boolean fields may enter a safe report.
+    try:
+        payload = json.loads(error.read(4097))
+        checks = payload.get('checks') if isinstance(payload, dict) else None
+        if isinstance(checks, dict):
+            failed = [label for key, label in (('database', 'veritabanı'), ('cache', 'önbellek'),
+                                               ('frontend', 'frontend dosyaları')) if checks.get(key) is False]
+            if failed:
+                message += '; hazır olmayan: ' + ', '.join(failed)
+    except (ValueError, OSError, RecursionError):
+        pass  # An invalid/unfinished body must not hide the known HTTP status.
+    return message
+
+
+def _connection_failure(error) -> str:
+    reason = error.reason if isinstance(error, URLError) else error
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        code = getattr(reason, 'verify_code', None)
+        return 'TLS sertifika doğrulaması başarısız' + (f' (kod {code})' if type(code) is int else '')
+    if isinstance(reason, ssl.SSLError):
+        return 'TLS bağlantısı kurulamadı'
+    if isinstance(reason, TimeoutError):
+        return 'bağlantı veya yanıt zaman aşımı (1 saniye)'
+    if isinstance(reason, ConnectionRefusedError):
+        return 'bağlantı reddedildi'
+    return 'bağlantı kurulamadı'
+
+
+def probe_http(url: str, certificate: str | None = None, *, diagnostic=None) -> bool:
     """Check only the exact local application origin, without proxy or redirect."""
     handlers = [ProxyHandler({}), _NoRedirect()]
     if certificate:
         handlers.append(HTTPSHandler(context=ssl.create_default_context(cafile=certificate)))
     try:
         with build_opener(*handlers).open(Request(url), timeout=1) as response:
-            return response.status == 200
-    except (OSError, HTTPError, URLError):
-        return False
+            if response.status == 200:
+                return True
+            message = f'HTTP {int(response.status)}'
+    except HTTPError as error:
+        try:
+            message = _http_failure(error)
+        finally:
+            error.close()
+    except (OSError, URLError) as error:
+        message = _connection_failure(error)
+    if diagnostic is not None:
+        diagnostic(message)
+    return False
 
 
 def healthy(profile: dict, worker_check: Callable[[], bool]) -> bool:
@@ -97,8 +140,11 @@ def wait_until_ready(
         origin = f"https://{host}:{port}" if production else f"http://{host}:{port}"
         path = "/health/ready/" if production else "/health/live/"
         pending = []
-        if not probe_http(origin + path, profile.get('tls_cert_file') if production else None):
-            pending.append('backend HTTP')
+        details = []
+        if not probe_http(origin + path, profile.get('tls_cert_file') if production else None,
+                          diagnostic=details.append):
+            label = 'backend HTTPS' if production else 'backend HTTP'
+            pending.append(label + (': ' + details[-1] if details else ''))
         if not production and not probe_http(f"http://{host}:{profile['frontend_port']}/app/"):
             pending.append('frontend HTTP')
         for name, label in (('job', 'iş worker kimliği'), ('notification', 'bildirim worker'),
