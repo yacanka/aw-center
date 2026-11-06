@@ -57,7 +57,7 @@ class TlsRecoveryTests(unittest.TestCase):
 
     def snapshot(self):
         # Digests keep generated credentials out of assertion diagnostics.
-        return {str(path.relative_to(self.home)): hashlib.sha256(path.read_bytes()).hexdigest()
+        return {path.relative_to(self.home).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in self.home.rglob('*') if path.is_file()}
 
     def assert_rejected_without_writes(self, args):
