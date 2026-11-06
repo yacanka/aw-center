@@ -36,14 +36,15 @@ def inspect_profile(args, emit):
     project = _project_for('doctor', args)
     profile = load_profile(project, args.profile, home)
     runtime = inspect_toolchain(home, **_runtime_options(profile))
-    checks = runtime + _core_checks(project, profile)
+    backend = backend_inspection(project, profile) if project.python.is_file() else None
+    checks = runtime + _core_checks(project, profile, backend_state=backend)
     status = 'stopped'
     if any(row['status'] not in {'ready', 'available'} for row in checks):
         status = 'incomplete'
     if any(row['status'] == 'invalid' for row in runtime):
         status = 'blocked'
-    if project.python.is_file():
-        schema = backend_inspection(project, profile)['schema']
+    if backend is not None:
+        schema = backend['schema']
         if schema in {'pending', 'error', 'missing'}:
             from scripts.launcher.installation_profiles import read_profile_environment
             database = Path(read_profile_environment(profile)['DATABASE_URL'].removeprefix('sqlite:///'))

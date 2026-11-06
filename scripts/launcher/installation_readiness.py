@@ -11,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 from .model import LauncherError
+from .local_tls import local_server_context
 from .process import check_cancelled
 
 
@@ -62,7 +63,7 @@ def probe_http(url: str, certificate: str | None = None, *, diagnostic=None) -> 
     """Check only the exact local application origin, without proxy or redirect."""
     handlers = [ProxyHandler({}), _NoRedirect()]
     if certificate:
-        handlers.append(HTTPSHandler(context=ssl.create_default_context(cafile=certificate)))
+        handlers.append(HTTPSHandler(context=local_server_context(certificate)))
     try:
         with build_opener(*handlers).open(Request(url), timeout=1) as response:
             if response.status == 200:

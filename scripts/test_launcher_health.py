@@ -109,12 +109,12 @@ class ReadinessDiagnosticTests(unittest.TestCase):
     def test_success_retains_certificate_verification_and_has_no_failure_diagnostic(self):
         from unittest import mock
         messages = []
-        with mock.patch.object(readiness.ssl, 'create_default_context') as context, \
+        with mock.patch.object(readiness, 'local_server_context') as context, \
              mock.patch.object(readiness, 'HTTPSHandler') as https, \
              mock.patch.object(readiness, 'build_opener') as opener:
             opener.return_value.open.return_value.__enter__.return_value.status = 200
             self.assertTrue(readiness.probe_http('https://127.0.0.1/health/ready/', 'approved.pem',
                                                  diagnostic=messages.append))
-        context.assert_called_once_with(cafile='approved.pem')
+        context.assert_called_once_with('approved.pem')
         https.assert_called_once_with(context=context.return_value)
         self.assertEqual(messages, [])

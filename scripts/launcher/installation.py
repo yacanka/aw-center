@@ -80,14 +80,15 @@ def backend_inspection(project: Project, profile: dict) -> dict:
         return {"schema": "error", "admin_exists": None, "diagnostics": []}
 
 
-def _core_checks(project: Project, profile: dict) -> list[dict]:
+def _core_checks(project: Project, profile: dict, *, backend_state: dict | None = None) -> list[dict]:
+    """Use a caller's immediate snapshot without repeating its Django startup."""
     checks = inspect_profile(project, profile)
     for check in checks:
         if check["status"] not in {"ready", "available"}:
             check["status"] = "blocked"
     if any(check["status"] == "blocked" for check in checks):
         return checks
-    backend = backend_inspection(project, profile)
+    backend = backend_state if backend_state is not None else backend_inspection(project, profile)
     state = backend["schema"]
     checks.append({"name": "database", "status": "ready" if state == "ready" else "blocked",
                    "detail": "Şema güncel." if state == "ready" else "Şema eksik veya doğrulanamadı; açık provision/migration işlemi gerekli."})

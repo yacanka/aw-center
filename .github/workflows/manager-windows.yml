@@ -74,6 +74,13 @@ jobs:
         run: python -m unittest scripts.test_launcher_runtime_validation
       - name: Verify source payload, package and manager contracts
         run: python -m unittest discover -s scripts -p "test_manager*.py"
+      - name: Verify real TLS handshakes with the Windows native trust provider
+        run: |
+          python -m venv "%RUNNER_TEMP%\manager-tls-tests"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\manager-tls-tests\Scripts\python.exe" -c "from pathlib import Path; import subprocess, sys; requirement = next(line for line in Path('requirements.txt').read_text().splitlines() if line.startswith('cryptography==')); subprocess.run([sys.executable, '-m', 'pip', '--isolated', 'install', requirement], check=True)"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\manager-tls-tests\Scripts\python.exe" -m unittest scripts.test_launcher_local_tls
       - name: Build portable windowed ZIP with reviewed runtime archives
         run: python scripts/build_manager.py --output "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip"
       - name: Upload manager ZIP and reviewable checksum inventory

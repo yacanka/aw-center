@@ -503,6 +503,21 @@ paylaşılan edinim sonradan değiştirilemez. Kaynak adresleri bizim önbellek
 manifestimize yazılmaz; npm'in çevrimdışı çözümleme için gereken özel indeks
 metadatası kullanıcıya özel cache içinde kalır.
 
+İndirilmiş Python paketleri `cache\packages\python\<kimlik>\data`, npm paketleri
+`cache\packages\npm\<kimlik>\data\_cacache` altındadır. Bunlar kurulu paketlerden
+ayrıdır: prod Python paketleri `r\<sürüm-kimliği>\.venv\Lib\site-packages`,
+frontend paketleri `r\<sürüm-kimliği>\frontend\node_modules` altında bulunur.
+Bu yollar `%LOCALAPPDATA%\AWCenter` tabanına göredir; eski prod kaynakları
+`releases\<tam-kimlik>\source` altında kalabilir. Dev paketleri seçilen proje
+dizinindeki `.venv` ve `frontend\node_modules` içindedir. Python/Node/npm
+arşivleri `cache\runtimes`, kurulu yönetilen araçlar `runtimes\<ad>-<sürüm>`
+altındadır. Hazır kurulumu açma işlemi paket hazırlığını çağırmaz.
+
+Manager aynı hazırlık kararı içinde veritabanı incelemesini tekrar başlatmaz.
+Hazır kurulum açılışındaki bu incelemeler dört süreçten ikiye indirilmiştir;
+işlem kilidi alındıktan sonraki yeniden kontrol korunur. Kaynak/runtime hash
+doğrulamaları sürer; ilk kurulum süresi ile hazır kurulumun açılış süresi ayrıdır.
+
 Yeni prod kaynakları kısa `r/<12-karakter-kaynak-kimliği>` yolunu kullanır.
 Bu, özellikle Torch'un derin paket dosyalarında Windows uzun yol politikasını
 veya yönetici yetkisini değiştirmeden varsayılan kurulum yolunu kısaltır.
@@ -516,6 +531,16 @@ Prod ASGI sunucusu sertifika ve özel anahtarla HTTPS açar; Manager
 `https://<IPv4>:<port>/health/ready/` adresini aynı sertifikayla doğrular.
 Eski raporlardaki `backend HTTP` etiketi protokol seçimi değildi; yeni
 raporlarda prod için `backend HTTPS` yazılır.
+
+Windows'un `2148204809` (`CERT_E_UNTRUSTEDROOT`) hatası, yerel sağlık kontrolünde
+normal bir `CA:false` sunucu sertifikasının native TLS sağlayıcısının CA
+listesinden düşmesiyle oluşabilir. Bu kontrol artık yalnız profilde seçilen ilk
+PEM sunucu sertifikasına bağlı bir CPython/OpenSSL bağlamı kullanır. Süre ve IP
+doğrulamasının ardından sunulan sertifika seçilen sertifikayla birebir eşleşmeden
+HTTP isteği gönderilmez. CA tarafından imzalanmış yaprak sertifika da kökünü
+Windows'a kurmadan bu yerel kontrol için kullanılabilir. Genel SSL sağlayıcısı,
+paket indirme güveni ve Windows sertifika depoları değiştirilmez. Tarayıcıların
+ve başka istemcilerin sertifika zincirine güvenmesi ayrı bir gerekliliktir.
 
 Başlatma raporu TLS sertifika doğrulama kodunu, bağlantı reddini, bağlantı/yanıt
 zaman aşımını (tek istek için 1 saniye) ve HTTP durumunu ayrı belirtir. HTTP 503

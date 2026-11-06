@@ -123,7 +123,7 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
         .serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(days=1))
         .not_valid_after(now+datetime.timedelta(days=30))
         .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(host))]), False)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), True).sign(key, hashes.SHA256()))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), True).sign(key, hashes.SHA256()))
 (directory/'cert.pem').write_bytes(cert.public_bytes(serialization.Encoding.PEM))
 (directory/'key.pem').write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
 '''

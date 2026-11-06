@@ -106,12 +106,13 @@ def needs_preparation(project, args):
     checks = inspect_toolchain(profiles.installation_home(), **_runtime_options(profile))
     if any(row['status'] == 'invalid' for row in checks):
         raise LauncherError('Runtime bütünlüğü doğrulanamadı; kurulum otomatik değiştirilmedi.')
+    state = None
     if project.python.is_file():
         state = backend_inspection(project, profile)
         if state.get('schema') in {'ready', 'pending'} and state.get('auto_migrate_safe') is False:
             raise LauncherError('Veritabanı migration geçmişi otomatik hazırlık için doğrulanamadı.')
     return any(row['status'] not in {'ready', 'available'}
-               for row in checks + _core_checks(project, profile))
+               for row in checks + _core_checks(project, profile, backend_state=state))
 
 
 def run(args, emit):
