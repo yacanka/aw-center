@@ -1,0 +1,12 @@
+[
+  {
+    "route": "/app/jira",
+    "feature": "Kurumsal JIRA içinde yeni sekmede iş açma",
+    "reason": "Bu bağlantı dış sistemin sayfasına gider. Kayıt ortamı kurumsal ağa çıkışı kapatır."
+  },
+  {
+    "route": "/app/compdocs/gokbey",
+    "feature": "İçe aktarma önizlemesi açıkken kaynak kaydının eşzamanlı değişmesi",
+    "reason": "İki kişiyle belge düzenleme çakışması ayrı sahnede gösterildi. İçe aktarım onayı sırasında oluşabilecek benzer bir çakışma ayrıca canlandırılmadı."
+  }
+]
