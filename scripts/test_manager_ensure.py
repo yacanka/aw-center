@@ -103,9 +103,11 @@ class EnsureTests(unittest.TestCase):
     def test_ready_profile_with_unknown_migration_history_cannot_start(self):
         from scripts.manager.ensure import needs_preparation
         from scripts.launcher.model import LauncherError
+        from scripts.launcher.installation_dependencies import dependency_stage
         profiles.provision_profile(self.project, 'dev', self.home)
         self.project.python.parent.mkdir(parents=True, exist_ok=True)
         self.project.python.touch()
+        dependency_stage(self.project.venv, self.project.requirements, lambda: None)
         with patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]), \
              patch('scripts.launcher.installation.backend_inspection',
                    return_value={'schema': 'ready', 'auto_migrate_safe': False}):

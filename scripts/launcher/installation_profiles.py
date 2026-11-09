@@ -28,7 +28,11 @@ class TLSFileError(LauncherError):
         label = 'TLS sertifikası' if field == 'tls_cert_file' else 'TLS özel anahtarı'
         detail = {'missing': 'seçilmemiş', 'absolute': 'tam dosya yolu olmalı',
                   'unavailable': 'bulunamadı veya normal bir dosya değil',
-                  'internal': 'prod kaynak klasörünün dışında saklanmalı'}[reason]
+                  'internal': 'prod kaynak klasörünün dışında saklanmalı',
+                  'invalid': 'okunabilir bir PEM sertifikası olmalı',
+                  'san': 'SAN alanında seçilen üretim IPv4 adresini içermeli',
+                  'validity': 'şu anda geçerli olmalı ve bitişine bir günden fazla kalmalı',
+                  'pair': 'parolasız okunabilmeli ve seçilen sertifikayla eşleşmeli'}[reason]
         self.remedy = (f'Gelişmiş ayarlarda {label} alanından mevcut dosyayı seçip AW Center’ı aç işlemini çalıştırın. '
                        'Yeni dosyalar doğrulandıktan sonra kayıtlı yollar güncellenir; mevcut veriler ve anahtarlar korunur.')
         super().__init__(f'{label}: {detail}.')
@@ -430,6 +434,13 @@ def _reject_existing_manual_configuration(project):
         raise LauncherError('Existing database and manual environment require explicit configuration adoption; keys were not replaced')
 
 
+def require_new_environment(env):
+    """Refuse an orphan environment before starting work for a fresh profile."""
+    require_unlinked(env)
+    if env.exists():
+        raise LauncherError('An existing environment has no profile; recover it manually without replacing keys')
+
+
 def provision_profile(project, name, home=None, **options) -> dict:
     """Create private keys/config once. Existing configuration is never overwritten."""
     home, path, env = _paths(project, name, home)
@@ -448,8 +459,7 @@ def provision_profile(project, name, home=None, **options) -> dict:
             from .installation_env import import_selected_environment
             import_selected_environment(profile, selected)
         return load_profile(project, name, home)
-    if env.exists():
-        raise LauncherError('An existing environment has no profile; recover it manually without replacing keys')
+    require_new_environment(env)
     if selected is None:
         _reject_existing_manual_configuration(project)
     elif (project.backend / 'db.sqlite3').exists() and not all(selected.get(key, '').strip() for key in ('SECRET_KEY', 'JIRA_SESSION_ENCRYPTION_KEY')):

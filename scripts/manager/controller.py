@@ -27,6 +27,7 @@ class ManagerTask:
     resource_values: dict = field(default_factory=dict)
     input_id: str | None = None
     events: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=256))
+    form_values: dict | None = None
 
     @property
     def active(self):
@@ -34,7 +35,7 @@ class ManagerTask:
 
     def snapshot(self):
         return {'id': self.id, 'action': self.action, 'profile': self.values['profile'],
-                'status': self.status, 'values': dict(self.values)}
+                'status': self.status, 'values': dict(self.form_values if self.form_values is not None else self.values)}
 
 
 class ManagerController:
@@ -89,6 +90,8 @@ class ManagerController:
             return None
         snapshot = {key: value for key, value in values.items() if key in DEFAULT_VALUES}
         snapshot.setdefault('profile', 'dev')
+        # The UI compares the submitted controls; leases and workers use resolved paths.
+        form_values = dict(snapshot) if action in {'ensure', 'start', 'provision'} else None
         snapshot['source_root'] = snapshot.get('source_root') or self.source_root
         if action == 'bundle' and not snapshot.get('output'):
             from scripts.launcher.model import LauncherError
@@ -104,7 +107,7 @@ class ManagerController:
             for task in self.tasks.values():
                 if (task.active and task.action in {'start', 'provision', 'ensure'} and
                         task.values['profile'] == snapshot['profile'] and task.status in {'ready', 'degraded'}):
-                    self.restarts[task.id] = snapshot
+                    self.restarts[task.id] = form_values
                     self._request_stop(task)
                     self._publish_tasks()
                     return task.id
@@ -117,6 +120,10 @@ class ManagerController:
         if sum(task.active for task in self.tasks.values()) >= 16:
             self._general_error('task_capacity', 'Aynı anda en fazla 16 yönetim işlemi çalıştırılabilir.')
             return None
+        if action == 'ensure':
+            inspection = self.tasks.get(self.inspection_ids.pop(snapshot['profile'], None))
+            if inspection and inspection.active:
+                self._request_stop(inspection)
         task_id = uuid.uuid4().hex
         inbox = queue.Queue(maxsize=256)
         def emit(event):
@@ -124,7 +131,7 @@ class ManagerController:
             # shared memory or sit ahead of every other task's completion.
             inbox.put({**event, 'task_id': task_id})
         session = self.session_factory(emit)
-        task = ManagerTask(task_id, action, snapshot, session, claims=claims, events=inbox)
+        task = ManagerTask(task_id, action, snapshot, session, claims=claims, events=inbox, form_values=form_values)
         self.tasks[task_id] = task
         def run():
             try:

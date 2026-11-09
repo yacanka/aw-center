@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 from . import runtime
-from .installation_dependencies import capture, install_dependencies
+from .installation_dependencies import capture, dependency_checks, install_dependencies
 from .installation_profiles import (
     installation_home, inspect_profile, load_profile, profile_environment,
     provision_profile, read_profile_environment,
@@ -80,24 +80,32 @@ def backend_inspection(project: Project, profile: dict) -> dict:
         return {"schema": "error", "admin_exists": None, "diagnostics": []}
 
 
-def _core_checks(project: Project, profile: dict, *, backend_state: dict | None = None) -> list[dict]:
-    """Use a caller's immediate snapshot without repeating its Django startup."""
+def _core_checks(project: Project, profile: dict, *, observed_backend=None, before_lock=False,
+                 fail_invalid=False, managed_build=False) -> list[dict]:
+    """Record one Django snapshot only after verifying the Python it would run."""
     checks = inspect_profile(project, profile)
     for check in checks:
         if check["status"] not in {"ready", "available"}:
             check["status"] = "blocked"
     if any(check["status"] == "blocked" for check in checks):
         return checks
-    backend = backend_state if backend_state is not None else backend_inspection(project, profile)
+    packages = dependency_checks(project, verify=not before_lock, fail_invalid=fail_invalid)
+    checks.extend(packages)
+    if before_lock or packages[0]['status'] != 'ready':
+        return checks
+    backend = backend_inspection(project, profile)
+    if observed_backend is not None:
+        observed_backend.update(backend)
     state = backend["schema"]
     checks.append({"name": "database", "status": "ready" if state == "ready" else "blocked",
                    "detail": "Şema güncel." if state == "ready" else "Şema eksik veya doğrulanamadı; açık provision/migration işlemi gerekli."})
     checks.append({"name": "administrator", "status": "ready" if backend.get("admin_exists") else "missing",
                    "detail": "Aktif yönetici mevcut." if backend.get("admin_exists") else "İlk yönetici oluşturulmalı."})
-    if profile["name"] == "dev":
-        ready = (project.frontend / "node_modules" / ".package-lock.json").is_file()
-        checks.append({"name": "frontend-packages", "status": "ready" if ready else "blocked",
-                       "detail": "Frontend paketleri mevcut." if ready else "Frontend npm kurulumu gerekli."})
+    if profile["name"] == "prod":
+        from .production_build import build_is_current
+        if backend.get("frontend_build_ready") is False or (managed_build and not build_is_current(project, profile)):
+            checks.append({"name": "frontend-build", "status": "missing",
+                           "detail": "Üretim arayüzü için doğrulanmış derleme gerekli. AW Center’ı aç ile tamamlanabilir."})
     return checks
 
 
@@ -112,6 +120,9 @@ def doctor(project: Project, name: str) -> list[dict]:
     for check in checks:
         if check["status"] != "ready":
             check["status"] = "blocked"
+    if any(check["status"] == "blocked" for check in checks):
+        checks.extend(inspect_profile(project, profile))  # Filesystem checks do not launch the installed Python.
+        return checks
     checks.extend(_core_checks(project, profile))
     from .installation_features import inspect_features
     checks.extend(inspect_features(project, profile))
@@ -207,24 +218,43 @@ def _select_assets(project: Project, profile: dict, source: Path | None, request
 
 
 def _tls_preflight(project, values):
-    """Stdlib cold check: readable external files, decryptable matching key."""
+    """Check the external PEM identity with the launcher's own CPython 3.11."""
+    import _ssl
     import ssl
+    import time
+    from .installation_profiles import TLSFileError
+    from .installation_permissions import require_unlinked
     runtime.require_production_host(values.get('host') or '')
     paths = []
     for field in ('tls_cert_file', 'tls_key_file'):
         path = Path(values.get(field) or '')
         runtime.require_external_file(project, path, 'TLS')
-        from .installation_permissions import require_unlinked
         require_unlinked(path)
         paths.append(path)
     if paths[0] == paths[1]:
         raise LauncherError('TLS sertifikası ve özel anahtar ayrı dosyalar olmalı.')
     try:
+        # CPython's OpenSSL decoder reads the first PEM leaf, as load_cert_chain does.
+        certificate = _ssl._test_decode_cert(str(paths[0]))
+        not_before = ssl.cert_time_to_seconds(certificate['notBefore'])
+        not_after = ssl.cert_time_to_seconds(certificate['notAfter'])
+    except (KeyError, OSError, OverflowError, ValueError):
+        raise TLSFileError('tls_cert_file', 'invalid') from None
+    if ('IP Address', values['host']) not in certificate.get('subjectAltName', ()):
+        raise TLSFileError('tls_cert_file', 'san')
+    now = time.time()
+    if not_before > now or not_after <= now + 86400:
+        raise TLSFileError('tls_cert_file', 'validity')
+
+    def reject_password():
+        # Match the production password=None policy, including empty-passphrase keys.
+        raise ValueError('Encrypted TLS key')
+
+    try:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        # Explicit callback prevents encrypted PEMs from prompting on stdin.
-        context.load_cert_chain(str(paths[0]), str(paths[1]), password=lambda: '')
+        context.load_cert_chain(str(paths[0]), str(paths[1]), password=reject_password)
     except (OSError, ValueError):
-        raise LauncherError('TLS dosyaları okunamadı veya sertifika/anahtar eşleşmiyor.') from None
+        raise TLSFileError('tls_key_file', 'pair') from None
 
 
 def provision(project: Project, args) -> list[dict]:
@@ -327,14 +357,21 @@ def _provision(project: Project, args) -> list[dict]:
         features = install_features(project, profile, settings, **feature_options)
         if profile["name"] == "prod":
             phase("production build ve deployment kontrolleri")
-            # Build through the pinned npm shim, not the npm bundled with Node.
             from .installation_dependencies import _npm_command
-            result = capture([*_npm_command(tool_env), "run", "build", "--prefix", project.frontend], project, tool_env)
-            if result.returncode:
-                raise LauncherError("Production frontend build başarısız; servis başlatılmadı.")
-            _django(project, profile, ["check", "--deploy", "--fail-level", "ERROR"], tool_env)
-            _django(project, profile, ["collectstatic", "--clear", "--noinput"], tool_env)
-            _django(project, profile, ["verify_frontend_artifact"], tool_env)
+            def build():
+                result = capture([*_npm_command(tool_env), "run", "build", "--prefix", project.frontend], project, tool_env)
+                if result.returncode:
+                    raise LauncherError("Production frontend build başarısız; servis başlatılmadı.")
+            def deploy():
+                _django(project, profile, ["check", "--deploy", "--fail-level", "ERROR"], tool_env)
+                _django(project, profile, ["collectstatic", "--clear", "--noinput"], tool_env)
+                _django(project, profile, ["verify_frontend_artifact"], tool_env)
+            if getattr(args, "manager_ensure", False):
+                from .production_build import prepare_build
+                prepare_build(project, profile, tool_env, build, deploy, phase)
+            else:
+                build()
+                deploy()
         checks = _core_checks(project, profile) + features
         save_report(home, profile["name"], checks)
         return checks
@@ -388,8 +425,10 @@ def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None
         pointers = {key: selected[key] for key in ("AWCENTER_ENV_FILE", "DJANGO_SETTINGS_MODULE") if key in selected}
         values = {**tools, **pointers, **feature_environment(project, profile)}
     with process_environment(values), runtime_session(profile) as directory:
-        progress('Başlatma: veritabanı şeması doğrulanıyor')
-        _django(project, profile, ["migrate", "--check"], {})
+        if name == "dev":
+            # runtime.prod performs this check with its validated production environment.
+            progress('Başlatma: veritabanı şeması doğrulanıyor')
+            _django(project, profile, ["migrate", "--check"], {})
         def ready(processes):
             from .process import start
             processes.append(start([project.python, project.manage_py, 'check_job_worker_health',

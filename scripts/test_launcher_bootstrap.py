@@ -15,6 +15,26 @@ from scripts.launcher.model import LauncherError
 
 
 class ToolchainTests(unittest.TestCase):
+    def test_interrupted_receipt_publication_leaves_verified_runtime_recoverable(self):
+        self.install()
+        home = self.root / 'home'
+        artifact = self.artifacts['node']
+        target = toolchain._directory(home, artifact)
+        receipt = target / toolchain.RECEIPT
+        receipt.unlink()
+        def interrupt(staged, destination):
+            self.assertEqual(Path(destination), receipt)
+            self.assertFalse(Path(staged).is_relative_to(target))
+            self.assertEqual(json.loads(Path(staged).read_text())['sha256'], artifact.sha256)
+            raise OSError('simulated interruption')
+        with patch.object(toolchain, 'INVENTORY_PINS', self.fixture_inventory_pins()), \
+             patch.object(toolchain, '_check_version'):
+            with patch.object(toolchain.os, 'replace', side_effect=interrupt), self.assertRaises(OSError):
+                toolchain._install(home, artifact, None)
+            self.assertFalse(receipt.exists())
+            toolchain._install(home, artifact, None)
+        self.assertEqual(json.loads(receipt.read_text())['sha256'], artifact.sha256)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -100,6 +120,14 @@ class ToolchainTests(unittest.TestCase):
         self.assertEqual(before, {str(path): path.stat().st_mtime_ns for path in home.rglob("*")})
         fetch.assert_not_called()
 
+    def test_only_root_receipt_is_excluded_from_authenticated_files(self):
+        self.install()
+        home = self.root / "home"
+        target = toolchain._directory(home, self.artifacts["python"])
+        (target / "python" / toolchain.RECEIPT).write_text("extra file")
+        with patch.object(toolchain, "load_catalog", return_value=self.artifacts):
+            self.assertEqual(toolchain.inspect_toolchain(home)[0]["status"], "invalid")
+
     def test_runtime_version_checks_ignore_inherited_interpreter_hooks(self):
         inherited = {"NODE_OPTIONS": "--require injected.js", "PYTHONPATH": "injected", "PYTHONHOME": "injected", "NODE_TLS_REJECT_UNAUTHORIZED": "0"}
         result = subprocess.CompletedProcess([], 0, stdout="22.23.4\n", stderr="")
@@ -117,6 +145,144 @@ class ToolchainTests(unittest.TestCase):
         previous = [item.read_bytes() for item in receipts]
         self.assertEqual(self.install(), first)
         self.assertEqual([item.read_bytes() for item in receipts], previous)
+
+    def fixture_inventory_pins(self):
+        pins = {}
+        for artifact in self.artifacts.values():
+            files = {artifact.executable: hashlib.sha256(artifact.name.encode()).hexdigest()}
+            pins[artifact.sha256] = hashlib.sha256(json.dumps(
+                files, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+        return pins
+
+    def test_repeat_provision_authenticates_existing_files_without_staging_archives(self):
+        first = self.install()
+        with patch.object(toolchain, "INVENTORY_PINS", self.fixture_inventory_pins()), \
+             patch.object(toolchain, "safe_extract", wraps=toolchain.safe_extract) as extract:
+            self.assertEqual(self.install(), first)
+            self.assertEqual(extract.call_count, 0)
+
+    def test_archive_without_a_shipped_tree_pin_retains_strict_comparison(self):
+        environment = self.install()
+        Path(environment["AWCENTER_MANAGED_PYTHON"]).write_bytes(b"different build")
+        with patch.object(toolchain, "load_catalog", return_value=self.artifacts), \
+             patch.object(toolchain, "safe_extract", wraps=toolchain.safe_extract) as extract, \
+             patch.object(toolchain, "_check_version") as probe:
+            with self.assertRaises(LauncherError):
+                toolchain.ensure_toolchain(self.root / "home", sources.SourceSettings(mode="offline"))
+            self.assertEqual(extract.call_count, 1)
+            probe.assert_not_called()
+
+    def test_disappearing_verified_target_never_falls_back_to_an_unchecked_archive(self):
+        self.install()
+        home = self.root / "home"
+        artifact = self.artifacts["python"]
+        # A different ZIP is present under the same cache filename.
+        cache = home / "cache/runtimes" / artifact.filename
+        with zipfile.ZipFile(cache, "w") as wrong_archive:
+            wrong_archive.writestr(artifact.executable, "other build")
+        install = toolchain._install
+        def move_before_install(home, item, archive, **options):
+            if item.name == "python":
+                toolchain._directory(home, item).rename(self.root / "previous-python")
+            return install(home, item, archive, **options)
+        with patch.object(toolchain, "INVENTORY_PINS", self.fixture_inventory_pins()), \
+             patch.object(toolchain, "load_catalog", return_value=self.artifacts), \
+             patch.object(toolchain, "_install", side_effect=move_before_install), \
+             patch.object(toolchain, "_check_version") as probe:
+            with self.assertRaises(LauncherError):
+                toolchain.ensure_toolchain(home, sources.SourceSettings(mode="offline"))
+            probe.assert_not_called()
+
+    def test_staged_contents_must_match_the_release_pin_before_publication(self):
+        home = self.root / "home"
+        artifact = self.artifacts["python"]
+        (home / "runtimes").mkdir(parents=True)
+        substituted = self.root / "substituted.zip"
+        with zipfile.ZipFile(substituted, "w") as archive:
+            archive.writestr(artifact.executable, "different build")
+        with patch.object(toolchain, "INVENTORY_PINS", self.fixture_inventory_pins()), \
+             patch.object(toolchain, "_check_version") as probe:
+            with self.assertRaises(LauncherError):
+                toolchain._install(home, artifact, substituted)
+            probe.assert_not_called()
+        self.assertFalse(toolchain._directory(home, artifact).exists())
+
+    def test_pinned_npm_authenticates_generated_wrappers_when_switching_node(self):
+        self.install()
+        home = self.root / "home"
+        artifact = self.artifacts["npm"]
+        target = toolchain._directory(home, artifact)
+        node = self.root / "system-node/node.exe"
+        with patch.object(toolchain, "INVENTORY_PINS", self.fixture_inventory_pins()), \
+             patch.object(toolchain, "load_catalog", return_value=self.artifacts), \
+             patch.object(toolchain, "_check_version") as probe:
+            toolchain._install(home, artifact, None, node=node)
+            wrappers = toolchain._npm_wrapper_files(node, target)
+            self.assertTrue(all((target / path).read_bytes() == data for path, data in wrappers.items()))
+            wrapper = target / "bin/npm.cmd"
+            wrapper.write_bytes(b"modified wrapper")
+            probe.reset_mock()
+            with self.assertRaises(LauncherError):
+                toolchain._install(home, artifact, None, node=node)
+            probe.assert_not_called()
+            self.assertEqual(wrapper.read_bytes(), b"modified wrapper")
+
+    def test_missing_receipt_is_recoverable_only_after_tree_verification(self):
+        environment = self.install()
+        home = self.root / "home"
+        artifact = self.artifacts["python"]
+        target = toolchain._directory(home, artifact)
+        receipt = target / toolchain.RECEIPT
+        receipt.unlink()
+        with patch.object(toolchain, "INVENTORY_PINS", self.fixture_inventory_pins()), \
+             patch.object(toolchain, "load_catalog", return_value=self.artifacts), \
+             patch.object(toolchain, "fetch_artifact") as fetch, patch.object(toolchain, "_check_version"):
+            self.assertEqual(toolchain.inspect_toolchain(home)[0]["status"], "missing")
+            self.assertFalse(receipt.exists())
+            self.assertEqual(toolchain.ensure_toolchain(home, sources.SourceSettings(mode="offline")), environment)
+            self.assertEqual(toolchain.inspect_toolchain(home)[0]["status"], "ready")
+            fetch.assert_not_called()
+            receipt.unlink()
+            (target / artifact.executable).write_bytes(b"unexpected build")
+            self.assertEqual(toolchain.inspect_toolchain(home)[0]["status"], "invalid")
+            self.assertFalse(receipt.exists())
+
+    def test_catalog_pinned_trees_need_no_archives_for_inspection_or_provision(self):
+        from contextlib import ExitStack
+        environment = self.install()
+        home = self.root / "home"
+        for artifact in self.artifacts.values():
+            (home / "cache/runtimes" / artifact.filename).unlink()
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(toolchain, "INVENTORY_PINS", self.fixture_inventory_pins()))
+            stack.enter_context(patch.object(toolchain, "load_catalog", return_value=self.artifacts))
+            fetch = stack.enter_context(patch.object(toolchain, "fetch_artifact"))
+            extract = stack.enter_context(patch.object(toolchain, "safe_extract"))
+            archive_open = stack.enter_context(patch.object(toolchain.zipfile, "ZipFile"))
+            version = stack.enter_context(patch.object(toolchain, "_check_version"))
+            for _ in range(3):
+                self.assertEqual(toolchain.toolchain_environment(home), environment)
+            progress = []
+            self.assertEqual(toolchain.ensure_toolchain(home, sources.SourceSettings(mode="offline",
+                                                        progress=progress.append)), environment)
+            self.assertEqual(version.call_count, 3)
+            self.assertTrue(any("doğrulanıyor" in step for step in progress))
+            self.assertFalse(any("açılıyor" in step or "yazılıyor" in step for step in progress))
+            fetch.assert_not_called()
+            extract.assert_not_called()
+            archive_open.assert_not_called()
+            # A rewritten receipt must never authorize a changed byte or relative name.
+            python = Path(environment["AWCENTER_MANAGED_PYTHON"])
+            python.with_suffix(".dll").write_bytes(python.read_bytes())
+            receipt_path = toolchain._directory(home, self.artifacts["python"]) / toolchain.RECEIPT
+            receipt = json.loads(receipt_path.read_text())
+            receipt["files"]["python/python.dll"] = receipt["files"]["python/python.exe"]
+            receipt_path.write_text(json.dumps(receipt))
+            self.assertEqual(toolchain.inspect_toolchain(home)[0]["status"], "invalid")
+            version.reset_mock()
+            with self.assertRaises(LauncherError):
+                toolchain.ensure_toolchain(home, sources.SourceSettings(mode="offline"))
+            version.assert_not_called()
 
 
 class IsolatedVerifierTests(unittest.TestCase):
@@ -186,6 +352,28 @@ class IsolatedVerifierTests(unittest.TestCase):
 
 
 class BootstrapContractTests(unittest.TestCase):
+    def test_every_shipped_runtime_archive_has_a_matching_inventory_pin(self):
+        catalog = sources.load_catalog()
+        self.assertEqual(set(toolchain.INVENTORY_PINS), {a.sha256 for a in catalog.values()})
+        manifest = Path("scripts/launcher/installation_python.sha256")
+        python_files = dict(line.split("|", 1)[::-1] for line in manifest.read_text().splitlines())
+        self.assertEqual(toolchain._inventory_digest(python_files),
+                         toolchain.INVENTORY_PINS[catalog["python"].sha256])
+
+    @unittest.skipUnless(os.environ.get("AWC_TEST_RUNTIME_ARCHIVES"),
+                         "Reproducing inventory pins requires the three reviewed Windows archives")
+    def test_installed_tree_pins_match_catalog_verified_archives(self):
+        """Set AWC_TEST_RUNTIME_ARCHIVES to the directory containing the catalog filenames."""
+        with tempfile.TemporaryDirectory() as temporary:
+            for name, artifact in sources.load_catalog().items():
+                with self.subTest(name=name):
+                    archive = Path(os.environ["AWC_TEST_RUNTIME_ARCHIVES"]) / artifact.filename
+                    sources._verify(archive, artifact)
+                    tree = Path(temporary).resolve() / name
+                    sources.safe_extract(archive, tree, artifact.archive)
+                    self.assertEqual(toolchain._inventory_digest(toolchain._inventory(tree)),
+                                     toolchain.INVENTORY_PINS[artifact.sha256])
+
     def test_double_click_uses_persistent_outer_console(self):
         script = Path("AWCenter.cmd").read_text(encoding="utf-8")
         outer, marker, _ = script.partition("\n:bootstrap_entry\n")

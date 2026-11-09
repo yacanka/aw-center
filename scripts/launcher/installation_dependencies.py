@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,7 @@ from .certificates import package_trust_environment
 from .installation_sources import SourceSettings, acquisition_urls
 from .model import LauncherError, Project, Scope
 from .offline_manifest import verify_offline_manifest
-from .process import controlled_run, environment
+from .process import OperationCancelled, check_cancelled, controlled_run, environment
 
 _STAGE_RECEIPT = '.awcenter-packages.json'
 _PACKAGE_STAGES = frozenset({
@@ -84,6 +85,42 @@ class PackageCommandError(LauncherError):
         super().__init__(message)
 
 
+def _package_source_failure(output: str) -> tuple[str, str, str]:
+    text = output.casefold()
+    transient_responses = {502: '502 bad gateway', 503: '503 service unavailable', 504: '504 gateway timeout'}
+    for code in (407, 401, 403, 404, 408, 429, 500, 502, 503, 504):
+        explicit_status = re.search(rf'\b(?:e{code}|(?:http error|error|tunnel connection failed:)\s+{code}|{code}\s+client error)\b', text)
+        transient = transient_responses.get(code)
+        if explicit_status or (transient and transient in text):
+            remedy = {
+                407: 'Proxy kimlik doğrulaması gerekli; kurumsal proxy oturumunu ve erişim ayarlarını kontrol edin.',
+                401: 'Paket deposu kimlik doğrulaması istiyor; kurumun onaylı depo erişimini kullanın.',
+                403: 'Paket indeksi ve paket dosyası sunucusunun ağ/proxy erişim izinlerini kontrol edin.',
+                404: 'Kilitli paket sürümünün ve dosyasının seçilen depoda bulunduğunu kontrol edin.',
+            }.get(code, 'Paket deposunun ve ağ geçidinin durumunu kontrol edip yeniden deneyin.')
+            detail = f'Proxy kimlik doğrulaması gerekli (HTTP {code}).' if code == 407 else f'Paket kaynağı HTTP {code} yanıtı verdi.'
+            return 'package_source_http_rejected', detail, remedy
+    if any(value in text for value in ('readtimeouterror', 'connecttimeouterror', 'err_socket_timeout', 'etimedout')):
+        return ('package_source_timeout', 'Paket kaynağı bağlantısında zaman aşımı oluştu.',
+                'Paket indeksi ve paket dosyası sunucusunun ağ/proxy erişimini kontrol edip yeniden deneyin.')
+    if any(value in text for value in ('nameresolutionerror', 'enotfound', 'eai_again')):
+        return ('package_source_dns_failed', 'Paket kaynağının DNS adresi çözümlenemedi.',
+                'Depo adresini, DNS ve kurumsal ağ/VPN erişimini kontrol edin.')
+    return ('package_source_connection_failed', 'Paket kaynağına bağlantı kurulamadı veya bağlantı kesildi.',
+            'Paket indeksi ve paket dosyası sunucusunun ağ/proxy erişimini kontrol edin; '
+            'gerekirse erişilebilir bir depo veya tam çevrimdışı paket kullanın.')
+
+
+class PackageSourceError(PackageCommandError):
+    """Retain a failed source's reviewed reason after all allowed fallbacks."""
+
+    def __init__(self, result, stage):
+        super().__init__(result, stage)
+        if self.code == 'package_command_failed':
+            self.code, detail, self.remedy = _package_source_failure((result.stdout or '') + '\n' + (result.stderr or ''))
+            self.args = (str(self) + ' ' + detail,)
+
+
 class PackageTimeoutError(LauncherError):
     """Identify a process timeout without retaining command or captured output."""
 
@@ -98,38 +135,100 @@ def _package_inventory(target):
     from .installation_permissions import require_unlinked
     from .offline_manifest import file_sha256
     result = {}
-    for current, directories, files in os.walk(target, followlinks=False):
-        for name in (*directories, *files):
-            require_unlinked(Path(current) / name)
-        directories[:] = [name for name in directories if name not in {'__pycache__', '.vite', '.cache'}]
-        for name in files:
-            path = Path(current) / name
-            if path == target / _STAGE_RECEIPT or path.suffix == '.pyc':
-                continue
-            if not path.is_file():
-                raise LauncherError('Bağımlılık dizini yalnız normal dosyalar içermeli.')
-            result[path.relative_to(target).as_posix()] = file_sha256(path)
+    pending = [target]
+    while pending:
+        directory = pending.pop()
+        # Check ancestors on directory entry. scandir supplies each immediate
+        # child's own metadata without repeating that chain for every file.
+        require_unlinked(directory)
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                check_cancelled()
+                info = entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+                    raise LauncherError('Bağımlılık dizini bağlantı veya reparse noktası içeriyor.')
+                path = directory / entry.name
+                if stat.S_ISDIR(info.st_mode):
+                    if entry.name not in {'__pycache__', '.vite', '.cache'}:
+                        pending.append(path)
+                elif not stat.S_ISREG(info.st_mode):
+                    raise LauncherError('Bağımlılık dizini yalnız normal dosyalar içermeli.')
+                elif path != target / _STAGE_RECEIPT and path.suffix != '.pyc':
+                    result[path.relative_to(target).as_posix()] = file_sha256(path)
     return result
 
 
-def dependency_stage(target: Path, lock: Path, install) -> bool:
-    """Reuse only a completed stage with the same lock and verified installed bytes."""
+class DependencyIntegrityError(LauncherError):
+    code = 'installed_packages_invalid'
+
+    def __init__(self, target):
+        name = 'Frontend' if target.name == 'node_modules' else 'Python'
+        self.remedy = f'{target.name} klasörünü yedek bir konuma taşıyıp AW Center’ı aç düğmesine basın.'
+        super().__init__(f'{name} paketlerinin kurulum kaydı veya dosya bütünlüğü doğrulanamadı.')
+
+
+def _stage_current(target, lock, *, verify=True):
+    """A receipt is only a branch hint until the installed bytes have been checked."""
     from .installation_bundle import _json_object
     from .installation_permissions import require_unlinked
     from .offline_manifest import file_sha256
     receipt = target / _STAGE_RECEIPT
-    require_unlinked(target)
     require_unlinked(receipt)
+    if not receipt.exists():
+        return False
+    try:
+        saved = _json_object(receipt, limit=64 * 1024 * 1024)
+        if (saved.get('version') != 1 or not isinstance(saved.get('files'), dict)
+                or not isinstance(saved.get('lock'), str)):
+            raise ValueError
+        if verify and saved['files'] != _package_inventory(target):
+            raise ValueError
+    except OperationCancelled:
+        raise
+    except (OSError, ValueError, LauncherError):
+        raise DependencyIntegrityError(target) from None
+    if not lock or not lock.is_file():
+        return False
+    require_unlinked(lock)
+    return saved['lock'] == file_sha256(lock)
+
+
+def dependency_checks(project, *, verify=True, fail_invalid=False):
+    rows = []
+    for name, target, lock, label in (
+            ('python-packages', project.venv, project.requirements, 'Python'),
+            ('frontend-packages', project.frontend / 'node_modules', project.frontend / 'package-lock.json', 'Frontend')):
+        try:
+            current = _stage_current(target, lock, verify=verify)
+            status = 'ready' if current else 'missing'
+            detail = f'{label} bağımlılıkları doğrulandı.' if current else f'{label} bağımlılıkları için kurulum gerekli.'
+        except DependencyIntegrityError as error:
+            if fail_invalid:
+                raise
+            status, detail = 'invalid', f'{error} {error.remedy}'
+        rows.append({'name': name, 'status': status, 'detail': detail})
+    return rows
+
+
+def dependency_stage(target: Path, lock: Path, install) -> bool:
+    """Reuse only a completed stage with the same lock and verified installed bytes."""
+    if _stage_current(target, lock):
+        return False
+    _install_stage(target, lock, install)
+    return True
+
+
+def _install_stage(target, lock, install):
+    from .offline_manifest import file_sha256
+    from .installation_permissions import require_unlinked
+    if not lock or not lock.is_file():
+        raise LauncherError('Paket kilit dosyası eksik.')
+    require_unlinked(lock)
     identity = file_sha256(lock)
-    if receipt.exists():
-        saved = _json_object(receipt)
-        if saved.get('version') != 1:
-            raise LauncherError('Bağımlılık aşama kaydı geçersiz; mevcut ortam değiştirilmedi.')
-        if saved.get('lock') == identity:
-            if saved.get('files') != _package_inventory(target):
-                raise LauncherError('Tamamlanmış bağımlılık dosyaları değişmiş; mevcut ortam otomatik değiştirilmedi.')
-            return False
     install()
+    if identity != file_sha256(lock):
+        raise LauncherError('Paket kilit dosyası işlem sırasında değişti; kurulum kaydı yazılmadı.')
+    receipt = target / _STAGE_RECEIPT
     saved = {'version': 1, 'lock': identity, 'files': _package_inventory(target)}
     with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=target, delete=False) as output:
         temporary = Path(output.name)
@@ -138,7 +237,6 @@ def dependency_stage(target: Path, lock: Path, install) -> bool:
         os.replace(temporary, receipt)
     finally:
         temporary.unlink(missing_ok=True)
-    return True
 
 
 def availability_failure(output: str, *, restricted: bool = False) -> bool:
@@ -256,6 +354,7 @@ class VirtualEnvironmentError(LauncherError):
     def __init__(self, reason, *, repairable=True):
         messages = {
             'incomplete': 'Mevcut .venv eksik.',
+            'unverified': 'Mevcut .venv seçili kilit için doğrulanamadı.',
             'interrupted': 'Yarım sanal ortam başka Python veya kaynağa bağlı.',
             'version': 'Mevcut .venv CPython 3.11 x64 ile oluşturulmalı.',
             'python_mismatch': 'Mevcut .venv farklı bir Python kullanıyor.',
@@ -296,10 +395,21 @@ def _same_python(first: Path, second: Path) -> bool:
     return os.path.normcase(str(first.resolve())) == os.path.normcase(str(second.resolve()))
 
 
-def _preserve_venv(project: Project, expected_python: Path) -> None:
+def _preserve_package_tree(project, target, backup_directory):
+    """Move generated output with its receipt before starting a replacement."""
     from .installation_permissions import require_unlinked, secure_path
-    from .process import check_cancelled
     check_cancelled()
+    require_unlinked(target)
+    directory = project.root / '.runtime' / backup_directory
+    require_unlinked(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    backup = Path(tempfile.mkdtemp(prefix='preserved-', dir=directory))
+    secure_path(backup)
+    target.rename(backup / target.name)
+
+
+def _preserve_venv(project: Project, expected_python: Path) -> None:
+    from .installation_permissions import require_unlinked
     require_unlinked(project.venv)
     paths = (expected_python, Path(sys.executable), Path(sys.prefix))
     if (not project.venv.is_dir() or not expected_python.is_file() or
@@ -309,12 +419,7 @@ def _preserve_venv(project: Project, expected_python: Path) -> None:
     try:
         # Stay on the source volume and in generated state excluded from Git and
         # release inventories. A unique wrapper prevents overwriting any backup.
-        directory = project.root / '.runtime' / 'venv-backups'
-        require_unlinked(directory)
-        directory.mkdir(parents=True, exist_ok=True)
-        backup = Path(tempfile.mkdtemp(prefix='preserved-', dir=directory))
-        secure_path(backup)
-        project.venv.rename(backup / '.venv')
+        _preserve_package_tree(project, project.venv, 'venv-backups')
     except OSError as error:
         raise VirtualEnvironmentRepairError(error) from None
 
@@ -432,9 +537,11 @@ def _python_packages(project: Project, settings: SourceSettings, tool_env: dict,
     wheelhouse = offline / 'wheels' if offline else None
     indexes = acquisition_urls(settings, "https://pypi.org/simple", settings.python_index_url)
     target = _package_target(project, tool_env) if cache_root and indexes and offline is None else None
+    source_error = None
     for number, index in enumerate(indexes if wheelhouse is None else []):
         candidate = stage / f'w{number}'
         def acquire():
+            nonlocal source_error
             candidate.mkdir()
             settings.report(f'Python paketleri: izinli kaynak {number + 1}/{len(indexes)} deneniyor')
             result = capture([project.python, "-m", "pip", "wheel", "--wheel-dir", candidate,
@@ -443,7 +550,10 @@ def _python_packages(project: Project, settings: SourceSettings, tool_env: dict,
                 return True
             if not availability_failure(result.stdout + result.stderr, restricted=True):
                 _succeeded(result, "Python paket edinimi")
-            settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
+            source_error = PackageSourceError(result, 'Python paket edinimi')
+            settings.report(f'Python paketleri: kaynak {number + 1}/{len(indexes)} başarısız. {source_error}')
+            if number + 1 < len(indexes):
+                settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
             return False
         wheelhouse = acquire_cached(cache_root, kind='python', locks=(project.requirements,), target=target,
                                     mode=settings.mode, source=index, candidate=candidate,
@@ -453,8 +563,11 @@ def _python_packages(project: Project, settings: SourceSettings, tool_env: dict,
     if wheelhouse is None:
         offline = _offline_dependencies(project, settings)
         if not offline:
+            if source_error is not None:
+                raise source_error from None
             raise LauncherError("Kilitli Python paketleri internet, seçilen depo veya offline dizinde bulunamadı.")
         wheelhouse = offline / "wheels"
+    settings.report('Python paketleri yerel wheel dosyalarından kuruluyor')
     _succeeded(capture([project.python, "-m", "pip", "install", "--no-index", "--find-links", wheelhouse,
                        "-r", project.requirements], project, tool_env, progress=settings.progress), "Python paket kurulumu")
     _succeeded(capture([project.python, "-m", "pip", "check"], project, tool_env), "Python bağımlılık doğrulaması")
@@ -522,16 +635,62 @@ def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dic
             raise LauncherError("Kilitli npm paketleri internet, seçilen depo veya offline dizinde bulunamadı.")
         cache = stage / 'no'
         shutil.copytree(offline / "npm-cache", cache)
+    settings.report('Frontend paketleri yerel npm önbelleğinden kuruluyor')
     _succeeded(capture([*npm, "ci", "--prefix", project.frontend, "--offline", "--cache", cache,
                        "--no-audit", "--no-fund"], project, tool_env), "Frontend paket kurulumu")
+
+
+def _legacy_venv_matches(project, expected_python):
+    """Permit preserving a compatible legacy CLI venv without running its contents."""
+    from .installation_permissions import require_unlinked
+    config = project.venv / 'pyvenv.cfg'
+    require_unlinked(config)
+    if not config.is_file() or config.stat().st_size > 16 * 1024:
+        return False
+    try:
+        lines = config.read_text(encoding='utf-8').splitlines()
+    except (OSError, UnicodeError):
+        return False
+    executables = [value.strip() for key, sep, value in (line.partition('=') for line in lines)
+                   if sep and key.strip() == 'executable']
+    return (len(executables) == 1 and
+            os.path.normcase(executables[0]) == os.path.normcase(str(expected_python.resolve())))
+
+
+def _prepare_package_venv(project, tool_env, settings, expected_python, repair, current):
+    if expected_python is not None and project.venv.exists() and not current:
+        marker = project.venv / '.awcenter-creating.json'
+        # The creation routine verifies the marker's identity. Only an empty
+        # workspace can be resumed from it without first executing unknown bytes.
+        if not (marker.is_file() and list(project.venv.iterdir()) == [marker]):
+            if not (repair or (project.venv / _STAGE_RECEIPT).is_file() or
+                    _legacy_venv_matches(project, expected_python)):
+                raise VirtualEnvironmentError('unverified')
+            _preserve_venv(project, expected_python)
+            settings.report('Önceki .venv yedeklendi; seçilen Python ile yeniden kurulacak')
+    settings.report('Python sanal ortamı doğrulanıyor')
+    _ensure_venv(project, tool_env, expected_python=expected_python,
+                 repair=repair, report=settings.report)
+    # Switching the selected base interpreter can have preserved the old venv.
+    return current and (project.venv / _STAGE_RECEIPT).is_file()
 
 
 def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None,
                          repair_venv: bool = False, cache_root: Path | None = None) -> None:
     """Use one source per acquisition attempt; never fallback after installation fails."""
-    settings.report('Python sanal ortamı doğrulanıyor')
-    _ensure_venv(project, tool_env, expected_python=expected_python,
-                 repair=repair_venv, report=settings.report)
+    frontend = project.frontend / 'node_modules'
+    frontend_lock = project.frontend / 'package-lock.json'
+    settings.report('Kurulu Python bağımlılıkları doğrulanıyor')
+    python_current = _stage_current(project.venv, project.requirements)
+    settings.report('Kurulu frontend bağımlılıkları doğrulanıyor')
+    frontend_current = _stage_current(frontend, frontend_lock)
+    python_current = _prepare_package_venv(project, tool_env, settings, expected_python, repair_venv, python_current)
+    if python_current:
+        settings.report('Python bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')
+    if frontend_current:
+        settings.report('Frontend bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')
+    if python_current and frontend_current:
+        return
     node = tool_env.get('AWCENTER_MANAGED_NODE') or shutil.which('node', path=tool_env.get('PATH'))
     if not node:
         raise LauncherError('Node bulunamadı; paket güven deposu hazırlanamadı.')
@@ -540,15 +699,16 @@ def install_dependencies(project: Project, settings: SourceSettings, tool_env: d
                                    node=node, progress=settings.report) as trusted_env, \
          tempfile.TemporaryDirectory(prefix='aw-p-') as temporary:
         stage = Path(temporary).resolve()
-        print("Python paketleri hazırlanıyor…", flush=True)
-        settings.report('Python bağımlılıkları hazırlanıyor')
-        if not dependency_stage(project.venv, project.requirements,
-                                lambda: _python_packages(project, settings, trusted_env, stage,
-                                                         cache_root=cache_root)):
-            settings.report('Python bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')
-        print("Frontend paketleri hazırlanıyor…", flush=True)
-        settings.report('Frontend bağımlılıkları hazırlanıyor')
-        if not dependency_stage(project.frontend / 'node_modules', project.frontend / 'package-lock.json',
-                                lambda: _frontend_packages(project, settings, trusted_env, stage,
-                                                           cache_root=cache_root)):
-            settings.report('npm bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')
+        if not python_current:
+            settings.report('Python bağımlılıkları hazırlanıyor')
+            _install_stage(project.venv, project.requirements, lambda: _python_packages(
+                project, settings, trusted_env, stage, cache_root=cache_root))
+        if not frontend_current:
+            settings.report('Frontend bağımlılıkları hazırlanıyor')
+            if frontend.exists() and any(frontend.iterdir()):
+                # npm ci can stop partway through replacing a tree. Keep the
+                # previous files with their corresponding receipt on retry.
+                _preserve_package_tree(project, frontend, 'npm-backups')
+                settings.report('Önceki frontend paketleri .runtime/npm-backups altında korundu')
+            _install_stage(frontend, frontend_lock, lambda: _frontend_packages(
+                project, settings, trusted_env, stage, cache_root=cache_root))

@@ -262,6 +262,163 @@ class PersistentPackageAcquisitionTests(unittest.TestCase):
             with self.subTest(length=len(str(path)), path=str(path)):
                 self.assertLess(len(str(path)), 260)
 
+    def test_verified_stages_skip_trust_setup_and_report_reuse(self):
+        self.project.venv.mkdir()
+        modules = self.project.frontend / 'node_modules'
+        modules.mkdir()
+        for target, lock in ((self.project.venv, self.project.requirements),
+                             (modules, self.project.frontend / 'package-lock.json')):
+            deps.dependency_stage(target, lock, lambda: (target / 'fixture').touch())
+        events = []
+        with mock.patch.object(deps, '_ensure_venv'), \
+             mock.patch.object(deps, 'package_trust_environment',
+                               side_effect=AssertionError('ready stages requested package TLS')), \
+             mock.patch.object(deps.tempfile, 'TemporaryDirectory',
+                               side_effect=AssertionError('ready stages requested temporary staging')):
+            deps.install_dependencies(self.project, SourceSettings(progress=events.append), self.tool_env)
+        self.assertFalse(any('hazırlanıyor' in event for event in events), events)
+        self.assertEqual(sum('kullanılıyor' in event for event in events), 2, events)
+        self.assertEqual(self.downloads, [])
+        self.assertEqual(self.installs, [])
+
+    def test_package_install_phase_is_visible_when_each_local_command_runs(self):
+        events = []
+        def observe(command, *args, **kwargs):
+            if 'install' in command or '--offline' in command:
+                self.assertIn('kuruluyor', events[-1], events)
+                self.assertIn('Python' if 'install' in command else 'Frontend', events[-1])
+            return self.package_command(command, *args, **kwargs)
+        with mock.patch.object(deps, 'capture', side_effect=observe):
+            for kind in ('python', 'npm'):
+                self.install(kind, SourceSettings(progress=events.append))
+
+    def test_changed_lock_cannot_hide_modified_existing_python_before_command(self):
+        self.project.python.parent.mkdir(parents=True)
+        deps.dependency_stage(self.project.venv, self.project.requirements,
+                              lambda: self.project.python.write_bytes(b'original'))
+        self.project.requirements.write_text('Django==5.3\n')
+        self.project.python.write_bytes(b'changed')
+        with mock.patch.object(deps, '_ensure_venv', side_effect=AssertionError('executed changed venv')), \
+             self.assertRaises(LauncherError):
+            deps.install_dependencies(self.project, SourceSettings(), self.tool_env)
+
+    def test_interrupted_frontend_update_preserves_verified_tree_and_resumes(self):
+        modules = self.project.frontend / 'node_modules'
+        modules.mkdir()
+        self.project.venv.mkdir()
+        npm_lock = self.project.frontend / 'package-lock.json'
+        deps.dependency_stage(self.project.venv, self.project.requirements,
+                              lambda: (self.project.venv / 'fixture').touch())
+        deps.dependency_stage(modules, npm_lock, lambda: (modules / 'module.js').write_bytes(b'previous'))
+        npm_lock.write_text('{"changed": true}')
+        def install(*_, **__):
+            modules.mkdir(exist_ok=True)
+            (modules / 'module.js').write_bytes(b'partial' if self.fail_install else b'complete')
+            if self.fail_install:
+                raise OperationCancelled()
+        with mock.patch.object(deps, '_ensure_venv'), \
+             mock.patch.object(deps, '_python_packages', side_effect=AssertionError('unrelated Python install')), \
+             mock.patch.object(deps, '_frontend_packages', side_effect=install), \
+             mock.patch.object(deps, 'package_trust_environment', side_effect=lambda env, **_: nullcontext(env)):
+            self.fail_install = True
+            with self.assertRaises(OperationCancelled):
+                deps.install_dependencies(self.project, SourceSettings(), self.tool_env)
+            self.fail_install = False
+            deps.install_dependencies(self.project, SourceSettings(), self.tool_env)
+        self.assertEqual((modules / 'module.js').read_bytes(), b'complete')
+        backups = (self.project.root / '.runtime/npm-backups').glob('*/node_modules/module.js')
+        self.assertEqual({path.read_bytes() for path in backups}, {b'previous', b'partial'})
+
+    def test_changed_python_lock_restarts_partial_update_using_selected_interpreter(self):
+        self.project.python.parent.mkdir(parents=True)
+        deps.dependency_stage(self.project.venv, self.project.requirements,
+                              lambda: self.project.python.write_bytes(b'previous'))
+        self.project.requirements.write_text('Django==5.3\n')
+        modules = self.project.frontend / 'node_modules'
+        modules.mkdir()
+        deps.dependency_stage(modules, self.project.frontend / 'package-lock.json',
+                              lambda: (modules / 'module.js').touch())
+        selected = self.root / 'selected-python.exe'
+        selected.touch()
+        def prepare_venv(*_, **__):
+            self.assertFalse(self.project.python.exists(), 'old or partial interpreter was probed')
+            self.project.python.parent.mkdir(parents=True)
+            self.project.python.write_bytes(b'new interpreter')
+        def install(*_, **__):
+            (self.project.venv / 'library').write_bytes(b'partial' if self.fail_install else b'complete')
+            if self.fail_install:
+                raise OperationCancelled()
+        with mock.patch.object(deps, '_ensure_venv', side_effect=prepare_venv), \
+             mock.patch.object(deps, '_python_packages', side_effect=install), \
+             mock.patch.object(deps, '_frontend_packages', side_effect=AssertionError('unrelated frontend install')), \
+             mock.patch.object(deps, 'package_trust_environment', side_effect=lambda env, **_: nullcontext(env)):
+            self.fail_install = True
+            with self.assertRaises(OperationCancelled):
+                deps.install_dependencies(self.project, SourceSettings(), self.tool_env,
+                                          expected_python=selected, repair_venv=True)
+            self.fail_install = False
+            deps.install_dependencies(self.project, SourceSettings(), self.tool_env,
+                                      expected_python=selected, repair_venv=True)
+        self.assertEqual((self.project.venv / 'library').read_bytes(), b'complete')
+        backups = self.project.root / '.runtime/venv-backups'
+        self.assertIn(b'previous', {path.read_bytes() for path in backups.rglob(self.project.python.name)})
+        self.assertEqual(next(backups.rglob('library')).read_bytes(), b'partial')
+
+    def test_explicit_provision_updates_a_verified_old_python_lock(self):
+        self.project.python.parent.mkdir(parents=True)
+        deps.dependency_stage(self.project.venv, self.project.requirements,
+                              lambda: self.project.python.write_bytes(b'old but verified'))
+        self.project.requirements.write_text('Django==5.3\n')
+        modules = self.project.frontend / 'node_modules'
+        modules.mkdir()
+        deps.dependency_stage(modules, self.project.frontend / 'package-lock.json',
+                              lambda: (modules / 'module.js').touch())
+        selected = self.root / 'selected-python.exe'
+        selected.touch()
+        def prepare(*args, **kwargs):
+            self.project.python.parent.mkdir(exist_ok=True, parents=True)
+            self.project.python.write_bytes(b'current')
+        with mock.patch.object(deps, '_ensure_venv', side_effect=prepare), \
+             mock.patch.object(deps, '_python_packages', side_effect=lambda *_, **__: (self.project.venv / 'updated').touch()), \
+             mock.patch.object(deps, 'package_trust_environment', side_effect=lambda env, **_: nullcontext(env)):
+            deps.install_dependencies(self.project, SourceSettings(), self.tool_env, expected_python=selected)
+        self.assertTrue((self.project.venv / 'updated').is_file())
+
+    def test_explicit_provision_preserves_legacy_venv_bound_to_selected_python(self):
+        selected = self.root / 'python.exe'
+        selected.touch()
+        self.project.python.parent.mkdir(parents=True)
+        self.project.python.write_bytes(b'unverified legacy runtime')
+        (self.project.venv / 'pyvenv.cfg').write_text(f'executable = {selected}\n', encoding='utf-8')
+        modules = self.project.frontend / 'node_modules'
+        modules.mkdir()
+        deps.dependency_stage(modules, self.project.frontend / 'package-lock.json', lambda: (modules / 'fixture').touch())
+        def prepare(*_, **__):
+            self.assertFalse(self.project.python.exists())
+            self.project.python.parent.mkdir(parents=True)
+            self.project.python.write_bytes(b'new')
+        with mock.patch.object(deps, '_ensure_venv', side_effect=prepare), \
+             mock.patch.object(deps, '_python_packages'), \
+             mock.patch.object(deps, 'package_trust_environment', side_effect=lambda env, **_: nullcontext(env)):
+            deps.install_dependencies(self.project, SourceSettings(), self.tool_env, expected_python=selected)
+        backups = (self.project.root / '.runtime/venv-backups').rglob(self.project.python.name)
+        self.assertEqual([path.read_bytes() for path in backups], [b'unverified legacy runtime'])
+
+    def test_even_matching_interrupted_creation_marker_cannot_authorize_old_executable(self):
+        selected = self.root / 'python.exe'
+        selected.touch()
+        self.project.python.parent.mkdir(parents=True)
+        self.project.python.write_bytes(b'unverified partial runtime')
+        (self.project.venv / '.awcenter-creating.json').write_text(json.dumps(
+            {'version': 1, 'python': str(selected), 'source': str(self.project.root)}))
+        def stop_before_creation(*_, **__):
+            self.assertFalse(self.project.python.exists(), 'marker authorized an unchecked executable')
+            raise OperationCancelled()
+        with mock.patch.object(deps, '_ensure_venv', side_effect=stop_before_creation), \
+             self.assertRaises(OperationCancelled):
+            deps.install_dependencies(self.project, SourceSettings(), self.tool_env,
+                                      expected_python=selected, repair_venv=True)
+
     def test_short_directory_collision_cannot_reuse_different_full_identity(self):
         from scripts.launcher import package_cache
         digest = package_cache.hashlib.sha256

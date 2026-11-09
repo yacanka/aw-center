@@ -20,6 +20,27 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from scripts.launcher.installation_readiness import probe_http
 
 
+def issue_identity(directory, name, *, host='127.0.0.1', issuer=None, ca=False, expired=False,
+                   valid_from=timedelta(days=-2), valid_for=timedelta(days=2), dns_san=False):
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, name)])
+    now = datetime.now(timezone.utc)
+    san = x509.DNSName(host) if dns_san else x509.IPAddress(ipaddress.ip_address(host))
+    cert = (x509.CertificateBuilder().subject_name(subject)
+            .issuer_name(issuer[0].subject if issuer else subject)
+            .public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now + valid_from)
+            .not_valid_after(now + (timedelta(days=-1) if expired else valid_for))
+            .add_extension(x509.BasicConstraints(ca=ca, path_length=None), True)
+            .add_extension(x509.SubjectAlternativeName([san]), False)
+            .sign(issuer[1] if issuer else key, hashes.SHA256()))
+    certificate, private_key = directory / f'{name}.pem', directory / f'{name}.key'
+    certificate.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    private_key.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                            serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    return cert, key, certificate, private_key
+
+
 class LocalTLSHandshakeTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -27,23 +48,8 @@ class LocalTLSHandshakeTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.received = []
 
-    def identity(self, name, *, host='127.0.0.1', issuer=None, ca=False, expired=False):
-        key = ec.generate_private_key(ec.SECP256R1())
-        subject = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, name)])
-        now = datetime.now(timezone.utc)
-        cert = (x509.CertificateBuilder().subject_name(subject)
-                .issuer_name(issuer[0].subject if issuer else subject)
-                .public_key(key.public_key()).serial_number(x509.random_serial_number())
-                .not_valid_before(now - timedelta(days=2))
-                .not_valid_after(now + timedelta(days=-1 if expired else 2))
-                .add_extension(x509.BasicConstraints(ca=ca, path_length=None), True)
-                .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(host))]), False)
-                .sign(issuer[1] if issuer else key, hashes.SHA256()))
-        certificate, private_key = self.root / f'{name}.pem', self.root / f'{name}.key'
-        certificate.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-        private_key.write_bytes(key.private_bytes(serialization.Encoding.PEM,
-                                serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
-        return cert, key, certificate, private_key
+    def identity(self, name, **kwargs):
+        return issue_identity(self.root, name, **kwargs)
 
     def serve(self, identity, *, redirect=False):
         received = self.received

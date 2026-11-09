@@ -49,8 +49,8 @@ def verify_frontend_artifact():
     return {"index_bytes": len(index_bytes), "asset_count": len(asset_paths)}
 
 
-def frontend_files_are_ready():
-    """Return whether the immutable shell and collected entry assets are present."""
+def frontend_files_are_ready(*, require_collected=True):
+    """Inspect Vite output; serving also requires collected copies of entry assets."""
 
     try:
         index_bytes = read_index_bytes()
@@ -58,7 +58,7 @@ def frontend_files_are_ready():
         verify_asset_types(asset_paths)
         verify_pwa_files()
         for asset_path in asset_paths:
-            verify_asset_file(asset_path)
+            verify_asset_file(asset_path, require_collected=require_collected)
     except (FrontendArtifactError, OSError):
         return False
     return True
@@ -167,8 +167,8 @@ def verify_asset_types(asset_paths):
         raise FrontendArtifactError("Frontend shell must reference JavaScript and CSS assets.")
 
 
-def verify_asset_file(asset_path):
-    """Require non-empty source and collected copies of a referenced asset."""
+def verify_asset_file(asset_path, *, require_collected=True):
+    """Check the source asset and, when verifying deployment, its collected copy."""
 
     prefix = f"{settings.STATIC_URL.rstrip('/')}/assets/"
     relative_path = asset_path.removeprefix(prefix)
@@ -178,7 +178,8 @@ def verify_asset_file(asset_path):
         raise FrontendArtifactError("Frontend shell contains an unsafe asset path.")
     if not source.is_file() or source.stat().st_size == 0:
         raise FrontendArtifactError(f"Referenced frontend asset is missing or empty: {asset_path}")
-    verify_collected_asset(relative_path)
+    if require_collected:
+        verify_collected_asset(relative_path)
 
 
 def verify_collected_asset(relative_path):

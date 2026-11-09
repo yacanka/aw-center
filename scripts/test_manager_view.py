@@ -390,6 +390,16 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
             self.assertEqual(window._profile_presentation()['action'], 'ensure')
             window.variables[field].set('')
 
+    def test_live_profile_compares_only_effective_settings_and_source_selection(self):
+        window = self.window
+        for key, value in window.state.last_values.items():
+            window.variables[key].set(value)
+        window.handle_event({'type': 'ready', 'task_id': 'dev', 'url': 'http://127.0.0.1:5173/app/'})
+        window.variables['tls_cert_file'].set('prior-prod.pem')  # Inactive for the selected dev profile.
+        self.assertEqual(window._profile_presentation()['action'], 'open')
+        window.variables['source_selection'].set('explicit')
+        self.assertEqual(window._profile_presentation()['action'], 'ensure')
+
     def test_summary_follows_selected_profile_without_private_form_paths(self):
         window = self.window
         window._update_summary()

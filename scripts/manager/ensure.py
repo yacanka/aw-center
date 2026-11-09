@@ -4,7 +4,7 @@ from pathlib import Path
 
 from scripts.launcher import installation_profiles as profiles
 from scripts.launcher.installation_permissions import require_private, require_unlinked
-from scripts.launcher.installation_connection import (CONNECTION_FIELDS, ConnectionError,
+from scripts.launcher.installation_connection import (CONNECTION_FIELDS, ConnectionError, MissingProductionSettings,
                                                     select_ports, update_connection)
 from scripts.launcher.model import LauncherError
 from scripts.launcher.process import check_cancelled
@@ -12,6 +12,10 @@ from scripts.launcher.process import check_cancelled
 
 class Replan(Exception):
     """Release the old leases before selecting a different mutation branch."""
+
+    def __init__(self, action):
+        super().__init__(action)
+        self.action = action
 
 
 def resolve_source(args, home=None):
@@ -45,6 +49,13 @@ def _profile_path(args):
 def _tls_replacements(args):
     return {key: str(getattr(args, key)) for key in profiles.TLS_PATH_FIELDS
             if getattr(args, key, None)}
+
+
+def _require_new_production_settings(args):
+    if args.profile == 'prod':
+        missing = [key for key in ('host', 'tls_cert_file', 'tls_key_file') if not getattr(args, key, None)]
+        if missing:
+            raise MissingProductionSettings(missing)
 
 
 def connection_changes(profile, args):
@@ -86,7 +97,7 @@ def _optional_changes(profile, args):
     return False
 
 
-def needs_preparation(project, args):
+def needs_preparation(project, args, *, before_lock=False):
     """Read-only decision; an error is not permission to repair unknown state."""
     path = _profile_path(args)
     for candidate in (path, path.with_name(args.profile + '.pending.json')):
@@ -101,18 +112,35 @@ def needs_preparation(project, args):
     from scripts.launcher.installation_backup import has_unresolved_migration
     if has_unresolved_migration(profile):
         return True
-    from scripts.launcher.installation import _core_checks, _runtime_options, backend_inspection
+    from scripts.launcher.installation import _core_checks, _runtime_options
     from scripts.launcher.toolchain import inspect_toolchain
-    checks = inspect_toolchain(profiles.installation_home(), **_runtime_options(profile))
+    checks = [] if before_lock else inspect_toolchain(profiles.installation_home(), **_runtime_options(profile))
     if any(row['status'] == 'invalid' for row in checks):
         raise LauncherError('Runtime bütünlüğü doğrulanamadı; kurulum otomatik değiştirilmedi.')
-    state = None
-    if project.python.is_file():
-        state = backend_inspection(project, profile)
-        if state.get('schema') in {'ready', 'pending'} and state.get('auto_migrate_safe') is False:
-            raise LauncherError('Veritabanı migration geçmişi otomatik hazırlık için doğrulanamadı.')
-    return any(row['status'] not in {'ready', 'available'}
-               for row in checks + _core_checks(project, profile, backend_state=state))
+    if any(row['status'] != 'ready' for row in checks):
+        return True
+    if not before_lock:
+        args.progress('Kurulu Python ve frontend bağımlılıklarının dosyaları doğrulanıyor')
+    state = {}
+    checks.extend(_core_checks(project, profile, before_lock=before_lock, observed_backend=state,
+                               fail_invalid=True, managed_build=True))
+    if state.get('schema') in {'ready', 'pending'} and state.get('auto_migrate_safe') is False:
+        raise LauncherError('Veritabanı migration geçmişi otomatik hazırlık için doğrulanamadı.')
+    return any(row['status'] not in {'ready', 'available'} for row in checks)
+
+
+def _initial_action(args):
+    from .operations import _project_for
+    path = _profile_path(args)
+    require_unlinked(path)
+    if path.exists():
+        return 'provision' if needs_preparation(_project_for('doctor', args), args, before_lock=True) else 'start'
+    pending = path.with_name(args.profile + '.pending.json')
+    require_unlinked(pending)
+    if not pending.exists():
+        profiles.require_new_environment(path.with_name(args.profile + '.env'))
+        _require_new_production_settings(args)
+    return 'provision'
 
 
 def run(args, emit):
@@ -120,26 +148,30 @@ def run(args, emit):
     from scripts.launcher.runtime import PortUnavailable
     args.manager_ensure = True
     resolve_source(args)
-    for attempt in range(3):
+    action = None
+    port_conflicts = branch_changes = 0
+    while branch_changes < 3:
         check_cancelled()
         args.progress('Ortam ve uygulanacak ayarlar denetleniyor')
-        exists = _profile_path(args).exists()
-        action = 'provision' if not exists else (
-            'provision' if needs_preparation(_project_for('doctor', args), args) else 'start')
+        if action is None:
+            action = _initial_action(args)
         try:
             _dispatch(action, args, emit)
             return
-        except Replan:
-            continue  # All old leases have been released by _dispatch.
+        except Replan as change:
+            branch_changes += 1
+            action = change.action  # Revalidate under the newly acquired leases.
         except PortUnavailable as error:
-            if args.profile != 'dev' or attempt == 2:
+            if args.profile != 'dev':
                 raise ConnectionError('backend_port', occupied=True) from None
+            port_conflicts += 1
             project = _project_for('doctor', args)
             profile = profiles.load_profile(project, args.profile)
             field = next((key for key in ('backend_port', 'frontend_port') if profile[key] == error.port), None)
-            if not field or profile.get('port_modes', {}).get(field) != 'automatic':
+            if not field or profile.get('port_modes', {}).get(field) != 'automatic' or port_conflicts >= 3:
                 raise ConnectionError(field or 'backend_port', occupied=True) from None
             args.progress('Otomatik port kullanılıyor; boş port yeniden seçiliyor')
+            action = None
     raise LauncherError('Profil işlem sırasında değişti; yeniden deneyin.')
 
 
@@ -151,23 +183,19 @@ def prepare_connection(project, args):
     profile = profiles.load_profile(project, args.profile, tls_replacements=_tls_replacements(args)) if path.exists() else None
     changes = connection_changes(profile, args)
     if profile is None:
-        if args.profile == 'prod':
-            for field in ('host', 'tls_cert_file', 'tls_key_file'):
-                if not getattr(args, field, None):
-                    raise ConnectionError(field)
+        profiles.require_new_environment(env)
+        _require_new_production_settings(args)
         args.automatic_ports = tuple(key for key, mode in changes.get('port_modes', {}).items()
                                      if mode == 'automatic')
         for field, value in changes.items():
             setattr(args, field, value)
-        return
+        return False
     candidate = {**profile, **changes}
     profiles._validate_options(candidate)
     if args.profile == 'prod' and changes:
         from scripts.launcher.installation import _tls_preflight
-        from scripts.launcher.runtime import validate_tls_identity
         args.progress('Seçilen TLS sertifikası, özel anahtar ve IPv4 eşleşmesi doğrulanıyor')
         _tls_preflight(project, candidate)
-        validate_tls_identity(project, Path(candidate['tls_cert_file']), Path(candidate['tls_key_file']), candidate['host'])
     if args.env_file:
         from scripts.launcher.installation_env import read_selected_environment, merge_selected_environment
         from scripts.launcher.installation_connection import connection_environment
@@ -176,14 +204,18 @@ def prepare_connection(project, args):
         merge_selected_environment(candidate, current, selected, existing=True)
     if changes:
         update_connection(project, profile, changes)
+    return bool(changes)
 
 
 def claimed(project, action, args, emit):
     """The branch decision is revalidated after its OS-owned leases are acquired."""
-    if needs_preparation(project, args) != (action == 'provision'):
-        raise Replan()
+    required = 'provision' if needs_preparation(project, args) else 'start'
+    if action != required:
+        raise Replan(required)
     emit({'type': 'resources', 'action': action, 'source_root': str(project.root)})
     if action == 'provision':
-        prepare_connection(project, args)
+        updated = prepare_connection(project, args)
+        if updated and not needs_preparation(project, args):
+            action = 'start'
     from .operations import _run_lifecycle
     _run_lifecycle(project, action, args, emit, ensured=True)

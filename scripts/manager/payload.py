@@ -35,6 +35,7 @@ MANAGER_SOURCE_FILES = (
     'scripts/launcher/installation_env.py',
     'scripts/launcher/probe_budget.py', 'scripts/launcher/runtime_selection.py',
     'scripts/launcher/resource_locks.py',
+    'scripts/launcher/production_build.py',
     'scripts/launcher/installation_backup.py', 'scripts/launcher/installation_connection.py',
     *(f'scripts/manager/{name}.py' for name in (
         '__init__', 'main', 'controller', 'worker', 'transport', 'payload', 'view', 'view_model', 'view_theme',

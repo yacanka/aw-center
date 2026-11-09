@@ -127,6 +127,15 @@ class FrontendArtifactTests(SimpleTestCase):
         with self.assertRaisesMessage(CommandError, "Collected frontend asset"):
             call_command("verify_frontend_artifact", verbosity=0)
 
+    def test_manager_detects_missing_build_separately_from_pending_collectstatic(self):
+        from .frontend_artifact import frontend_files_are_ready
+
+        self.write_source_artifact()
+        self.assertFalse(frontend_files_are_ready())
+        self.assertTrue(frontend_files_are_ready(require_collected=False))
+        (self.assets / "app.js").unlink()
+        self.assertFalse(frontend_files_are_ready(require_collected=False))
+
     def test_shell_requires_both_javascript_and_css(self):
         """An incomplete build cannot pass with only one entry asset type."""
 

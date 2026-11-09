@@ -6,6 +6,7 @@ import io
 import ipaddress
 import json
 from pathlib import Path
+import re
 import secrets
 import ssl
 import subprocess
@@ -14,6 +15,84 @@ from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, HTTPSHandler, ProxyHandler, Request, build_opener
 import uuid
 import zipfile
+
+
+class StartupEvidence:
+    """Keep bounded facts from worker IPC and the desktop browser boundary."""
+
+    _phases = {
+        'ön kontrol': 'preflight', 'runtime hazırlığı': 'runtime', 'kilitli bağımlılıklar': 'dependencies',
+        'TLS sertifika ve IP doğrulaması': 'tls', 'özel profil': 'profile', 'veritabanı şeması': 'schema',
+        'ilk yönetici': 'admin', 'ek araçlar ve varlıklar': 'features',
+        'production build ve deployment kontrolleri': 'build_and_checks',
+        'Uygulama ve worker süreçleri başlatılıyor': 'startup',
+    }
+
+    def __init__(self):
+        self.begin()
+        self.ready_url = None
+        self.ready_count = self.prompts = self.browser_calls = 0
+        self.browser_order_ok = True
+        self.browser_ms = None
+        self.locked_branches = []
+        self.source_attempts = dict.fromkeys(('python_packages', 'npm_packages', 'runtime'), 0)
+        self.failed = False
+
+    def begin(self, now=None):
+        self.started = self.phase_started = time.monotonic() if now is None else now
+        self.phase = 'planning'
+        self.phase_ms = {}
+
+    def _finish_phase(self, now):
+        if self.phase is not None:
+            elapsed = round(1000 * (now - self.phase_started))
+            self.phase_ms[self.phase] = self.phase_ms.get(self.phase, 0) + elapsed
+            self.phase = None
+
+    def observe(self, event, *, now=None):
+        now = time.monotonic() if now is None else now
+        kind = event.get('type')
+        if kind == 'resources' and event.get('action') in {'start', 'provision'}:
+            self.locked_branches.append(event['action'])
+        elif kind == 'phase':
+            phase = self._phases.get(event.get('message'))
+            if self.phase and phase:
+                self._finish_phase(now)
+                self.phase, self.phase_started = phase, now
+            attempt = re.fullmatch(r'(Python paketleri|npm paketleri|node|python|npm): izinli kaynak [0-9]+/[0-9]+ deneniyor',
+                                   event.get('message', ''))
+            if attempt:
+                group = {'Python paketleri': 'python_packages', 'npm paketleri': 'npm_packages'}
+                self.source_attempts[group.get(attempt[1], 'runtime')] += 1
+        elif kind == 'input':
+            self.prompts += 1
+        elif kind == 'ready':
+            self._finish_phase(now)
+            self.ready_url = event.get('url')
+            self.ready_count += 1
+        elif kind == 'error' or (kind == 'done' and not event.get('ok')):
+            self.failed = True
+        if kind == 'done':
+            self._finish_phase(now)
+
+    def open_browser(self, url):
+        self.browser_calls += 1
+        self.browser_order_ok &= bool(self.ready_url and url == self.ready_url)
+        self.browser_ms = round(1000 * (time.monotonic() - self.started))
+        return True
+
+    def summary(self):
+        return dict(locked_branches=self.locked_branches, source_attempts=self.source_attempts, phase_ms=self.phase_ms,
+                    prompts=self.prompts, ready_events=self.ready_count, browser_calls=self.browser_calls,
+                    browser_after_ready=self.browser_order_ok, click_to_browser_ms=self.browser_ms)
+
+    def check(self, *, warm):
+        assert not self.failed, 'The lifecycle returned an error'
+        assert self.ready_count == self.browser_calls == 1 and self.browser_order_ok, self.summary()
+        assert self.locked_branches == (['start'] if warm else ['provision']), self.summary()
+        assert self.prompts == (0 if warm else 1), self.summary()
+        if warm:
+            assert not any(self.source_attempts.values()), self.summary()
 
 
 @contextmanager
@@ -65,14 +144,16 @@ def acceptance_programs(executable, directory, source, python, node):
     from scripts.launcher.toolchain import _directory
     from scripts.manager.payload import production_source_path, verify_source_payload
     home = directory / 'local/AWCenter'
-    fingerprint = verify_source_payload(source)['fingerprint']
-    release = production_source_path(home, fingerprint)
-    legacy = home / 'releases' / fingerprint / 'source'
     catalog = load_catalog()
-    programs = [executable, python, node]
+    roots = [source]
+    programs = [python, node]
+    if executable is not None:
+        programs.append(executable)
+        fingerprint = verify_source_payload(source)['fingerprint']
+        roots.extend((production_source_path(home, fingerprint), home / 'releases' / fingerprint / 'source'))
     programs.extend(_directory(home, catalog[name]) / catalog[name].executable
                     for name in ('python', 'node'))
-    for root in (source, release, legacy):
+    for root in roots:
         programs.extend(root / '.venv/Scripts' / name for name in
                         ('python.exe', 'pythonw.exe', 'pip.exe', 'pip3.exe', 'pip3.11.exe'))
     return programs

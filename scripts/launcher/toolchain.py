@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 import tarfile
@@ -17,6 +16,16 @@ from .model import LauncherError
 from .process import controlled_run
 
 RECEIPT = ".awcenter-tool.json"
+# Archive SHA-256 -> SHA-256 of its canonical path/content inventory. Reproduce
+# from verified archives with BootstrapContractTests.test_installed_tree_pins_match_catalog_verified_archives.
+INVENTORY_PINS = {
+    "75cb501dc11c7b55c6b447c58e4910bce5b1f609f1017328b4f3a858dfaf5428":
+        "359d287d0c4352bf6a4c1c7154fa8e779b07eb4cc45a17aa7d96944d9dad69bf",
+    "cbc74b5e0982c9dbb41525fd8fb5dcd32fbee237863f7829072f4639a1ce5f20":
+        "b0a41bd146ad8cbe67c3ef0b7d1be968531a32ff01fed3d5dc13cf703312f8dd",
+    "4bfba8a0c823024d1926ec9d97a37a00eb60fd2adf44b3d34a686fc32e8f51e4":
+        "5bf9ac7cebac92c55dd72de52239081816e997e344e565175187ee18de9c5cd5",
+}
 MANAGED_RUNTIME_ENVIRONMENT = {
     "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1",
     "PYTHONHOME": "", "PYTHONPATH": "", "PYTHONSTARTUP": "", "PYTHONUSERBASE": "",
@@ -55,11 +64,17 @@ def _directory(home: Path, artifact: Artifact) -> Path:
 
 def _inventory(directory: Path) -> dict[str, str]:
     result = {}
+    receipt = directory / RECEIPT
     for path in sorted(directory.rglob("*")):
         _no_symlink(path)
-        if path.is_file() and path.name != RECEIPT:
+        if path.is_file() and path != receipt:
             result[path.relative_to(directory).as_posix()] = _digest(path)
     return result
+
+
+def _inventory_digest(files: dict[str, str]) -> str:
+    encoded = json.dumps(files, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode("ascii")).hexdigest()
 
 
 def _check_version(executable: Path, version: str, *, node: Path | None = None) -> None:
@@ -105,8 +120,26 @@ def _npm_wrappers(directory: Path, node: Path, target: Path) -> None:
         (directory / relative).write_bytes(content)
 
 
-def _trusted_inventory(home: Path, artifact: Artifact, catalog: dict[str, Artifact], *, node: Path | None = None) -> dict[str, str]:
-    """Derive expected hashes from the catalog-pinned archive, never receipts."""
+def _pinned_inventory(artifact: Artifact, current: dict[str, str], target: Path, node: Path | None) -> dict[str, str]:
+    """Authenticate installed vendor bytes, then derive the selected launcher's wrappers."""
+    files = current.copy()
+    wrappers = _npm_wrapper_files(node, target) if artifact.name == "npm" else {}
+    for relative in wrappers:
+        files.pop(relative, None)
+    if artifact.executable not in files or _inventory_digest(files) != INVENTORY_PINS[artifact.sha256]:
+        raise LauncherError(f"managed {artifact.name} files differ from the reviewed archive")
+    files.update({relative: hashlib.sha256(content).hexdigest() for relative, content in wrappers.items()})
+    return files
+
+
+def _trusted_inventory(home: Path, artifact: Artifact, catalog: dict[str, Artifact], current: dict[str, str],
+                       *, node: Path | None = None) -> dict[str, str]:
+    """Authenticate against a shipped tree pin or derive hashes from the pinned archive."""
+    target = _directory(home, artifact)
+    if artifact.name == "npm" and node is None:
+        node = _directory(home, catalog["node"]) / catalog["node"].executable
+    if artifact.sha256 in INVENTORY_PINS:
+        return _pinned_inventory(artifact, current, target, node)
     archive = home / "cache/runtimes" / artifact.filename
     verify_artifact(archive, artifact)
     result = {}
@@ -129,8 +162,7 @@ def _trusted_inventory(home: Path, artifact: Artifact, catalog: dict[str, Artifa
                 with source.extractfile(member) as stream:
                     result[relative] = hashlib.file_digest(stream, "sha256").hexdigest()
     if artifact.name == "npm":
-        node = node if node is not None else _directory(home, catalog["node"]) / catalog["node"].executable
-        for relative, content in _npm_wrapper_files(node, _directory(home, artifact)).items():
+        for relative, content in _npm_wrapper_files(node, target).items():
             result[relative] = hashlib.sha256(content).hexdigest()
     return result
 
@@ -152,40 +184,61 @@ def _refresh_npm_wrappers(home: Path, target: Path, node: Path, current: dict, e
     return False
 
 
-def _install(home: Path, artifact: Artifact, archive: Path, *, node: Path | None = None, progress=None) -> Path:
-    target = _directory(home, artifact)
-    _no_symlink(target)
-    with tempfile.TemporaryDirectory(prefix=".tool-", dir=home / "runtimes") as temporary:
+def _stage_archive(artifact: Artifact, archive: Path | None, target: Path, node: Path | None,
+                   *, publish: bool, progress) -> dict[str, str]:
+    if archive is None:
+        raise LauncherError(f"managed {artifact.name} disappeared during verification; retry provision")
+    with tempfile.TemporaryDirectory(prefix=".tool-", dir=target.parent) as temporary:
         stage = Path(temporary) / "content"
         if callable(progress):
             progress(f'{artifact.name} runtime arşivi açılıyor')
         safe_extract(archive, stage, artifact.archive)
-        executable = stage / artifact.executable
-        if not executable.is_file():
+        if not (stage / artifact.executable).is_file():
             raise LauncherError("reviewed runtime executable is missing from its archive")
         if artifact.name == "npm":
             _npm_wrappers(stage, node, target)
         expected = _inventory(stage)
-        if target.exists():
-            # CMD may already have expanded this pinned Python before Python was
-            # available. Authenticate its files against the freshly verified archive.
-            current = _inventory(target)
-            if current != expected and not (artifact.name == 'npm' and
-                                             _refresh_npm_wrappers(home, target, node, current, expected)):
-                raise LauncherError(f"managed {artifact.name} files differ from the reviewed archive")
-        else:
-            shutil.move(str(stage), str(target))
+        if artifact.sha256 in INVENTORY_PINS and expected != _pinned_inventory(artifact, expected, target, node):
+            raise LauncherError(f"staged {artifact.name} files differ from the reviewed archive")
+        if publish:
+            stage.rename(target)
+        return expected
+
+
+def _install(home: Path, artifact: Artifact, archive: Path | None, *, node: Path | None = None, progress=None) -> Path:
+    target = _directory(home, artifact)
+    _no_symlink(target)
+    current = None
+    if target.exists():
         if callable(progress):
-            progress(f'{artifact.name} runtime sürümü doğrulanıyor')
-        _check_version(target / artifact.executable, artifact.version, node=node)
-        receipt = {"name": artifact.name, "version": artifact.version, "sha256": artifact.sha256, "files": expected}
-        receipt_path = target / RECEIPT
+            progress(f'{artifact.name} kurulu runtime dosyaları doğrulanıyor')
+        current = _inventory(target)
+    if current is not None and artifact.sha256 in INVENTORY_PINS:
+        expected = _pinned_inventory(artifact, current, target, node)
+    else:
+        expected = _stage_archive(artifact, archive, target, node, publish=current is None, progress=progress)
+    if current is not None and current != expected:
+        if artifact.name != "npm" or not _refresh_npm_wrappers(home, target, node, current, expected):
+            raise LauncherError(f"managed {artifact.name} files differ from the reviewed archive")
+    if callable(progress):
+        progress(f'{artifact.name} runtime sürümü doğrulanıyor')
+    _check_version(target / artifact.executable, artifact.version, node=node)
+    receipt = {"name": artifact.name, "version": artifact.version, "sha256": artifact.sha256, "files": expected}
+    receipt_path = target / RECEIPT
+    _no_symlink(receipt_path)
+    contents = json.dumps(receipt, sort_keys=True, indent=2) + "\n"
+    if not receipt_path.exists() or receipt_path.read_text(encoding="utf-8") != contents:
         if callable(progress):
             progress(f'{artifact.name} runtime doğrulama kaydı yazılıyor')
-        _no_symlink(receipt_path)
-        contents = json.dumps(receipt, sort_keys=True, indent=2) + "\n"
-        if not receipt_path.exists() or receipt_path.read_text(encoding="utf-8") != contents:
-            receipt_path.write_text(contents, encoding="utf-8")
+        # A crash must leave either the old receipt or a recoverable missing receipt.
+        # Keep partial bytes outside the authenticated runtime tree on the same volume.
+        with tempfile.TemporaryDirectory(prefix=".receipt-", dir=target.parent) as directory:
+            staged = Path(directory) / RECEIPT
+            with staged.open("x", encoding="utf-8", newline="\n") as stream:
+                stream.write(contents)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(staged, receipt_path)
     return target / artifact.executable
 
 
@@ -200,6 +253,8 @@ def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable:
     """
     home = Path(home)
     _no_symlink(home)
+    if progress is None:
+        progress = settings.progress
     catalog = load_catalog()
     if python_executable is not None:
         from .system_python import validate_python
@@ -228,9 +283,11 @@ def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable:
             paths[name] = npm_cli
             continue
         artifact = catalog[name]
-        if callable(progress):
-            progress(f'{name} runtime arşivi hazırlanıyor')
-        archive = fetch_artifact(artifact, home / "cache" / "runtimes", settings)
+        archive = None
+        if artifact.sha256 not in INVENTORY_PINS or not _directory(home, artifact).exists():
+            if callable(progress):
+                progress(f'{name} runtime arşivi hazırlanıyor')
+            archive = fetch_artifact(artifact, home / "cache/runtimes", settings)
         options = {'node': paths.get('node') if name == 'npm' else None}
         if progress is not None:
             options['progress'] = progress
@@ -260,6 +317,18 @@ def _environment(home: Path, catalog: dict[str, Artifact], *, python_executable:
     # npm must precede the npm bundled by Node, preserving the repository pin.
     directories.insert(0, directories.pop())
     return {**MANAGED_RUNTIME_ENVIRONMENT, "PATH": os.pathsep.join([*(str(path) for path in directories), os.environ.get("PATH", "")]), "AWCENTER_MANAGED_PYTHON": str(paths["python"]), "AWCENTER_MANAGED_NODE": str(paths["node"]), "AWCENTER_MANAGED_NPM_CLI": str(paths["npm"])}
+
+
+def _has_receipt(target: Path, artifact: Artifact) -> bool:
+    path = target / RECEIPT
+    _no_symlink(path)
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    if (receipt["name"], receipt["version"], receipt["sha256"]) != (artifact.name, artifact.version, artifact.sha256):
+        raise ValueError("pin mismatch")
+    return True
 
 
 def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
@@ -300,14 +369,15 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
             continue
         try:
             _no_symlink(target)
-            _no_symlink(target / RECEIPT)
-            receipt = json.loads((target / RECEIPT).read_text(encoding="utf-8"))
-            if receipt["name"] != name or receipt["version"] != artifact.version or receipt["sha256"] != artifact.sha256:
-                raise ValueError("pin mismatch")
+            has_receipt = _has_receipt(target, artifact)
             inventory_options = {'node': Path(node_executable)} if name == 'npm' and node_executable is not None else {}
-            if _inventory(target) != _trusted_inventory(Path(home), artifact, catalog, **inventory_options):
+            current = _inventory(target)
+            if current != _trusted_inventory(Path(home), artifact, catalog, current, **inventory_options):
                 raise ValueError("modified runtime")
-            check.update(status="ready", detail=f"managed {name} {artifact.version} verified")
+            if has_receipt:
+                check.update(status="ready", detail=f"managed {name} {artifact.version} verified")
+            else:
+                check.update(status="missing", detail=f"{name} dosyaları doğrulandı. Sürüm doğrulama kaydı eksik.")
         except (OSError, ValueError, KeyError, TypeError, LauncherError, tarfile.TarError, zipfile.BadZipFile):
             check.update(status="invalid", detail=f"managed {name} integrity check failed; provision requires reviewed files")
         checks.append(check)

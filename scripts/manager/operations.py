@@ -92,29 +92,38 @@ def _remedy(phase):
     return 'Kaynakları ve profil ayarlarını kontrol edin. Kontrol et ile eksikleri görüntüleyip yeniden deneyin.'
 
 
-def _failure_reason(error):
-    """Translate reviewed error categories, never interpolate exception payloads."""
-    from scripts.launcher.installation_sources import ArtifactDownloadError
+def _errors_with_remedy():
+    """Only these exceptions provide operator-safe messages and remedies."""
+    from scripts.build_manager import ManagerBuildError
+    from scripts.launcher.certificates import PackageTrustError
     from scripts.launcher.installation_bundle import BundleHostRuntimeError
-    from scripts.launcher.toolchain import RuntimeValidationError
+    from scripts.launcher.installation_dependencies import (
+        DependencyIntegrityError, PackageCommandError, PackageTimeoutError,
+        VirtualEnvironmentError, VirtualEnvironmentRepairError,
+    )
+    from scripts.launcher.installation_permissions import PermissionCheckError
+    from scripts.launcher.installation_profiles import TLSFileError
+    from scripts.launcher.installation_readiness import StartupReadinessError
+    from scripts.launcher.installation_sources import ArtifactDownloadError
+    from scripts.launcher.package_cache import PackageCacheError
+    from scripts.launcher.production_build import FrontendBuildError
+    from scripts.launcher.resource_locks import ResourceLockError
     from scripts.launcher.system_node import SystemNodeError
     from scripts.launcher.system_python import SystemPythonError
-    from scripts.launcher.installation_permissions import PermissionCheckError
-    from scripts.launcher.resource_locks import ResourceLockError
-    from scripts.launcher.installation_dependencies import (PackageCommandError, PackageTimeoutError,
-                                                          VirtualEnvironmentError, VirtualEnvironmentRepairError)
-    from scripts.build_manager import ManagerBuildError
-    from scripts.launcher.installation_connection import ConnectionError
-    from scripts.launcher.certificates import PackageTrustError
-    from scripts.launcher.installation_readiness import StartupReadinessError
-    from scripts.launcher.package_cache import PackageCacheError
+    from scripts.launcher.toolchain import RuntimeValidationError
     from .payload import ProductionSourceNotPrepared
-    from scripts.launcher.installation_profiles import TLSFileError
-    if isinstance(error, (PackageTrustError, StartupReadinessError, PackageCacheError, ProductionSourceNotPrepared, TLSFileError)):
-        return error.code, str(error)
-    if isinstance(error, ConnectionError):
-        return error.code, str(error)
-    if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError)):
+
+    return (ArtifactDownloadError, BundleHostRuntimeError, DependencyIntegrityError, FrontendBuildError,
+            ManagerBuildError, PackageCacheError, PackageCommandError, PackageTimeoutError, PackageTrustError,
+            PermissionCheckError, ProductionSourceNotPrepared, ResourceLockError, RuntimeValidationError,
+            StartupReadinessError, SystemNodeError, SystemPythonError, TLSFileError, VirtualEnvironmentError,
+            VirtualEnvironmentRepairError)
+
+
+def _failure_reason(error):
+    """Translate reviewed error categories, never interpolate exception payloads."""
+    from scripts.launcher.installation_connection import ConnectionError, MissingProductionSettings
+    if isinstance(error, (ConnectionError, MissingProductionSettings)) or isinstance(error, _errors_with_remedy()):
         return error.code, str(error)
     if isinstance(error, UnicodeError):
         return 'process_output_invalid', 'Alt süreç çıktısının karakter kodlaması okunamadı.'
@@ -124,6 +133,7 @@ def _failure_reason(error):
         return 'operation_failed', 'İşlem tamamlanamadı; yapılandırma veya sistem erişimi doğrulanamadı.'
     text = str(error).casefold()
     categories = (
+        (('an existing environment has no profile',), 'profile_metadata_missing', 'Kayıtlı ortam dosyası var ancak bu kuruluma ait profil kaydı eksik.'),
         (('windows manager paketi gerekli',), 'manager_distribution_required', 'Tam çevrimdışı paket için aynı sürümün Windows Manager dağıtımı gerekli.'),
         (('paket hedefi bir klasör',), 'bundle_output_invalid', 'Paket hedefi mevcut bir dosya; dosyanın üzerine yazılmadı.'),
         (('installation bundle output must be new',), 'bundle_output_invalid', 'Paket hedefi kaynak dizininin dışında yeni bir klasör olmalı; mevcut dosyalar korunuyor.'),
@@ -202,14 +212,16 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
     except Exception as error:
         code, reason = _failure_reason(error)
         remedies = {
+            'profile_metadata_missing': 'Kayıtlı ortam ve yedekteki profil dosyasının aynı kuruluma ait olduğunu doğrulayın. Mevcut anahtarları koruyun.',
             'process_output_invalid': 'Güncel Manager ile yeniden deneyin; mevcut ortam ve tamamlanan kurulum aşamaları korunur.',
             'system_access_denied': 'Bu kaynak dizinini kullanan diğer AW Center işlemlerini kapatıp yeniden deneyin. Devam ederse klasör yazma izinlerini ve güvenlik yazılımının kaydını kontrol edin; ortamı silmeyin.',
             'system_disk_full': 'Kurulum ve Windows geçici dosya diskinde boş alan açıp yeniden deneyin; tamamlanan aşamalar korunur.',
             'system_path_too_long': 'Proje ZIP paketini daha kısa bir yerel yola çıkarıp bu kaynağı seçin; mevcut profil ve veritabanını silmeyin.',
             'system_path_missing': 'ZIP paketinin tamamının çıkarıldığını ve seçilen Python/Node dosyalarının mevcut olduğunu kontrol edip yeniden deneyin.',
             'system_io_failed': 'Rapordaki son aşama ve sayısal sistem kodunu kullanarak disk veya çalıştırma erişimini kontrol edin; tamamlanan aşamalar korunur.',
-            'port_unavailable': 'Gelişmiş ayarlarda ilgili yerel port için auto yazın veya boş bir port seçin. Başka uygulamalar otomatik kapatılmaz.',
+            'port_unavailable': 'Gelişmiş ayarlarda ilgili alan için kullanılabilir bir port seçin. Geliştirme profilinde auto da kullanılabilir.',
             'connection_override_invalid': 'Gelişmiş bağlantı ayarlarını ve varsa özel .env içindeki origin/reset/invitation adreslerini birlikte kontrol edin.',
+            'production_settings_required': 'Gelişmiş bağlantı ayarlarında belirtilen alanları doldurup AW Center’ı aç düğmesine basın.',
             'manager_distribution_required': 'Aynı sürümden Windows Manager ZIP paketinin tamamını çıkarın. Kaynak çalıştırmada Windows Manager paketi alanını seçin; EXE ile açıldığında dağıtım otomatik bulunur.',
             'bundle_output_invalid': 'Çıktı için bir klasör seçin veya alanı boş bırakın; mevcut dosyalar korunarak yeni bir paket dizini oluşturulur.',
             'storage_path_unsafe': 'Bağlantı / junction içermeyen yerel bir klasör kullanın. Mevcut profil ve veritabanını silmeyin.',
@@ -220,22 +232,7 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
             'env_import_required': 'Çalışan ilgili görevi durdurun; seçilen dosyayı Kur ve başlat ile uygulayın. Mevcut anahtar ve veri yolları korunmalıdır.',
             'env_file_invalid': 'Çalışma sekmesindeki .env dosyasını kontrol edin; yalnız uygulama ayarlarını içeren, profilin anahtarları ve veri yollarıyla uyumlu bir dosya seçin.',
         }
-        from scripts.launcher.installation_sources import ArtifactDownloadError
-        from scripts.launcher.installation_bundle import BundleHostRuntimeError
-        from scripts.launcher.toolchain import RuntimeValidationError
-        from scripts.launcher.system_node import SystemNodeError
-        from scripts.launcher.system_python import SystemPythonError
-        from scripts.launcher.installation_permissions import PermissionCheckError
-        from scripts.launcher.resource_locks import ResourceLockError
-        from scripts.launcher.installation_dependencies import (PackageCommandError, PackageTimeoutError,
-                                                              VirtualEnvironmentError, VirtualEnvironmentRepairError)
-        from scripts.build_manager import ManagerBuildError
-        from scripts.launcher.certificates import PackageTrustError
-        from scripts.launcher.installation_readiness import StartupReadinessError
-        from scripts.launcher.package_cache import PackageCacheError
-        from .payload import ProductionSourceNotPrepared
-        from scripts.launcher.installation_profiles import TLSFileError
-        remedy = error.remedy if isinstance(error, (SystemPythonError, SystemNodeError, ArtifactDownloadError, BundleHostRuntimeError, RuntimeValidationError, PermissionCheckError, ResourceLockError, PackageCommandError, PackageTimeoutError, VirtualEnvironmentError, VirtualEnvironmentRepairError, ManagerBuildError, PackageTrustError, StartupReadinessError, PackageCacheError, ProductionSourceNotPrepared, TLSFileError)) else remedies.get(code, _remedy(phase))
+        remedy = error.remedy if isinstance(error, _errors_with_remedy()) else remedies.get(code, _remedy(phase))
         event = {'type': 'error', 'code': code, 'message': f'{phase}: {reason}', 'remedy': remedy}
         if getattr(error, 'field', None) in PATH_FIELDS | TEXT_FIELDS | {'backend_port', 'frontend_port', 'profile'}:
             event['field'] = error.field

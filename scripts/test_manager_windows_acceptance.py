@@ -1,10 +1,11 @@
-"""Mandatory packaged dev/prod offline acceptance on a disposable Windows host."""
+"""Source and packaged Manager lifecycle acceptance on disposable Windows hosts."""
 import hashlib
 from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
-import queue
+import platform
+import runpy
 import secrets
 import shutil
 import socket
@@ -13,10 +14,11 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import test_manager_package as fixtures
-from scripts.manager_windows_acceptance import LiveAcceptance, acceptance_programs, deny_external_network
+from scripts.manager_windows_acceptance import LiveAcceptance, StartupEvidence, acceptance_programs, deny_external_network
 
 
 def acceptance_matrix(environment):
@@ -29,7 +31,147 @@ def acceptance_matrix(environment):
     return (profile,), (tools == 'system',)
 
 
+def record_sample(result, distribution, profile, tools, attempt):
+    sample = dict(distribution=distribution, profile=profile, tools=tools, attempt=attempt,
+                  windows=platform.version(), **result.summary())
+    print('[native evidence] ' + json.dumps(sample), flush=True)
+    destination = os.environ.get('AWCENTER_ACCEPTANCE_EVIDENCE')
+    if destination:
+        directory = Path(destination)
+        directory.mkdir(parents=True, exist_ok=True)
+        name = f'{distribution}-{profile}-{tools}-{attempt}.json'
+        (directory / name).write_text(json.dumps(sample, indent=2), encoding='utf-8')
+
+
+def prepared_outputs(source, profile):
+    outputs = [source / folder / '.awcenter-packages.json' for folder in ('.venv', 'frontend/node_modules')]
+    if profile == 'prod':
+        outputs.append(source / 'frontend/dist/index.html')
+    return [(hashlib.sha256(path.read_bytes()).digest(), path.stat().st_mtime_ns) for path in outputs]
+
+
+def click_and_stop(source, environment, profile, *, password=None, executable=None, when_ready=None):
+    """Drive real Tk buttons, private IPC and contained worker; intercept the browser handoff."""
+    from scripts.manager.controller import ManagerController
+    evidence = StartupEvidence()
+    errors = []
+    warm = password is None
+
+    class DrivenController(ManagerController):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs, browser_opener=evidence.open_browser)
+            if self.view.variables['profile'].get() != profile:
+                self.view.variables['profile'].set(profile)
+            self.view.request_admin = lambda _id, send: send(
+                {'username': 'U12345', 'password': password} if password else None)
+            self.view.request_migration = lambda _id, send: send(False)
+            self.view.confirm_stop = lambda: True
+            self.root.mainloop = self.drive
+
+        def _handle_event(self, event):
+            task = self.tasks.get(event.get('task_id'))
+            if task and task.action == 'ensure':
+                evidence.observe(event)
+            super()._handle_event(event)
+
+        def wait_for(self, predicate, seconds):
+            deadline = time.monotonic() + seconds
+            while not predicate():
+                if time.monotonic() >= deadline:
+                    raise AssertionError('Timed out waiting for native desktop lifecycle')
+                self.root.update()
+                time.sleep(0.02)
+
+        def drive(self):
+            try:
+                self.wait_for(lambda: not self.busy and self.view._profile_presentation()['status'] != 'inspecting', 300)
+                assert self.view._profile_presentation()['status'] == ('stopped' if warm else 'not_installed')
+                evidence.begin()
+                self.view.action_buttons['start'].invoke()
+                assert any(task.action == 'ensure' for task in self.tasks.values()), 'Primary action did not dispatch ensure'
+                self.wait_for(lambda: evidence.browser_calls or evidence.failed, 1200 if warm else 3600)
+                evidence.check(warm=warm)
+                if when_ready:
+                    when_ready(evidence.ready_url)
+                self.view.banner_stop_button.invoke()
+                self.wait_for(lambda: not any(task.active and task.action == 'ensure' for task in self.tasks.values()), 90)
+                assert all(task.status == 'cancelled' for task in self.tasks.values() if task.action == 'ensure')
+                evidence.check(warm=warm)
+            except Exception as error:
+                errors.append(error)
+            finally:
+                self.close()
+                self.wait_for(lambda: self.closed, 90)
+
+    from scripts.manager import main
+    with ExitStack() as context:
+        context.enter_context(patch.dict(os.environ, environment, clear=True))
+        context.enter_context(patch('scripts.manager.controller.ManagerController', DrivenController))
+        startup_error = context.enter_context(patch.object(main, '_startup_error'))
+        preferences_warning = context.enter_context(patch.object(main, '_preferences_warning'))
+        if executable:
+            # Run this revision's Tk controller against the unmodified frozen worker.
+            runtime = SimpleNamespace(frozen=True, executable=str(executable))
+            context.enter_context(patch('scripts.manager.paths.sys', runtime))
+            context.enter_context(patch('scripts.manager.transport.sys', runtime))
+        entry = str(source / 'AWCenterManager.pyw')
+        context.enter_context(patch.object(sys, 'argv', [entry, '--root', str(source)] if executable else [entry]))
+        try:
+            runpy.run_path(entry, run_name='__main__')
+        except SystemExit as finished:
+            result = finished.code
+        else:
+            raise AssertionError('The windowed entrypoint did not complete')
+        if errors:
+            raise errors[0]
+        assert result == 0 and not startup_error.called and not preferences_warning.called
+    return evidence
+
+
 class ContainmentTests(unittest.TestCase):
+    def test_startup_evidence_rejects_warm_preparation_even_after_successful_readiness(self):
+        sample = StartupEvidence()
+        sample.observe({'type': 'resources', 'action': 'provision', 'source_root': '/private/location'})
+        sample.observe({'type': 'phase', 'message': 'Python paketleri: izinli kaynak 1/2 deneniyor'})
+        sample.observe({'type': 'phase', 'message': 'some operator-supplied text'})
+        sample.observe({'type': 'input', 'kind': 'admin', 'request_id': 'private-id'})
+        sample.observe({'type': 'ready', 'url': 'http://private-host/'})
+        sample.open_browser('http://private-host/')
+        with self.assertRaises(AssertionError):
+            sample.check(warm=True)
+        summary = sample.summary()
+        self.assertEqual(summary['locked_branches'], ['provision'])
+        self.assertEqual(summary['source_attempts'], {'python_packages': 1, 'npm_packages': 0, 'runtime': 0})
+        self.assertEqual(summary['prompts'], 1)
+        self.assertNotIn('private', json.dumps(summary))
+        self.assertNotIn('operator', json.dumps(summary))
+
+    def test_warm_evidence_requires_locked_start_then_readiness_and_exactly_one_browser_call(self):
+        sample = StartupEvidence()
+        sample.observe({'type': 'resources', 'action': 'start'})
+        sample.observe({'type': 'ready', 'url': 'http://127.0.0.1/app/'})
+        sample.open_browser('http://127.0.0.1/app/')
+        sample.check(warm=True)
+        sample.open_browser('http://127.0.0.1/app/')
+        with self.assertRaises(AssertionError):
+            sample.check(warm=True)
+        early = StartupEvidence()
+        early.observe({'type': 'resources', 'action': 'start'})
+        early.open_browser('http://127.0.0.1/app/')
+        early.observe({'type': 'ready', 'url': 'http://127.0.0.1/app/'})
+        with self.assertRaises(AssertionError):
+            early.check(warm=True)
+
+    def test_phase_timing_survives_interruption_without_exporting_worker_messages(self):
+        sample = StartupEvidence()
+        sample.begin(10.0)
+        sample.observe({'type': 'phase', 'message': 'runtime hazırlığı'}, now=12.0)
+        sample.observe({'type': 'phase', 'message': 'kilitli bağımlılıklar'}, now=15.0)
+        sample.observe({'type': 'phase', 'message': 'operator text'}, now=16.0)
+        sample.observe({'type': 'done', 'ok': True, 'cancelled': True}, now=18.5)
+        self.assertEqual(sample.summary()['phase_ms'], {'planning': 2000, 'runtime': 3000, 'dependencies': 3500})
+        self.assertIsNone(sample.summary()['click_to_browser_ms'])
+
     def test_default_acceptance_runs_all_four_cases_and_ci_selection_fails_closed(self):
         self.assertEqual(acceptance_matrix({}), (('dev', 'prod'), (True, False)))
         for profile in ('dev', 'prod'):
@@ -78,6 +220,56 @@ class ContainmentTests(unittest.TestCase):
         for name in ('python', 'node'):
             artifact = load_catalog()[name]
             self.assertIn(_directory(home, artifact) / artifact.executable, programs)
+
+    def test_source_dev_containment_covers_checkout_without_a_distribution_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / 'checkout'
+            programs = acceptance_programs(None, directory, source,
+                                           Path('/system/python.exe'), Path('/system/node.exe'))
+            self.assertIn(source / '.venv/Scripts/python.exe', programs)
+            self.assertIn(Path('/system/node.exe'), programs)
+            self.assertIn(Path('/system/python.exe'), programs)
+
+
+@unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_ACCEPTANCE_SOURCE_CHECKOUT'),
+                     'Requires an explicitly disposable clean Windows checkout')
+class NativeSourceAcceptance(unittest.TestCase):
+    environment = fixtures.NativeWindowsPackageTests.environment
+
+    def test_default_source_button_provisions_from_empty_cache_then_opens_offline(self):
+        source = Path(__file__).resolve().parents[1]
+        self.assertEqual(source, Path(os.environ['AWCENTER_ACCEPTANCE_SOURCE_CHECKOUT']).resolve())
+        self.assertEqual(Path.cwd().resolve(), source)
+        for path in (source / '.venv', source / '.runtime', source / 'frontend/node_modules',
+                     source / 'frontend/dist', source / 'install-manifest.json', source.parent / 'install-manifest.json'):
+            self.assertFalse(path.exists(), 'Source acceptance requires a clean checkout without offline media')
+        python = Path(sys.executable).resolve()
+        node = Path(shutil.which('node')).resolve()
+        host = socket.gethostbyname(socket.gethostname())
+        password = secrets.token_urlsafe(48)
+        with tempfile.TemporaryDirectory(prefix='awc-source-') as temporary:
+            directory = Path(temporary).resolve()
+            environment = self.environment(directory, network=True)
+            environment['PATH'] = os.pathsep.join((str(python.parent), str(node.parent), environment['PATH']))
+            home = directory / 'local/AWCenter'
+            self.assertFalse(home.exists())
+            cold = click_and_stop(source, environment, 'dev', password=password)
+            record_sample(cold, 'source', 'dev', 'automatic', 0)
+            for kind, counter in (('python', 'python_packages'), ('npm', 'npm_packages')):
+                self.assertGreater(cold.source_attempts[counter], 0)
+                self.assertTrue(any((home / 'cache/packages' / kind).glob('*/manifest.json')))
+            saved = json.loads((home / 'config/dev.profile.json').read_text(encoding='utf-8'))
+            self.assertEqual(Path(saved['python_executable']).resolve(), python)
+            self.assertEqual(Path(saved['node_executable']).resolve(), node)
+            before = prepared_outputs(source, 'dev')
+            programs = acceptance_programs(None, directory, source, python, node)
+            with deny_external_network(host, programs):
+                NativeOfflineAcceptance.assert_runtime_network_denied(self, saved, source, home)
+                warm = click_and_stop(source, environment, 'dev', when_ready=lambda url: LiveAcceptance(
+                    f"http://127.0.0.1:{saved['backend_port']}", frontend_origin=url.removesuffix('/app/')).exercise(password))
+                record_sample(warm, 'source', 'dev', 'automatic', 1)
+                self.assertEqual(prepared_outputs(source, 'dev'), before)
 
 
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE') == '1',
@@ -134,19 +326,23 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
         for name in ('cert.pem', 'key.pem'):
             secure_path(directory / name)
 
-    def run_until_ready(self, directory, request, password):
+    def run_until_ready(self, directory, request, password, evidence=None):
         child, events = self.start_worker(self.executable, directory, request, network=True)
         deadline = time.monotonic() + 1200
         admin = False
         while True:
             event = self.next_event(child, events, deadline)
-            self.assertNotIn(password, json.dumps(event))
+            if evidence is not None:
+                evidence.observe(event)
+            self.assertFalse(password in json.dumps(event), 'Worker event exposed an administrator credential')
             if event['type'] == 'input':
+                self.assertEqual(event.get('kind'), 'admin')
+                self.assertFalse(admin, 'The first administrator was requested twice')
                 admin = True
                 child.stdin.write((json.dumps({'type': 'admin', 'value': {'username': 'U12345', 'password': password}}) + '\n').encode())
                 child.stdin.flush()
             if event['type'] in {'error', 'done'}:
-                self.fail('Native lifecycle failed: ' + json.dumps(event))
+                self.fail('Native lifecycle ended before readiness: ' + event.get('code', 'worker_stopped'))
             if event['type'] == 'ready':
                 return child, events, admin
 
@@ -238,23 +434,34 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                             with self.assertRaises(OSError):
                                 socket.create_connection((address, 443), timeout=2)
                         if profile == 'dev' and not system:
+                            partial_evidence = StartupEvidence()
                             partial, partial_events = self.start_worker(self.executable, directory, request, network=True)
-                            deadline = time.monotonic() + 300
+                            deadline = time.monotonic() + 1200
                             while True:
                                 event = self.next_event(partial, partial_events, deadline)
+                                partial_evidence.observe(event)
                                 self.assertNotIn(event['type'], {'error', 'done'})
-                                if event['type'] == 'phase' and event.get('message') == 'kilitli bağımlılıklar':
+                                # The worker waits for input here. Earlier phase messages
+                                # race the next filesystem mutation on the CI host.
+                                if event['type'] == 'input' and event.get('kind') == 'admin':
                                     break
                             partial.stdin.write(b'{"type":"cancel"}\n')
                             partial.stdin.flush()
                             while event['type'] != 'done':
                                 event = self.next_event(partial, partial_events, deadline)
+                                partial_evidence.observe(event)
                             self.assertTrue(event.get('cancelled'))
                             partial.wait(timeout=30)
-                            self.assertFalse((directory / 'local/AWCenter/config/dev.env').exists())
-                        child, events, admin = self.run_until_ready(directory, request, password)
+                            before_resume = prepared_outputs(source, 'dev')
+                            record_sample(partial_evidence, 'packaged-cancelled-worker', profile, 'managed', 0)
+                        first = StartupEvidence()
+                        child, events, admin = self.run_until_ready(directory, request, password, first)
+                        distribution = 'packaged-resumed-worker' if profile == 'dev' and not system else 'packaged-first-worker'
+                        record_sample(first, distribution, profile, 'system' if system else 'managed', 0)
                         self.assertTrue(admin)
                         if profile == 'dev' and not system:
+                            self.assertEqual(prepared_outputs(source, 'dev'), before_resume,
+                                             'Resume repeated an already verified dependency install')
                             preserved = list((source / '.runtime/venv-backups').rglob('prior-environment.txt'))
                             self.assertEqual(len(preserved), 1)
                             self.assertEqual(preserved[0].read_text(encoding='utf-8'), 'preserve')
@@ -304,12 +511,21 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                             self.assertFalse(admin)
                             self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
                             self.stop_cleanly(child, events, bind, ports)
-                        request['action'] = 'start'
-                        child, events, admin = self.run_until_ready(directory, request, password)
-                        self.assertFalse(admin)
-                        self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
-                        live = LiveAcceptance(origin, certificate, frontend)
-                        live.exercise(password)
-                        with live.request('/api/jobs/' + job_id + '/download/') as response:
-                            self.assertEqual(hashlib.sha256(response.read()).hexdigest(), digest)
-                        self.stop_cleanly(child, events, bind, ports)
+                        def verify_persisted_output(url):
+                            self.assertEqual(url, frontend + '/app/')
+                            live = LiveAcceptance(origin, certificate, frontend)
+                            live.exercise(password)
+                            with live.request('/api/jobs/' + job_id + '/download/') as response:
+                                self.assertEqual(hashlib.sha256(response.read()).hexdigest(), digest)
+
+                        before = prepared_outputs(actual_source, profile)
+                        for attempt in range(1, 4):
+                            result = click_and_stop(source, self.environment(directory, network=True), profile,
+                                executable=self.executable, when_ready=verify_persisted_output if attempt == 1 else None)
+                            record_sample(result, 'packaged', profile, 'system' if system else 'managed', attempt)
+                            self.assertEqual(prepared_outputs(actual_source, profile), before)
+                            self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
+                            for port in ports:
+                                with socket.socket() as probe:
+                                    probe.settimeout(1)
+                                    self.assertNotEqual(probe.connect_ex((bind, port)), 0)

@@ -33,6 +33,41 @@ permissions:
   contents: read
 
 jobs:
+  source-acceptance:
+    name: Source .pyw - online first use and offline restart
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11.9'
+          architecture: x64
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '26.12.1'
+          architecture: x64
+      - name: Run source entrypoint with fresh application storage
+        env:
+          AWCENTER_ACCEPTANCE_SOURCE_CHECKOUT: ${{ github.workspace }}
+          AWCENTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/manager-evidence
+          PYTHONUTF8: '1'
+        run: |
+          sc start MpsSvc
+          netsh advfirewall set allprofiles state on
+          if errorlevel 1 exit /b 1
+          python -m unittest -f -v scripts.test_manager_windows_acceptance.NativeSourceAcceptance
+      - name: Upload source lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-startup-${{ github.sha }}
+          path: ${{ runner.temp }}/manager-evidence
+          if-no-files-found: warn
+
   windows-manager:
     runs-on: windows-latest
     timeout-minutes: 120
@@ -80,7 +115,7 @@ jobs:
           if errorlevel 1 exit /b 1
           "%RUNNER_TEMP%\manager-tls-tests\Scripts\python.exe" -c "from pathlib import Path; import subprocess, sys; requirement = next(line for line in Path('requirements.txt').read_text().splitlines() if line.startswith('cryptography==')); subprocess.run([sys.executable, '-m', 'pip', '--isolated', 'install', requirement], check=True)"
           if errorlevel 1 exit /b 1
-          "%RUNNER_TEMP%\manager-tls-tests\Scripts\python.exe" -m unittest scripts.test_launcher_local_tls
+          "%RUNNER_TEMP%\manager-tls-tests\Scripts\python.exe" -m unittest scripts.test_launcher_local_tls scripts.test_manager_tls_recovery
       - name: Build portable windowed ZIP with reviewed runtime archives
         run: python scripts/build_manager.py --output "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip"
       - name: Upload manager ZIP and reviewable checksum inventory
@@ -162,4 +197,14 @@ jobs:
           AWCENTER_MANAGER_EXE: ${{ runner.temp }}\awcenter-manager-portable\AWCenterManager.exe
           AWCENTER_ACCEPTANCE_PROFILE: ${{ matrix.profile }}
           AWCENTER_ACCEPTANCE_TOOLS: ${{ matrix.tools }}
+          AWCENTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/manager-evidence
         run: python -m unittest -f -v ${{ matrix.suite }}
+      - name: Upload packaged restart evidence and matching ZIP checksum
+        if: always() && matrix.profile
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packaged-startup-${{ matrix.profile }}-${{ matrix.tools }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/manager-evidence
+            ${{ runner.temp }}/AWCenterManager-windows-x64.zip.sha256
+          if-no-files-found: warn

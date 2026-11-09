@@ -707,8 +707,8 @@ class ManagerWindow:
         presentation = self.task_states.profile_presentation(self.variables['profile'].get())
         if presentation['action'] == 'open':
             state = self.task_states.states[presentation['task_id']]
-            current = self.form_values()
-            fields = (self._advanced_fields | {'assets', 'feature_catalog'}) - {'migrate', 'migration_policy'}
+            current = normalize_values('start', self.form_values())
+            fields = (self._advanced_fields | {'source_selection', 'assets', 'feature_catalog'}) - {'migrate', 'migration_policy'}
             if any(current.get(key, DEFAULT_VALUES[key]) != state.last_values.get(key, DEFAULT_VALUES[key])
                    for key in fields):
                 return {**presentation, 'action': 'ensure', 'label': 'Durdur, uygula ve aç'}

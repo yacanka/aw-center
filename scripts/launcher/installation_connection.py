@@ -21,8 +21,19 @@ class ConnectionError(LauncherError):
     def __init__(self, field, *, occupied=False):
         self.field = field
         self.code = 'port_unavailable' if occupied else 'connection_override_invalid'
-        super().__init__('Seçilen port kullanılıyor; ilgili portu değiştirin veya otomatik seçimi kullanın.'
+        super().__init__('Seçilen port başka bir işlem tarafından kullanılıyor.'
                          if occupied else 'Bağlantı ayarları özel yapılandırmayla çelişiyor; ilgili alanı kontrol edin.')
+
+
+class MissingProductionSettings(LauncherError):
+    """List only the names of missing fields in a new production profile."""
+
+    code = 'production_settings_required'
+
+    def __init__(self, missing):
+        self.field = missing[0]
+        labels = {'host': 'sabit IPv4', 'tls_cert_file': 'TLS sertifikası', 'tls_key_file': 'TLS özel anahtarı'}
+        super().__init__('Yeni üretim profili için gerekli alanlar: ' + ', '.join(labels[field] for field in missing) + '.')
 
 
 def select_ports(profile, overrides, *, automatic=()):

@@ -1,9 +1,10 @@
 """Explicit TLS replacements repair stale paths without bypassing profile safety."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
-import ssl
+from datetime import timedelta
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -50,6 +51,12 @@ class TlsRecoveryTests(unittest.TestCase):
         args.progress = lambda message: None
         return args
 
+    def decoded_leaf(self, ip='192.0.2.10'):
+        return patch('_ssl._test_decode_cert', return_value={
+            'notBefore': 'Jan  1 00:00:00 2020 GMT', 'notAfter': 'Jan  1 00:00:00 2099 GMT',
+            'subjectAltName': (('IP Address', ip),),
+        })
+
     def move_certificate(self):
         destination = self.root / 'replacement-certificate.pem'
         self.certificate.rename(destination)
@@ -74,6 +81,34 @@ class TlsRecoveryTests(unittest.TestCase):
         self.assertTrue(ensure.needs_preparation(self.project,
                                                self.args(tls_cert_file=str(replacement))))
         self.assertEqual(self.snapshot(), before)
+
+    @unittest.skipUnless(importlib.util.find_spec('cryptography'), 'Certificate generation requires cryptography')
+    def test_real_tls_retry_works_with_unverified_or_absent_project_python(self):
+        from scripts.test_launcher_local_tls import issue_identity
+        self.certificate.rename(self.root / 'old-certificate.pem')
+        host = self.original['host']
+        _, _, good, key = issue_identity(self.root, 'good', host=host)
+        _, _, _, other_key = issue_identity(self.root, 'other', host=host)
+        self.project.python.parent.mkdir(parents=True, exist_ok=True)
+        self.project.python.write_bytes(b'unverified interpreter fixture')
+        with patch('scripts.launcher.runtime.run', side_effect=AssertionError('Unverified project Python was invoked')):
+            for label, options in (('wrong-ip', {'host': '192.0.2.11'}), ('dns-only', {'dns_san': True}),
+                                   ('future', {'valid_from': timedelta(hours=1)}),
+                                   ('expired', {'expired': True}), ('last-day', {'valid_for': timedelta(days=1)}),
+                                   ('wrong-key', {})):
+                with self.subTest(label=label):
+                    _, _, cert, candidate_key = issue_identity(self.root, label, **{'host': host, **options})
+                    if label == 'wrong-key':
+                        candidate_key = other_key
+                    before = self.snapshot()
+                    with self.assertRaises(LauncherError):
+                        ensure.prepare_connection(self.project, self.args(tls_cert_file=str(cert), tls_key_file=str(candidate_key)))
+                    self.assertEqual(self.snapshot(), before)
+                    self.assertFalse(self.pending.exists())
+            self.project.python.unlink()
+            self.assertTrue(ensure.prepare_connection(self.project, self.args(tls_cert_file=str(good), tls_key_file=str(key))))
+        self.assertEqual(profiles.load_profile(self.project, 'prod')['tls_cert_file'], str(good))
+        self.assertFalse(self.project.python.exists())
 
     def test_replacement_validation_returns_original_profile_for_compare_and_swap(self):
         replacement = self.move_certificate()
@@ -155,14 +190,15 @@ class TlsRecoveryTests(unittest.TestCase):
         replacement_key = self.root / 'replacement-key.pem'
         self.key.rename(replacement_key)
         before = self.snapshot()
-        with patch('ssl.SSLContext.load_cert_chain') as load_chain, \
+        with self.decoded_leaf(), patch('ssl.SSLContext.load_cert_chain') as load_chain, \
              patch('scripts.launcher.runtime.validate_tls_identity') as validate_identity:
             ensure.prepare_connection(self.project, self.args(
                 tls_cert_file=str(replacement), tls_key_file=str(replacement_key)))
         load_chain.assert_called_once()
         self.assertEqual(load_chain.call_args.args, (str(replacement), str(replacement_key)))
-        self.assertEqual(load_chain.call_args.kwargs['password'](), '')
-        validate_identity.assert_called_once_with(self.project, replacement, replacement_key, '192.0.2.10')
+        with self.assertRaises(ValueError):
+            load_chain.call_args.kwargs['password']()
+        validate_identity.assert_not_called()
         loaded = profiles.load_profile(self.project, 'prod', self.home)
         self.assertEqual(loaded, {**self.original, 'tls_cert_file': str(replacement),
                                   'tls_key_file': str(replacement_key)})
@@ -175,25 +211,19 @@ class TlsRecoveryTests(unittest.TestCase):
     def test_invalid_certificate_content_cannot_publish_replacement(self):
         replacement = self.move_certificate()
         before = self.snapshot()
-        with patch('ssl.SSLContext.load_cert_chain', side_effect=ssl.SSLError('synthetic mismatch')) as load_chain, \
-             patch('scripts.launcher.runtime.validate_tls_identity') as validate_identity:
-            with self.assertRaises(LauncherError):
-                ensure.prepare_connection(self.project, self.args(tls_cert_file=str(replacement)))
-        load_chain.assert_called_once()
-        self.assertEqual(load_chain.call_args.args, (str(replacement), str(self.key)))
-        validate_identity.assert_not_called()
+        with self.assertRaises(profiles.TLSFileError) as failure:
+            ensure.prepare_connection(self.project, self.args(tls_cert_file=str(replacement)))
+        self.assertEqual(failure.exception.code, 'tls_file_invalid')
+        self.assertEqual(failure.exception.field, 'tls_cert_file')
         self.assertEqual(self.snapshot(), before)
         self.assertFalse(self.pending.exists())
 
     def test_identity_validation_failure_cannot_publish_replacement(self):
         replacement = self.move_certificate()
         before = self.snapshot()
-        with patch('ssl.SSLContext.load_cert_chain'), \
-             patch('scripts.launcher.runtime.validate_tls_identity',
-                   side_effect=LauncherError('synthetic identity mismatch')) as validate_identity:
-            with self.assertRaises(LauncherError):
-                ensure.prepare_connection(self.project, self.args(tls_cert_file=str(replacement)))
-        validate_identity.assert_called_once_with(self.project, replacement, self.key, '192.0.2.10')
+        with self.decoded_leaf(ip='192.0.2.11'), self.assertRaises(profiles.TLSFileError) as failure:
+            ensure.prepare_connection(self.project, self.args(tls_cert_file=str(replacement)))
+        self.assertEqual(failure.exception.code, 'tls_file_san')
         self.assertEqual(self.snapshot(), before)
         self.assertFalse(self.pending.exists())
 
@@ -208,8 +238,7 @@ class TlsRecoveryTests(unittest.TestCase):
                 raise OSError('simulated interruption before profile publication')
             write(path, content)
 
-        with patch('ssl.SSLContext.load_cert_chain'), \
-             patch('scripts.launcher.runtime.validate_tls_identity'), \
+        with self.decoded_leaf(), patch('ssl.SSLContext.load_cert_chain'), \
              patch.object(profiles, '_write_replace', side_effect=interrupt):
             with self.assertRaises(OSError):
                 ensure.prepare_connection(self.project, self.args(tls_cert_file=str(replacement)))

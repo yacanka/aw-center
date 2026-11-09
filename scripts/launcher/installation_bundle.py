@@ -465,7 +465,7 @@ for line in text.splitlines():
 
 
 def _acquire_wheels(project: Project, destination: Path, settings, overrides: dict) -> None:
-    from .installation_dependencies import availability_failure
+    from .installation_dependencies import PackageSourceError, availability_failure
     from .installation_sources import acquisition_urls
     python = os.environ.get('AWCENTER_MANAGED_PYTHON', sys.executable)
     indexes = acquisition_urls(settings, 'https://pypi.org/simple', settings.python_index_url)
@@ -477,6 +477,7 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
         selected = offline / 'wheels' if offline else None
         if selected is not None:
             settings.report('Python paketleri: doğrulanmış yerel wheel paketi kullanılıyor')
+        source_error = None
         for index, url in enumerate(indexes if selected is None else []):
             settings.report(f'Python paketleri: izinli kaynak {index + 1}/{len(indexes)} deneniyor')
             attempt = Path(temporary) / str(index)
@@ -488,10 +489,15 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
                 break
             if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=True):
                 _require_success(result, 'Python wheel acquisition')
-            settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
+            source_error = PackageSourceError(result, 'Python paket edinimi')
+            settings.report(f'Python paketleri: kaynak {index + 1}/{len(indexes)} başarısız. {source_error}')
+            if index + 1 < len(indexes):
+                settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
         if selected is None:
             offline = _offline_source(project, settings)
             if offline is None:
+                if source_error is not None:
+                    raise source_error from None
                 raise LauncherError('locked Python wheels are unavailable from public, selected and offline sources')
             selected = offline / 'wheels'
         ensure_wheels_only(selected)

@@ -232,6 +232,29 @@ class ManagedWorkflowTests(unittest.TestCase):
             self.assertFalse(dev.call_args.kwargs["migrate"])
             self.assertTrue(callable(dev.call_args.kwargs["ready"]))
 
+    def test_production_start_uses_runtime_schema_gate_once(self):
+        from contextlib import ExitStack
+        from scripts.launcher import installation
+
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as mocks:
+            project = create_project(Path(temporary).resolve())
+            profile = {"name": "prod", "host": "192.0.2.1", "backend_port": 443,
+                       "installation_home": temporary, "env_file": str(project.root / "fixture.env"),
+                       "tls_cert_file": "fixture-cert.pem", "tls_key_file": "fixture-key.pem"}
+            mocks.enter_context(mock.patch.object(installation, "require_windows"))
+            mocks.enter_context(mock.patch.object(installation, "load_profile", return_value=profile))
+            mocks.enter_context(mock.patch.object(installation, "profile_environment", return_value={}))
+            mocks.enter_context(mock.patch("scripts.launcher.toolchain.toolchain_environment", return_value={}))
+            mocks.enter_context(mock.patch("scripts.launcher.installation_features.feature_environment", return_value={}))
+            session = mocks.enter_context(mock.patch.object(installation, "runtime_session"))
+            session.return_value.__enter__.return_value = project.root
+            extra_django = mocks.enter_context(mock.patch.object(installation, "_django"))
+            prod = mocks.enter_context(mock.patch.object(installation.runtime, "prod"))
+            installation._start_profile(project, "prod")
+            extra_django.assert_not_called()
+            prod.assert_called_once()
+            self.assertFalse(prod.call_args.kwargs["migrate"])
+
 
 if __name__ == "__main__":
     unittest.main()

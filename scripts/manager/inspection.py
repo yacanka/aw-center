@@ -1,8 +1,7 @@
 """Read-only profile inspection; opening Manager never provisions a profile."""
 from pathlib import Path
 
-from scripts.launcher.installation import (require_windows, _core_checks, _runtime_options,
-                                          backend_inspection)
+from scripts.launcher.installation import require_windows, _core_checks, _runtime_options
 from scripts.launcher.installation_profiles import installation_home, load_profile
 from scripts.launcher.installation_permissions import require_unlinked
 from scripts.launcher.toolchain import inspect_toolchain
@@ -36,19 +35,21 @@ def inspect_profile(args, emit):
     project = _project_for('doctor', args)
     profile = load_profile(project, args.profile, home)
     runtime = inspect_toolchain(home, **_runtime_options(profile))
-    backend = backend_inspection(project, profile) if project.python.is_file() else None
-    checks = runtime + _core_checks(project, profile, backend_state=backend)
+    backend = {}
+    checks = list(runtime)
+    if all(row['status'] == 'ready' for row in runtime):
+        checks.extend(_core_checks(project, profile, observed_backend=backend, managed_build=True))
     status = 'stopped'
     if any(row['status'] not in {'ready', 'available'} for row in checks):
         status = 'incomplete'
-    if any(row['status'] == 'invalid' for row in runtime):
-        status = 'blocked'
-    if backend is not None:
+    if backend:
         schema = backend['schema']
         if schema in {'pending', 'error', 'missing'}:
             from scripts.launcher.installation_profiles import read_profile_environment
             database = Path(read_profile_environment(profile)['DATABASE_URL'].removeprefix('sqlite:///'))
             status = 'incomplete' if schema == 'pending' or not database.exists() else 'blocked'
+    if any(row['status'] == 'invalid' for row in checks):
+        status = 'blocked'
     tools = ' · '.join(f"{label}: {'sistem kurulumu' if profile.get(field) else 'yönetilen kurulum'}"
                       for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))
     emit({'type': 'profile', 'profile': args.profile, 'status': status, 'checks': checks,

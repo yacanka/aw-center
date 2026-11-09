@@ -21,7 +21,7 @@ DEFAULT_VALUES = {
 SOURCE_ACTIONS = {"provision", "ensure", "test-sources", "bundle"}
 CHECK_LABELS = {
     "ready": "HAZIR", "available": "HAZIR", "missing": "EKSİK",
-    "blocked": "ENGEL", "unverified": "DOĞRULANAMADI",
+    "blocked": "ENGEL", "invalid": "ENGEL", "unverified": "DOĞRULANAMADI",
     "configured": "DOĞRULANAMADI", "degraded": "EKSİK",
 }
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
@@ -295,7 +295,8 @@ class ManagerTaskStates:
                     'url': state.ready_url if ready else '', 'detail': state.status}
         snapshot = self.profiles.get(profile, {})
         status = snapshot.get('status', 'inspecting')
-        actions = {'not_installed': ('ensure', 'AW Center’ı aç'), 'stopped': ('ensure', 'AW Center’ı aç'),
+        actions = {'inspecting': ('ensure', 'AW Center’ı aç'), 'not_installed': ('ensure', 'AW Center’ı aç'),
+                   'stopped': ('ensure', 'AW Center’ı aç'),
                    'incomplete': ('ensure', 'Tamamla ve aç'), 'blocked': ('doctor', 'Eksikleri göster')}
         action, label = actions.get(status, (None, 'Denetleniyor…'))
         return {'status': status, 'action': action, 'label': label, 'task_id': None, 'url': '',

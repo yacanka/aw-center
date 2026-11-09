@@ -288,6 +288,18 @@ Runtime arşivi indirme isteği yetki veya erişim nedeniyle reddedilirse Manage
 
 “Kaynakları dene” seçilen PEM CA dosyasını varsayılan güven deposuna ekler; Windows'un güvenilen CA ve ROOT depoları ile OpenSSL varsayılanları korunur. CA dosyası seçilmediğinde bu varsayılan depolar kullanılır. Dosya okunamıyorsa veya geçerli PEM değilse ağ isteği yapılmadan CA dosyası hatası gösterilir. Her kaynak için sertifika doğrulaması, diğer TLS hataları, proxy bağlantısı/kimlik doğrulaması, HTTP durum kodları, DNS ve zaman aşımı ayrı açıklanır. Proxy bypass ayarları korunur; hata yanıtlarının gövdeleri, ham exception metinleri ve proxy kimlik bilgileri rapora yazılmaz.
 
+Bu kontrol Python/npm için yalnız örnek paket adresine erişimi sınar. İndeksin
+yanıt vermesi, paket dosyasının indirildiği sunucunun erişilebilir olduğunu veya
+tüm kilitli paketlerin depoda bulunduğunu göstermez. Tam kapsam ve dosya
+doğrulaması kurulum veya çevrimdışı paket hazırlığında yapılır. Python paket
+ediniminde her başarısız kaynak denemesinin güvenli nedeni raporda korunur;
+tüm izinli kaynaklar ve yerel paket denendikten sonra son neden gösterilir:
+`package_source_http_rejected` (sayısal HTTP koduyla), `package_source_timeout`,
+`package_source_dns_failed` veya `package_source_connection_failed`.
+HTTP 407 proxy oturumunu, 403 indeks ve dosya sunucusunun erişim izinlerini,
+404 kilitli sürümün depodaki varlığını kontrol etmeyi gerektirir. Bu bildirimler
+TLS veya hash doğrulamasını atlamaz ve izin verilen kaynak listesini genişletmez.
+
 Manager'ın pip/npm kurulumu, offline paket hazırlığı ve `launcher.py setup` / `prepare-offline` komutları da sistem güven köklerini korur. İşlem sırasında Windows CA/ROOT ve OpenSSL varsayılanları, pip'in genel CA paketi ve npm için Node'un yerleşik güven kökleri geçici bir PEM paketinde birleştirilir. Seçilen özel CA bu güvene eklenir; seçilmemesi varsayılan güven köklerinin kullanılmasını engellemez. Paket yalnız ilgili alt süreçlere aktarılır, işlem sonunda kaldırılır ve dağıtım/offline paketine eklenmez. TLS ve sunucu adı doğrulaması açık kalır.
 
 Uygulamanın HTTPS entegrasyonları da Windows CA/ROOT, OpenSSL ve Requests'in genel güven köklerini birlikte kullanır. Her entegrasyonun mevcut sertifika ayarı o servisin güvenine eklenir; kurulum kaynakları için seçilen CA dosyası entegrasyon ayarlarını değiştirmez. Özel CA seçilmediğinde mevcut Requests ortam CA ayarları da varsayılan güvene eklenebilir. Bir servise seçilen CA diğer servislerin oturumlarına taşınmaz.
@@ -301,7 +313,7 @@ lock dosyasını değiştirmez; hedef kurulum özgün lock koşullarını uygula
 
 ## İşlemler ve ilk yönetici
 
-Sıra: ön kontrol → araçlar/bağımlılıklar → tam TLS doğrulaması → özel profil/şema → ilk yönetici → seçilen ekler → build/deployment → web/worker. TLS dosya erişimi ve anahtar eşleşmesi daha ilk ön kontrolde incelenir; tam sertifika/IP kontrolü uygulama ortamındaki cryptography ile profil ve veritabanından önce tamamlanır. Başlat mevcut hazırlanmış profili kullanır. Kontrol et salt okunur tanılama yapar. Kaynak testi seçilen politikanın erişimini veya yerel bağımlılık envanterini inceler; paket kapsamının tamamı kurulum sırasında doğrulanır.
+Manager ilk üretim kurulumunda ve kayıtlı bağlantı bilgileri değiştiğinde TLS dosyalarını kendi Python yorumlayıcısıyla denetler. Sertifika ve özel anahtar eşleşmeli, sertifikanın IP SAN alanı seçilen IPv4 adresini içermeli ve geçerlilik süresinin dolmasına bir günden fazla kalmalıdır. İlk kurulumda bu denetim bağımlılıklardan önce, mevcut profilde ise yeni TLS yolları kaydedilmeden önce yapılır. Doğrulanmış uygulama ortamı hazır olduğunda cryptography tam kimlik kontrolünü yapar. Ardından yeni kurulumda profil, şema, ilk yönetici, seçilen ekler ve üretim derlemesi hazırlanır. Başlat mevcut profilde web ve worker süreçlerini açar. Kontrol et salt okunur tanılama yapar. Kaynak testi seçilen politikanın erişimini veya yerel bağımlılık envanterini inceler.
 
 İlk aktif yönetici bulunmadığında kullanıcı adı ve parola ayrı, maskeli parola alanı olan pencerede istenir. Kullanıcı adı bir harf ve beş rakamdır. Bilgiler yalnız worker'ın özel stdin kanalıyla aktarılır; argv, environment, kaynak dosyası veya rapora yazılmaz. Mevcut kullanıcılar değiştirilmez veya yöneticiye yükseltilmez.
 
@@ -493,6 +505,14 @@ Windows üzerinde yeniden çalıştırılmadan bu değişiklik için Windows yay
 iddia edilmez. Snapshot write-through ve güç kesintisi dayanıklılığı da native
 Windows kabulünün parçasıdır.
 
+Güncel Windows iş akışında kaynak `.pyw` için ayrı bir ilk kurulum senaryosu
+bulunur. Boş uygulama önbelleğiyle varsayılan düğmeyi kullanır, Python ve npm
+edinimlerini denetler, ardından dış ağ engelliyken yeniden açar. Paketli kabulde
+Tk düğmesi aynı sürümün EXE worker’ına bağlanır. Dev ve prod için üç ardışık
+açılışta başlatma dalı, korunan kurulum kayıtları ve hazır sinyalinden sonraki
+tek tarayıcı çağrısı kontrol edilir. Kanıt dosyalarında aşama süreleri ve
+izinli kaynak denemeleri bulunur.
+
 ### Başlatma ve worker sağlık denetimi
 
 Manager başlatırken Python/Node doğrulaması, profil okuma, şema kontrolü ve
@@ -535,10 +555,28 @@ dizinindeki `.venv` ve `frontend\node_modules` içindedir. Python/Node/npm
 arşivleri `cache\runtimes`, kurulu yönetilen araçlar `runtimes\<ad>-<sürüm>`
 altındadır. Hazır kurulumu açma işlemi paket hazırlığını çağırmaz.
 
-Manager aynı hazırlık kararı içinde veritabanı incelemesini tekrar başlatmaz.
-Hazır kurulum açılışındaki bu incelemeler dört süreçten ikiye indirilmiştir;
-işlem kilidi alındıktan sonraki yeniden kontrol korunur. Kaynak/runtime hash
-doğrulamaları sürer; ilk kurulum süresi ile hazır kurulumun açılış süresi ayrıdır.
+**AW Center’ı aç** önce gerekli işlem kilidini seçer. Hazır profilin değişmemiş
+bağımlılıkları için bu ilk kararda Django başlatılmaz. Kilit alındığında kurulu
+dosyalar ve kaynak lock dosyaları doğrulanır, şema ve yönetici için tek bir
+Django incelemesi yapılır. Bu sırada durum değişmişse Manager uygun kilidi alıp
+kararı yeniden doğrular. Pencere açılırken yapılan durum incelemesi ayrı bir
+salt okunur işlemdir.
+
+Yalnız bağlantı ayarı değiştiğinde Manager yeni değeri kaydeder ve kalan
+gereksinimleri denetler. Ortam hazırsa paket kurmadan ve üretim arayüzünü tekrar
+derlemeden sunucuyu açar. Yeni üretim kurulumunda eksik IPv4, TLS sertifikası
+ve özel anahtar alanları kaynaklar hazırlanmadan önce tek mesajda gösterilir.
+Manager, üretim arayüzünün girdilerini ve sonradan yüklenen ekranlar dahil tüm
+derleme dosyalarının özetini saklar. Eski sürümde bu kayıt yoksa ilk açılışta
+mevcut `dist` çıktısını `.runtime/frontend-build-backups` altında korur ve
+bir kez yeniden derler. Eksik çıktı aynı düğmeyle tamamlanır. Üretimde
+`collectstatic`, artifact ve HTTPS/worker denetimleri sürer.
+
+Katalogdaki Python, Node ve npm için kurulu dosya ağacı güvenilir bir SHA-256
+özetiyle karşılaştırılır. Dosyalar eşleştiğinde aynı runtime arşivi yeniden
+indirilmez veya açılmaz. Uygulama bağımlılıkları için ekranda önce mevcut
+kurulumun doğrulandığı görünür; kurulum yalnız gerekli aşamaya girildiğinde
+bildirilir.
 
 Yeni prod kaynakları kısa `r/<12-karakter-kaynak-kimliği>` yolunu kullanır.
 Bu, özellikle Torch'un derin paket dosyalarında Windows uzun yol politikasını

@@ -67,6 +67,11 @@ class InspectionTests(unittest.TestCase):
 
 
 class AdaptiveStateTests(unittest.TestCase):
+    def test_user_can_open_while_initial_inspection_is_running(self):
+        state = ManagerTaskStates()
+        state.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'inspecting'})
+        self.assertEqual(state.profile_presentation('dev')['action'], 'ensure')
+
     def test_completed_lifecycle_drops_live_url(self):
         state = ManagerState()
         state.handle_event({'type': 'ready', 'url': 'http://127.0.0.1:5173/app/'})
@@ -106,6 +111,17 @@ class AdaptiveControllerTests(unittest.TestCase):
     cleanup = fixtures.ControllerTests.cleanup
     start = fixtures.ControllerTests.start
     event = fixtures.ControllerTests.event
+
+    def test_open_takes_over_background_inspection_without_showing_its_late_result(self):
+        self.view.form_values.return_value = {'profile': 'dev', 'source_root': '/source'}
+        self.controller.inspect_selected()
+        inspect_id = self.controller.inspection_ids['dev']
+        started = self.start('ensure')
+        self.assertIsNotNone(started)
+        self.assertTrue(self.controller.tasks[inspect_id].cancel_requested)
+        self.view.handle_event.reset_mock()
+        self.event(inspect_id, type='profile', profile='dev', status='blocked')
+        self.view.handle_event.assert_not_called()
 
     def test_ensure_tracks_lifecycle_and_uses_resolved_source_claims(self):
         task = self.start('ensure')
@@ -158,20 +174,21 @@ class AdaptiveControllerTests(unittest.TestCase):
         self.event(new, type='profile', profile='dev', status='not_installed')
         self.assertEqual(self.view.handle_event.call_args.args[0]['status'], 'not_installed')
 
-    def test_tls_path_inspection_errors_keep_connection_recovery_available(self):
+    def test_known_recoverable_inspection_errors_keep_startup_available(self):
         self.view.form_values.return_value = {'profile': 'prod', 'source_root': '/source'}
         self.controller.inspect_selected()
         task = self.controller.inspection_ids['prod']
         states = ManagerTaskStates()
         self.view.handle_event.side_effect = states.handle_event
-        for code in ('tls_file_missing', 'tls_file_absolute', 'tls_file_unavailable', 'tls_file_internal'):
+        for code in ('tls_file_missing', 'tls_file_absolute', 'tls_file_unavailable', 'tls_file_internal',
+                     'storage_acl_inheritance'):
             with self.subTest(code=code):
-                self.event(task, type='error', code=code, message='TLS path requires replacement.',
-                           remedy='Select an external certificate and key.')
+                self.event(task, type='error', code=code, message='Preparation required.',
+                           remedy='Retry startup with the selected settings.')
                 event = self.view.handle_event.call_args.args[0]
                 self.assertEqual(event['status'], 'incomplete')
                 self.assertEqual(states.profile_presentation('prod')['action'], 'ensure')
-                self.assertIn('Select an external certificate and key.', event['detail'])
+                self.assertIn('Retry startup with the selected settings.', event['detail'])
 
     def test_unknown_and_integrity_inspection_errors_remain_blocked(self):
         self.view.form_values.return_value = {'profile': 'prod', 'source_root': '/source'}
@@ -179,7 +196,9 @@ class AdaptiveControllerTests(unittest.TestCase):
         task = self.controller.inspection_ids['prod']
         states = ManagerTaskStates()
         self.view.handle_event.side_effect = states.handle_event
-        for code in ('integrity_failed', 'tls_failed', 'tls_file_unknown', 'unknown_failure', None):
+        for code in ('integrity_failed', 'tls_failed', 'tls_file_unknown', 'unknown_failure',
+                     'storage_owner_mismatch', 'storage_acl_entries', 'storage_acl_apply',
+                     'storage_path_reparse', None):
             with self.subTest(code=code):
                 self.event(task, type='error', code=code, message='Profile validation failed.')
                 event = self.view.handle_event.call_args.args[0]

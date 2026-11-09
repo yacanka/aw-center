@@ -79,6 +79,15 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.sessions[0].request['output'], output)
         self.assertIsNone(self.start('bundle', output=output))
 
+    def test_ensure_presents_original_settings_while_worker_uses_resolved_paths(self):
+        task = self.controller.action('ensure', {'profile': 'dev', 'source_root': '', 'env_file': 'my.env'})
+        self.assertTrue(self.sessions[0].started.wait(1))
+        state = self.controller.tasks[task].snapshot()
+        self.assertEqual(state['values']['source_root'], '')
+        self.assertEqual(state['values']['env_file'], 'my.env')
+        self.assertTrue(Path(self.sessions[0].request['source_root']).is_absolute())
+        self.assertTrue(Path(self.sessions[0].request['env_file']).is_absolute())
+
     def test_automatic_bundle_output_is_unique_and_claimed_before_worker_starts(self):
         local = Path.cwd() / 'operator-local'
         with patch.dict(os.environ, {'LOCALAPPDATA': str(local)}), \

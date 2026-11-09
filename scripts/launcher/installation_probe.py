@@ -73,6 +73,9 @@ def inspect_backend() -> dict:
     loader = MigrationLoader(None, ignore_no_migrations=True)
     required = set(loader.disk_migrations)
     result = inspect_sqlite(Path(database['NAME']), required, user_table=get_user_model()._meta.db_table)
+    if settings.AWCENTER_DEPLOYMENT_MODE == 'windows-native':
+        from awcenter.frontend_artifact import frontend_files_are_ready
+        result['frontend_build_ready'] = frontend_files_are_ready(require_collected=False)
     # Bind the plan to installed Django and project migration code, without
     # exposing interpreter paths or migration contents in the IPC response.
     sources = {}

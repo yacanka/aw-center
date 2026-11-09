@@ -41,7 +41,7 @@ class ProvisionPreflightTests(unittest.TestCase):
                 (root / name).write_text('fixture')
             stack.enter_context(patch.object(installation, 'require_windows'))
             stack.enter_context(patch.object(installation, 'installation_home', return_value=home))
-            stack.enter_context(patch('ssl.SSLContext.load_cert_chain'))
+            stack.enter_context(patch.object(installation, '_tls_preflight'))
             stack.enter_context(patch('scripts.launcher.runtime_selection.tool_choices', return_value={}))
             stack.enter_context(patch.object(installation, 'ensure_toolchain', return_value={'AWCENTER_MANAGED_PYTHON': '/python'}))
             deps = stack.enter_context(patch.object(installation, 'install_dependencies'))

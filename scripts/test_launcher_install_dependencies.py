@@ -210,10 +210,15 @@ class AcquisitionFailureTests(unittest.TestCase):
         if not roots:
             self.skipTest('Requires a default trusted CA')
         with tempfile.TemporaryDirectory() as temporary:
-            project = create_project(Path(temporary))
             ca_file = Path(temporary) / 'corporate.pem'
             ca_file.write_text(ssl.DER_cert_to_PEM_cert(roots[0]), encoding='ascii')
             for selected in (None, ca_file):
+                root = Path(temporary).resolve() / ('corporate' if selected else 'default')
+                root.mkdir()
+                project = create_project(root)
+                project.venv.mkdir()
+                (project.frontend / 'package-lock.json').write_text('{}')
+                (project.frontend / 'node_modules').mkdir()
                 observed = []
                 progress = []
                 def packages(project, settings, tool_env, stage, *, cache_root=None):
@@ -228,7 +233,6 @@ class AcquisitionFailureTests(unittest.TestCase):
                     observed.append(bundle)
                 with self.subTest(selected=selected), \
                      mock.patch.object(dependencies, '_ensure_venv'), \
-                     mock.patch.object(dependencies, 'dependency_stage', side_effect=lambda target, lock, install: install() or True), \
                      mock.patch('scripts.launcher.certificates._python_roots', return_value=ssl.DER_cert_to_PEM_cert(roots[0])), \
                      mock.patch.object(dependencies, '_python_packages', side_effect=packages), \
                      mock.patch.object(dependencies, '_frontend_packages', side_effect=packages):
@@ -237,7 +241,8 @@ class AcquisitionFailureTests(unittest.TestCase):
                                                        {'AWCENTER_MANAGED_PYTHON': sys.executable})
                 self.assertEqual(len(observed), 2)
                 self.assertFalse(observed[0].exists())
-                self.assertEqual(progress, ['Python sanal ortamı doğrulanıyor',
+                self.assertEqual(progress, ['Kurulu Python bağımlılıkları doğrulanıyor',
+                    'Kurulu frontend bağımlılıkları doğrulanıyor', 'Python sanal ortamı doğrulanıyor',
                     'Paket bağlantıları için güven deposu hazırlanıyor',
                     'Sistem sertifikaları hazırlanıyor',
                     *(['Seçilen ek sertifikalar hazırlanıyor'] if selected else []),
