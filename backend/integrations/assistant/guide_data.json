@@ -318,6 +318,38 @@
     ]
   },
   {
+    "id": "mermaid",
+    "title": "Mermaid Atölyesi",
+    "path": "/mermaid",
+    "purpose": "Mermaid kodundan diyagramlar oluşturun ve bağımsız şemaları tek projede düzenleyin.",
+    "inputs": [
+      "Mermaid kodu veya .mmdproj/.json proje dosyası"
+    ],
+    "outputs": [
+      ".mmdproj proje dosyası",
+      "Seçili şemanın SVG veya PNG çıktısı"
+    ],
+    "steps": [
+      "Kod yazın veya bir şablon ekleyin.",
+      "Şemalar arasında sekmelerle geçiş yapın; canlı önizlemeyi veya Çiz düğmesini kullanın.",
+      "Projeyi kaydet ile tüm şemaları, Görsel aktar ile seçili şemayı indirin."
+    ],
+    "limitations": [
+      "Taslak yalnız kullanılan tarayıcıda ve hesaba ayrılmış alanda tutulur.",
+      "Haricî görseller ve çevrimiçi ikon paketleri desteklenmez.",
+      "Bir projede en fazla 200 şema bulunabilir."
+    ],
+    "keywords": [
+      "mermaid",
+      "diyagram",
+      "şema",
+      "akış",
+      "flowchart",
+      "sequence",
+      "gantt"
+    ]
+  },
+  {
     "id": "ddf",
     "title": "DDF Assistant",
     "path": "/ddfAssistant",

@@ -199,6 +199,22 @@ class PayloadTests(unittest.TestCase):
         with self.assertRaises(LauncherError):
             self.payload.stage_production_source(source, home)
 
+    def test_mermaid_renderer_cache_keeps_staged_source_verifiable_and_repackageable(self):
+        source = self.prepare()
+        original = self.payload.verify_source_payload(source)
+        cache = source / 'frontend/.cache/mermaid'
+        cache.mkdir(parents=True)
+        (cache / 'renderer.js').write_text('generated renderer')
+        self.assertEqual(self.payload.verify_source_payload(source), original)
+        extracted = Project(source, source / 'backend/manage.py', source / 'frontend/package.json',
+                            source / 'requirements.txt')
+        copied = self.root / 'repackaged'
+        self.assertEqual(self.payload.prepare_source_payload(extracted, copied), original)
+        self.assertFalse((copied / 'frontend/.cache/mermaid').exists())
+        (source / 'frontend/.cache/unexpected.js').write_text('unexpected source')
+        with self.assertRaises(LauncherError):
+            self.payload.verify_source_payload(source)
+
     def test_sqlite_rollback_journal_survives_source_verification_after_crash(self):
         source = self.prepare()
         database = source / 'backend/db.sqlite3'

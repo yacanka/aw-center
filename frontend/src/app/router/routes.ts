@@ -79,6 +79,11 @@ export const routes: RouteRecordRaw[] = [
     component: lazyRoute(() => import('@/features/tools/pages/MediaConverter.vue'))
   },
   {
+    path: '/mermaid',
+    name: 'mermaid',
+    component: lazyRoute(() => import('@/features/mermaid/pages/MermaidWorkshop.vue'))
+  },
+  {
     path: '/translator',
     name: 'translator',
     component: lazyRoute(() => import('@/features/tools/pages/Translator.vue'))

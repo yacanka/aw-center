@@ -11,6 +11,12 @@ const project: ProjectRegistryItem = {
 }
 
 describe('project-aware main navigation', () => {
+  it('offers Mermaid to authenticated users immediately after Translator without project roles', () => {
+    const options = createMainMenuOptions([], { id: 2, is_active: true })
+    const translator = options.findIndex((option) => option.key === '/translator')
+    expect(options[translator + 1]).toMatchObject({ key: '/mermaid', label: 'Mermaid Atölyesi' })
+    expect(menuKeys(createMainMenuOptions([], {}))).not.toContain('/mermaid')
+  })
   it('keeps project domains hidden until the authorized catalog is ready', () => {
     const keys = menuKeys(createMainMenuOptions([], user, false, false))
 

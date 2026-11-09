@@ -33,6 +33,7 @@ SOURCE_EXCLUSIONS = EXCLUDED_PARTS | {
     'private', 'config', 'configs', 'certificates', '.playwright-cli', '.superpowers',
     'output',
 }
+GENERATED_SOURCE_DIRECTORIES = {('frontend', '.cache', 'mermaid')}
 PACKAGE_MANAGER_PRIVATE_FILES = {'.npmrc', '.pypirc', '.netrc', '_netrc'}
 EXTRACTED_JSON_FILES = {
     'package.json', 'package-lock.json', 'frontend/package.json',
@@ -140,10 +141,14 @@ def _safe_path(root: Path, path: Path) -> Path:
     return path
 
 
+def _generated_source(relative: Path) -> bool:
+    return any(relative.parts[:len(parts)] == parts for parts in GENERATED_SOURCE_DIRECTORIES)
+
+
 def _source_packageable(path: Path, root: Path) -> bool:
     relative = path.relative_to(root)
     unsafe_env = path.name.startswith('.env') and not path.name.endswith(('.example', '.sample'))
-    return (path.is_file() and not unsafe_env and path.name not in EXCLUDED_NAMES and
+    return (path.is_file() and not _generated_source(relative) and not unsafe_env and path.name not in EXCLUDED_NAMES and
             path.name not in PACKAGE_MANAGER_PRIVATE_FILES and
             path.suffix.lower() not in EXCLUDED_SUFFIXES and
             not set(relative.parts).intersection(SOURCE_EXCLUSIONS))
@@ -157,7 +162,8 @@ def install_inventory(directory: Path, *, exclude: tuple[str, ...] = (), source_
     for current, directories, files in os.walk(directory, followlinks=False):
         in_source = source_state and Path(current).relative_to(directory).parts[:1] == ('source',)
         if in_source:
-            directories[:] = [name for name in directories if name not in SOURCE_EXCLUSIONS]
+            directories[:] = [name for name in directories if name not in SOURCE_EXCLUSIONS and
+                              not _generated_source((Path(current) / name).relative_to(directory / 'source'))]
         for name in directories:
             _safe_path(directory, Path(current) / name)
         for name in files:
@@ -228,7 +234,8 @@ def _source_files(project: Project) -> list[Path]:
     selected = []
     checkout = (root / '.git').exists() and shutil.which('git') is not None
     for current, directories, files in os.walk(root, followlinks=False):
-        directories[:] = [name for name in directories if name not in SOURCE_EXCLUSIONS]
+        directories[:] = [name for name in directories if name not in SOURCE_EXCLUSIONS and
+                          not _generated_source((Path(current) / name).relative_to(root))]
         if not checkout and Path(current) == root:
             directories[:] = [name for name in directories if name in EXTRACTED_ROOT_DIRECTORIES]
         for name in directories:

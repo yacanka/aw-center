@@ -6,7 +6,7 @@ import { resolveBundlePath } from './bundle-path.mjs'
 
 const DIST_DIRECTORY = fileURLToPath(new URL('../dist/', import.meta.url))
 const MAX_LOGIN_INITIAL_GZIP_BYTES = 300 * 1024
-const FORBIDDEN_LOGIN_CHUNKS = /(?:chart|markdown|date-fns)/i
+const FORBIDDEN_LOGIN_CHUNKS = /(?:chart|markdown|date-fns|mermaid|renderer)/i
 
 function assertWithinBudget(label, actualBytes, maximumBytes) {
   if (actualBytes <= maximumBytes) return

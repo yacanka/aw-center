@@ -33,6 +33,7 @@ const COMMAND_ALIASES: Record<string, string> = {
   '/pdf/split': 'bol ayir parca dokuman',
   '/media-converter': 'video resim donustur convert image',
   '/translator': 'ceviri tercume translate word yapay zeka ai',
+  '/mermaid': 'mermaid diyagram diagram sema şema akis akış flowchart sequence gantt',
   '/ddfAssistant': 'ddf asistan excel jira',
   '/pptxGallery': 'powerpoint sunum slayt galeri',
   '/organization': 'organizasyon kisi panel proje sorumlu',

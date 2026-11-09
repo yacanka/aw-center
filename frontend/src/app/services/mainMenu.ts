@@ -84,6 +84,7 @@ function workflowOptions(
     groupItem('Pdf', '/pdf', 'pdf', Pdf, [menuItem('Split', '/pdf/split', 'split', Cut24Regular)]),
     menuItem('Media Converter', '/media-converter', 'mediaConverter', ImageMultiple24Regular),
     menuItem('Translator', '/translator', 'translator', ArrowReset24Regular),
+    menuItem('Mermaid Atölyesi', '/mermaid', 'mermaid', FormNew24Regular),
     menuItem('DDF Assistant', '/ddfAssistant', 'ddf', FormNew24Regular),
     menuItem('Powerpoint Gallery', '/pptxGallery', 'pptxgallery', ImageMultiple24Regular)
   ]
