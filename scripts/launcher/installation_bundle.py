@@ -79,7 +79,7 @@ class BundleHostRuntimeError(LauncherError):
         self.artifact = artifact if artifact in labels else None
         self.remedy = {
             'python': 'Bu çevrimdışı paket için tam CPython 3.11 x64 kurulumunu seçin; venv ve ensurepip desteği gerekir.',
-            'node': 'Bu çevrimdışı paket için kurulu Node 22.12+ (22.x) veya 24+ x64 yürütülebilir dosyasını seçin.',
+            'node': 'Bu çevrimdışı paket için kurulu Node 22.13+ (22.x) veya 24+ x64 yürütülebilir dosyasını seçin.',
             'npm': 'Bu çevrimdışı paket için seçilen uyumlu Node kurulumunun yanında npm 10.9.4+ (10.x) veya 11.x bulunmalıdır.',
         }.get(self.artifact, 'Bu çevrimdışı paketin gerekli sistem araçlarını kurup yeniden seçin.')
         super().__init__(f"Çevrimdışı paketin gerektirdiği {labels.get(self.artifact, 'sistem aracı')} bulunamadı veya uyumsuz.")
@@ -557,10 +557,17 @@ def _acquire_npm(project: Project, destination: Path, settings, overrides: dict)
 
 
 def _dependency_toolchain(project: Project, overrides: dict) -> dict:
-    from .process import required_tool
-    python = os.environ.get('AWCENTER_MANAGED_PYTHON', sys.executable)
-    commands = {'python': [python, '--version'], 'pip': [python, '-m', 'pip', '--version'],
-                'node': [required_tool('node'), '--version'], 'npm': [*_npm_argv(), '--version']}
+    return _component_versions(project, overrides, 'wheels') | _component_versions(project, overrides, 'npm')
+
+
+def _component_versions(project, overrides, kind):
+    if kind == 'wheels':
+        python = overrides.get('AWCENTER_MANAGED_PYTHON', sys.executable)
+        commands = {'python': [python, '--version'], 'pip': [python, '-m', 'pip', '--version']}
+    else:
+        from .process import required_tool
+        commands = {'node': [overrides.get('AWCENTER_MANAGED_NODE') or required_tool('node'), '--version'],
+                    'npm': [*_npm_argv(), '--version']}
     versions = {}
     for name, command in commands.items():
         result = _capture(command, project, overrides)
@@ -642,7 +649,7 @@ def validate_bundle_output(project: Project, output: Path, *, input_roots=()) ->
 
 
 def prepare_install_bundle(project: Project, output: Path, settings, assets=None, *,
-                           feature_catalog=None, external_runtimes=frozenset(), manager_distribution=None) -> Path:
+                           feature_catalog=None, external_runtimes=frozenset(), manager_distribution=None, prepared_dependencies=None) -> Path:
     """Build a transferable bundle, optionally requiring named tools on its target.
 
     External runtime archives are never acquired. Their producer versions, without
@@ -651,8 +658,6 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
     """
     target = _require_windows_target()
     external_runtimes = _external_runtime_names(external_runtimes)
-    if manager_distribution is not None and external_runtimes:
-        raise LauncherError('Tam Manager paketi hedefte kurulu araç gerektiremez.')
     _validate_bootstrap(project)
     inputs = bundle_input_roots(settings, assets=assets, manager_distribution=manager_distribution)
     output = validate_bundle_output(project, output, input_roots=inputs)
@@ -685,7 +690,11 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
             from .installation_permissions import secure_path
             shutil.copy2(feature_catalog, staging / 'feature-catalog.json')
             secure_path(staging / 'feature-catalog.json')
-        _prepare_dependencies(project, staging / 'dependencies', settings)
+        if prepared_dependencies is None:
+            _prepare_dependencies(project, staging / 'dependencies', settings)
+        else:
+            verify_offline_manifest(project, Scope(), prepared_dependencies)
+            shutil.copytree(prepared_dependencies, staging / 'dependencies')
         if approved is not None:
             shutil.copytree(assets, staging / 'assets' / approved['asset_set'])
         toolchain = _json_object(staging / 'dependencies/manifest.json').get('toolchain')
@@ -703,7 +712,7 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
         (staging / INSTALL_MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
         if manager_distribution is not None:
             from scripts.manager.distribution import seal_distribution
-            seal_distribution(staging, complete=True)
+            seal_distribution(staging, complete=not host_runtimes, host_runtimes=host_runtimes)
         settings.report('Tam çevrimdışı paketin envanteri ve bütünlüğü doğrulanıyor')
         verify_install_bundle(project, staging)
         staging.rename(output)
@@ -727,8 +736,9 @@ def verify_install_bundle(project: Project, directory: Path) -> dict:
             raise LauncherError('Manager manifest reference is invalid')
         from scripts.manager.distribution import verify_distribution
         manager = verify_distribution(directory)
-        if manager.get('complete') is not True or host_runtimes:
-            raise LauncherError('Complete Manager distribution is required')
+        expected_complete = not host_runtimes
+        if manager.get('complete') is not expected_complete or manager.get('host_runtimes', {}) != host_runtimes:
+            raise LauncherError('Manager runtime requirements are inconsistent')
         excluded += ('manager-manifest.json',)
     _verify_inventory(directory, manifest.get('artifacts'), exclude=excluded, source_state=True)
     catalog = dict(_catalog())
@@ -771,7 +781,7 @@ def verify_install_bundle(project: Project, directory: Path) -> dict:
 
 def require_bundle_host_runtimes(project: Project, settings, *,
                                 python_executable: Path | None = None,
-                                node_executable: Path | None = None) -> None:
+                                node_executable: Path | None = None, probe_errors=None) -> None:
     """Require selected system tools before an offline v2 bundle can be installed.
 
     Producer versions document dependency provenance; target tools need only meet
@@ -797,21 +807,35 @@ def require_bundle_host_runtimes(project: Project, settings, *,
     from .system_node import SystemNodeError, validate_node, find_npm_cli
     check_cancelled()
     hosts = manifest['host_runtimes']
+    failures = []
+    errors = probe_errors or {}
     if 'python' in hosts:
         if python_executable is None:
-            raise BundleHostRuntimeError('python')
-        try:
-            validate_python(python_executable)
-        except SystemPythonError:
-            raise BundleHostRuntimeError('python') from None
-    if not any(name in hosts for name in ('node', 'npm')):
-        return
-    required = 'node' if 'node' in hosts else 'npm'
-    if node_executable is None:
-        raise BundleHostRuntimeError(required)
-    try:
-        node = validate_node(node_executable)
-    except SystemNodeError:
-        raise BundleHostRuntimeError(required) from None
-    if 'npm' in hosts and find_npm_cli(node, '10.9.4', compatible=True) is None:
-        raise BundleHostRuntimeError('npm')
+            failures.append(('python', errors.get('python')))
+        else:
+            try:
+                validate_python(python_executable)
+            except SystemPythonError as error:
+                failures.append(('python', error))
+    if 'node' in hosts or 'npm' in hosts:
+        required = 'node' if 'node' in hosts else 'npm'
+        if node_executable is None:
+            failures.append((required, errors.get('node')))
+        else:
+            try:
+                node = validate_node(node_executable)
+                if 'npm' in hosts and find_npm_cli(node, '10.9.4', compatible=True) is None:
+                    failures.append(('npm', None))
+            except SystemNodeError as error:
+                failures.append((required, error))
+    if failures:
+        details = []
+        remedies = []
+        for name, diagnostic in failures:
+            failure = BundleHostRuntimeError(name)
+            details.append(str(failure) + (' ' + str(diagnostic) if diagnostic else ''))
+            remedies.append(failure.remedy)
+        error = BundleHostRuntimeError(failures[0][0])
+        error.args = (' '.join(details),)
+        error.remedy = ' '.join(remedies)
+        raise error

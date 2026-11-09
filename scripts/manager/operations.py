@@ -15,7 +15,7 @@ from scripts.launcher.model import LauncherError
 from scripts.launcher.process import OperationCancelled, check_cancelled, operation_control
 from .task_policy import ACTION_LABELS
 
-PATH_FIELDS = {'offline_dir', 'ca_file', 'assets', 'feature_catalog', 'tls_cert_file', 'tls_key_file', 'output', 'env_file', 'manager_distribution'}
+PATH_FIELDS = {'bundle_import', 'offline_dir', 'ca_file', 'assets', 'feature_catalog', 'tls_cert_file', 'tls_key_file', 'output', 'env_file', 'manager_distribution'}
 TEXT_FIELDS = {'repository', 'python_index_url', 'npm_registry_url', 'host', 'asset_set', 'python_command', 'node_command'}
 
 
@@ -28,11 +28,13 @@ def arguments(request):
     action = request.get('action', 'provision')
     sources = {'repository', 'offline_dir', 'python_index_url', 'npm_registry_url', 'ca_file'}
     fields = (sources if action == 'test-sources' else
-              sources | {'assets', 'feature_catalog', 'output', 'python_command', 'node_command', 'manager_distribution'} if action == 'bundle' else
+              sources | {'bundle_import', 'assets', 'feature_catalog', 'output', 'python_command', 'node_command', 'manager_distribution'} if action == 'bundle' else
               PATH_FIELDS | TEXT_FIELDS if action in {'provision', 'ensure'} else {'python_command', 'node_command'} if action == 'inspect' else {'env_file'} if action in {'start', 'doctor'} else set())
     values = {'profile': profile, 'source_mode': mode, 'no_admin': False, 'use_saved_sources': False,
               'migrate': request.get('migrate') is True, 'exclude_doors': None,
               'install_python': request.get('install_python') is True}
+    values['bundle_host_python'] = request.get('bundle_host_python') is True
+    values['bundle_host_node'] = request.get('bundle_host_node') is True
     values['install_node'] = request.get('install_node') is True
     values['source_selection'] = request.get('source_selection', 'explicit' if request.get('source_root') else 'automatic')
     values['migration_policy'] = request.get('migration_policy', 'automatic')
@@ -72,7 +74,8 @@ def _bundled_tools(args, emit, *, project=None):
     settings = source_settings(args, project)
     if project is not None:
         from scripts.launcher.installation_bundle import require_bundle_host_runtimes
-        require_bundle_host_runtimes(project, settings, **options)
+        require_bundle_host_runtimes(project, settings, **options, probe_errors={
+            name: getattr(args, name + '_probe_error', None) for name in ('python', 'node')})
     if options.get('python_executable'):
         emit({'type': 'phase', 'message': 'Sistem Python 3.11 x64 kullanılıyor; Python kurulmayacak'})
     if options.get('node_executable'):
@@ -113,7 +116,8 @@ def _errors_with_remedy():
     from scripts.launcher.toolchain import RuntimeValidationError
     from .payload import ProductionSourceNotPrepared
 
-    return (ArtifactDownloadError, BundleHostRuntimeError, DependencyIntegrityError, FrontendBuildError,
+    from .bundle_preparation import BundleInputsError
+    return (BundleInputsError, ArtifactDownloadError, BundleHostRuntimeError, DependencyIntegrityError, FrontendBuildError,
             ManagerBuildError, PackageCacheError, PackageCommandError, PackageTimeoutError, PackageTrustError,
             PermissionCheckError, ProductionSourceNotPrepared, ResourceLockError, RuntimeValidationError,
             StartupReadinessError, SystemNodeError, SystemPythonError, TLSFileError, VirtualEnvironmentError,
@@ -316,6 +320,8 @@ def _dispatch(action, args, emit):
             source.is_relative_to(home / name) for name in ('releases', 'r'))
         claims = path_claims(source, write=action == 'provision' and mutable_source)
         if action == 'bundle':
+            claims['bundle-preparation'] = True
+            args.bundle_workspace = home / 'cache' / 'bp'
             args.output = _bundle_output(args, home, source)
             claims.update(path_claims(args.output, write=True))
         else:
@@ -354,9 +360,16 @@ def _bundle(project, args, emit):
     args.progress('Windows Manager dağıtımı ve paket hedefi doğrulanıyor')
     distribution = _manager_distribution(project.root, args)
     args.progress('Tam çevrimdışı Manager paketi hazırlanıyor')
-    prepare_full_manager(project, args.output, source_settings(args, project), distribution,
-                         assets=args.assets, feature_catalog=args.feature_catalog)
+    options = {}
+    if getattr(args, 'bundle_workspace', None):
+        options.update(workspace=args.bundle_workspace, import_file=args.bundle_import)
+        options['host_tools'] = {name: getattr(args, name + '_command') for name in ('python', 'node')
+                                 if getattr(args, 'bundle_host_' + name)}
+    result = prepare_full_manager(project, args.output, source_settings(args, project), distribution,
+                         assets=args.assets, feature_catalog=args.feature_catalog, **options)
     from scripts.launcher.installation_profiles import installation_home
+    if isinstance(result, Path):
+        args.output = result
     # Show the known destination without recording the operator's home path.
     local = os.environ.get('LOCALAPPDATA')
     exports = installation_home() / 'exports' if local else None

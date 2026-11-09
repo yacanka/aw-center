@@ -105,7 +105,7 @@ def _safe_values(values: dict) -> dict:
     for key, default in DEFAULT_VALUES.items():
         value = values.get(key)
         # Migration authorization is specific to one operation, never a preference.
-        if key == 'migrate' or type(value) is not type(default):
+        if key in {'migrate', 'bundle_import'} or type(value) is not type(default):
             continue
         if isinstance(value, str):
             value = value.strip()

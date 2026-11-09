@@ -123,7 +123,10 @@ def _remote_checks(settings, project=None):
         status, detail = _probe(url, opener, proxies)
         if status == 'available':
             status = 'unverified'
-            detail = 'Gerekli içerik adresine erişildi; tüm paketlerin kapsamı ve hash doğrulaması henüz tamamlanmadı.'
+            detail = ('Örnek paket adresine erişildi; bu kontrol paket dosyalarının indirme erişimini doğrulamaz. '
+                      'Tüm paketlerin kapsamı ve hash doğrulaması kurulum veya çevrimdışı paket hazırlığında yapılır.'
+                      if 'örnek' in name else
+                      'Runtime arşivi adresine erişildi; dosyanın tamamı ve SHA-256 değeri indirme sırasında doğrulanır.')
         checks.append({'name': name, 'status': status, 'detail': detail})
     return checks
 

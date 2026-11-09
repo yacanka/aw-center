@@ -27,8 +27,11 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
         try:
             if manifest.stat().st_size <= 8 * 1024 * 1024:
                 metadata = json.loads(manifest.read_text(encoding='utf-8'))
-                if metadata.get('format_version') == 2 and metadata.get('complete') is True:
-                    context = hashlib.sha256((str(directory) + '\0' + str(metadata.get('source_fingerprint', ''))).encode()).hexdigest()
+                if metadata.get('format_version') == 2 and (metadata.get('complete') is True or metadata.get('host_runtimes')):
+                    identity = [str(directory), str(metadata.get('source_fingerprint', ''))]
+                    if metadata.get('offline_start'):
+                        identity.append(json.dumps(metadata.get('host_runtimes', {}), sort_keys=True))
+                    context = hashlib.sha256('\0'.join(identity).encode()).hexdigest()
                     history = dict(saved.get('_contexts', {}))
                     previous = saved.get('_media_context')
                     if previous and previous != context:
@@ -44,8 +47,10 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
                                           'output', 'env_file', 'tls_cert_file', 'tls_key_file', 'manager_distribution',
                                           'host', 'backend_port', 'frontend_port'):
                                 values[field] = ''
+                            values.update(bundle_import='', bundle_host_node=False, bundle_host_python=False,
+                                          install_python=False, install_node=False)
                             # New media must never broaden an explicit restrictive policy.
-                            mode = 'corporate' if saved.get('source_mode') == 'corporate' else 'offline'
+                            mode = 'offline' if metadata.get('offline_start') else ('corporate' if saved.get('source_mode') == 'corporate' else 'offline')
                             repository = saved.get('repository', '')
                             values.update(source_root=str(directory / 'source'), source_selection='automatic',
                                           offline_dir=str(directory), source_mode=mode,
@@ -80,7 +85,7 @@ def normalize_task_paths(values: dict) -> dict:
     Reparse/symlink checks remain in the owning worker before any mutation.
     """
     result = dict(values)
-    fields = {'source_root', 'offline_dir', 'ca_file', 'assets', 'feature_catalog',
+    fields = {'source_root', 'offline_dir', 'bundle_import', 'ca_file', 'assets', 'feature_catalog',
               'tls_cert_file', 'tls_key_file', 'output', 'env_file', 'manager_distribution'}
     repository = result.get('repository')
     if repository and '://' not in str(repository):

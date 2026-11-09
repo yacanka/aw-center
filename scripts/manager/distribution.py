@@ -14,11 +14,15 @@ from .payload import verify_source_payload
 MANIFEST = 'manager-manifest.json'
 
 
-def seal_distribution(directory: Path, *, complete=False) -> dict:
+def seal_distribution(directory: Path, *, complete=False, host_runtimes=None) -> dict:
     source = verify_source_payload(directory / 'source')
     manifest = {'format_version': 2, 'target': 'windows-x64', 'python': '3.11',
                 'complete': complete, 'source_fingerprint': source['fingerprint'],
                 'artifacts': install_inventory(directory, exclude=(MANIFEST,), source_state=True)}
+    if host_runtimes is not None:
+        manifest['offline_start'] = True
+    if host_runtimes:
+        manifest['host_runtimes'] = host_runtimes
     (directory / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
     return verify_distribution(directory)
 
@@ -61,7 +65,8 @@ def copy_manager(distribution: Path, destination: Path) -> None:
             raise LauncherError('Manager kopyası doğrulanamadı.')
 
 
-def prepare_full_manager(project, output, settings, distribution=None, *, assets=None, feature_catalog=None):
+def prepare_full_manager(project, output, settings, distribution=None, *, assets=None, feature_catalog=None, workspace=None,
+                         host_tools=None, import_file=None):
     """Build missing Manager files from source using isolated, pinned tools."""
     from scripts.launcher.installation import require_windows
     from scripts.launcher.installation_bundle import bundle_input_roots, prepare_install_bundle, validate_bundle_output
@@ -78,6 +83,11 @@ def prepare_full_manager(project, output, settings, distribution=None, *, assets
     output = validate_bundle_output(project, output, input_roots=inputs)
     if distribution is not None:
         verify_distribution(distribution)
+    if workspace is not None:
+        from .bundle_preparation import prepare
+        validate_bundle_output(project, output, input_roots=(*inputs, workspace))
+        return prepare(project, output, settings, distribution, workspace, host_tools or {},
+                       import_file, assets, feature_catalog)
     settings.report('Tam paket için sabitlenmiş araçlar ayrı hazırlık alanında kuruluyor')
     with tempfile.TemporaryDirectory(prefix='awcenter-full-manager-') as temporary:
         temporary_home = Path(temporary).resolve() / 'tools'

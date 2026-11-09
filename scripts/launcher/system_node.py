@@ -33,7 +33,7 @@ _FAILURES = {
 class SystemNodeError(LauncherError):
     """Safe probe details; private paths, commands and stderr are never reported."""
 
-    def __init__(self, reason, *, system_error=None, returncode=None):
+    def __init__(self, reason, *, system_error=None, returncode=None, version=None):
         self.reason = reason if reason in _FAILURES else 'invalid_response'
         self.code = 'system_node_' + self.reason
         message, self.remedy = _FAILURES[self.reason]
@@ -41,6 +41,8 @@ class SystemNodeError(LauncherError):
                              ('errno', getattr(system_error, 'errno', None)), ('Süreç çıkış kodu', returncode)):
             if type(value) is int:
                 message += f' {label}: {value}.'
+        if isinstance(version, str) and len(version) <= 32 and _VERSION.fullmatch(version):
+            message += f' Algılanan sürüm: {version}.'
         super().__init__(message)
 
 
@@ -66,7 +68,7 @@ def _probe(executable):
             raise SystemNodeError('version')
         major, minor, _patch = map(int, match.groups())
         if not (major == 22 and minor >= 13 or major >= 24):
-            raise SystemNodeError('version')
+            raise SystemNodeError('version', version=version)
         if value.get('arch') != 'x64':
             raise SystemNodeError('architecture')
         if sys.platform == 'win32' and value.get('platform') != 'win32':

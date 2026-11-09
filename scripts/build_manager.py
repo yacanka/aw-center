@@ -138,6 +138,22 @@ def _run_build(command: list[str], *, cwd: Path, env: dict, timeout: int = 900) 
         raise ManagerBuildError()
 
 
+def _builder_wheels(settings):
+    roots = [settings.offline_dir, *settings.runtime_dirs]
+    if settings.repository and '://' not in str(settings.repository):
+        roots.append(Path(settings.repository))
+    for root in filter(None, roots):
+        directory = Path(root) / 'manager-wheels'
+        require_unlinked(directory)
+        if directory.is_dir():
+            for wheel in directory.iterdir():
+                require_unlinked(wheel)
+                if not wheel.is_file() or wheel.suffix != '.whl':
+                    raise ManagerBuildError(dependencies=True)
+            return directory
+    return None
+
+
 def _install_build_dependencies(python: Path, source: Path, work: Path, settings: SourceSettings, env: dict):
     from scripts.launcher.certificates import package_trust_environment
     from scripts.launcher.installation_dependencies import (
@@ -145,13 +161,17 @@ def _install_build_dependencies(python: Path, source: Path, work: Path, settings
     )
     from scripts.launcher.installation_sources import acquisition_urls
     indexes = acquisition_urls(settings, 'https://pypi.org/simple', settings.python_index_url)
-    if not indexes:
+    local = _builder_wheels(settings)
+    if not indexes and local is None:
         raise ManagerBuildError(dependencies=True)
     project = Project(work, work / 'manage.py', work / 'package.json', None)
     timeout = None
     with package_trust_environment(env, ca_file=settings.ca_file, python=python,
                                    progress=settings.report) as trusted:
-        for index, url in enumerate(indexes):
+        for index, url in enumerate([None] if local else indexes):
+            if local is not None:
+                wheels = local
+                break
             settings.report(f'Manager derleme paketleri: izinli kaynak {index + 1}/{len(indexes)} deneniyor')
             wheels = work / ('build-wheels-' + str(index))
             try:
@@ -173,7 +193,7 @@ def _install_build_dependencies(python: Path, source: Path, work: Path, settings
             raise ManagerBuildError(dependencies=True)
         settings.report('Manager derleme paketleri ayrı ortama kuruluyor')
         result = capture([python, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-input',
-                          '--no-index', '--find-links', wheels,
+                          '--no-index', '--only-binary=:all:', '--find-links', wheels,
                           '-r', source / 'packaging/manager-requirements.txt'], project, trusted)
         if result.returncode:
             raise PackageCommandError(result)

@@ -88,6 +88,13 @@ class SourceCheckTests(unittest.TestCase):
         self.assertTrue(context.check_hostname)
         self.assertEqual(checks[0]['status'], 'unverified')
 
+    def test_successful_probe_explains_that_package_download_is_not_verified(self):
+        checks, _, _ = self.probe()
+        self.assertEqual(checks[0]['status'], 'unverified')
+        self.assertIn('örnek paket', checks[0]['detail'].casefold())
+        self.assertIn('indirme', checks[0]['detail'])
+        self.assertIn('kurulum', checks[0]['detail'])
+
     def test_without_selected_ca_uses_default_os_certificate_loader(self):
         # The native loader reads Windows CA/ROOT stores (OpenSSL defaults elsewhere).
         with patch.object(ssl.SSLContext, 'load_default_certs', autospec=True) as load:

@@ -13,6 +13,7 @@ def _python_choice(args):
         try:
             args.python_executable = discover_python(selection) if selection else discover_python()
         except SystemPythonError as error:
+            args.python_probe_error = error
             if selection or error.reason in {'timeout', 'start_failed', 'process_failed', 'invalid_response'}:
                 raise
             # Resolve the choice once so later provisioning cannot repeat a
@@ -41,6 +42,7 @@ def _node_choice(args):
     try:
         args.node_executable = discover_node(selection) if selection else discover_node()
     except SystemNodeError as error:
+        args.node_probe_error = error
         if selection or error.reason in {'timeout', 'start_failed', 'process_failed', 'invalid_response'}:
             raise
         if callable(progress):

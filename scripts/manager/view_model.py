@@ -15,6 +15,7 @@ DEFAULT_VALUES = {
     "feature_catalog": "", "host": "", "backend_port": "",
     "frontend_port": "", "tls_cert_file": "", "tls_key_file": "",
     "migrate": False, "install_python": False, "install_node": False, "python_command": "", "node_command": "",
+    "bundle_host_python": False, "bundle_host_node": False, "bundle_import": "",
     "output": "", "env_file": "", "manager_distribution": "",
     "source_selection": "automatic", "migration_policy": "automatic",
 }
@@ -222,6 +223,8 @@ class ManagerState:
             self.error_remedy = safe_text(event.get("remedy", "Kaynakları ve durum raporunu inceleyip yeniden deneyin."))
             self.error_code = safe_text(event.get("code", ""), limit=100)
             self.status = "İşlem tamamlanamadı. Aşağıdaki çözüm adımını uygulayın."
+            if self.error_code == "bundle_waiting_for_files":
+                self.status = "Dosya bekleniyor. Tamamlanan adımlar kaydedildi."
             self._append(f"Hata ({self.error_code}): {self.error_message}\nÇözüm: {self.error_remedy}")
         elif kind == "checks":
             self._handle_checks(event.get("checks"))

@@ -305,7 +305,8 @@ def _provision(project: Project, args) -> list[dict]:
         from .runtime_selection import tool_choices
         selected_tools = tool_choices(args, existing)
         from .installation_bundle import require_bundle_host_runtimes
-        require_bundle_host_runtimes(project, settings, **selected_tools)
+        require_bundle_host_runtimes(project, settings, **selected_tools, probe_errors={
+            name: getattr(args, name + '_probe_error', None) for name in ('python', 'node')})
         runtime_options = dict(selected_tools)
         if getattr(args, 'node_probe_deadline', None) is not None:
             runtime_options['node_probe_deadline'] = args.node_probe_deadline

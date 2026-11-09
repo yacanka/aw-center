@@ -270,6 +270,29 @@ hedefleri yazma yapmadan reddeder; mevcut/yeni hedef sözleşmesi değişmez.
 Tam paket hazırlığı araçlar için indirdiği doğrulanmış arşivleri tekrar
 kullanır; canlı runtime veya uygulama bağımlılıklarını değiştirmez.
 
+### Kurumsal ağda offline paket hazırlama
+
+Kaynaklar sekmesinde **Çevrimdışı** modunu seçin. **Offline depo seç** alanına
+Windows x64 için hazırlanmış dizini verin. Bu dizin katalogdaki arşivleri
+`runtimes/` altında, kilitli paketleri `dependencies/manifest.json`,
+`dependencies/wheels/` ve `dependencies/npm-cache/_cacache/` altında içerir.
+Aynı sürümün açılmış tam Manager paketi bu düzeni sağlar. Kaynaktan EXE
+derlenecekse aynı sürümün hazır Manager dizinini seçin veya depoya
+`packaging/manager-requirements.txt` ve alt bağımlılıkları için Windows x64
+wheel dosyalarını `manager-wheels/` altında ekleyin.
+
+Varsayılan tam paket Python, Node.js ve npm arşivlerini taşır. Hedefteki
+araçları kullanmak için ilgili kutuları seçin. Python seçeneği CPython 3.11
+x64, Node.js seçeneği uyumlu Node.js ve npm gerektirir. Bu seçimle paket
+hazırlayan Windows bilgisayarında da ilgili sistem araçları bulunmalıdır.
+
+**Dosya bekleniyor** durumunda eksik runtime arşivini katalogdaki adıyla
+**Dosyadan ekle** alanından seçip **Tekrar denetle ve dene** düğmesine basın.
+Manager arşivi SHA-256 ile doğrular. Paket hazırlığına ait araçlar, doğrulanmış
+wheel ve npm edinimleri ile ilerleme kaydı `%LOCALAPPDATA%\AWCenter\cache\bp`
+altında tutulur. Yeni deneme bunları doğrulayarak kullanır. Otomatik çıktı
+seçiminde önceki geçerli paket aynı çıktı klasöründeyse rapor onun adını gösterir.
+
 Kullanıcı müdahalesi gereken örnekler: ilk yönetici bilgileri, yeni production
 profilinin IPv4/TLS dosyaları, seçilmişse yedek sonrası migration onayı, güvenilen kurum
 CA'sı/proxy erişimi, bozuk medya veya tüm izinli kaynaklarda bulunmayan paket.
@@ -434,7 +457,7 @@ manager-manifest.json
 
 Kaynak seçimi mevcut `copy_install_source` güvenlik filtresini ve Git tracked envanterini kullanır. Yeni yönetici modülleri ve ilk yönetici servisi yalnız açık dosya allowlist'iyle eklenir. Yerel environment, credential, private state, dependency cache ve bilinmeyen kök dosyalar dağıtılmaz. `runtimes/` yalnız repository'deki onaylı katalogda bulunan Python, Node ve npm arşivlerini içerir; katalogdaki SHA-256 değerleri kopyalamadan sonra yeniden doğrulanır.
 
-Runtime arşivleri için build komutu `--source-mode online|restricted|corporate|offline`, `--repository`, `--offline-dir`, `--ca-file`, `--python-index-url` ve `--npm-registry-url` alır. Bu seçenekler PyInstaller build bağımlılıklarının pip kaynağını değiştirmez; build ortamının paket/proxy/CA yapılandırması ayrıca sağlanmalıdır. [PyInstaller dağıtım dokümantasyonu](https://pyinstaller.org/en/stable/) Windows çıktısının Windows üzerinde üretilmesini gerektirir. PyInstaller build aracıdır; Python, Tcl/Tk ve paket içindeki runtime'ların lisans koşulları dağıtım sürecinde korunmalıdır.
+Runtime arşivleri için build komutu `--source-mode online|restricted|corporate|offline`, `--repository`, `--offline-dir`, `--ca-file`, `--python-index-url` ve `--npm-registry-url` alır. PyInstaller derleme bağımlılıkları için yerel `manager-wheels/` dizini veya seçilen modun izin verdiği Python indeksi kullanılır. [PyInstaller dağıtım dokümantasyonu](https://pyinstaller.org/en/stable/) Windows çıktısının Windows üzerinde üretilmesini gerektirir. PyInstaller build aracıdır; Python, Tcl/Tk ve paket içindeki runtime'ların lisans koşulları dağıtım sürecinde korunmalıdır.
 
 ## Doğrulama ve mevcut sınır
 

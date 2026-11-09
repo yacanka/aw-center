@@ -593,7 +593,8 @@ class ManagerWindow:
         fields.grid(row=1, column=0, sticky="ew", pady=(16, 0))
         for row, (key, label, picker) in enumerate((
             ("repository", "Arşiv deposu / yerel dizin", "directory"),
-            ("offline_dir", "Çevrimdışı bağımlılık dizini", "directory"),
+            ("offline_dir", "Offline depo seç", "directory"),
+            ("bundle_import", "Runtime arşivi · Dosyadan ekle", "archive"),
             ("python_index_url", "Python paket indeksi (pip)", None),
             ("npm_registry_url", "JavaScript paket deposu (npm)", None),
             ("ca_file", "Kurumsal CA dosyası (PEM)", "certificate"),
@@ -603,7 +604,15 @@ class ManagerWindow:
             ('manager_distribution', 'Hazır Windows Manager paketi (isteğe bağlı)', 'directory'),
         )):
             self._entry(fields, row, key, label, tab=self.source_tab, picker=picker)
-        self._label(parent, "Python, Node ve npm arşivleri yönetici paketine dahildir. Hazır Manager paketi yoksa otomatik hazırlanır. Çıktı boşsa paket %LOCALAPPDATA%\\AWCenter\\exports altında hazırlanır; mevcut bir çıktı klasörü seçilirse içinde yeni bir alt klasör oluşturulur. pip ve npm alanları paket kaynaklarını belirler. URL'lere parola veya token yazmayın. TLS ve hash doğrulaması her modda korunur.", style="Manager.TLabel").grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        options = _Card(parent)
+        options.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        ttk.Label(options, text="Paket türü · Varsayılan tam offline paket").grid(row=0, column=0, sticky="w")
+        for row, (field, label) in enumerate((("bundle_host_python", "Hedefte kurulu Python’u kullan"),
+                                              ("bundle_host_node", "Hedefte kurulu Node.js ve npm’i kullan")), 1):
+            button = ttk.Checkbutton(options, text=label, variable=self.variables[field])
+            button.grid(row=row, column=0, sticky="w")
+            self._controls.append(button)
+
 
     def _build_report(self, parent):
         parent.columnconfigure(0, weight=1)
@@ -650,7 +659,7 @@ class ManagerWindow:
         self._label(self.error_frame, textvariable=self.error_var, style="Manager.TLabel").grid(row=0, column=0, sticky="ew")
         bar = ttk.Frame(self.error_frame)
         bar.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        self.retry_button = ttk.Button(bar, text="Yeniden dene", command=self._retry)
+        self.retry_button = ttk.Button(bar, text="Tekrar denetle ve dene", command=self._retry)
         self.retry_button.grid(row=0, column=0, sticky="w")
         ttk.Button(bar, text="Kaynakları değiştir", command=self._show_sources).grid(row=0, column=1, sticky="w", padx=(8, 0))
         ttk.Button(bar, text="Çözümü incele", command=lambda: self.tabs.select(self.report_tab)).grid(row=0, column=2, sticky="w", padx=(8, 0))
@@ -661,7 +670,7 @@ class ManagerWindow:
         if kind == "directory":
             value = filedialog.askdirectory(**options, mustexist=(key != "output"))
         else:
-            patterns = {"certificate": [("PEM / sertifika", "*.pem *.crt *.cer"), ("Tüm dosyalar", "*")],
+            patterns = {"archive": [("Runtime arşivi", "*.zip *.tgz *.tar.gz")], "certificate": [("PEM / sertifika", "*.pem *.crt *.cer"), ("Tüm dosyalar", "*")],
                         "python": [("Python yorumlayıcısı", "python*.exe"), ("Tüm dosyalar", "*")],
                         "node": [("Node.js", "node.exe"), ("Tüm dosyalar", "*")],
                         "environment": [("Ortam dosyası", ".env *.env *.env.*"), ("Tüm dosyalar", "*")],
@@ -701,7 +710,8 @@ class ManagerWindow:
 
     def _retry(self):
         if self.state.last_action:
-            self._dispatch(self.state.last_action, {**self.state.last_values, 'migrate': False})
+            values = self.form_values() if self.state.last_action == 'bundle' else self.state.last_values
+            self._dispatch(self.state.last_action, {**values, 'migrate': False})
 
     def _profile_presentation(self):
         presentation = self.task_states.profile_presentation(self.variables['profile'].get())
