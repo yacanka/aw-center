@@ -140,6 +140,69 @@ class WindowsCommandSmokeTests(unittest.TestCase):
         require_private(secret)
         self.assertEqual(secret.read_text(encoding='utf-8'), 'fixture=true\n')
 
+    def test_startup_recovers_inherited_directories_without_rewriting_child_acls(self):
+        from scripts.launcher.installation_permissions import PermissionCheckError
+        from scripts.launcher.installation_state import prepare_installation_storage, private_directory
+        home = private_directory(self.home)
+        config = private_directory(home / 'config')
+        icacls = str(Path(self.environment['SystemRoot']) / 'System32/icacls.exe')
+        for path in (home, config):
+            result = subprocess.run([icacls, str(path), '/inheritance:e'],
+                                    capture_output=True, check=False, timeout=30)
+            self.assertEqual(result.returncode, 0)
+            with self.assertRaises(PermissionCheckError) as caught:
+                require_private(path)
+            self.assertEqual(caught.exception.code, 'storage_acl_inheritance')
+        content = config / 'operator.env'
+        content.write_bytes(b'fixture-content')
+        before = subprocess.run([icacls, str(content)], capture_output=True, check=True, timeout=30).stdout
+        messages = []
+        prepare_installation_storage(home, progress=messages.append)
+        require_private(home)
+        require_private(config)
+        self.assertTrue(any('düzenlendi' in message for message in messages))
+        self.assertEqual(content.read_bytes(), b'fixture-content')
+        after = subprocess.run([icacls, str(content)], capture_output=True, check=True, timeout=30).stdout
+        self.assertEqual(before, after)
+        # An exposed persisted environment remains a strict read failure.
+        with self.assertRaises(PermissionCheckError):
+            require_private(content)
+        self.assertEqual(sorted(path.name for path in home.iterdir()), ['config'])
+
+    def test_ancestor_junction_swap_cannot_redirect_permission_recovery(self):
+        from scripts.launcher import installation_permissions as permissions
+        parent, outside = self.local / 'requested', self.local / 'outside'
+        parent.mkdir()
+        outside.mkdir()
+        leaf, redirected = parent / 'leaf', outside / 'leaf'
+        leaf.mkdir()
+        redirected.mkdir()
+        secure_path(redirected)
+        icacls = str(Path(self.environment['SystemRoot']) / 'System32/icacls.exe')
+        subprocess.run([icacls, str(redirected), '/inheritance:e'],
+                       capture_output=True, check=True, timeout=30)
+        before = subprocess.run([icacls, str(redirected)], capture_output=True, check=True, timeout=30).stdout
+        guard = permissions.require_unlinked
+        moved = self.local / 'original'
+        def substitute(path):
+            guard(path)
+            parent.rename(moved)
+            command = f'"{self.cmd}" /d /s /c "mklink /J "{parent}" "{outside}""'
+            result = subprocess.run(command, capture_output=True, check=False, timeout=30)
+            self.assertEqual(result.returncode, 0)
+        try:
+            with mock.patch.object(permissions, 'require_unlinked', side_effect=substitute):
+                with self.assertRaises(permissions.PermissionCheckError) as caught:
+                    permissions.prepare_private(leaf)
+            self.assertEqual(caught.exception.code, 'storage_path_identity')
+            after = subprocess.run([icacls, str(redirected)], capture_output=True, check=True, timeout=30).stdout
+            self.assertEqual(before, after)
+        finally:
+            if moved.exists():
+                if parent.exists():
+                    parent.rmdir()
+                moved.rename(parent)
+
     def test_junction_ancestor_is_rejected_without_following_target(self):
         from scripts.launcher.installation_permissions import require_unlinked
         target = self.local / 'target'

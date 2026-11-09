@@ -215,7 +215,7 @@ def ensure_toolchain(home: Path, settings: SourceSettings, *, python_executable:
                 progress('Kurulu npm sürümü denetleniyor')
             npm_cli = find_npm_cli(node_executable, catalog['npm'].version, compatible=True)
     for directory in (home, home / "cache", home / "cache" / "runtimes", home / "runtimes"):
-        private_directory(directory)
+        private_directory(directory, root=home)
     paths = {}
     for name in ("python", "node", "npm"):
         if name == "python" and python_executable is not None:

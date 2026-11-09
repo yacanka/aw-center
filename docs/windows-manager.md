@@ -354,6 +354,25 @@ tek başına internet, yetki veya eksik dosya teşhisi koydurmaz.
 
 ### Kurulum alanı ve işlem kilidi hataları
 
+**AW Center’ı aç**, Başlat, hazırlama ve paket oluşturma eylemleri, kayıtlı
+profil okunmadan önce özel kurulum alanını denetler. Mevcut Windows hesabının
+sahibi olduğu yönetilen klasörlerde üst klasörden izin kalıtımı açıksa, izinler
+yalnız bu kullanıcıya açık hale getirilir ve sonuç yeniden doğrulanır. Yapılan
+düzeltme ilerlemede gösterilir. İnert işlem kilidi dosyalarında aynı kurtarma
+uygulanır; çalışan bir işlemin gerçek kilidi kaldırılmaz.
+
+Ana klasör ve mevcut config klasöründe özel, geçici dosyalarla yazma, diske
+aktarma ve atomik değiştirme sınanır. Böylece erişim, disk veya güvenlik yazılımı
+engelleri paket hazırlığına geçmeden görünür. Her yeni ara klasör ayrı güvenli
+oluşturulur; başka bir Manager aynı klasörü eşzamanlı oluşturduysa sahiplik ve
+izinleri yeniden doğrulanarak kullanılır. Deneme dosyaları işlem sonunda silinir.
+
+Bu kurtarma sahiplik almaz, alt dosyaların izinlerini topluca değiştirmez ve
+mevcut profil/env/veritabanı içeriğini düzeltmez. Başka sahip, bağlantı/reparse,
+çoklu hard link, değişmiş dosya kimliği/yolu veya kalıtımı zaten kapalı fakat beklenmeyen ACL hata olarak
+kalır. Yalnız pencereyi açmak, **Durumu denetle / doctor / inspect** işlemleri
+kurulum alanını değiştirmez. Yönetici yetkisi veya ağ erişimi gerekmez.
+
 `Hazırlık` aşamasında özel kurulum alanına veya işlem kilidine erişim
 reddedilebilir; bu aşama henüz paket kaynaklarının çalışmadığını göstermez.
 İzin raporu başarısız kontrolün sabit adını ve varsa sayısal `WinError` kodunu
@@ -364,6 +383,9 @@ eklenmez.
 | --- | --- |
 | `storage_owner_mismatch`, `storage_ace_owner` | Sahiplik mevcut Windows hesabıyla eşleşmiyor. Kurulumu oluşturan hesapla açın ve sahipliği BT ile kontrol edin. |
 | `storage_acl_read`, `storage_acl_apply` | İzinleri okuma veya uygulama başarısız. Windows hata koduyla kullanıcı profili erişimini ve kurum politikasını kontrol edin. |
+| `storage_acl_inheritance` | Başlatmada yönetilen klasör/kilit kalıtımı otomatik sıkılaştırılır. Hata sürüyorsa düzeltme doğrulanamamıştır veya hata otomatik onarılmayan bir veri dosyasındadır; rapordaki aşamayı kontrol edin. |
+| `storage_path_open`, `storage_path_information` | Windows dosya handle'ı veya tür/izin bilgisi okunamadı; sayısal Windows koduyla erişim ve güvenlik politikasını kontrol edin. |
+| `storage_directory_type`, `storage_path_reparse`, `storage_path_links`, `storage_path_type_changed`, `storage_path_scope`, `storage_path_identity` | Beklenen yerel klasör/dosya türü, kimliği veya güvenli yol doğrulanamadı; dosyaları silmeden yolu ve bağlantıları kontrol edin. |
 | Diğer `storage_*` izin kodları | Raporda belirtilen sahiplik / yalnız kullanıcıya açık izin kontrolü başarısız. |
 | `storage_lock_failed` | İşlem kilidi alanının hazırlanması, dosyanın açılması veya kilit API'si başarısız; sayısal sistem koduyla erişim, disk ve güvenlik politikasını kontrol edin. |
 | `resource_busy` | Başka bir işlem çakışan kilidi tutuyor; ilgili Manager / launcher görevini durdurun veya tamamlanmasını bekleyin. |

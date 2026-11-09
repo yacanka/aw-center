@@ -1,9 +1,11 @@
 """One-click decisions use real profile state and never swallow startup errors."""
 import os
+import errno
 import tempfile
 import unittest
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts.launcher_test_support import create_project
@@ -125,3 +127,55 @@ class EnsureTests(unittest.TestCase):
              operation_control(stop):
             with self.assertRaises(OperationCancelled):
                 _initialize_schema(self.project, profile, args, {})
+
+    def test_startup_repairs_directory_inheritance_before_reading_automatic_source(self):
+        from scripts.launcher import installation_permissions as permissions
+        profile = profiles.provision_profile(self.project, 'dev', self.home)
+        original = Path(profile['env_file']).read_bytes()
+        inherited = {self.home, self.home / 'config'}
+        def native(path, *, apply, repair_inheritance=False, file_descriptor=None):
+            if path not in inherited:
+                return False
+            if apply or repair_inheritance:
+                inherited.remove(path)
+                return True
+            raise permissions.PermissionCheckError('acl_inheritance')
+        ready = [{'name': 'core', 'status': 'ready'}]
+        def start(project, name, on_ready, on_health):
+            on_ready(profiles.load_profile(project, name, self.home))
+        events = []
+        with patch.object(permissions, 'os', SimpleNamespace(name='nt', path=os.path)), \
+             patch.object(permissions, '_windows_permissions', side_effect=native), \
+             patch('scripts.launcher.installation_state.require_local_ntfs'), \
+             patch.object(operations, '_project_for', return_value=self.project), \
+             patch('scripts.launcher.installation._core_checks', return_value=ready), \
+             patch('scripts.launcher.toolchain.inspect_toolchain', return_value=ready), \
+             patch('scripts.launcher.installation.start_profile', side_effect=start):
+            operations.execute({'action': 'ensure', 'source_selection': 'automatic',
+                                'source_root': str(self.project.root)},
+                               events.append, lambda: None, threading.Event())
+        self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
+        self.assertEqual(inherited, set())
+        self.assertEqual(Path(profile['env_file']).read_bytes(), original)
+        self.assertTrue(any(event['type'] == 'ready' for event in events))
+
+    def test_storage_write_failure_is_detected_before_starting_prepared_application(self):
+        from scripts.launcher import installation_state as state
+        profiles.provision_profile(self.project, 'dev', self.home)
+        error = PermissionError(errno.EACCES, 'private-path-withheld')
+        error.winerror = 5
+        events = []
+        ready = [{'name': 'core', 'status': 'ready'}]
+        with patch.object(state.os, 'replace', side_effect=error), \
+             patch.object(operations, '_project_for', return_value=self.project), \
+             patch('scripts.launcher.installation._core_checks', return_value=ready), \
+             patch('scripts.launcher.toolchain.inspect_toolchain', return_value=ready), \
+             patch('scripts.launcher.installation.start_profile', side_effect=lambda *_, **__: None):
+            operations.execute({'action': 'ensure', 'source_root': str(self.project.root)},
+                               events.append, lambda: None, threading.Event())
+        self.assertEqual(events[-1], {'type': 'done', 'ok': False}, events)
+        failure = next(event for event in events if event['type'] == 'error')
+        self.assertEqual(failure['code'], 'system_access_denied')
+        self.assertIn('yazma', failure['message'])
+        self.assertNotIn('private-path-withheld', failure['message'])
+        self.assertFalse(any(event['type'] == 'ready' for event in events))

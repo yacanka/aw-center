@@ -212,7 +212,7 @@ def production_source_path(home: Path, fingerprint: str) -> Path:
 def _stage_verified(source: Path, home: Path) -> Path:
     manifest = verify_source_payload(source)  # Validate before creating home.
     with installation_lock(home):
-        releases = private_directory(home / 'r')
+        releases = private_directory(home / 'r', root=home)
         target = production_source_path(home, manifest['fingerprint'])
         release = target
         require_unlinked(target)

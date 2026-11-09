@@ -1,6 +1,7 @@
 """OS resource claims protect live profiles across independent processes."""
 import importlib
 import errno
+import os
 import subprocess
 import sys
 import tempfile
@@ -74,6 +75,24 @@ except LauncherError: pass
         with self.locks.resource_locks(self.home, {'profile:dev': True}):
             with self.locks.resource_locks(self.home, {'profile:dev': True}):
                 self.assertEqual(self.child('profile:dev', True), 3)
+
+    @unittest.skipUnless(os.name == 'nt', 'Requires native inherited NTFS ACLs and LockFileEx')
+    def test_inherited_lock_recovery_preserves_real_contention(self):
+        from scripts.launcher.installation_permissions import PermissionCheckError, require_private
+        with self.locks.resource_locks(self.home, {'runtime': True}):
+            pass
+        path, = (self.home / 'locks').glob('*.lock')
+        path.write_bytes(b'keep')
+        icacls = str(Path(os.environ['SystemRoot']) / 'System32/icacls.exe')
+        subprocess.run([icacls, str(path), '/inheritance:e'],
+                       check=True, capture_output=True, timeout=30)
+        with self.assertRaises(PermissionCheckError):
+            require_private(path)
+        with self.locks.resource_locks(self.home, {'runtime': True}):
+            require_private(path)
+            self.assertEqual(self.child('runtime', True), 3)
+        self.assertEqual(path.read_bytes(), b'keep')
+        self.assertEqual(self.child('runtime', True), 0)
 
     def test_lock_file_access_denied_is_not_reported_as_contention(self):
         error = PermissionError(errno.EACCES, 'private-path-withheld')

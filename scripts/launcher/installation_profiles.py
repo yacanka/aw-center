@@ -295,14 +295,9 @@ def load_profile(project, name, home=None, *, tls_replacements=None) -> dict:
         raise LauncherError('Installation profile is invalid; configuration values have been withheld') from None
 
 
-def _create_private_directory(path):
-    if path.exists():
-        require_private(path)
-        return
-    if not path.parent.exists():
-        _create_private_directory(path.parent)
-    path.mkdir(mode=0o700)
-    secure_path(path)
+def _create_private_directory(path, *, root=None):
+    from .installation_state import private_directory
+    private_directory(path, root=root)
 
 
 def _atomic_write(path, content, *, replace):
@@ -483,13 +478,13 @@ def provision_profile(project, name, home=None, **options) -> dict:
     _require_separate(home, name, values, profile['source_root'])
     # Conflict detection happens before any private files or directories are created.
     _check_inherited(values, str(env))
-    _create_private_directory(home)
-    _create_private_directory(path.parent)
+    _create_private_directory(home, root=home)
+    _create_private_directory(path.parent, root=home)
     if name == 'prod':
         state = home / 'state' / 'production'
-        _create_private_directory(state)
+        _create_private_directory(state, root=home)
         for directory in ('private_media', 'cache', 'staticfiles', 'media'):
-            _create_private_directory(state / directory)
+            _create_private_directory(state / directory, root=home)
     metadata = _pending_metadata(profile, values, operation='create')
     if pending.exists():
         _write_replace(pending, metadata)

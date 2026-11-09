@@ -7,8 +7,8 @@ import hashlib
 import os
 from pathlib import Path
 
-from .installation_permissions import require_private, require_unlinked, secure_path
-from .installation_state import private_directory
+from .installation_permissions import require_unlinked
+from .installation_state import open_private_lock, private_directory
 from .model import LauncherError
 
 _held = ContextVar('awcenter_resource_leases', default=None)
@@ -44,13 +44,9 @@ def path_claims(path: Path, *, write=False) -> dict[str, bool]:
 
 class _Lease:
     def __init__(self, path, write):
-        require_unlinked(path)
-        if path.exists():
-            require_private(path)
-        self.stream = path.open('a+b')
+        self.stream = open_private_lock(path)
         self.write = write
         try:
-            secure_path(path)
             try:
                 self._lock(write)
             except OSError as error:
@@ -108,7 +104,7 @@ class _Lease:
 @contextmanager
 def resource_locks(home: Path, claims: dict[str, bool]):
     try:
-        directory = private_directory(private_directory(Path(home)) / 'locks')
+        directory = private_directory(Path(home) / 'locks', root=Path(home))
     except OSError as error:
         raise ResourceLockError(system_error=error) from None
     held = dict(_held.get() or {})

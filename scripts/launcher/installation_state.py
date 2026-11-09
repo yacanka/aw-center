@@ -9,31 +9,82 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .installation_permissions import require_private, require_unlinked, secure_path
+from .installation_permissions import (PermissionCheckError, prepare_private, require_local_ntfs,
+                                       require_private, require_unlinked, secure_path)
 from .model import LauncherError
 
 
-def private_directory(path: Path) -> Path:
+def private_directory(path: Path, *, root: Path | None = None, progress=None) -> Path:
+    """Secure every new ancestor and revalidate concurrent directory creation."""
     require_unlinked(path)
-    if path.exists():
-        require_private(path)
-    else:
-        path.mkdir(parents=True)
-        secure_path(path)
+    if root is not None:
+        require_unlinked(root)
+        path, root = Path(os.path.abspath(path)), Path(os.path.abspath(root))
+        if not path.is_relative_to(root):
+            raise PermissionCheckError('path_scope')
+        if path != root:
+            private_directory(path.parent, root=root, progress=progress)
+    if not path.exists():
+        if not path.parent.exists():
+            private_directory(path.parent, progress=progress)
+        try:
+            path.mkdir(mode=0o700)
+        except FileExistsError:
+            pass  # Another creator must pass the same type/owner/ACL checks.
+        else:
+            secure_path(path)
+    if not path.is_dir():
+        raise PermissionCheckError('directory_type')
+    if prepare_private(path) and progress is not None:
+        progress('Kurulum klasörünün devralınan izinleri kullanıcıya özel olarak düzenlendi')
     return path
+
+
+def prepare_installation_storage(home: Path, *, progress=None) -> None:
+    """Admit explicit startup before reading profiles or doing expensive work.
+
+    Only managed directory ACLs are prepared here. Existing profile/env/database
+    files retain strict read checks; no content or ownership is repaired.
+    """
+    if progress is not None:
+        progress('Kurulum alanı ve dosya yazma erişimi denetleniyor')
+    require_local_ntfs(home)
+    directories = [private_directory(home, root=home, progress=progress)]
+    for name in ('config', 'locks'):
+        path = home / name
+        require_unlinked(path)
+        if path.exists():
+            private_directory(path, root=home, progress=progress)
+            if name == 'config':
+                directories.append(path)
+    for directory in directories:
+        if progress is not None:
+            progress('Kurulum alanının yazma ve atomik dosya değiştirme erişimi denetleniyor')
+        _probe_writable(directory)
+
+
+def _probe_writable(directory: Path) -> None:
+    """Exercise real create/fsync/replace access without touching existing state."""
+    with tempfile.TemporaryDirectory(prefix='.startup-check-', dir=directory) as temporary:
+        scratch = Path(temporary)
+        secure_path(scratch)
+        source, destination = scratch / 'source', scratch / 'destination'
+        with source.open('xb') as stream:
+            secure_path(source)
+            stream.write(b'0')
+            stream.flush()
+            os.fsync(stream.fileno())
+        destination.touch(exist_ok=False)
+        os.replace(source, destination)
 
 
 @contextmanager
 def installation_lock(home: Path):
     """Use an OS-owned lock; a crashed process cannot leave a stale active lock."""
-    private_directory(home)
+    private_directory(home, root=home)
     path = home / "installation.lock"
-    require_unlinked(path)
-    if path.exists():
-        require_private(path)
-    with path.open("a+b") as stream:
-        secure_path(path)
-        if path.stat().st_size == 0:
+    with open_private_lock(path) as stream:
+        if os.fstat(stream.fileno()).st_size == 0:
             stream.write(b"0")
             stream.flush()
         stream.seek(0)
@@ -56,10 +107,30 @@ def installation_lock(home: Path):
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
+def open_private_lock(path: Path):
+    """Secure a proven new lock or prepare an existing one without owner writes."""
+    require_unlinked(path)
+    try:
+        stream = path.open('x+b')
+        created = True
+    except FileExistsError:
+        stream = path.open('r+b')
+        created = False
+    try:
+        if created:
+            secure_path(path, file_descriptor=stream.fileno())
+        else:
+            prepare_private(path, file_descriptor=stream.fileno())
+    except BaseException:
+        stream.close()
+        raise
+    return stream
+
+
 @contextmanager
 def runtime_session(profile: dict):
     home = Path(profile["env_file"]).parent.parent
-    parent = private_directory(home / "runs")
+    parent = private_directory(home / "runs", root=home)
     with tempfile.TemporaryDirectory(prefix=profile["name"] + "-", dir=parent) as temporary:
         directory = Path(temporary)
         secure_path(directory)
@@ -82,7 +153,7 @@ def process_environment(values: dict[str, str]):
 
 def save_report(home: Path, profile: str, checks: list[dict]) -> None:
     """Persist only declared result fields, never child output or configuration."""
-    directory = private_directory(home / "logs")
+    directory = private_directory(home / "logs", root=home)
     destination = directory / f"installation-{profile}.json"
     require_unlinked(destination)
     if destination.exists():
@@ -128,7 +199,7 @@ def load_sources(home: Path) -> dict:
 
 
 def save_sources(home: Path, settings) -> None:
-    directory = private_directory(home / "config")
+    directory = private_directory(home / "config", root=home)
     destination = directory / "sources.json"
     require_unlinked(destination)
     if destination.exists():

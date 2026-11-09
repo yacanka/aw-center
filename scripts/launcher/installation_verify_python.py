@@ -101,7 +101,7 @@ def main():
             else:
                 from scripts.launcher.installation_state import private_directory
                 for path in (home, home / "cache", home / "cache/runtimes", home / "runtimes"):
-                    private_directory(path)
+                    private_directory(path, root=home)
             return 0
         if action != "launch":
             raise IntegrityError()

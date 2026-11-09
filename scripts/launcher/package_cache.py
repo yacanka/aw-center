@@ -113,7 +113,7 @@ def acquire_cached(cache_root: Path | None, *, kind: str, locks: tuple[Path, ...
     # an unlikely prefix collision is rejected, never silently shared.
     locator = identity[:12]
     with resource_locks(root, {'package:' + kind + ':' + locator: True}):
-        entries = private_directory(root / kind)
+        entries = private_directory(root / kind, root=root)
         entry = entries / locator
         require_unlinked(entry)
         check_cancelled()

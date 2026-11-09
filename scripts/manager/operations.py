@@ -295,6 +295,11 @@ def _bundle_output(args, home, source):
 
 
 def _dispatch(action, args, emit):
+    if action in {'ensure', 'provision', 'start', 'bundle'} and not getattr(args, '_storage_prepared', False):
+        from scripts.launcher.installation_profiles import installation_home
+        from scripts.launcher.installation_state import prepare_installation_storage
+        prepare_installation_storage(installation_home(), progress=args.progress)
+        args._storage_prepared = True
     if action == 'ensure':
         from .ensure import run
         return run(args, emit)

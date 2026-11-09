@@ -313,7 +313,7 @@ def _provision(project: Project, args) -> list[dict]:
             # Copy its declaration to private storage before the catalog reader
             # enforces owner-only permissions on subsequently consumed metadata.
             from .installation_permissions import secure_path
-            directory = private_directory(home / "config")
+            directory = private_directory(home / "config", root=home)
             destination = directory / "bundle-features.catalog.json"
             if destination.exists():
                 from .installation_permissions import require_private
