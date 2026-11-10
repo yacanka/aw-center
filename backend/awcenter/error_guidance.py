@@ -42,17 +42,14 @@ _EXACT_GUIDANCE = {
     "COMPDOC_IMPORT_PREVIEW_MISMATCH": ErrorGuidance(
         False, "Preview the exact workbook you want to import, then confirm it."
     ),
-    "COMPDOC_IMPORT_DATABASE_CONFLICT": ErrorGuidance(
-        False, "Review a fresh import preview against the latest compliance documents."
+    "VERSION_CONFLICT": ErrorGuidance(
+        False, "Reload the resource, review the latest values, and reapply your changes."
     ),
     "COMPDOC_EXPORT_ROW_LIMIT": ErrorGuidance(
         False, "Narrow the register or ask an administrator to raise the bounded export limit."
     ),
     "COMPDOC_DELETE_COUNT_CONFLICT": ErrorGuidance(
         False, "Refresh the document list and review the new total before deleting."
-    ),
-    "COMPDOC_VERSION_CONFLICT": ErrorGuidance(
-        False, "Reload the document, review the newer values, and reapply your changes."
     ),
     "COMPDOC_VERSION_REQUIRED": ErrorGuidance(
         False, "Reload the document before editing so the current version can be verified."
@@ -81,7 +78,16 @@ _EXACT_GUIDANCE = {
     "COMPDOC_POLICY_PERMISSION_DENIED": ErrorGuidance(
         False, "Request the CompDoc notification-policy manager permission."
     ),
+    "PANEL_IN_USE": ErrorGuidance(
+        False, "Reassign or remove the panel from its compliance documents, then try again."
+    ),
     "IDEMPOTENCY_CONFLICT": ErrorGuidance(False, "Refresh the job list before submitting new data."),
+    "NUMARATOR_TEMPORARY_FAILURE": ErrorGuidance(
+        True, "Check Numarator availability, then retry this allocation."
+    ),
+    "NUMARATOR_NOT_CONFIGURED": ErrorGuidance(
+        False, "Ask an administrator to configure Numarator for this project."
+    ),
     "INVITATION_EXPIRED": ErrorGuidance(False, "Ask an administrator to create a new invitation."),
     "INVITATION_REVOKED": ErrorGuidance(False, "Ask an administrator for the newest invitation."),
     "INVITATION_USED": ErrorGuidance(False, "Sign in with the account created from this invitation."),
@@ -121,6 +127,15 @@ _EXACT_GUIDANCE = {
     ),
     "DCC_TEMPLATE_UNAVAILABLE": ErrorGuidance(
         False, "Ask an administrator to deploy the registered project DOCX template."
+    ),
+    "PROJECT_CONFIGURATION_UNAVAILABLE": ErrorGuidance(
+        False, "Ask an administrator to validate the private project configuration and its access permissions."
+    ),
+    "DDF_POLICY_UNAVAILABLE": ErrorGuidance(
+        False, "Ask an administrator to validate the private DDF assessment policy."
+    ),
+    "DCC_POLICY_UNAVAILABLE": ErrorGuidance(
+        False, "Ask an administrator to validate the private DCC signatory policy and its access permissions."
     ),
     "DCC_RENDER_FAILED": ErrorGuidance(
         False, "Ask an administrator to validate the registered template placeholders."
@@ -167,6 +182,23 @@ _EXACT_GUIDANCE = {
     "TEAMCENTER_NOT_CONFIGURED": ErrorGuidance(False, "Ask an administrator to configure Teamcenter."),
     "TEAMCENTER_AUTH_FAILED": ErrorGuidance(False, "Ask an administrator to verify Teamcenter credentials."),
     "DOORS_UNAVAILABLE": ErrorGuidance(False, "Start or configure the DOORS client, then retry."),
+    "DOORS_CONFIG_INVALID": ErrorGuidance(False, "Correct the DOORS client settings and restart AW Center."),
+    "DOORS_EXECUTABLE_UNAVAILABLE": ErrorGuidance(False, "Check DOORS_EXECUTABLE and the DOORS_OLE_PROG_ID registration."),
+    "DOORS_COM_DEPENDENCY_UNAVAILABLE": ErrorGuidance(
+        False, "Reinstall the locked Windows dependencies, including pywin32."
+    ),
+    "DOORS_PROCESS_INSPECTOR_UNAVAILABLE": ErrorGuidance(
+        False, "Reinstall the locked Windows dependencies, including WMI."
+    ),
+    "DOORS_PROCESS_INSPECTION_FAILED": ErrorGuidance(
+        True, "Check WMI access and that the worker runs in the interactive Windows session."
+    ),
+    "DOORS_CLIENT_NOT_RUNNING": ErrorGuidance(
+        False, "Open and sign in to DOORS, or enable DOORS_AUTO_START_CLIENT."
+    ),
+    "DOORS_PLATFORM_UNSUPPORTED": ErrorGuidance(False, "Run the DOORS-capable worker on Windows."),
+    "DOORS_STARTUP_TIMEOUT": ErrorGuidance(True, "Check DOORS login, database, license and desktop dialogs, then submit again."),
+    "DOORS_MODULE_ALREADY_OPEN": ErrorGuidance(False, "Save and close the target module in DOORS before submitting the write again."),
     "WORD_MODEL_UNAVAILABLE": ErrorGuidance(False, "Ask an administrator to deploy the local AI model."),
     "WORD_ANALYZER_MODEL_UNAVAILABLE": ErrorGuidance(
         False, "Ask an administrator to deploy the analyzer models."
@@ -180,12 +212,14 @@ _EXACT_GUIDANCE = {
 
 _PREFIX_GUIDANCE = (
     ("COMPDOC_IMPORT_", ErrorGuidance(False, "Review the import audit and correct the workbook.")),
+    ("PANEL_IMPORT_", ErrorGuidance(False, "Review the panel workbook and its import preview.")),
     ("UPLOAD_ARCHIVE_", ErrorGuidance(False, "Use a safe, unencrypted archive with fewer entries.")),
     ("UPLOAD_", ErrorGuidance(False, "Review the file requirements and choose another input.")),
     ("INVITATION_", ErrorGuidance(False, "Ask an administrator to review the invitation status.")),
     ("TEAMCENTER_", ErrorGuidance(True, "Check Teamcenter availability, then retry once.")),
     ("DOORS_", ErrorGuidance(True, "Check the DOORS client connection, then retry once.")),
     ("JIRA_", ErrorGuidance(True, "Check the JIRA session and attachment, then retry once.")),
+    ("NUMARATOR_", ErrorGuidance(False, "Review the allocation and Numarator configuration.")),
     ("DCC_", ErrorGuidance(False, "Review the JIRA task, project mapping, and DCC fields.")),
     ("JOB_", ErrorGuidance(False, "Open Job Center and review the job details.")),
     ("WORD_", ErrorGuidance(False, "Review the document and local model configuration.")),

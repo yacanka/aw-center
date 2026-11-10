@@ -5,28 +5,93 @@ from rest_framework.response import Response
 
 import json
 from io import BytesIO
+from xml.etree.ElementTree import ParseError
+from zipfile import BadZipFile
+from lxml.etree import XMLSyntaxError
+from openpyxl.utils.exceptions import InvalidFileException
+from awcenter.api_errors import error_response
 from awcenter.file_security import EXCEL_POLICY, validate_request_upload
+from awcenter.spreadsheet_security import (
+    SpreadsheetLimitError,
+    spreadsheet_safe_dataframe,
+    validate_worksheet_bounds,
+)
 from .cover_pages import inspect_workbook_columns
+from comparison.contracts import MAX_ROWS, MAX_COLUMNS, MAX_CHARACTERS, MAX_SHEETS
+
+MAX_SYNCHRONOUS_CELLS = 25000
+
+
+class ExcelCompareInputError(Exception):
+    def __init__(self, detail, code="EXCEL_COMPARE_INVALID"):
+        super().__init__(detail)
+        self.detail = detail
+        self.code = code
 
 def read_excel_first_sheet(path):
     import pandas as pd
 
-    df = pd.read_excel(path, dtype=str)
+    try:
+        with pd.ExcelFile(path) as workbook:
+            if len(workbook.sheet_names) > MAX_SHEETS:
+                raise ExcelCompareInputError("The workbook has too many worksheets.", "EXCEL_COMPARE_LIMIT_EXCEEDED")
+            if workbook.engine == "xlrd":
+                sheet = workbook.book.sheet_by_index(0)
+                rows, columns = sheet.nrows, sheet.ncols
+            else:
+                sheet = workbook.book.worksheets[0]
+                rows, columns = sheet.max_row, sheet.max_column
+            if ((rows and rows > MAX_ROWS + 1) or (columns and columns > MAX_COLUMNS)
+                    or (rows and columns and max(0, rows - 1) * columns > MAX_SYNCHRONOUS_CELLS)):
+                raise ExcelCompareInputError("The worksheet exceeds synchronous comparison limits.", "EXCEL_COMPARE_LIMIT_EXCEEDED")
+            validate_worksheet_bounds(workbook, max_columns=MAX_COLUMNS, max_rows=MAX_ROWS + 1,
+                                      max_characters=MAX_CHARACTERS, max_cells=MAX_SYNCHRONOUS_CELLS)
+            df = workbook.parse(dtype=str, nrows=MAX_ROWS + 1)
+    except SpreadsheetLimitError as error:
+        raise ExcelCompareInputError(
+            "The worksheet exceeds synchronous comparison limits. Use the comparison job tool.",
+            "EXCEL_COMPARE_LIMIT_EXCEEDED",
+        ) from error
+    except (ValueError, BadZipFile, ParseError, XMLSyntaxError, InvalidFileException, KeyError, EOFError) as error:
+        raise ExcelCompareInputError("Upload readable Excel workbooks.") from error
+    if (len(df) > MAX_ROWS or len(df.columns) > MAX_COLUMNS
+            or sum(len(str(value)) for value in df.columns) + sum(len(str(value)) for value in df.to_numpy().flat) > MAX_CHARACTERS):
+        raise ExcelCompareInputError("The worksheet exceeds synchronous comparison limits.", "EXCEL_COMPARE_LIMIT_EXCEEDED")
     df.columns = [str(c).strip() for c in df.columns]
-    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    df = df.map(lambda value: value.strip() if isinstance(value, str) else value)
     df = df.fillna("")
     return df
+
 
 def pick_key_columns(df, key_cols=None):
     if key_cols:
         missing = [c for c in key_cols if c not in df.columns]
         if missing:
-            raise ValueError(f"Key column is not found: {missing}")
+            raise ExcelCompareInputError("A selected key column is missing from the workbook.")
         return key_cols
     for k in ["id", "ID", "Id", "iD"]:
         if k in df.columns:
             return [k]
-    raise ValueError("Key column is not set and 'id' not found. Use key_cols=['...'].")
+    raise ExcelCompareInputError("Select a key column that exists in both workbooks.")
+
+
+def parse_compare_parameters(request):
+    try:
+        raw = request.data.get("json")
+        if not isinstance(raw, str) or len(raw) > 4096:
+            raise ValueError()
+        parameters = json.loads(raw)
+        key_columns = parameters["keyColumns"]
+    except (KeyError, TypeError, ValueError) as error:
+        raise ExcelCompareInputError("Select valid Excel comparison parameters.") from error
+    if (
+        not isinstance(key_columns, list)
+        or not 1 <= len(key_columns) <= 10
+        or not all(isinstance(value, str) and 0 < len(value) <= 200 and value.strip() for value in key_columns)
+        or len(set(key_columns)) != len(key_columns)
+    ):
+        raise ExcelCompareInputError("Select between one and ten valid key columns.")
+    return key_columns
 
 @api_view(["POST"])
 def get_excel_columns(request):
@@ -41,23 +106,33 @@ def compare(request):
     try:
         import pandas as pd
 
-        parameters = json.loads(request.data["json"])
-        key_columns = parameters["keyColumns"]
+        key_columns = parse_compare_parameters(request)
 
         old_df = read_excel_first_sheet(first_excel)
         new_df = read_excel_first_sheet(second_excel)
+        # Each changed cell creates a long-form row plus copies in both value
+        # sheets. Bound source cells before materializing those report objects.
+        if old_df.size + new_df.size > MAX_SYNCHRONOUS_CELLS:
+            raise ExcelCompareInputError(
+                "The tables exceed synchronous report limits. Use the comparison job tool.",
+                "EXCEL_COMPARE_LIMIT_EXCEEDED",
+            )
         key_cols = pick_key_columns(old_df, key_columns)
 
         for k in key_cols:
             if k not in new_df.columns:
-                raise ValueError(f"Yeni dosyada anahtar sütun eksik: {k}")
+                raise ExcelCompareInputError("A selected key column is missing from the workbook.")
 
         if old_df.duplicated(key_cols).any():
-            dups = old_df[old_df.duplicated(key_cols, keep=False)].sort_values(key_cols)
-            raise ValueError(f"Eski dosyada anahtar tekrarı var. Düzenleyin.\n{dups}")
+            raise ExcelCompareInputError(
+                "The first workbook contains duplicate key values.",
+                "EXCEL_COMPARE_DUPLICATE_KEYS",
+            )
         if new_df.duplicated(key_cols).any():
-            dups = new_df[new_df.duplicated(key_cols, keep=False)].sort_values(key_cols)
-            raise ValueError(f"Yeni dosyada anahtar tekrarı var. Düzenleyin.\n{dups}")
+            raise ExcelCompareInputError(
+                "The second workbook contains duplicate key values.",
+                "EXCEL_COMPARE_DUPLICATE_KEYS",
+            )
 
         old_df = old_df.set_index(key_cols, drop=False)
         new_df = new_df.set_index(key_cols, drop=False)
@@ -107,13 +182,25 @@ def compare(request):
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as xlw:
             summary.to_excel(xlw, index=False, sheet_name="Summary")
-            added.reset_index(drop=True).to_excel(xlw, index=False, sheet_name="Added")
-            removed.reset_index(drop=True).to_excel(xlw, index=False, sheet_name="Removed")
-            unchanged.reset_index(drop=True).to_excel(xlw, index=False, sheet_name="Unchanged")
+            spreadsheet_safe_dataframe(added.reset_index(drop=True)).to_excel(
+                xlw, index=False, sheet_name="Added"
+            )
+            spreadsheet_safe_dataframe(removed.reset_index(drop=True)).to_excel(
+                xlw, index=False, sheet_name="Removed"
+            )
+            spreadsheet_safe_dataframe(unchanged.reset_index(drop=True)).to_excel(
+                xlw, index=False, sheet_name="Unchanged"
+            )
 
-            updated_rows_old.reset_index(drop=True).to_excel(xlw, index=False, sheet_name="Updated (old value)")
-            updated_rows_new.reset_index(drop=True).to_excel(xlw, index=False, sheet_name="Updated (new value)")
-            diffs_df.to_excel(xlw, index=False, sheet_name="Cell Diffs")
+            spreadsheet_safe_dataframe(updated_rows_old.reset_index(drop=True)).to_excel(
+                xlw, index=False, sheet_name="Updated (old value)"
+            )
+            spreadsheet_safe_dataframe(updated_rows_new.reset_index(drop=True)).to_excel(
+                xlw, index=False, sheet_name="Updated (new value)"
+            )
+            spreadsheet_safe_dataframe(diffs_df).to_excel(
+                xlw, index=False, sheet_name="Cell Diffs"
+            )
 
         buffer.seek(0)
 
@@ -130,5 +217,5 @@ def compare(request):
         #    "updated_new": updated_rows_new,
         #    "cell_diffs": diffs_df,
         #})
-    except Exception as e:
-        return Response({"detail": f"Something went wrong: {e}"}, status=400)
+    except ExcelCompareInputError as error:
+        return error_response(error.detail, error.code, response_status=400)

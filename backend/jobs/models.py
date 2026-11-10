@@ -16,6 +16,7 @@ class JobStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required", "Reconciliation required"
 
 
 def job_input_path(instance, filename):
@@ -54,6 +55,7 @@ class Job(models.Model):
     result_summary = models.JSONField(default=dict, blank=True)
     error_code = models.CharField(max_length=64, blank=True)
     retryable = models.BooleanField(default=True)
+    reconcile_on_lease_loss = models.BooleanField(default=False)
     idempotency_key = models.CharField(max_length=128, blank=True)
     attempt = models.PositiveSmallIntegerField(default=1)
     max_attempts = models.PositiveSmallIntegerField(default=3)
@@ -69,6 +71,7 @@ class Job(models.Model):
     workflow_step = models.PositiveSmallIntegerField(null=True, blank=True)
     request_id = models.CharField(max_length=64, blank=True)
     worker_id = models.CharField(max_length=128, blank=True)
+    execution_token = models.UUIDField(null=True, blank=True, editable=False)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
     confirmation_expires_at = models.DateTimeField(null=True, blank=True)
     cancel_requested_at = models.DateTimeField(null=True, blank=True)

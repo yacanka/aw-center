@@ -1,6 +1,9 @@
-"""Tests for AW Center API error contract enforcement."""
+"""Tests for AW Center API, health, and logging contracts."""
 
-from django.contrib.auth import get_user_model
+import json
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from django.test import TestCase, override_settings
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, ValidationError
@@ -8,12 +11,12 @@ from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
 
 from awcenter.pagination import StandardResultsSetPagination
-from common.views import filtered_queryset
 from awcenter.api_errors import (
     ApiErrorContractMiddleware,
     ErrorCodes,
     error_response,
 )
+from awcenter.logging import JsonEventFormatter
 
 
 class ContractValidationView(APIView):
@@ -149,38 +152,6 @@ class ApiPaginationContractTests(TestCase):
         self.assertEqual(response.data["results"], [0, 1, 2])
 
 
-class ServerSideFilterTests(TestCase):
-    """Verify safe queryset filtering for paginated list endpoints."""
-
-    def setUp(self):
-        """Create model rows and request factory for filter tests."""
-
-        self.factory = APIRequestFactory()
-        self.user_model = get_user_model()
-        self.user_model.objects.create_user(username="alice", password="secret")
-        self.user_model.objects.create_user(username="bob", password="secret")
-
-    def test_filtered_queryset_applies_model_field_filters(self):
-        """Allowed model fields are filtered using server-side query params."""
-
-        request = self.factory.get("/users/", {"username": "ali", "page": 1})
-        queryset = filtered_queryset(request, self.user_model.objects.all())
-
-        self.assertEqual(list(queryset.values_list("username", flat=True)), ["alice"])
-
-    def test_filtered_queryset_applies_repeated_value_filters(self):
-        """Repeated params are converted to safe field __in lookups."""
-
-        request = self.factory.get("/users/", {"username": ["alice", "bob"]})
-        queryset = filtered_queryset(
-            request, self.user_model.objects.order_by("username")
-        )
-
-        self.assertEqual(
-            list(queryset.values_list("username", flat=True)), ["alice", "bob"]
-        )
-
-
 class HealthEndpointTests(TestCase):
     """Verify unauthenticated operational health endpoints."""
 
@@ -192,22 +163,61 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"status": "ok"})
 
-    def test_ready_endpoint_reports_database_and_cache(self):
+    @patch("awcenter.views.frontend_files_are_ready", return_value=True)
+    def test_ready_endpoint_reports_required_dependencies(self, _frontend_ready):
         """Readiness includes dependency checks for orchestration probes."""
 
         response = self.client.get("/health/ready/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "ok")
-        self.assertEqual(response.json()["checks"], {"database": True, "cache": True})
+        self.assertEqual(
+            response.json()["checks"],
+            {"database": True, "cache": True, "frontend": True},
+        )
 
     @override_settings(
         CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
     )
-    def test_ready_endpoint_fails_when_cache_is_unavailable(self):
+    @patch("awcenter.views.frontend_files_are_ready", return_value=True)
+    def test_ready_endpoint_fails_when_cache_is_unavailable(self, _frontend_ready):
         """Readiness returns 503 when a required dependency is unavailable."""
 
         response = self.client.get("/health/ready/")
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertFalse(response.json()["checks"]["cache"])
+
+    @patch("awcenter.views.frontend_files_are_ready", return_value=False)
+    def test_ready_endpoint_fails_when_frontend_artifact_is_missing(self, _frontend_ready):
+        response = self.client.get("/health/ready/")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertFalse(response.json()["checks"]["frontend"])
+
+
+class StructuredLoggingTests(TestCase):
+    def test_formatter_emits_allowlisted_context_without_payload_or_username(self):
+        formatter = JsonEventFormatter()
+        record = SimpleNamespace(
+            levelname="INFO",
+            name="awcenter.requests",
+            event="request.completed",
+            request_id="request-1",
+            user_id=42,
+            method="POST",
+            path="/api/jobs/",
+            status=202,
+            duration_ms=12.5,
+            exc_info=None,
+            getMessage=lambda: "ignored",
+            username="sensitive-name",
+            payload={"password": "secret"},
+        )
+
+        output = json.loads(formatter.format(record))
+
+        self.assertEqual(output["event"], "request.completed")
+        self.assertEqual(output["user_id"], 42)
+        self.assertNotIn("username", output)
+        self.assertNotIn("payload", output)

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 
 from .model import LauncherError, Project
-from .process import required_tool, run
+from .process import npm_command, required_tool, run
 
 
 def django(project: Project, arguments: list[str], extra_env: dict[str, str] | None = None) -> None:
@@ -44,4 +45,5 @@ def run_script(project: Project, script: str) -> None:
     """Run one npm script from the discovered Vue directory."""
     if script not in package_scripts(project):
         raise LauncherError(f"npm script is missing: {script}")
-    run([required_tool("npm"), "run", script], project.frontend)
+    command = npm_command() if os.environ.get("AWCENTER_MANAGED_NPM_CLI") else [required_tool("npm")]
+    run([*command, "run", script], project.frontend)

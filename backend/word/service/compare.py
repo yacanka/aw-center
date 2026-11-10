@@ -159,7 +159,7 @@ def replaced_rows(first_block, second_block, equal_ratio, weak_equal_ratio):
 def match_replacement(first_index, first_text, second_block, used_second_indexes, equal_ratio, weak_equal_ratio):
     """Return the legacy row for one replaced paragraph candidate."""
     best_index, best_ratio = find_best_match(first_text, second_block, used_second_indexes)
-    if best_index == -1:
+    if best_index == -1 or best_ratio < weak_equal_ratio:
         return first_index, first_text, None, None, "delete"
     second_index, second_text = second_block[best_index]
     used_second_indexes.add(best_index)

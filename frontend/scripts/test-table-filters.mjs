@@ -5,18 +5,14 @@ import {
   getBooleanFilterFunc,
   getDateFilterFunc,
   getStringFilterFunc
-} from '../src/services/tableFilters.ts'
-import { serializeCompdocFilters } from '../src/composables/compdoc/table.ts'
+} from '../src/shared/services/tableFilters.ts'
+import { serializeCompdocFilters } from '../src/features/compliance/composables/table.ts'
 import {
   createDefaultColumnSettings,
   reconcileColumnSettings
-} from '../src/services/compdocColumns.ts'
-import { buildClientCompdocSummary } from '../src/services/compdocChartAlgorithms.ts'
-import {
-  createStatusChartData,
-  createStatusChartRows,
-  createTimelineChartData
-} from '../src/services/compdocChartData.ts'
+} from '../src/features/compliance/api/compdocColumns.ts'
+import { buildClientCompdocSummary } from '../src/features/compliance/api/compdocChartAlgorithms.ts'
+import { withCompdocDisplayStatus } from '../src/features/compliance/api/compdocStatus.ts'
 
 test('matches equal dates and supports both accepted date formats', () => {
   const filter = getDateFilterFunc('date')
@@ -42,12 +38,12 @@ test('serializes remote date operators and multi-select filters', () => {
   assert.deepEqual(
     serializeCompdocFilters({
       panel: ['Systems', 'Structures'],
-      ubm_target_date: { date: '19.07.2026', type: '>=' },
+      target_date: { date: '19.07.2026', type: '>=' },
       empty: []
     }),
     {
-      panel: ['Systems', 'Structures'],
-      ubm_target_date__gte: '2026-07-19'
+      panel_name: ['Systems', 'Structures'],
+      target_date__gte: '2026-07-19'
     }
   )
 })
@@ -69,13 +65,22 @@ test('reconciles preferences with the current server field schema', () => {
 
   assert.deepEqual(
     settings.map((setting) => setting.key),
-    ['name', 'status']
+    ['name']
   )
   assert.equal(settings[0].width, 600)
   assert.deepEqual(
     createDefaultColumnSettings(fields).map((setting) => setting.key),
     ['name', 'status']
   )
+})
+
+test('restores recommended columns only when no saved columns remain valid', () => {
+  const fields = [field('name', true, 'text'), field('status', true, 'select')]
+  assert.deepEqual(
+    reconcileColumnSettings([{ key: 'removed' }], fields),
+    createDefaultColumnSettings(fields)
+  )
+  assert.deepEqual(reconcileColumnSettings(null, fields), createDefaultColumnSettings(fields))
 })
 
 function field(key, defaultVisible, filterKind) {
@@ -93,14 +98,20 @@ function field(key, defaultVisible, filterKind) {
   }
 }
 
-test('builds resilient CompDoc chart aggregates without changing status buckets', () => {
+test('builds resilient CompDoc chart aggregates including custom project statuses', () => {
   const rows = [
-    document('delayed', [{ status: 'to_be_issued', date: '20.07.2026' }]),
-    document('authority_approved', [
-      { status: 'to_be_issued', date: '01.07.2026' },
-      { status: 'authority_review', date: '10.07.2026' },
-      { status: 'authority_approved', date: '15.07.2026' }
-    ]),
+    {
+      ...document('delayed', [{ status: 'to_be_issued', date: '20.07.2026' }]),
+      target_date: '2026-07-20'
+    },
+    {
+      ...document('authority_approved', [
+        { status: 'to_be_issued', date: '01.07.2026' },
+        { status: 'authority_review', date: '10.07.2026' },
+        { status: 'authority_approved', date: '15.07.2026' }
+      ]),
+      target_date: '2026-07-01'
+    },
     document('to_be_updated', [{ status: 'to_be_updated', date: '18.07.2026' }]),
     document('unexpected', [{ status: 'to_be_issued', date: '31.02.2026' }])
   ]
@@ -109,30 +120,70 @@ test('builds resilient CompDoc chart aggregates without changing status buckets'
 
   assert.equal(summary.statuses.delayed, 1)
   assert.equal(summary.statuses.authority_approved, 1)
-  assert.equal(summary.statuses.unknown, 1)
+  assert.equal(summary.statuses.unexpected, 1)
+  assert.equal(summary.statuses.unknown, undefined)
   assert.deepEqual(summary.pendingDays, { authority: 5, ubm: 6, aw: 0 })
   assert.equal(summary.timeline.scheduled.length, 2)
 })
 
-test('creates zero-safe doughnut data and anchored stepped burndown lines', () => {
-  const rows = createStatusChartRows({ to_be_issued: 3, authority_approved: 1, delayed: 0 })
-  const statusData = createStatusChartData(rows)
-  const timelineData = createTimelineChartData(
-    {
-      scheduled: [{ x: '20.07.2026', y: 3 }],
-      actual: [{ x: '21.07.2026', y: 2 }],
-      today: [{ x: '22.07.2026', y: 2 }],
-      last_scheduled: null,
-      last_actual: null
-    },
-    4
+test('builds chart milestones from canonical workflow projections', () => {
+  const summary = buildClientCompdocSummary(
+    [
+      {
+        ...document('authority_review', []),
+        target_date: '2026-07-20',
+        release_date: '2026-07-21'
+      }
+    ],
+    new Date(2026, 6, 22)
   )
 
-  assert.deepEqual(statusData.datasets[0].data, [3, 1])
-  assert.deepEqual(statusData.labels, ['To be Issued', 'Authority Approved'])
-  assert.equal(timelineData.datasets[0].stepped, 'after')
-  assert.equal(timelineData.datasets[0].data[0].y, 4)
-  assert.equal(typeof timelineData.datasets[0].data[0].x, 'number')
+  assert.equal(summary.timeline.scheduled.length, 1)
+  assert.equal(summary.timeline.actual[0].x, '21.07.2026')
+})
+
+test('keeps delivery-only workflow projections out of the scheduled series', () => {
+  const summary = buildClientCompdocSummary(
+    [
+      {
+        ...document('authority_review', []),
+        target_date: null,
+        release_date: '2026-07-21'
+      }
+    ],
+    new Date(2026, 6, 22)
+  )
+
+  assert.equal(summary.timeline.scheduled.length, 0)
+  assert.equal(summary.timeline.actual[0].x, '21.07.2026')
+})
+
+test('separates original and revised schedule while preserving delayed display', () => {
+  const row = {
+    ...document('to_be_issued', []),
+    target_date: '2026-07-01',
+    revised_target_date: '2026-08-01',
+    release_date: '2026-06-01'
+  }
+  const summary = buildClientCompdocSummary([row], new Date(2026, 6, 22))
+  assert.equal(summary.timeline.scheduled[0].x, '01.07.2026')
+  assert.equal(summary.timeline.revised_scheduled[0].x, '01.08.2026')
+  assert.equal(summary.timeline.actual[0].x, '01.06.2026')
+  assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 22)).status, 'to_be_issued')
+})
+
+test('marks yesterday as delayed without a UTC/local timezone offset', () => {
+  const row = {
+    ...document('to_be_issued', []),
+    target_date: '2026-07-21'
+  }
+
+  assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 22)).status, 'delayed')
+  assert.equal(withCompdocDisplayStatus(row, new Date(2026, 6, 21)).status, 'to_be_issued')
+  assert.equal(
+    withCompdocDisplayStatus({ ...row, release_date: '2026-07-01' }, new Date(2026, 6, 22)).status,
+    'to_be_issued'
+  )
 })
 
 function document(status, statusFlow) {

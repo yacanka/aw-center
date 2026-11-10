@@ -1,0 +1,124 @@
+export interface DashboardPoint {
+  x: string
+  y: number
+}
+
+export interface DashboardMetric {
+  filled: number
+  empty: number
+  percentage: number
+}
+
+export interface DashboardPanel {
+  id: string
+  panel: string
+  ata: string
+  analytics: DashboardAnalytics
+}
+
+export interface DashboardTimeline {
+  scheduled: DashboardPoint[]
+  revised_scheduled?: DashboardPoint[]
+  actual: DashboardPoint[]
+  today: DashboardPoint[]
+  last_scheduled: DashboardPoint | null
+  last_actual: DashboardPoint | null
+}
+
+export interface DashboardDataQuality {
+  issue_count: number
+  out_of_order_dates: number
+  missing_panel: number
+  unknown_status: number
+  blank_cover_page: number
+}
+
+export type DashboardRiskLevel = 'very_high' | 'high' | 'medium' | 'low'
+export type DashboardRiskSeverity = 'high' | 'medium' | 'low'
+
+export interface DashboardRiskSignal {
+  code: string
+  label: string
+  points: number
+  severity: DashboardRiskSeverity
+  observed: number
+  threshold: number
+  unit: 'days' | 'cycles' | 'missing'
+  detail: string
+}
+
+export interface DashboardRiskPriority {
+  document_id: string
+  name: string
+  panel: string
+  ata: string
+  status: string
+  stage_age_days: number
+  score: number
+  level: DashboardRiskLevel
+  signals: DashboardRiskSignal[]
+}
+
+export interface DashboardRiskPolicy {
+  version: number
+  very_high_score: number
+  high_score: number
+  medium_score: number
+  max_score: number
+  priority_limit: number
+}
+
+export interface DashboardRiskSummary {
+  counts: Record<DashboardRiskLevel, number>
+  at_risk_count: number
+  average_score: number
+  max_score: number
+  priorities: DashboardRiskPriority[]
+  policy: DashboardRiskPolicy
+}
+
+export interface DashboardTrackingSummary {
+  configured_count: number
+  notification_enabled_count: number
+  revision_available_count: number
+  delivery_failure_count: number
+}
+
+export interface DashboardOperationalSummary {
+  unassigned: number
+  action_overdue: number
+  action_due_soon: number
+  pending_review: number
+  pending_approval: number
+  archived: number
+  filters: Record<string, Record<string, string>>
+}
+
+export interface DashboardPublicationGroup {
+  total: number
+  status_counts: Record<string, number>
+}
+
+export interface DashboardAnalytics {
+  total: number
+  overdue: number
+  status_counts: Record<string, number>
+  chart_status_counts: Record<string, number>
+  cat_counts: Record<string, number>
+  publication: Record<'issued' | 'not_issued', DashboardPublicationGroup>
+  unissued_moc_counts: Record<string, number>
+  timeline: DashboardTimeline
+  performance: Record<'scheduled' | 'actual' | 'approved', DashboardMetric>
+  pending_days: Record<'authority' | 'ubm' | 'aw', number>
+  risk: DashboardRiskSummary
+  data_quality: DashboardDataQuality
+}
+
+export interface CompDocDashboardSummary extends DashboardAnalytics {
+  statuses?: Array<{ value: string; label: string }>
+  project: string
+  archived: number
+  generated_at: string
+  panels: DashboardPanel[]
+  panel_groups: DashboardPanel[]
+}

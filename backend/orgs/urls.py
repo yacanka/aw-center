@@ -1,15 +1,36 @@
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from orgs.views import PanelViewSet, ResponsibleViewSet, PeopleViewSet, UploadPeople
-from projects.api import project_registry
+
+from .views import (
+    PanelImportConfirmView,
+    PanelImportPreviewView,
+    PanelViewSet,
+    PersonViewSet,
+    ResponsibleAssignmentViewSet,
+    UploadPeople,
+)
+
 
 router = DefaultRouter()
-router.register("panels", PanelViewSet)
-router.register("responsibles", ResponsibleViewSet)
-router.register("people", PeopleViewSet)
+router.register("panels", PanelViewSet, basename="project-panels")
+router.register(
+    "responsible-assignments",
+    ResponsibleAssignmentViewSet,
+    basename="project-responsible-assignments",
+)
+router.register("people", PersonViewSet, basename="project-people")
 
 urlpatterns = [
-    path('projects/', project_registry, name='registered-projects'),
-    path('', include(router.urls)),
-    path('upload_people/', UploadPeople.as_view()),
+    path(
+        "panels/imports/preview/",
+        PanelImportPreviewView.as_view(),
+        name="project-panel-import-preview",
+    ),
+    path(
+        "panels/imports/confirm/",
+        PanelImportConfirmView.as_view(),
+        name="project-panel-import-confirm",
+    ),
+    path("people/import/", UploadPeople.as_view(), name="project-people-import"),
+    path("", include(router.urls)),
 ]

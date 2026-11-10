@@ -1,0 +1,3 @@
+[
+  {"route":"/app/","feature":"İşletim sisteminin PWA yükleme istemi","reason":"Bu istemi tarayıcı ve işletim sistemi koşullu olarak üretir. İzole kayıt oturumunda Service Worker kapalıydı."}
+]

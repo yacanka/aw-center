@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from jobs.contracts import JobExecutionFailure
+from jobs.kind_contracts import DEFAULT_WORD_ANALYSIS_CHECK_IDS
 
 ANALYSIS_CHECKS = {
     "compliance_documents": "Does the document contain a list of compliance documents?",
@@ -11,6 +12,8 @@ ANALYSIS_CHECKS = {
     "revision_history": "Does the document contain revision or change history?",
     "approvals": "Does the document contain approval or signature information?",
 }
+if tuple(ANALYSIS_CHECKS) != DEFAULT_WORD_ANALYSIS_CHECK_IDS:
+    raise RuntimeError("Default analysis check order must match the durable job contract.")
 CUSTOM_CHECK_PREFIX = "custom:"
 MAX_CUSTOM_CHECKS = 20
 MAX_QUESTION_LENGTH = 500

@@ -1,5 +1,6 @@
-from django import forms
 from django.shortcuts import get_object_or_404
+
+import logging
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -7,19 +8,23 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from common.views import paginated_response
+from awcenter.api_errors import ErrorCodes, error_response
+from awcenter.pagination import paginated_response
 from ddf.models import DDF
-from ddf.permissions import DDFPermission, IsDDFOwner
+from ddf.assessment_policy import DdfPolicyConfigurationError, assessment_prompt
+from ddf.imports import DDFImportError, read_ddf
+from ddf.permissions import DDFPermission, IsDDFOwner, DDFAssessmentPermission
 from ddf.serializers import DDFSerializer
+from integrations.assessment import AssessmentServiceError, request_assessment
 
-from docx import Document
-from collections import OrderedDict
-import json
-import requests
 from awcenter.file_security import WORD_POLICY, validate_request_upload
 
 
 PUBLIC_ENDPOINTS = {}
+LOGGER = logging.getLogger(__name__)
+REVIEW_TYPES = frozenset({
+    "Teknik Görüş", "Bilgi Görüşü", "Editöryel Görüş", "Panel Ekleme/Çıkarma Görüşü",
+})
 
 
 class DDFView(APIView):
@@ -77,93 +82,106 @@ class DDFObjView(APIView):
         return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
 
 
-class UploadForm(forms.Form):
-    file = forms.FileField()
-
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, DDFPermission])
 def upload_ddf(request):
     word_file = validate_request_upload(request, "file", WORD_POLICY)
-    form = UploadForm(request.POST, request.FILES)
-    if form.is_valid():
-        doc = Document(word_file)
-
-        ddf = {}
-        content = []
-
-        for i, table in enumerate(doc.tables):
-            for row in table.rows:
-                row_data = [cell.text.strip().replace("\n", " ") for cell in row.cells]
-                row_data = list(OrderedDict.fromkeys(row_data))
-                content.append(row_data)
-
-        ddf["project"] = content[0][1]
-        ddf["doc_name"] = content[1][1]
-        ddf["doc_no"] = content[2][1]
-        ddf["doc_issue"] = content[2][3]
-        ddf["date"] = content[2][5]
-        ddf["commentor"] = content[3][1]
-        ddf["comments"] = content[5:]
-
-        serializer = DDFSerializer(data=ddf, context={'request': request})
-        if serializer.is_valid():
-            serializer.save(created_by=request.user)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        ddf = read_ddf(word_file)
+    except DDFImportError:
+        return error_response(
+            "Upload a readable Word document with the supported DDF table layout.",
+            code="DDF_IMPORT_INVALID",
+            response_status=400,
+        )
+    serializer = DDFSerializer(data=ddf, context={"request": request})
+    if serializer.is_valid():
+        serializer.save(created_by=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated, DDFPermission])
+@permission_classes([IsAuthenticated, DDFAssessmentPermission])
 def ddf_assessment(request):
+    ddf_data = request.data
+    ddf = get_object_or_404(DDF, id=ddf_data.get("id"))
+    if ddf.created_by_id != request.user.id:
+        return error_response(
+            "You do not have permission to access this DDF.",
+            code=ErrorCodes.FORBIDDEN,
+            response_status=403,
+        )
+    comments = ddf_data.get("comments")
+    if not isinstance(comments, list) or any(
+        not isinstance(comment, (list, tuple)) or len(comment) < 3
+        for comment in comments
+    ):
+        return error_response(
+            "Invalid DDF assessment request.",
+            code=ErrorCodes.VALIDATION_ERROR,
+            response_status=400,
+        )
+
+    if comments != ddf.comments:
+        return assessment_conflict()
+
+    authority_comments = [
+        f"\n{index + 1}) {comment[2]}\n"
+        for index, comment in enumerate(comments)
+    ]
+
     try:
-        ddf_data = json.loads(request.body)
+        prompt = assessment_prompt(authority_comments)
 
-        ddf = get_object_or_404(DDF, id=ddf_data['id'])
-        if ddf.created_by_id != request.user.id:
-            return Response({"detail": "You do not have permission to access this DDF."}, 403)
+        answer = request_assessment(prompt)
+        review_types = [review_type.strip() for review_type in answer.split(",")]
+        if len(review_types) != len(comments) or any(
+            review not in REVIEW_TYPES for review in review_types
+        ):
+            raise AssessmentServiceError(
+                "The assessment service returned an invalid response.",
+                "ASSESSMENT_RESPONSE_INVALID",
+                502,
+            )
 
-        authority_comments = [f"\n{i+1}) {comment[2]}\n" for i, comment in enumerate(ddf_data['comments'])]
+        result = [
+            f"[{review}] {comments[index][2]}"
+            for index, review in enumerate(review_types)
+        ]
 
-        prompt = f"""Use the configured external DDF assessment policy.{authority_comments}"""
-
-        url = "http://172.27.160.138:5100/ask"
-        data = {
-            "question": prompt,
-            "context_messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "strategy_type": 8,
-            "chat_purpose": 1,
-            "top_k": 3,
-            "num_rerank_candidates": 100,
-            "score_threshold": 0.25,
-            "max_tokens": 2048,
-            "stream": True
-        }
-
-        headers = {'Content-Type': 'application/json; charset=utf-8', 'Accept': '*/*'}
-        review_types = []
-        with requests.post(url, json=data, headers=headers) as response:
-            if response.status_code != 200:
-                print(f"Error: API request failed with status code {response.status_code}")
-                return Response(f"Error: API request failed with status code {response.status_code}", 400)
-
-            for line in response.iter_lines(decode_unicode=False):
-                if line:
-                    text = line.decode("utf-8", errors="replace")
-                    review_types = text.split(",")
-                    review_types = [review_type.strip() for review_type in review_types]
-
-        print(review_types)
-        result = []
-        for i, review in enumerate(review_types):
-            result.append(f"[{review}] {ddf_data['comments'][i][2]}")
-
-        ddf.comment_types = review_types
-        ddf.save(update_fields=["comment_types"])
+        # One conditional SQL write protects SQLite as well as PostgreSQL;
+        # never hold a database lock while waiting for an external AI response.
+        updated = DDF.objects.filter(
+            pk=ddf.pk, created_by=request.user, comments=ddf.comments,
+            comment_types=ddf.comment_types,
+        ).update(comment_types=review_types)
+        if not updated:
+            return assessment_conflict()
 
         return Response(result)
-    except Exception as e:
-        return Response(f"Something went wrong: {e}", 400)
+    except DdfPolicyConfigurationError:
+        raise
+    except AssessmentServiceError as error:
+        return error_response(
+            error.detail,
+            code=error.code,
+            response_status=error.response_status,
+        )
+    except Exception as error:
+        LOGGER.warning(
+            "DDF assessment failed failure_type=%s",
+            error.__class__.__name__,
+        )
+        return error_response(
+            "The DDF assessment could not be completed.",
+            code="DDF_ASSESSMENT_FAILED",
+            response_status=500,
+        )
+
+
+def assessment_conflict():
+    """Do not disclose stored source text in stale-request errors."""
+    return error_response(
+        "The DDF changed; reload the record and retry the assessment.",
+        code="DDF_ASSESSMENT_CONFLICT", response_status=409,
+    )

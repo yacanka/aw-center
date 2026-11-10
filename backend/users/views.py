@@ -1,18 +1,28 @@
+import time
+
 from django.contrib.auth import get_user_model, update_session_auth_hash
-from django.contrib.auth.models import Group, Permission, update_last_login
-from django.conf import settings
-from django.middleware.csrf import get_token
+from django.contrib.auth.models import Group, Permission
 from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.db.models import Prefetch, Q
+from django.db.models.deletion import ProtectedError
+from orgs.models import ProjectRoleAssignment
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework import status
-from rest_framework.authtoken.models import Token
-from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .permissions import GroupPermission, UserPermission
-from .login_serializer import LoginSerializer
-from common.views import paginated_response
+from .models import get_user_preferences
+from .password_reset_notifications import pad_password_reset_response
+from .throttles import (
+    PasswordResetAccountThrottle,
+    PasswordResetAddressThrottle,
+    PasswordResetCapabilityThrottle,
+    PasswordResetConfirmAddressThrottle,
+)
+from awcenter.pagination import paginated_response
 from .serializers import (
     PasswordChangeSerializer,
     PasswordResetConfirmSerializer,
@@ -20,10 +30,32 @@ from .serializers import (
     GroupSerializer,
     PermissionSerializer,
     UserPreferencesSerializer,
-    UserSerializer,
+    UserProfileSerializer,
+    UserAdministrationSerializer,
 )
 
 User = get_user_model()
+
+
+class UserHasProtectedRecords(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "USER_HAS_PROTECTED_RECORDS"
+    default_detail = (
+        "This account has protected audit records and cannot be deleted. "
+        "Ask a superuser to deactivate it instead."
+    )
+
+
+class UserProfileView(APIView):
+    """Update only the authenticated user's own profile; session CSRF applies."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        serializer = UserProfileSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class UserView(APIView):
@@ -33,16 +65,29 @@ class UserView(APIView):
     def _user_queryset(self):
         return User.objects.select_related("preferences").prefetch_related(
             "user_permissions__content_type",
-            "groups",
+            "groups__permissions__content_type",
+            Prefetch("project_role_assignments", queryset=ProjectRoleAssignment.objects.select_related("project")),
+            Prefetch("groups__project_role_assignments", queryset=ProjectRoleAssignment.objects.select_related("project")),
         )
 
     def get(self, request, pk=None):
         if pk:
             user = get_object_or_404(self._user_queryset(), pk=pk)
-            serializer = UserSerializer(user, context={"request": request})
+            serializer = UserAdministrationSerializer(user, context={"request": request})
             return Response(serializer.data)
 
         users = self._user_queryset().order_by("id")
+        search = request.query_params.get("search", "").strip()[:200]
+        if search:
+            users = users.filter(Q(username__icontains=search) | Q(email__icontains=search)
+                                 | Q(first_name__icontains=search) | Q(last_name__icontains=search))
+        account = request.query_params.get("account")
+        if account == "active":
+            users = users.filter(is_active=True)
+        elif account == "inactive":
+            users = users.filter(is_active=False)
+        elif account == "admin":
+            users = users.filter(Q(is_staff=True) | Q(is_superuser=True))
         first_name = request.query_params.get("first_name")
         last_name = request.query_params.get("last_name")
         username = request.query_params.get("username")
@@ -55,31 +100,41 @@ class UserView(APIView):
             users = users.filter(username__icontains=username)
         if email:
             users = users.filter(email__icontains=email)
-        return paginated_response(request, users, UserSerializer)
+        return paginated_response(request, users, UserAdministrationSerializer)
 
     def post(self, request):
-        serializer = UserSerializer(data=request.data, context={"request": request})
+        serializer = UserAdministrationSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @transaction.atomic
     def put(self, request, pk):
-        user = get_object_or_404(self._user_queryset(), pk=pk)
-        serializer = UserSerializer(user, data=request.data, context={"request": request})
+        user = get_object_or_404(self._user_queryset().select_for_update(of=("self",)), pk=pk)
+        serializer = UserAdministrationSerializer(user, data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @transaction.atomic
     def patch(self, request, pk):
-        user = get_object_or_404(self._user_queryset(), pk=pk)
-        serializer = UserSerializer(user, data=request.data, partial=True, context={"request": request})
+        user = get_object_or_404(self._user_queryset().select_for_update(of=("self",)), pk=pk)
+        serializer = UserAdministrationSerializer(user, data=request.data, partial=True, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @transaction.atomic
     def delete(self, request, pk):
-        user = get_object_or_404(self._user_queryset(), pk=pk)
-        user.delete()
+        user = get_object_or_404(self._user_queryset().select_for_update(of=("self",)), pk=pk)
+        if user.pk == request.user.pk or user.is_superuser:
+            raise ValidationError({"detail": "You cannot delete yourself or a superuser."})
+        if user.is_staff and not request.user.is_superuser:
+            raise PermissionDenied("Only superusers can delete administrators.")
+        try:
+            user.delete()
+        except ProtectedError as error:
+            raise UserHasProtectedRecords() from error
         return Response("User deleted.", status=status.HTTP_204_NO_CONTENT)
 
 
@@ -120,7 +175,7 @@ class GroupView(APIView):
 
 
 PUBLIC_ENDPOINTS = {
-    "CustomAuthToken": "Public login endpoint; credentials are validated by DRF token auth.",
+    "SessionView": "Public session bootstrap/login endpoint with explicit CSRF protection.",
     "PasswordResetRequestAPIView": "Public request endpoint; response does not reveal account existence.",
     "PasswordResetConfirmAPIView": "Public confirmation endpoint; uid and token prove reset authorization.",
     "InvitationInspectView": "Public token inspection; the high-entropy token proves access.",
@@ -128,79 +183,16 @@ PUBLIC_ENDPOINTS = {
 }
 
 
-class CustomAuthToken(ObtainAuthToken):
-    permission_classes = [AllowAny]
-    serializer_class = LoginSerializer
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.serializer_class(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data["user"]
-        token, _ = Token.objects.get_or_create(user=user)
-        update_last_login(None, user)
-        response = Response(
-            self._login_payload(user, token, request),
-            status=status.HTTP_200_OK,
-        )
-        get_token(request)
-        response.set_cookie(
-            settings.AUTH_COOKIE_NAME,
-            token.key,
-            httponly=True,
-            samesite=settings.AUTH_COOKIE_SAMESITE,
-            secure=settings.AUTH_COOKIE_SECURE,
-            max_age=settings.AUTH_COOKIE_MAX_AGE,
-        )
-        return response
-
-    def _login_payload(self, user, token, request):
-        payload = {
-            "detail": "Login successful.",
-            "user": UserSerializer(user, context={"request": request}).data,
-        }
-        if settings.AUTH_TOKEN_RESPONSE_ENABLED:
-            payload["token"] = token.key
-        return payload
-
-
-class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        if request.user.is_authenticated:
-            self._delete_user_token(request.user)
-        response = Response({"detail": "Logout successful."}, status=status.HTTP_200_OK)
-        response.delete_cookie(
-            settings.AUTH_COOKIE_NAME,
-            samesite=settings.AUTH_COOKIE_SAMESITE,
-        )
-        return response
-
-    def _delete_user_token(self, user):
-        try:
-            user.auth_token.delete()
-        except Token.DoesNotExist:
-            pass
-
-
-class MeView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        serializer = UserSerializer(request.user, context={"request": request})
-        return Response(serializer.data)
-
-    def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-
 class PasswordChangeView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request):
+        # Authentication can precede another password change or account deactivation.
+        # Validate against the locked current row, never the request's stale snapshot.
+        request.user = get_object_or_404(
+            User.objects.select_for_update(), pk=request.user.pk, is_active=True,
+        )
         serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
 
@@ -220,25 +212,11 @@ class PermissionListView(APIView):
         return paginated_response(request, permissions, PermissionSerializer)
 
 
-class CurrentUserView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        serializer = UserSerializer(request.user, context={"request": request})
-        return Response(serializer.data)
-
-    def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-
 class UserPreferencesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        serializer = UserPreferencesSerializer(request.user.preferences)
+        serializer = UserPreferencesSerializer(get_user_preferences(request.user))
         return Response(serializer.data)
 
     def put(self, request):
@@ -258,66 +236,38 @@ class ResetPreferencesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        request.user.preferences.reset_to_defaults()
-        serializer = UserPreferencesSerializer(request.user.preferences)
+        from .preference_service import reset_appearance
+        serializer = UserPreferencesSerializer(reset_appearance(request.user))
         return Response({
             "message": "Preferences reset to defaults",
             "preferences": serializer.data,
         })
 
 
-class ExtraSettingView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, key):
-        value = request.user.preferences.get_extra_setting(key)
-        if value is None:
-            return Response(
-                {"error": f"Setting '{key}' not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        return Response({key: value})
-
-    def post(self, request):
-        key = request.data.get("key")
-        value = request.data.get("value")
-
-        if not key:
-            return Response(
-                {"error": "Key is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        request.user.preferences.set_extra_setting(key, value)
-        return Response({
-            "message": "Setting saved successfully",
-            key: value,
-        })
-
-    def delete(self, request, key):
-        preferences = request.user.preferences
-        if key in preferences.extra_settings:
-            del preferences.extra_settings[key]
-            preferences.save(update_fields=["extra_settings", "updated_at"])
-            return Response({"message": f"Setting '{key}' deleted"})
-        return Response(
-            {"error": f"Setting '{key}' not found"},
-            status=status.HTTP_404_NOT_FOUND,
-        )
-
-
 class PasswordResetRequestAPIView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetAddressThrottle, PasswordResetAccountThrottle]
 
     def post(self, request):
-        serializer = PasswordResetRequestSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({"detail": "If the email is registered, a link has been sent."}, status=status.HTTP_200_OK)
+        started_at = time.monotonic()
+        try:
+            serializer = PasswordResetRequestSerializer(data=request.data, context={"request": request})
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(
+                {"detail": "If the email is registered, a link has been sent."},
+                status=status.HTTP_200_OK,
+            )
+        finally:
+            pad_password_reset_response(started_at)
 
 
 class PasswordResetConfirmAPIView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [
+        PasswordResetConfirmAddressThrottle,
+        PasswordResetCapabilityThrottle,
+    ]
 
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)

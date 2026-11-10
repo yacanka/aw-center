@@ -1,124 +1,217 @@
-# Deployment Foundations
+# Windows production ve operasyon
 
-This repository now includes container and CI foundations for AW Center. The files are intentionally conservative: secrets, certificates, SQLite databases, media uploads, generated static files, and dependency folders are excluded from images and source control.
+Yönlendirmeli CMD kurulum/başlatma akışı için [Windows kurulum yardımcısını](windows-install-helper.md)
+kullanın. Aşağıdaki manuel launcher akışı desteklenmeye devam eder. Yönetilen
+yardımcı ayrı private `prod.env`/profil oluşturur; mevcut manuel production.env
+dosyasını veya verilerini otomatik sahiplenmez ve üzerine yazmaz.
 
-## Container images
+Bu kaynak revizyonunun 15.10.2026 migration baseline’ı yalnız boş veritabanına ilk
+kurulumu destekler. Önceki geliştirme şemaları bu migration’larla yükseltilmez veya
+fake edilmez. Disposable local ortamlar için [reset runbook](local-database-reset.md)
+kullanılır; shared/production state üzerinde bu reset uygulanmaz. Yeni baseline ile
+kurulmuş ortamların sonraki güncellemeleri normal forward migration akışını izler.
 
-- `backend/Dockerfile` builds Vite assets in an isolated Node stage, copies the immutable result to `/app/frontend-dist`, collects WhiteNoise assets, verifies Django SPA/static responses, and runs `awcenter.wsgi` with Gunicorn.
-- `frontend/Dockerfile` remains an optional standalone Vite/Nginx image for a future CDN or split-static topology; the default Compose topology does not require it.
-- `.dockerignore` excludes local runtime artifacts and secrets from Docker build contexts.
+## Desteklenen güncel topoloji
 
-## Local orchestration
+AW Center production, uygulama ve IBM Rational DOORS ile aynı Windows kullanıcı
+oturumunda çalışır. Public giriş doğrudan TLS kullanan tek Uvicorn/Django ASGI
+process'idir. `launcher.py prod` ayrıca bir genel job worker, notification worker ve
+cleanup worker başlatır. Production database'i SQLite'tır.
 
-Use Docker Compose from the repository root:
+Docker, Nginx, PostgreSQL ve Redis dosyaları gelecekteki container migration'ı için
+korunur; güncel production başlangıcının bağımlılığı değildir.
 
-```bash
-docker compose up --build
+```text
+Kurumsal LAN → https://<statik-ip>:443
+                 └─ Uvicorn → Django + built Vue
+                              ├─ production db.sqlite3
+                              ├─ production private-media
+                              ├─ local/doors job worker
+                              ├─ notification worker
+                              └─ cleanup worker
 ```
 
-Services:
+Uygulama kullanıcı oturumu kapatıldığında çalışmayı durdurur. Oturumdan bağımsız
+7/24 servis gereksinimi doğarsa Windows Service veya container aşaması ayrıca
+tasarlanmalıdır.
 
-| Service | Purpose | Local port |
-|---|---|---|
-| `backend` | Same-origin Django API, SPA shell, and WhiteNoise assets | `8080` |
-| `worker` | Durable job executor and lease heartbeat | internal |
-| `database` | PostgreSQL production-grade database candidate | `5432` |
-| `redis` | Cache backend candidate | internal |
+## Windows dizinleri
 
-The Django settings default to SQLite for local runs and switch through `DATABASE_URL` for production or Compose. PostgreSQL is the recommended production database. Redis can be enabled with `CACHE_URL`.
+Production state'i repository'nin ve OneDrive'ın dışında tutulur:
 
-## Required backend environment variables
-
-These variables are read by `backend/awcenter/settings.py`.
-
-| Variable | Required | Default | Notes |
-|---|---:|---|---|
-| `SECRET_KEY` | Production yes | Development fallback only when `DEBUG=True` | Keep external and rotate through the deployment secret manager. |
-| `DEBUG` | No | `False` | Must be `False` in production. |
-| `IPV4_ADDRESS` | Yes | None | Used in allowed hosts and reset URL defaults. |
-| `PORT` | Yes | None | Used in reset URL defaults and server binding helpers. |
-| `DOCPROOF_URL` | Yes | None | DocProof integration base URL. |
-| `DOORS_EXECUTABLE` | Yes | None | External DOORS executable path. |
-| `DOORS_DATABASE` | No | Empty | Optional DOORS `port@host` database selection. |
-| `DOORS_AUTO_START_CLIENT` | No | `False` | Keep disabled unless desktop process startup is explicitly required. |
-| `DOORS_MAX_RESULT_BYTES` | No | `10485760` | Maximum DXL result payload bytes. |
-| `DOORS_RESULT_MODE` | No | `file` | DXL result transport: `file` or `application_result`. |
-| `TEAMCENTER_BASE_URL` | Integration only | Empty | Teamcenter web-tier context root; production requires HTTPS. |
-| `TEAMCENTER_SERVICE_ROOT` | No | `RestServices` | Deployed Teamcenter REST service root. |
-| `TEAMCENTER_AUTH_MODE` | No | `password` | Server-side `password` or `cookie` authentication. |
-| `TEAMCENTER_USERNAME` / `TEAMCENTER_PASSWORD` | Password mode | Empty | Sensitive Teamcenter service-account credentials. |
-| `TEAMCENTER_JSESSIONID` / `TEAMCENTER_XSRF_TOKEN` | Cookie mode | Empty | Sensitive session-bound Teamcenter cookies. |
-| `TEAMCENTER_VERIFY_SSL` | No | `true` | Boolean or internal CA bundle; cannot be false in production. |
-| `TEAMCENTER_MAX_RESPONSE_BYTES` | No | `10485760` | Maximum streamed Teamcenter response bytes. |
-| `JIRA_URL` | Yes | None | Main JIRA base URL. |
-| `AW_USERNAME` | No | Empty string | Sensitive integration username; keep external. |
-| `AW_PASSWORD` | No | Empty string | Sensitive integration password; keep external. |
-| `DATABASE_URL` | No | SQLite under `backend/` | Primary database URL. Use PostgreSQL in production. |
-| `DB_OLD_URL` | No | SQLite under `backend/` | Legacy database URL. |
-| `DATABASE_CONN_MAX_AGE` | No | `60` | Persistent connection age in seconds. |
-| `CACHE_URL` | No | LocMem cache | Redis URL for production cache. |
-| `COMPDOC_IMPORT_PREVIEW_TTL_SECONDS` | No | `900` | Signed CompDoc preview confirmation lifetime in seconds. |
-| `DCC_PREVIEW_TTL_SECONDS` | No | `900` | Owner-bound DCC snapshot confirmation lifetime; runtime bounds it to 60-86400 seconds. |
-| `LOG_LEVEL` | No | `INFO` | Console logging level. |
-| `FRONTEND_RESET_URL` | No | Computed from debug, host, and port | Password reset frontend URL. |
-| `FRONTEND_INVITATION_URL` | No | Computed `/app/invite` URL | Public registration screen used by one-time invitation links. |
-| `TRUSTED_PROXY_COUNT` | No | `0` | Trusted reverse-proxy hops used for secure per-client throttling; set `1` for the bundled Nginx topology. |
-| `ALLOWED_HOSTS` | No | `IPV4_ADDRESS`, `127.0.0.1`, `localhost` | Comma-separated list parsed by django-environ. |
-| `CORS_ALLOWED_ORIGINS` | Production yes | Empty list | Required when `DEBUG=False`. |
-| `CSRF_TRUSTED_ORIGINS` | No | Empty list | Add HTTPS origins for cross-origin form/cookie flows. |
-| `AUTH_COOKIE_NAME` | No | `auth_token` | Cookie name for DRF token authentication. |
-| `AUTH_COOKIE_MAX_AGE` | No | `1209600` | Cookie lifetime in seconds. |
-| `AUTH_COOKIE_SAMESITE` | No | `Lax` in debug, `None` in production | Use `None` only with HTTPS secure cookies. |
-| `AUTH_COOKIE_SECURE` | No | `False` in debug, `True` in production | Keep enabled for production. |
-| `AUTH_TOKEN_RESPONSE_ENABLED` | No | Same as `DEBUG` | Disable in production unless a reviewed legacy need exists. |
-| `SECURE_SSL_REDIRECT` | No | `False` in debug, `True` in production | Keep enabled behind HTTPS; disable only for local Compose without TLS. |
-| `SECURE_HSTS_SECONDS` | No | `0` in debug, `31536000` in production | Production HSTS duration. |
-| `SESSION_COOKIE_SECURE` | No | `False` in debug, `True` in production | Keep enabled for production sessions. |
-| `CSRF_COOKIE_SECURE` | No | `False` in debug, `True` in production | Keep enabled for production CSRF cookies. |
-
-## Required frontend build variables
-
-| Variable | Required | Notes |
-|---|---:|---|
-| `VITE_API_URL` | Deployment-specific | Axios base URL for backend API calls. |
-| `VITE_API_TIMEOUT_MS` | No | Axios request timeout in milliseconds; defaults to 10000. |
-| `VITE_VERSION` | No | Displayed build/application version. |
-| `VITE_APP_TITLE` | No | Application title used by the frontend. |
-
-## Production bootstrap
-
-Run the immutable image and migrations before accepting traffic. Frontend build, static collection,
-and artifact verification already happen while the image is built:
-
-```bash
-docker compose build
-docker compose run --rm backend python manage.py migrate --noinput
-docker compose up -d
-curl -fsS http://localhost:8080/health/ready/
-curl -fsS http://localhost:8080/app/
+```text
+%LOCALAPPDATA%\AWCenter\
+├─ config\production.env
+├─ state\
+│  ├─ production\
+│  │  ├─ db.sqlite3
+│  │  ├─ private-media\
+│  │  ├─ media\
+│  │  ├─ static\
+│  │  └─ cache\
+│  └─ doors-worker.lock
+├─ assets\sets\<asset-set-id>\
+│  ├─ ai-models\
+│  └─ document-templates\
+├─ releases\<release-id>\source\
+├─ tls\application\
+│  ├─ tls.crt
+│  └─ tls.key
+└─ backups\
 ```
 
-The `worker` service runs `python manage.py run_job_worker`. Schedule
-`python manage.py cleanup_jobs` at least every five minutes so expired, unconfirmed DCC snapshots
-are promptly removed; the same command applies the configured terminal artifact retention window.
-Backend and worker containers must mount the same `PRIVATE_MEDIA_ROOT` volume. This
-directory must never be exposed by Nginx; downloads pass through owner-authorized Django views.
-Local Word translation and analysis models are not baked into the image. Provision all four
-configured model directories through the shared `/app/models` volume so both Integration Hub and
-the worker see the same readiness state. Translation and explainable analysis run inside the
-worker; document content is not sent to a cloud model. Analysis evidence is stored only in the
-owner-authorized private job artifact.
+Development kendi checkout'u, `backend/db.sqlite3` ve `backend/private_media`
+yollarını kullanır. İki ortam yalnız açıkça seçilen read-only asset setini
+paylaşabilir; database, private-media, port, secret veya worker kilidi paylaşmaz.
+Production file cache'i web ve worker process'leri arasında kısa ömürlü, şifrelenmiş
+JIRA session state'ini paylaşır; erişimi yalnız aynı Windows kullanıcısıyla sınırlandırın.
+Launcher logları foreground PowerShell oturumunun stdout/stderr akışındadır. Kalıcı
+log gerekiyorsa bu akış erişim kontrollü, repository dışındaki bir hedefe operasyon
+katmanında yönlendirilmelidir.
 
-Use `deploy/nginx/awcenter.conf` as a starting point for reverse proxy headers and route forwarding. Production TLS termination must set `X-Forwarded-Proto: https` so Django's `SECURE_PROXY_SSL_HEADER` can identify secure requests.
+AI dizini yalnız şu ağırlık alt dizinlerini barındırır:
 
-`python manage.py verify_frontend_artifact` is the deployment smoke command. It fails when the
-Vite index is absent or oversized, references a missing/empty/unsafe JS or CSS file, collectstatic
-output is stale, Django cannot serve a nested `/app/...` route, or WhiteNoise cannot serve entry
-assets. CI runs the same command against both the workspace build and the combined runtime image.
+```text
+ai-models\
+├─ opus-mt-tr-en\
+├─ opus-mt-en-tr\
+├─ paraphrase-multilingual\
+└─ ms-marco-cross-encoder\
+```
 
-## Security notes
+DOCX şablonları `document-templates\` altında tutulur. Mail HTML gövdeleri runtime
+asset değildir; ilgili Django app'inin tracked `templates/` dizininde kalır.
 
-- Do not copy `.env`, certificates, private keys, SQLite databases, or media files into container images.
-- Use a secret manager or orchestrator-managed environment variables for production secrets.
-- Keep `DEBUG=False`, HTTPS, secure cookies, HSTS, explicit CORS, and explicit CSRF trusted origins in production.
-- Treat PostgreSQL credentials in `docker-compose.yml` as local placeholders only; replace them outside source control for shared environments.
+## İlk kurulum
+
+1. CPython 3.11, Node.js 22, npm ve gerekli native Office/PDF araçlarını kurun.
+2. Review edilmiş release'i
+   `%LOCALAPPDATA%\AWCenter\releases\<release-id>\source` altında temiz bir kopya
+   olarak hazırlayın. Development `.venv`, `.env`, SQLite, `.runtime`, private-media
+   veya generated static state'i kopyalamayın.
+3. PowerShell'de bu release'in `source` dizinine geçip bağımlılıkları kurun:
+
+   ```powershell
+   python launcher.py setup
+   ```
+
+4. `%LOCALAPPDATA%\AWCenter` dizin ağacını oluşturun.
+5. `backend/.env.production` dosyasını
+   `%LOCALAPPDATA%\AWCenter\config\production.env` konumuna kopyalayın.
+6. `REPLACE_ME`, statik IP, release ve asset-set placeholder'larını değiştirin.
+   En az 50 karakterlik rastgele `SECRET_KEY` kullanın. Dosyayı repository'ye
+   kopyalamayın veya commit etmeyin.
+7. SQLite URL'sini local NTFS üzerindeki production dosyasına yöneltin.
+   Network share, junction, symlink ve OneDrive desteklenmez.
+8. Self-signed veya kurum CA tarafından imzalı sertifikanın IP Address SAN alanına
+   production statik IPv4 adresini ekleyin. Sertifika ve private key eşleşmelidir.
+   Self-signed sertifikayı yalnız yetkili LAN istemcilerinin Trusted Root store'una
+   kurun.
+9. Windows Firewall'da yalnız kurumsal ağ profili/subnet'i için TCP 443 inbound
+   kuralı açın. Development 8000/5173 portlarını LAN'a açmayın.
+10. Frontend artifact'ını üretin:
+
+   ```powershell
+   npm --prefix frontend ci
+   npm --prefix frontend run build
+   ```
+
+11. İlk schema kurulumu ile production'ı başlatın:
+
+    ```powershell
+    python launcher.py prod `
+      --env-file "$env:LOCALAPPDATA\AWCenter\config\production.env" `
+      --host 192.0.2.10 `
+      --tls-cert-file "$env:LOCALAPPDATA\AWCenter\tls\application\tls.crt" `
+      --tls-key-file "$env:LOCALAPPDATA\AWCenter\tls\application\tls.key" `
+      --migrate
+    ```
+
+Launcher sırasıyla Windows/statik-IP/path/TLS kontrollerini, Django deploy
+check'ini, migration durumunu, `collectstatic` ve frontend artifact doğrulamasını
+çalıştırır. Bir kapı başarısızsa web veya worker process'i açılmaz.
+
+Normal yeniden başlatmada aynı komutu `--migrate` olmadan kullanın. Pending migration
+varsa başlangıç fail-closed durur.
+
+İlk kurulumda ikinci bir PowerShell açıp aynı release dizininden ilk yöneticiyi
+oluşturun; bu komut yalnız process environment'ında production profilini seçer:
+
+```powershell
+$env:AWCENTER_ENV_FILE="$env:LOCALAPPDATA\AWCenter\config\production.env"
+$env:AWCENTER_DEPLOYMENT_MODE="windows-native"
+python backend/manage.py createsuperuser
+Remove-Item Env:AWCENTER_ENV_FILE
+Remove-Item Env:AWCENTER_DEPLOYMENT_MODE
+```
+
+## DOORS
+
+Production environment'ında:
+
+```text
+DOORS_ENABLED=True
+DOORS_EXECUTABLE=C:/IBM/DOORS/bin/doors.exe
+DOORS_DATABASE=36677@doors-server
+```
+
+Production worker'ı DOORS etkin olduğunda `doors` queue'sunu varsayılan olarak
+tüketir; yalnız local queue'lar için komuta `--exclude-doors` ekleyin. Worker yalnız
+catalog'daki `doors` kind'larını kabul eder, her executor'ü child process'te çalıştırır
+ve belirsiz write sonucunu `reconciliation_required` yapar. Aynı lock dosyasını
+kullanan Windows process'leri arasında alınan kilit, ikinci DOORS-capable worker'ı reddeder.
+
+Development worker'ı `DOORS_ENABLED=True` olduğunda DOORS queue'sunu varsayılan
+olarak tüketir. Yalnız local queue'ları çalıştırmak için
+`launcher.py dev --exclude-doors` kullanın. Aynı masaüstü DOORS instance'ına iki ortamın eşzamanlı
+yazmasına izin vermeyin; development başlatmadan önce production worker'ını durdurun.
+
+Credential Manager, Task Scheduler ve ayrı bir loopback servisi kullanılmaz.
+
+## Release ve güncelleme
+
+- Production yalnız clean ve review edilmiş bir release kopyasından çalıştırılır;
+  development checkout'undaki dirty dosyalar doğrudan production'a verilmez.
+- Yeni release ayrı `%LOCALAPPDATA%\AWCenter\releases\<release-id>\source` dizinine
+  hazırlanır ve kendi `.venv` ortamını kullanır.
+- Upgrade öncesi production durdurulur ve eşlenmiş SQLite/private-media yedeği
+  alınır.
+- Yeni release'te `launcher.py check`, backend/frontend testleri ve frontend build
+  tamamlandıktan sonra `launcher.py prod --migrate` çalıştırılır.
+- Migration sonrası write alınmışsa eski schema'ya dönülmez; forward-fix uygulanır
+  veya doğrulanmış eşlenmiş yedek geri yüklenir.
+
+## Yedekleme ve geri yükleme
+
+SQLite ve private-media aynı business state'in parçalarıdır; ayrı zamanlarda alınan
+kopyalar tam yedek sayılmaz.
+
+1. Public erişimi kesin ve launcher'ı durdurun.
+2. `db.sqlite3`, `private-media\` ve kullanılan production env'in secretsiz
+   envanterini aynı backup kimliği altında kopyalayın.
+3. Her dosyanın relative path, byte size ve SHA-256 değerini manifestte saklayın.
+4. Kopyayı BitLocker korumalı harici disk veya erişim kontrollü kurumsal UNC
+   paylaşımında ikinci kez saklayın.
+5. Periyodik olarak boş bir dizine restore edin; `manage.py check`, `migrate --check`,
+   login, private artifact download ve örnek document job canary'sini çalıştırın.
+
+Canlı SQLite dosyasını Explorer ile kopyalamak desteklenmez. Online yedekleme
+gerekiyorsa Python `sqlite3.Connection.backup` API'sini kullanan, ardından artifact
+state'ini quiesce eden repository-owned araç ayrıca eklenmelidir.
+
+## Gelecekteki container aşaması
+
+`docker-compose.yml`, `backend/Dockerfile`, Nginx, deployment preflight, immutable
+image evidence ve PostgreSQL/Redis testleri gelecekteki hedef sözleşmedir. Bu profile
+geçiş ayrı bir repository-wide migration olarak ele alınacaktır:
+
+- fresh PostgreSQL 17 schema;
+- authenticated Redis 7;
+- digest-pinned immutable image;
+- private artifact volume ve read-only AI/template mount'ları;
+- DOORS entegrasyonu için ayrıca tasarlanacak Windows execution sınırı;
+- SQLite verisinin taşınması gerekiyorsa ayrıca review edilmiş, one-shot ve
+  geri-dönüş kapılı veri migration'ı.
+
+Bu container belgeleri veya `.env.example` bugünkü `launcher.py prod` komutuna input
+olarak verilmez.

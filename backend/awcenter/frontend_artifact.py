@@ -7,7 +7,11 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.test import Client
 
+from .pwa_resources import PWA_RESOURCES
+
 MAX_INDEX_BYTES = 2 * 1024 * 1024
+UNSAFE_STATIC_SUFFIXES = frozenset({".py", ".pyc", ".pyo"})
+PWA_ARTIFACTS = {f"app/{path}": content_type for path, content_type in PWA_RESOURCES.items()}
 
 
 class FrontendArtifactError(RuntimeError):
@@ -31,6 +35,9 @@ class _AssetParser(HTMLParser):
 def verify_frontend_artifact():
     """Verify the Vite shell, referenced assets, and Django SPA fallback."""
 
+    verify_static_source_directories()
+    verify_collected_static_files()
+    verify_pwa_files()
     index_bytes = read_index_bytes()
     asset_paths = extract_asset_paths(decode_index(index_bytes))
     verify_asset_types(asset_paths)
@@ -38,7 +45,85 @@ def verify_frontend_artifact():
         verify_asset_file(asset_path)
     verify_spa_response(index_bytes)
     verify_static_responses(asset_paths)
+    verify_pwa_responses()
     return {"index_bytes": len(index_bytes), "asset_count": len(asset_paths)}
+
+
+def frontend_files_are_ready(*, require_collected=True):
+    """Inspect Vite output; serving also requires collected copies of entry assets."""
+
+    try:
+        index_bytes = read_index_bytes()
+        asset_paths = extract_asset_paths(decode_index(index_bytes))
+        verify_asset_types(asset_paths)
+        verify_pwa_files()
+        for asset_path in asset_paths:
+            verify_asset_file(asset_path, require_collected=require_collected)
+    except (FrontendArtifactError, OSError):
+        return False
+    return True
+
+
+def verify_static_source_directories():
+    """Reject static roots that contain server-side Python or environment source."""
+
+    for directory in configured_static_directories():
+        if not directory.exists():
+            continue
+        unsafe = next(iter_unsafe_static_files(directory), None)
+        if unsafe is not None:
+            raise FrontendArtifactError(
+                "STATICFILES_DIRS exposes server-side source: "
+                f"{unsafe.relative_to(directory)}"
+            )
+
+
+def verify_pwa_files():
+    """Require every fixed-name PWA resource in the immutable frontend artifact."""
+
+    artifact_root = Path(settings.FRONTEND_DIST_DIR).resolve()
+    for relative_path in PWA_ARTIFACTS:
+        resource_path = (artifact_root / relative_path).resolve()
+        if not resource_path.is_relative_to(artifact_root):
+            raise FrontendArtifactError("PWA artifact path is unsafe.")
+        if not resource_path.is_file() or resource_path.stat().st_size == 0:
+            raise FrontendArtifactError(f"PWA artifact is missing or empty: {relative_path}")
+
+
+def verify_collected_static_files():
+    """Reject stale collectstatic output containing server-side source files."""
+
+    static_root = Path(settings.STATIC_ROOT).resolve()
+    if not static_root.exists():
+        return
+    unsafe = next(iter_unsafe_static_files(static_root), None)
+    if unsafe is not None:
+        raise FrontendArtifactError(
+            "Collected static output exposes server-side source: "
+            f"{unsafe.relative_to(static_root)}"
+        )
+
+
+def configured_static_directories():
+    """Return normalized filesystem paths from Django's static directory setting."""
+
+    directories = []
+    for configured in settings.STATICFILES_DIRS:
+        path = configured[1] if isinstance(configured, (list, tuple)) else configured
+        directories.append(Path(path).resolve())
+    return directories
+
+
+def iter_unsafe_static_files(root):
+    """Yield files that must never be published by collectstatic or WhiteNoise."""
+
+    for candidate in root.rglob("*"):
+        if not candidate.is_file():
+            continue
+        if candidate.suffix.lower() in UNSAFE_STATIC_SUFFIXES:
+            yield candidate
+        elif candidate.name.lower() == ".env" or candidate.name.lower().startswith(".env."):
+            yield candidate
 
 
 def read_index_bytes():
@@ -82,8 +167,8 @@ def verify_asset_types(asset_paths):
         raise FrontendArtifactError("Frontend shell must reference JavaScript and CSS assets.")
 
 
-def verify_asset_file(asset_path):
-    """Require non-empty source and collected copies of a referenced asset."""
+def verify_asset_file(asset_path, *, require_collected=True):
+    """Check the source asset and, when verifying deployment, its collected copy."""
 
     prefix = f"{settings.STATIC_URL.rstrip('/')}/assets/"
     relative_path = asset_path.removeprefix(prefix)
@@ -93,7 +178,8 @@ def verify_asset_file(asset_path):
         raise FrontendArtifactError("Frontend shell contains an unsafe asset path.")
     if not source.is_file() or source.stat().st_size == 0:
         raise FrontendArtifactError(f"Referenced frontend asset is missing or empty: {asset_path}")
-    verify_collected_asset(relative_path)
+    if require_collected:
+        verify_collected_asset(relative_path)
 
 
 def verify_collected_asset(relative_path):
@@ -128,6 +214,20 @@ def verify_static_responses(asset_paths):
         response = client.get(asset_path, secure=True)
         if response.status_code != 200 or not response_body(response):
             raise FrontendArtifactError(f"Django did not serve frontend asset: {asset_path}")
+
+
+def verify_pwa_responses():
+    """Verify Django serves each PWA resource with its declared media type."""
+
+    client = Client(HTTP_HOST=verification_host())
+    for relative_path, content_type in PWA_ARTIFACTS.items():
+        response = client.get(f"/{relative_path}", secure=True)
+        if (
+            response.status_code != 200
+            or response.headers.get("Content-Type") != content_type
+            or not response_body(response)
+        ):
+            raise FrontendArtifactError(f"Django did not serve PWA artifact: {relative_path}")
 
 
 def response_body(response):

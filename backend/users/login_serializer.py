@@ -1,18 +1,30 @@
-"""Authentication serializer with correct failure semantics."""
+"""Credential validation for the browser-only Django session endpoint."""
 
-from rest_framework.authtoken.serializers import AuthTokenSerializer
-from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from django.contrib.auth import authenticate
+from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
+
+from .username_policy import validate_username_format
+from .password_policy import MAX_PASSWORD_LENGTH
 
 
-class LoginSerializer(AuthTokenSerializer):
-    """Distinguish malformed login requests from rejected credentials."""
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField(
+        min_length=6, max_length=6, trim_whitespace=True,
+        validators=[validate_username_format],
+    )
+    password = serializers.CharField(max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False, write_only=True)
 
     def validate(self, attributes):
-        """Return a 401 without revealing whether the username exists."""
-
-        try:
-            return super().validate(attributes)
-        except ValidationError as error:
+        user = authenticate(
+            request=self.context.get("request"),
+            username=attributes["username"],
+            password=attributes["password"],
+        )
+        if user is None or not user.is_active:
             raise AuthenticationFailed(
-                "Invalid username or password.", code="AUTHENTICATION_FAILED"
-            ) from error
+                "Invalid username or password.",
+                code="AUTHENTICATION_FAILED",
+            )
+        attributes["user"] = user
+        return attributes

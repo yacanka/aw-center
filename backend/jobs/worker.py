@@ -1,33 +1,75 @@
-import hashlib
+"""Durable job claiming, dispatch, fenced publication, and lease recovery."""
+
 import logging
-from datetime import timedelta
+import multiprocessing
+import sys
+from pathlib import Path
+from time import monotonic
+from uuid import uuid4
 
 from django.conf import settings
-from django.core.files import File
-from django.db import transaction
+from django.db import connections, transaction
 from django.utils import timezone
 
-from .contracts import JobCancelled, JobExecutionFailure
-from .models import Job, JobStatus, WorkerHeartbeat
+from .contracts import (
+    JobCancelled,
+    JobExecutionFailure,
+    JobExecutionUncertain,
+    JobLeaseLost,
+)
+from .artifacts import (
+    discard_staged_job_output,
+    publish_staged_job_output,
+    remove_temporary_artifact,
+    stage_job_output,
+)
+from .execution import (
+    ExecutionHeartbeat,
+    bind_execution,
+    cancellation_requested,
+    current_execution_lease,
+    execution_status,
+    lease_deadline,
+    lease_duration,
+    lock_active_execution,
+    touch_worker,
+    update_progress,
+)
+from .models import Job, JobStatus
+from .process_bootstrap import bootstrap_executor_process
+from .process_tree import ExecutorProcessTree
+from .scratch import create_execution_scratch, remove_execution_scratch
 from .services import record_event, set_job_state
 
 logger = logging.getLogger(__name__)
 
+CHILD_POLL_SECONDS = 0.1
 
-def claim_next_job(worker_id):
-    """Atomically lease the oldest queued job to one worker."""
+__all__ = ["claim_next_job", "execute_claimed_job", "recover_expired_jobs", "update_progress"]
+
+
+def claim_next_job(worker_id, eligible_kinds=None):
+    """Atomically lease the oldest queued job to one unique execution claim."""
 
     from .workflow_controls import reconcile_active_workflows
 
     reconcile_active_workflows()
     recover_expired_jobs()
+    if eligible_kinds is not None and not eligible_kinds:
+        touch_worker(worker_id)
+        return None
     with transaction.atomic():
-        job = Job.objects.select_for_update().filter(status=JobStatus.QUEUED).order_by("created_at").first()
+        jobs = Job.objects.select_for_update().filter(status=JobStatus.QUEUED)
+        if eligible_kinds is not None:
+            jobs = jobs.filter(kind__in=tuple(eligible_kinds))
+        job = jobs.order_by("created_at").first()
         if not job:
+            touch_worker(worker_id)
             return None
         job.status = JobStatus.RUNNING
         job.started_at = job.started_at or timezone.now()
         job.worker_id = worker_id
+        job.execution_token = uuid4()
         job.lease_expires_at = lease_deadline()
         job.message = "Worker started the job."
         job.save()
@@ -35,93 +77,468 @@ def claim_next_job(worker_id):
         from .workflow_services import synchronize_workflow_job
 
         synchronize_workflow_job(job)
-        return job
+        touch_worker(worker_id, job)
+    logger.info(
+        "Job claim started",
+        extra={
+            "event": "job_started",
+            "job_id": str(job.id),
+            "job_kind": job.kind,
+            "attempt": job.attempt,
+            "worker_id": job.worker_id,
+            "execution_id": str(job.execution_token),
+            "request_id": job.request_id or "-",
+        },
+    )
+    return job
 
 
-def execute_claimed_job(job):
-    """Dispatch one claimed job and persist its terminal state."""
+def execute_claimed_job(
+    job,
+    resolve_executor,
+    *,
+    timeout_seconds=None,
+    isolate=False,
+    stop_requested=None,
+):
+    """Dispatch a claim, monitor optional shutdown intent, and fence terminal state."""
 
     result = None
+    failure_stage = "executor"
+    with bind_execution(job) as lease:
+        heartbeat = ExecutionHeartbeat(lease)
+        child = None
+        try:
+            check_worker_shutdown(job, stop_requested)
+            if isolate:
+                child = start_executor_process(job, resolve_executor)
+                await_executor_ready(job, lease, child, stop_requested=stop_requested)
+                heartbeat.start()
+                result = await_executor_process(
+                    job,
+                    lease,
+                    child,
+                    execution_timeout(timeout_seconds),
+                    stop_requested=stop_requested,
+                )
+                # No descendant may keep writing an artifact while the parent
+                # verifies its digest and publishes it under the execution fence.
+                stop_executor_process(child)
+                if not child.tree.wait_for_exit():
+                    if job.reconcile_on_lease_loss:
+                        raise JobExecutionUncertain()
+                    raise JobExecutionFailure(
+                        "The executor processes could not stop safely.",
+                        "JOB_EXECUTOR_STOP_FAILED", True,
+                    )
+            else:
+                heartbeat.start()
+                executor = resolve_executor(job.kind)
+                result = executor(job)
+            if cancellation_requested(job.id) and not job.reconcile_on_lease_loss:
+                raise JobCancelled()
+            failure_stage = "artifact_publication"
+            persist_result(
+                job.id,
+                result,
+                allow_cancel_requested=job.reconcile_on_lease_loss,
+            )
+        except JobLeaseLost:
+            stop_executor_process(child)
+            log_lost_claim(job)
+        except JobCancelled:
+            stop_executor_process(child)
+            if job.reconcile_on_lease_loss:
+                publish_terminal(
+                    mark_reconciliation_required,
+                    job,
+                    "Confirm the external system state before submitting another write.",
+                    "RECONCILIATION_REQUIRED",
+                )
+            else:
+                publish_terminal(mark_cancelled, job)
+        except JobExecutionUncertain as error:
+            stop_executor_process(child)
+            publish_terminal(mark_reconciliation_required, job, str(error), error.code)
+        except JobExecutionFailure as error:
+            stop_executor_process(child)
+            if external_write_cancel_requested(job):
+                publish_terminal(
+                    mark_reconciliation_required,
+                    job,
+                    "Confirm the external system state before submitting another write.",
+                    "RECONCILIATION_REQUIRED",
+                )
+            else:
+                publish_terminal(mark_failed, job, str(error), error.code, error.retryable)
+        except Exception as error:
+            stop_executor_process(child)
+            logger.error(
+                "Unhandled job failure: %s",
+                type(error).__name__,
+                extra={
+                    "job_id": str(job.id),
+                    "error_type": type(error).__name__,
+                    "failure_stage": failure_stage,
+                },
+            )
+            if job.reconcile_on_lease_loss:
+                publish_terminal(
+                    mark_reconciliation_required,
+                    job,
+                    "Confirm the external system state before submitting another write.",
+                    "RECONCILIATION_REQUIRED",
+                )
+            else:
+                publish_terminal(
+                    mark_failed,
+                    job,
+                    "The worker could not complete this job.",
+                    "JOB_EXECUTION_FAILED",
+                    True,
+                )
+        finally:
+            heartbeat.stop()
+            close_executor_process(child)
+            if result and result.path.exists():
+                remove_temporary_artifact(result.path)
+
+
+def start_executor_process(job, resolve_executor):
+    """Start one isolated executor using the platform's safe process method."""
+
+    # macOS system libraries can start threads; forking their initialized
+    # Objective-C runtime can abort a later executor before it reaches Django.
+    method = "spawn" if sys.platform in {"win32", "darwin"} else "fork"
     try:
-        executor = get_executor(job.kind)
-        result = executor(job)
-        if cancellation_requested(job.id):
-            raise JobCancelled()
-        persist_result(job.id, result)
-    except JobCancelled:
-        mark_cancelled(job.id)
-    except JobExecutionFailure as error:
-        mark_failed(job.id, str(error), error.code, error.retryable)
+        context = multiprocessing.get_context(method)
+    except ValueError as error:
+        raise JobExecutionFailure(
+            "This worker platform cannot isolate job executors.",
+            "JOB_ISOLATION_UNAVAILABLE",
+        ) from error
+    serialized_resolver = resolver_path(resolve_executor)
+    parent_connection, child_connection = context.Pipe(duplex=False)
+    start_gate = context.Event()
+    connections.close_all()
+    scratch_directory = None
+    process = None
+    tree = None
+    try:
+        scratch_directory = create_execution_scratch(job)
+        process = context.Process(
+            target=bootstrap_executor_process,
+            args=(
+                job.id, job.kind, serialized_resolver, child_connection,
+                start_gate, str(scratch_directory),
+            ),
+            name=f"job-executor-{str(job.id)[:8]}",
+            daemon=False,
+        )
+        process.start()
+        tree = ExecutorProcessTree(process)
+        start_gate.set()
     except Exception:
-        logger.exception("Unhandled job failure", extra={"job_id": str(job.id)})
-        mark_failed(job.id, "The worker could not complete this job.", "JOB_EXECUTION_FAILED", True)
-    finally:
-        if result and result.path.exists():
-            result.path.unlink(missing_ok=True)
+        if tree is not None:
+            tree.terminate()
+            tree.kill()
+        if process is not None and process.pid is not None:
+            process.terminate()
+            process.join(timeout=5)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=5)
+            process.close()
+        parent_connection.close()
+        child_connection.close()
+        stopped = tree is None or tree.wait_for_exit()
+        if tree is not None:
+            tree.close()
+        if stopped:
+            remove_execution_scratch(scratch_directory)
+        raise
+    child_connection.close()
+    connections.close_all()
+    return ExecutorProcess(process, parent_connection, tree, start_gate, scratch_directory)
 
 
-def get_executor(kind):
-    """Resolve an allowlisted executor without dynamic imports from user data."""
+def resolver_path(resolve_executor):
+    """Return a spawn-safe reference to one trusted module-level resolver."""
 
-    from excel.cover_pages import execute_cover_page_creation
-    from media_tools.job_executor import execute_media_conversion
-    from outlook.job_executor import execute_word_attachment_extraction
-    from word.job_executor import execute_word_translation
-    from word.analysis import execute_document_analysis
-    from dcc.document_job import execute_dcc_document_creation
-    executors = {
-        "dcc.create_document": execute_dcc_document_creation,
-        "excel.cover_pages": execute_cover_page_creation,
-        "media.convert": execute_media_conversion,
-        "outlook.extract_word_attachment": execute_word_attachment_extraction,
-        "word.translate": execute_word_translation,
-        "word.analyze": execute_document_analysis,
-    }
-    if kind not in executors:
-        raise JobExecutionFailure("No worker supports this job type.", "JOB_KIND_UNSUPPORTED")
-    return executors[kind]
+    module_name = getattr(resolve_executor, "__module__", "")
+    qualified_name = getattr(resolve_executor, "__qualname__", "")
+    if not module_name or not qualified_name or "<locals>" in qualified_name:
+        raise JobExecutionFailure(
+            "The isolated executor could not start.",
+            "JOB_EXECUTOR_START_FAILED",
+            True,
+        )
+    return module_name, qualified_name
 
 
-def update_progress(job_id, progress, message):
-    """Update progress and renew the worker lease."""
+class ExecutorProcess:
+    """Hold the isolated executor process and its one-way result channel."""
 
-    with transaction.atomic():
-        job = Job.objects.select_for_update().get(pk=job_id)
-        if job.status == JobStatus.CANCEL_REQUESTED:
+    def __init__(self, process, connection, tree=None, start_gate=None, scratch_directory=None):
+        self.process = process
+        self.connection = connection
+        self.tree = tree
+        # Keep spawn's named semaphore alive until the child has unpickled it.
+        self.start_gate = start_gate
+        self.scratch_directory = scratch_directory
+
+
+def await_executor_ready(job, lease, child, *, stop_requested=None):
+    """Wait for the child to open its own DB connection before parent heartbeats."""
+
+    deadline = monotonic() + min(10.0, lease_duration().total_seconds() / 2)
+    while monotonic() < deadline:
+        check_worker_shutdown(job, stop_requested)
+        if child.connection.poll(CHILD_POLL_SECONDS):
+            envelope = child.connection.recv()
+            if isinstance(envelope, dict) and envelope.get("outcome") == "ready":
+                return
+            decode_child_outcome(job, lease, envelope)
+        if not child.process.is_alive():
+            if child.connection.poll():
+                decode_child_outcome(job, lease, child.connection.recv())
+            break
+    stop_executor_process(child)
+    if job.reconcile_on_lease_loss:
+        raise JobExecutionUncertain()
+    raise JobExecutionFailure(
+        "The isolated executor could not start.",
+        "JOB_EXECUTOR_START_FAILED",
+        True,
+    )
+
+
+def await_executor_process(job, lease, child, timeout_seconds, *, stop_requested=None):
+    """Monitor an executor while the parent owns heartbeat, cancellation, and timeout."""
+
+    deadline = monotonic() + timeout_seconds
+    while True:
+        check_worker_shutdown(job, stop_requested)
+        if child.connection.poll(CHILD_POLL_SECONDS):
+            envelope = child.connection.recv()
+            child.process.join(timeout=1)
+            return decode_child_outcome(job, lease, envelope)
+        if not child.process.is_alive():
+            child.process.join(timeout=1)
+            if child.connection.poll():
+                return decode_child_outcome(job, lease, child.connection.recv())
+            if job.reconcile_on_lease_loss:
+                raise JobExecutionUncertain()
+            raise JobExecutionFailure(
+                "The isolated executor stopped unexpectedly.",
+                "JOB_EXECUTOR_CRASHED",
+                True,
+            )
+        status = execution_status(lease)
+        if status == JobStatus.CANCEL_REQUESTED and not job.reconcile_on_lease_loss:
+            stop_executor_process(child)
             raise JobCancelled()
-        job.lease_expires_at = lease_deadline()
-        next_progress = max(job.progress, min(99, int(progress)))
-        next_message = str(message)[:500]
-        changed = next_progress != job.progress or next_message != job.message
-        job.progress = next_progress
-        job.message = next_message
-        job.save()
-        touch_worker(job.worker_id, job)
-        if changed:
-            record_event(job, job.message)
+        if monotonic() >= deadline:
+            stop_executor_process(child)
+            if job.reconcile_on_lease_loss:
+                raise JobExecutionUncertain()
+            raise JobExecutionFailure(
+                "The job exceeded its execution time limit.",
+                "JOB_EXECUTION_TIMEOUT",
+                True,
+            )
 
 
-def cancellation_requested(job_id):
-    """Return whether cooperative cancellation was requested."""
+def check_worker_shutdown(job, stop_requested):
+    """Use existing cleanup and fencing paths when the owning worker is stopped."""
 
-    return Job.objects.filter(pk=job_id, status=JobStatus.CANCEL_REQUESTED).exists()
+    if stop_requested is None or not stop_requested():
+        return
+    if job.reconcile_on_lease_loss:
+        raise JobExecutionUncertain()
+    raise JobExecutionFailure(
+        "The worker stopped before the job completed. Retry the job when a worker is available.",
+        "JOB_WORKER_STOPPED",
+        True,
+    )
 
 
-def persist_result(job_id, result):
-    """Stream an executor artifact into owned storage and complete the job."""
+def decode_child_outcome(job, lease, envelope):
+    """Convert a child envelope into the existing sanitized executor contracts."""
 
-    job = Job.objects.get(pk=job_id)
+    outcome = envelope.get("outcome") if isinstance(envelope, dict) else ""
+    if outcome == "startup_failed":
+        logger.error(
+            "Isolated executor bootstrap failed: %s",
+            str(envelope.get("error_type") or "UnknownError"),
+            extra={"job_id": str(job.id)},
+        )
+        raise JobExecutionFailure(
+            "The isolated executor could not start.",
+            "JOB_EXECUTOR_START_FAILED",
+            True,
+        )
+    if outcome == "succeeded":
+        payload = envelope.get("result") or {}
+        from .contracts import JobExecutionResult
+
+        return JobExecutionResult(
+            path=Path(payload.get("path", "")),
+            filename=str(payload.get("filename", "")),
+            message=str(payload.get("message", "Completed successfully.")),
+            summary=payload.get("summary"),
+        )
+    if outcome == "cancelled":
+        if job.reconcile_on_lease_loss:
+            raise JobExecutionUncertain()
+        raise JobCancelled()
+    if outcome == "lease_lost":
+        raise JobLeaseLost()
+    if outcome == "uncertain":
+        raise JobExecutionUncertain(str(envelope.get("message") or ""))
+    if outcome == "failed":
+        if job.reconcile_on_lease_loss and execution_status(lease) == JobStatus.CANCEL_REQUESTED:
+            raise JobExecutionUncertain()
+        raise JobExecutionFailure(
+            str(envelope.get("message") or "The executor failed."),
+            str(envelope.get("code") or "JOB_EXECUTION_FAILED"),
+            bool(envelope.get("retryable", False)),
+        )
+    if job.reconcile_on_lease_loss:
+        raise JobExecutionUncertain()
+    raise JobExecutionFailure(
+        "The isolated executor stopped unexpectedly.",
+        "JOB_EXECUTOR_CRASHED",
+        True,
+    )
+
+
+def stop_executor_process(child):
+    """Terminate and reap an executor without leaving an orphan process."""
+
+    if child is None:
+        return
+    # Reap an already crashed group leader before signalling its descendants;
+    # macOS reports EPERM for a group containing only an unreaped zombie.
+    child.process.join(timeout=0)
+    tree = getattr(child, "tree", None)
+    signalled = tree.terminate() if tree is not None else False
+    if not signalled and child.process.is_alive():
+        child.process.terminate()
+    child.process.join(timeout=5)
+    # Descendants may ignore SIGTERM or outlive an already-exited executor.
+    if tree is not None:
+        tree.kill()
+    if child.process.is_alive() and hasattr(child.process, "kill"):
+        child.process.kill()
+        child.process.join(timeout=5)
+
+
+def close_executor_process(child):
+    """Close parent process resources after normal or forced completion."""
+
+    if child is None:
+        return
+    stop_executor_process(child)
+    tree = getattr(child, "tree", None)
+    stopped = tree is None or tree.wait_for_exit()
+    if tree is not None:
+        child.tree.close()
+    child.connection.close()
+    try:
+        child.process.close()
+    except ValueError:
+        pass
+    if stopped:
+        remove_execution_scratch(getattr(child, "scratch_directory", None))
+
+
+def execution_timeout(value):
+    """Validate a composition-provided catalog timeout with a safe upper bound."""
+
+    if value is None:
+        value = getattr(settings, "JOB_EXECUTION_TIMEOUT_SECONDS", 900)
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as error:
+        raise JobExecutionFailure(
+            "The executor timeout is invalid.", "JOB_TIMEOUT_INVALID"
+        ) from error
+    if seconds <= 0 or seconds > 86400:
+        raise JobExecutionFailure(
+            "The executor timeout is invalid.", "JOB_TIMEOUT_INVALID"
+        )
+    return seconds
+
+
+def external_write_cancel_requested(job):
+    """Return cancellation intent only when an external-write claim remains current."""
+
+    if not job.reconcile_on_lease_loss:
+        return False
+    try:
+        return cancellation_requested(job.id)
+    except JobLeaseLost:
+        return True
+
+
+def publish_terminal(callback, job, *args):
+    """Ignore a terminal transition when recovery has replaced the claim."""
+
+    try:
+        callback(job.id, *args)
+    except JobLeaseLost:
+        log_lost_claim(job)
+
+
+def log_lost_claim(job):
+    """Record a bounded operational signal without exposing executor details."""
+
+    logger.warning(
+        "Discarded publication from a stale job claim",
+        extra={"job_id": str(job.id), "worker_id": job.worker_id},
+    )
+
+
+def persist_result(job_id, result, *, allow_cancel_requested=False):
+    """Stage, fence, and atomically publish one owned result artifact."""
+
+    lease = current_execution_lease(job_id)
+    staged = None
+    published = False
     try:
         validate_result_artifact(result.path)
+        with transaction.atomic():
+            job = lock_active_execution(
+                lease, allow_cancel_requested=allow_cancel_requested
+            )
         with result.path.open("rb") as source:
-            job.output_sha256 = file_digest(source)
-            source.seek(0)
-            job.output_file.save(result.filename, File(source), save=False)
-        job.output_name = result.filename
-        job.result_summary = result.summary or {}
-        set_job_state(job, JobStatus.SUCCEEDED, 100, result.message)
+            staged = stage_job_output(job, result.filename, source)
+        with transaction.atomic():
+            job = lock_active_execution(
+                lease, allow_cancel_requested=allow_cancel_requested
+            )
+            publish_staged_job_output(staged)
+            published = True
+            job.output_file = staged.final_name
+            job.output_sha256 = staged.digest
+            job.output_name = result.filename
+            job.result_summary = result.summary or {}
+            set_job_state(job, JobStatus.SUCCEEDED, 100, result.message)
+    except Exception:
+        try:
+            discard_staged_job_output(staged, published=published)
+        except Exception as cleanup_error:
+            logger.error(
+                "Failed to remove an unpublished job artifact",
+                extra={
+                    "job_id": str(job_id),
+                    "error_type": type(cleanup_error).__name__,
+                },
+            )
+        raise
     finally:
-        result.path.unlink(missing_ok=True)
+        remove_temporary_artifact(result.path)
 
 
 def validate_result_artifact(path):
@@ -131,77 +548,107 @@ def validate_result_artifact(path):
     if size == 0:
         raise JobExecutionFailure("The executor produced no output.", "JOB_OUTPUT_MISSING")
     if size > settings.JOB_MAX_OUTPUT_BYTES:
-        raise JobExecutionFailure("Generated output exceeds the safety limit.", "JOB_OUTPUT_TOO_LARGE")
+        raise JobExecutionFailure(
+            "Generated output exceeds the safety limit.", "JOB_OUTPUT_TOO_LARGE"
+        )
 
 
 def mark_cancelled(job_id):
-    """Persist a cooperative cancellation terminal state."""
+    """CAS-persist a cooperative cancellation terminal state."""
 
-    job = Job.objects.get(pk=job_id)
-    set_job_state(job, JobStatus.CANCELLED, job.progress, "Job cancelled.", "JOB_CANCELLED")
+    lease = current_execution_lease(job_id)
+    with transaction.atomic():
+        job = lock_active_execution(lease, allow_cancel_requested=True)
+        set_job_state(job, JobStatus.CANCELLED, job.progress, "Job cancelled.", "JOB_CANCELLED")
 
 
 def mark_failed(job_id, message, code, retryable=False):
-    """Persist a sanitized terminal failure."""
+    """CAS-persist a sanitized terminal failure."""
 
-    job = Job.objects.get(pk=job_id)
-    job.retryable = retryable
-    set_job_state(job, JobStatus.FAILED, job.progress, message, code)
+    lease = current_execution_lease(job_id)
+    with transaction.atomic():
+        job = lock_active_execution(lease, allow_cancel_requested=True)
+        if job.status == JobStatus.CANCEL_REQUESTED:
+            set_job_state(
+                job, JobStatus.CANCELLED, job.progress, "Job cancelled.", "JOB_CANCELLED"
+            )
+            return
+        job.retryable = retryable
+        set_job_state(job, JobStatus.FAILED, job.progress, message, code)
+
+
+def mark_reconciliation_required(job_id, message, code):
+    """Persist an ambiguous external-write outcome without allowing retries."""
+
+    lease = current_execution_lease(job_id)
+    with transaction.atomic():
+        job = lock_active_execution(lease, allow_cancel_requested=True)
+        job.retryable = False
+        set_job_state(
+            job,
+            JobStatus.RECONCILIATION_REQUIRED,
+            job.progress,
+            message,
+            code,
+        )
 
 
 def recover_expired_jobs():
     """Requeue jobs abandoned after a worker lease expired."""
 
     statuses = [JobStatus.RUNNING, JobStatus.CANCEL_REQUESTED]
-    job_ids = Job.objects.filter(status__in=statuses, lease_expires_at__lt=timezone.now()).values_list("id", flat=True)[:100]
+    job_ids = Job.objects.filter(
+        status__in=statuses, lease_expires_at__lt=timezone.now()
+    ).values_list("id", flat=True)[:100]
     for job_id in list(job_ids):
         recover_expired_job(job_id)
 
 
 def recover_expired_job(job_id):
-    """Recover one expired lease under a row lock."""
+    """Recover one expired claim under a row lock and invalidate its token."""
 
     with transaction.atomic():
-        job = Job.objects.select_for_update().get(pk=job_id)
+        try:
+            job = Job.objects.select_for_update().get(pk=job_id)
+        except Job.DoesNotExist:
+            return
+        if job.status not in {JobStatus.RUNNING, JobStatus.CANCEL_REQUESTED}:
+            return
         if not job.lease_expires_at or job.lease_expires_at >= timezone.now():
             return
-        if job.status == JobStatus.CANCEL_REQUESTED:
+        if job.status == JobStatus.CANCEL_REQUESTED and job.reconcile_on_lease_loss:
+            job.retryable = False
+            set_job_state(
+                job,
+                JobStatus.RECONCILIATION_REQUIRED,
+                job.progress,
+                "Confirm the external system state before submitting another write.",
+                "RECONCILIATION_REQUIRED",
+            )
+        elif job.status == JobStatus.CANCEL_REQUESTED:
             set_job_state(job, JobStatus.CANCELLED, job.progress, "Job cancelled.", "JOB_CANCELLED")
+        elif job.reconcile_on_lease_loss:
+            job.retryable = False
+            set_job_state(
+                job,
+                JobStatus.RECONCILIATION_REQUIRED,
+                job.progress,
+                "Confirm the external system state before submitting another write.",
+                "RECONCILIATION_REQUIRED",
+            )
         elif job.attempt >= job.max_attempts:
-            set_job_state(job, JobStatus.FAILED, job.progress, "Worker lease expired.", "JOB_LEASE_EXPIRED")
+            set_job_state(
+                job,
+                JobStatus.FAILED,
+                job.progress,
+                "Worker lease expired.",
+                "JOB_LEASE_EXPIRED",
+            )
         else:
             job.attempt += 1
             job.lease_expires_at = None
             job.worker_id = ""
-            set_job_state(job, JobStatus.QUEUED, job.progress, "Recovered after worker interruption.")
-
-
-def lease_deadline():
-    """Return the current worker lease deadline."""
-
-    seconds = int(getattr(settings, "JOB_LEASE_SECONDS", 60))
-    return timezone.now() + timedelta(seconds=max(15, seconds))
-
-
-def file_digest(file_object):
-    """Calculate a streaming SHA-256 digest for a generated artifact."""
-
-    digest = hashlib.sha256()
-    for chunk in iter(lambda: file_object.read(1024 * 1024), b""):
-        digest.update(chunk)
-    return digest.hexdigest()
-
-
-def touch_worker(worker_id, current_job=None):
-    """Publish one durable worker heartbeat for system visibility."""
-
-    if worker_id:
-        WorkerHeartbeat.objects.update_or_create(
-            worker_id=worker_id, defaults={"current_job": current_job}
-        )
-
-
-def remove_worker(worker_id):
-    """Remove a worker heartbeat during graceful shutdown."""
-
-    WorkerHeartbeat.objects.filter(worker_id=worker_id).delete()
+            job.execution_token = None
+            set_job_state(
+                job, JobStatus.QUEUED, job.progress, "Recovered after worker interruption."
+            )

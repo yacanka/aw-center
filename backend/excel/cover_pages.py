@@ -9,7 +9,9 @@ from docxtpl import DocxTemplate
 
 from jobs.artifacts import materialize_job_input, temporary_output
 from jobs.contracts import JobExecutionFailure, JobExecutionResult
-from jobs.worker import update_progress
+from jobs.execution import update_progress
+from projects.configuration import ProjectConfigurationError
+from projects.registry import get_project_configuration
 
 REQUIRED_COLUMNS = [
     "Cover Page Number", "Cover Page Issue", "ATA Chapter", "Disciplines",
@@ -45,6 +47,11 @@ def execute_cover_page_creation(job):
         create_cover_page_archive(job.id, rows, output_path)
         result_ready = True
         return JobExecutionResult(output_path, "cover-pages.zip", "Cover pages created.")
+    except ProjectConfigurationError as error:
+        raise JobExecutionFailure(
+            "Private project configuration is unavailable or invalid.",
+            "PROJECT_CONFIGURATION_UNAVAILABLE", True,
+        ) from error
     finally:
         input_path.unlink(missing_ok=True)
         if not result_ready:
@@ -149,9 +156,10 @@ def cover_filename(row, index):
 def resolve_project_label(cover_page_number):
     """Resolve a configured project label from a cover-page identifier."""
 
-    if "B30" in cover_page_number.upper():
-        return settings.COVER_PAGE_B30_PROJECT_LABEL
-    return settings.COVER_PAGE_DEFAULT_PROJECT_LABEL
+    policy = get_project_configuration()["cover_pages"]
+    if policy["match_text"].upper() in cover_page_number.upper():
+        return policy["match_label"]
+    return policy["default_label"]
 
 
 def enforce_archive_limit(output_path):

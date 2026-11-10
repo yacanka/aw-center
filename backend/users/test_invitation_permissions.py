@@ -23,7 +23,7 @@ class InvitationPermissionTests(TestCase):
         """Staff status alone cannot create account invitations."""
 
         response = self.client.post(
-            "/auth/invitations/", {"email": "recipient@example.com"}, format="json"
+            "/api/users/invitations/", {"email": "recipient@example.com"}, format="json"
         )
 
         self.assertEqual(response.status_code, 403)
@@ -33,7 +33,7 @@ class InvitationPermissionTests(TestCase):
 
         self.user.user_permissions.add(Permission.objects.get(codename="add_user"))
         response = self.client.post(
-            "/auth/invitations/", {"email": "recipient@example.com"}, format="json"
+            "/api/users/invitations/", {"email": "recipient@example.com"}, format="json"
         )
 
         self.assertEqual(response.status_code, 201)

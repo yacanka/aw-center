@@ -2,11 +2,13 @@
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
+
+from users.username_policy import validate_username_format
 
 
 DEFAULT_USERNAME = "u10001"
-DEFAULT_PASSWORD = "AwCenterDev!123"
 
 
 class Command(BaseCommand):
@@ -17,17 +19,22 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """Register command-line arguments."""
         parser.add_argument("--username", default=DEFAULT_USERNAME)
-        parser.add_argument("--password", default=DEFAULT_PASSWORD)
+        parser.add_argument("--password", default=None)
         parser.add_argument("--email", default="dev.user@example.local")
 
     def handle(self, *args, **options):
         """Create or update the local development user."""
         if not settings.DEBUG:
             raise CommandError("ensure_development_user can only run with DEBUG=True.")
+        if not options["password"]:
+            raise CommandError("Pass the local development password with --password.")
+        try:
+            validate_username_format(options["username"])
+        except ValidationError as exc:
+            raise CommandError(exc.messages[0]) from exc
 
         user = self._ensure_user(options)
         self.stdout.write(self.style.SUCCESS(f"Development login ready: {user.username}"))
-        self.stdout.write(f"Development password: {options['password']}")
 
     def _ensure_user(self, options):
         user_model = get_user_model()

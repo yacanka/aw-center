@@ -7,14 +7,14 @@ from rest_framework.permissions import IsAuthenticated
 from awcenter.file_security import WORD_DOCUMENT_POLICY, validate_request_upload
 from jobs.api import job_creation_response
 from jobs.contracts import JobExecutionFailure
-from jobs.services import create_job
+from jobs.kind_contracts import SUPPORTED_TRANSLATIONS
+from jobs.services import create_job, require_idempotency_key
 from word.analysis_contracts import (
     ANALYSIS_CHECKS,
     selected_custom_checks,
     validate_check_ids,
 )
 from word.custom_checks import get_custom_checks
-from word.job_executor import SUPPORTED_TRANSLATIONS
 
 
 @api_view(["POST"])
@@ -22,6 +22,9 @@ from word.job_executor import SUPPORTED_TRANSLATIONS
 def create_translation_job(request):
     """Validate and enqueue a durable Word translation job."""
 
+    idempotency_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key", "")
+    )
     uploaded_file = validate_request_upload(request, "file", WORD_DOCUMENT_POLICY)
     translation_type = validate_translation_type(request.data.get("translate_type"))
     job, created = create_job(
@@ -30,7 +33,7 @@ def create_translation_job(request):
         title=f"Translate {uploaded_file.name}",
         parameters={"translate_type": translation_type},
         uploaded_file=uploaded_file,
-        idempotency_key=request.headers.get("Idempotency-Key", ""),
+        idempotency_key=idempotency_key,
         request_id=getattr(request, "request_id", ""),
     )
     return job_creation_response(job, created)
@@ -50,6 +53,9 @@ def validate_translation_type(value):
 def create_analysis_job(request):
     """Validate and enqueue private explainable document analysis."""
 
+    idempotency_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key", "")
+    )
     uploaded_file = validate_request_upload(request, "file", WORD_DOCUMENT_POLICY)
     custom_checks = get_custom_checks(request.user)
     check_ids = parse_check_ids(request.data.get("check_ids"), custom_checks)
@@ -63,7 +69,7 @@ def create_analysis_job(request):
         title=f"Analyze {uploaded_file.name}",
         parameters=parameters,
         uploaded_file=uploaded_file,
-        idempotency_key=request.headers.get("Idempotency-Key", ""),
+        idempotency_key=idempotency_key,
         request_id=getattr(request, "request_id", ""),
     )
     return job_creation_response(job, created)

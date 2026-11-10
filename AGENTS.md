@@ -1,66 +1,98 @@
 # AW Center coding agent rehberi
 
-## Değişiklik yapılacak yerler
+## Kaynak ve modül sınırları
 
-- Django kaynakları `backend/` altındadır. Proje ayarları ve kök URL sözleşmesi `backend/awcenter/`, yeniden kullanılabilir CompDoc davranışı `backend/common/`, ürün entegrasyonları kendi Django app'leri, proje varyantları ise `backend/projects/<slug>/` içindedir.
-- Projeler arası CompDoc model, serializer, view veya workflow davranışını proje app'lerine kopyalama; ortak factory/service'i `backend/common/` içinde değiştir, proje app'lerini ince adapter olarak tut. Gerçekten proje-özel olan davranış ilgili `backend/projects/<slug>/` altında kalmalıdır.
-- Teknik proje metadata'sının kaynağı `backend/projects/registry.py` dosyasıdır. `orgs.Project` bunun iş verisi karşılığıdır ve ortak anahtar `slug` değeridir. Route'lar yalnız etkin registry kayıtlarından `backend/projects/routing.py` ile üretilir.
-- Vue kaynakları `frontend/src/` altındadır. Route'lar `router/routes.ts`, erişim kararları `services/accessPolicy.ts`, HTTP/CSRF varsayılanları `services/http.ts` içindedir. Yeni entegrasyon state'i ve API kodunu ilgili domain Pinia store/service modülünde tut.
-- Kök `launcher.py` yalnız giriş noktasıdır; launcher davranışını `scripts/launcher/` içinde, testlerini `scripts/test_launcher*.py` içinde değiştir.
+- Django kaynakları `backend/`, Vue kaynakları `frontend/src/` altındadır. `backend/awcenter/` yalnız composition root, settings, root URL, ortak HTTP/güvenlik ve deployment kontrollerini barındırır.
+- Compliance Documents için tek canonical aggregate `backend/compliance/` içindedir. Proje başına Django app, model veya route üretme. Her kayıt `orgs.Project` foreign key'i ile scope edilir.
+- `backend/projects/registry.py` teknik ve read-only proje capability kataloğudur. İş verisi ve erişim rolleri `backend/orgs/` içindedir; ortak kimlik `slug` değeridir. Proje farkı gerçekten gerekiyorsa yalnız küçük bir `backend/projects/policies/` strategy'si ekle.
+- Durable job kernel'i `backend/jobs/`; statik executor metadata kataloğu `backend/automations/catalog.py`; callable çözümleme composition root'u `backend/awcenter/job_executors.py` içindedir. `jobs` feature app'lerini import etmez.
+- Vendor/integration adapterları ve HTTP/use-case yüzeyleri `backend/integrations/` altında kalır; JIRA application (Watcher, subtask, issue draft, doküman akışları ve kullanıcı içeriği) `backend/integrations/jira/` altında, mevcut `integrations` Django app'i içinde yönetilir; canonical API `/api/integrations/jira/`, capability/role domain `jira` değeridir. JIRA persistence başlangıç migration’ları doğrudan `integrations` app’ine aittir; eski `dcc` migration-only app’i yeni baseline’da bulunmaz. DOORS, Teamcenter veya DocProof için yeniden kök Django app oluşturma. Generic event bus, plugin framework veya yeni bir background-processing framework ekleme.
+- Frontend composition ve route'ları `frontend/src/app/`; ortak HTTP/CSRF, hata, download ve küçük primitive'ler `frontend/src/shared/`; business UI/API/composable'ları `frontend/src/features/<feature>/` içindedir; JIRA yüzeyi `frontend/src/features/integrations/jira/` altındadır. Session bootstrap/guard `features/session/`, proje kataloğu `features/projects/` altındadır. Component/page doğrudan Axios/shared HTTP client import etmez; feature API veya composable kullanır.
+- Kök `launcher.py` local setup/check/test/dev/offline-package akışlarına ek olarak Windows-native `prod` lifecycle'ını yönetir. `prod`; repository dışındaki explicit environment/TLS dosyası, statik IPv4, SQLite, tek ASGI server ve launcher-owned worker process'leri kullanır. Davranışı `scripts/launcher/`, testleri `scripts/test_launcher*.py` içindedir.
 
-## Korunacak mimari ve API sözleşmeleri
+- Compliance dashboard’daki “Accumulated pending days” kartı #126 kapsamında `SHOW_PENDING_DAYS = false` ile geçici olarak gizlidir. Gelecekte geri açılabilmesi için grafik kodunu, yardımcılarını, testlerini ve backend `pending_days` hesabı/API sözleşmesini silme; burndown ve Flow performance görünür kalır.
 
-- DRF varsayılanı `IsAuthenticated` ve browser kimlik doğrulaması HttpOnly token cookie + CSRF'dir. Public endpoint'i yalnız bilinçli olarak `AllowAny` yap; cookie ile gelen unsafe isteklerdeki CSRF kontrolünü veya frontend'deki `withCredentials`/XSRF ayarlarını devre dışı bırakma.
-- Frontend route ve navigasyon erişimi aynı `RouteAccessPolicy` kararlarını kullanır; açıkça `public` olmayan route authenticated kabul edilir. Hassas bir ekran eklerken route, `services/accessPolicy.ts`, menü/komut görünürlüğü ve `scripts/test-route-access.mjs` kontrollerini birlikte güncelle.
-- Yeni API hata yolları ortak `{ detail, code, ... }` sözleşmesini ve mümkün olduğunda `request_id` değerini korumalıdır. Backend'de `awcenter.api_errors`, frontend'de `services/apiError.ts` üzerinden ilerle; hassas exception veya credential ayrıntısını response'a/loga koyma.
-- Upload endpoint'lerinde uzantı, boyut, imza ve arşiv güvenliğini `awcenter.file_security` politikalarıyla uygula; yalnız istemci MIME tipine veya dosya adına güvenme. Job input/output dosyalarını public `MEDIA_ROOT` altına taşıma: `PRIVATE_MEDIA_ROOT`, owner-scoped yollar, hash doğrulaması ve yetkili download view sözleşmesini koru.
-- Mevcut durable job akışlarında job kind'ı; create endpoint, `jobs.worker.get_executor` allowlist'i, idempotency key, lease/cancellation, progress ve private artifact yaşam döngüsüyle birlikte ele al. Worker state değişikliklerindeki `transaction.atomic`/`select_for_update` korumalarını kaldırma.
-- CompDoc import, lifecycle, review, bulk işlem ve notification akışlarında kullanılan optimistic version/confirmation token, audit/history ve transaction sınırlarını koru. Model save metodunu veya service katmanını atlayan toplu update'lerin türetilmiş `status`, tarih, cover-page ve history alanlarını bozmadığını doğrula.
-- Registry capability değişikliği bir backend/frontend contract değişikliğidir. `backend/projects/constants.py`, registry ve invariant/API testleri ile `frontend/src/models/projectRegistry.ts`, fallback/consumer kodunu aynı değişiklikte hizala. Internal app label, template, JIRA veya filesystem metadata'sını registry API'ye açma.
+## Arayüz ve tema sözleşmesi
 
-## Kod ve dosya convention'ları
+- Mevcut arayüz Naive UI temelli, ortak uygulama kabuğu içinde sade, okunabilir ve responsive iş ekranlarından oluşur. Yeni veya güncellenen sayfalar bu görsel bağlamı korur; bağımsız renk paleti, font veya ayrı tasarım konsepti oluşturma.
+- Tema kaynağı `frontend/src/app/App.vue` içindeki ortak `NConfigProvider` ve `app/services/theme.ts` tercih çözümlemesidir. Login dahil public sayfalar ve users altındaki kart, rol rozeti, tablo ve modal içerikleri aynı temayı miras alır. Sayfa içinde `lightTheme`, `:theme="null"` veya yerel marka rengi override'larıyla temayı ezme.
+- Kontrollerde Naive UI bileşenlerini kullan. Özel yerleşim CSS'inde yüzey, metin, kenarlık, vurgu ve font değerlerini `useThemeVars()` üzerinden al; sabit beyaz/koyu yüzey veya temadan bağımsız renk ekleme. Mevcut responsive yerleşimi ve erişilebilir etkileşimleri koru.
+- Tema değişikliklerini light ve dark modda, masaüstü ve mobilde doğrula; açılan dialog ve detay içeriklerini de kontrol et.
 
-- Backend'de mevcut Django/DRF app organizasyonunu ve yakındaki Python stilini izle. Repository'de Python formatter, linter veya type-checker yapılandırılmamıştır; toplu biçimlendirme yapma.
-- Frontend'de yeni kod için TypeScript, Vue SFC'lerde `<script setup lang="ts">`, `@/` alias'ı ve mevcut service/composable/store ayrımını kullan. Entegrasyon state'ini çapraz-domain bir API store facade'ında toplama.
-- Frontend biçimi `frontend/.prettierrc` ile tanımlıdır. Naive UI template bileşeni eklenirse `frontend/src/plugins/naiveUi.ts` kaydını ve UI registration testini güncelle; üretim build'inin bundle budget kontrolünü koru.
-- Backend testleri ilgili app yanında `test*.py`/`tests/` altında Django `TestCase` ailesiyle; frontend regresyon testleri `frontend/scripts/test-*.mjs` altında Node test runner ile tutulur. Değişen contract'a en yakın testi güncelle veya ekle.
-- Model değişikliklerinde mevcut numaralı migration'ları yeniden yazma; yeni migration üret. `CompDocBase` gibi ortak abstract modellerde değişiklik her concrete proje app'inde migration gerektirebilir; tüm proje app'lerini migration kontrolüne dahil et.
+## Korunacak güvenlik ve API sözleşmeleri
 
-## Bağımlılıklar, config ve üretilmiş dosyalar
+- Browser authentication yalnız Django server-side session cookie'sidir. DRF varsayılanı `SessionAuthentication` + `IsAuthenticated`; unsafe istekler CSRF gerektirir. Browser credential'ını response body, local/session storage veya URL içine koyma.
+- Password-reset request web process'inde mail göndermez: account-existence-neutral response, durable/fenced outbox, deterministic Message-ID, stable retry token timestamp ve notification-worker-only SMTP credential sınırını koru. Raw reset token'ını persist etme.
+- Public endpoint yalnız bilinçli `AllowAny` kararı ve testle eklenir. Canonical browser API `/api/`; SPA `/app/`; health `/health/live/` ve `/health/ready/` altındadır. Eski alias route ekleme.
+- API hata sözleşmesi `{ detail, code, ... }` ve mümkün olduğunda `request_id` içerir. `awcenter.api_errors` ve frontend `shared/api/apiError.ts` kullan; exception, credential, filesystem veya upstream ayrıntısı sızdırma.
+- Upload'larda `awcenter.file_security` boyut, ad, uzantı, imza ve arşiv politikalarını uygula. Job input/output artifact'ları yalnız `PRIVATE_MEDIA_ROOT`, owner-scoped path, SHA-256 ve yetkili download view ile erişilir. `/media/` public değildir.
+- Outlook attachment gibi cache-backed private download'larda URL/query credential üretme. Capability authenticated POST body'de taşınmalı; owner-bound, kısa ömürlü, tek kullanımlık olmalı ve payload SHA-256 indirme öncesi yeniden doğrulanmalıdır.
+- Job değişikliğinde create endpoint, idempotency key, `automations.catalog` kind/queue/upload/timeout metadata'sı, claim lease/execution token, cancellation, monotonic progress, terminal CAS fencing ve artifact retention birlikte ele alınır. `transaction.atomic`/`select_for_update` ve stale-worker korumasını zayıflatma.
+- Güncel Windows-native production'da `doors` queue, `DOORS_ENABLED=True` olduğunda varsayılan olarak tek genel Windows worker tarafından çalıştırılır; `--exclude-doors` açık opt-out'tur. Static allowlist, disposable child process, timeout, cancellation, reconciliation ve SHA-256 artifact sınırlarını koru. Aynı kullanıcı oturumunda ikinci DOORS-capable worker'a izin verme.
+- Compliance import/lifecycle/review/notification değişikliklerinde project scope, optimistic `version`, confirmation token, audit/history ve transaction sınırlarını koru. Model/service'i atlayan bulk update ile türetilmiş alanları bozma.
+- Project capability değişikliği backend/frontend contract değişikliğidir: registry, seed/alignment testleri, `frontend/src/features/projects/models/projectRegistry.ts` ve tüketicileri aynı değişiklikte hizala. Internal handler/template/integration metadata'sını API'ye açma.
 
-- Python bağımlılığını `requirements.in` içinde değiştir, ardından `pip-compile requirements.in` ile üretilen `requirements.txt` dosyasını yenile; lock dosyasını elle düzenleme. Launcher ve dependency manifest'i CPython 3.11+ kabul eder ve backend kodu 3.11 uyumunu korumalıdır.
-- Frontend bağımlılıklarının kaynağı `frontend/package.json` ve `frontend/package-lock.json` dosyalarıdır; kurulumu `npm ci` ile yap. Kök `package.json` yalnız frontend komutlarını proxy eder. Fresh checkout kurulumu için kökten `python launcher.py setup` kullan; tek taraflı kurulumda `--skip-backend`/`--skip-frontend` seçenekleri vardır.
-- Gerçek secret/credential, yerel endpoint, sertifika, database veya kullanıcı verisi commit etme. Yerel seçim dosyası `backend/.env` git dışıdır; yoksa `backend/.env.example` dosyasından oluştur, mevcut yerel dosyanın üzerine yazma. Güvenli varsayımlar `backend/.env.development`, production şablonları `backend/.env.production` ve kök `.env.example` dosyasında tutulur.
-- `frontend/dist/`, `backend/core/assets/`, `backend/static/`, `backend/staticfiles/`, `backend/templates/index.html`, `.runtime/`, media/private-media/model dizinleri ve SQLite dosyaları üretilmiş veya yerel state'tir; kaynak gibi elle düzenleme veya commit etme. SPA shell kaynağı `frontend/src/`, Django shell-serving kodu `backend/core/` kökündeki Python dosyalarıdır.
-- Migration veya veri senkronizasyonu otomatik değildir. `python launcher.py check`, `dev` ve `prod` veritabanını değiştirmez; migration ancak açık `--migrate` veya doğrudan `manage.py migrate` ile uygulanır. `sync_projects` veri yazar; agent doğrulamasında varsayılan olarak `sync_projects --dry-run` kullan.
+## Migration, dependency ve üretilmiş dosyalar
 
-## Doğrulama komutları
+- Güncel production sözleşmesi aynı Windows kullanıcı oturumunda `launcher.py prod` + doğrudan TLS ASGI + ayrı SQLite/private-artifact state'idir. SQLite yerel NTFS üzerinde, repository/OneDrive/network share dışında, `DATABASE_CONN_MAX_AGE=0`, bounded busy timeout ve tek job worker ile kullanılır. Docker + fresh PostgreSQL 17 + Redis 7 sonraki olgunluk aşamasıdır. Shared/production database'i resetleme; backup al, forward-only migration ve forward-fix kullan.
+- Normal model değişikliğinde mevcut migration'ı yeniden yazma; yeni migration üret. Migration baseline değişikliği ancak açık repository-wide görevde yapılır ve disposable local database yeniden oluşturulur. 15.10.2026 baseline’ı yalnız boş veritabanına kurulum içindir; önceki geliştirme şemaları için upgrade veya fake-migration yolu yoktur. `orgs/0002_seed_projects` canonical projeleri, `compliance/0003_seed_default_statuses` Unknown statülerini seed eder.
+- Proje katalog satırları `orgs` data migration'ıyla seed edilir. `check_project_registry` salt-okunur doğrulamadır; runtime senkronizasyon komutu ekleme.
+- Python dependency kaynağı `requirements.in`, üretilen lock `requirements.txt`'dir. Güncelleme komutu `uv pip compile --python-version 3.11 requirements.in -o requirements.txt`; lock'u elle düzenleme. Runtime CPython 3.11'dir.
+- Kullanıcının kalıcı kararı: geliştirme, test, CI ve production için desteklenen tek Python minor sürümü **CPython 3.11.x**'tir. `.python-version` bu hedefi seçer; minor sürüm hedefi yalnız kullanıcının açık talebiyle değiştirilir.
+- Frontend dependency kaynağı `frontend/package.json` ve `frontend/package-lock.json`; kurulum `npm ci` ile yapılır. Kök `package.json` yalnız frontend script proxy'sidir.
+- Secret, certificate, private key, endpoint credential veya gerçek kullanıcı verisi commit etme. `backend/.env` local ve git dışıdır; production değerleri process environment/secret manager'dan gelir.
+- `frontend/dist/`, `frontend/test-results/`, `frontend/playwright-report/`, `backend/static/`, `backend/staticfiles/`, `__pycache__/`, `.venv/`, `.runtime/`, private/media/model dizinleri, SQLite dosyaları ve release evidence üretilmiş/local state'tir; kaynak gibi düzenleme veya commit etme.
+- Gelecekteki container profilinin source'u read-only'dir; Django lifecycle'larının numeric non-root kimlik, dropped capabilities ve `no-new-privileges` sınırını koru. Her Compose lifecycle'ına yalnız ihtiyacı olan integration/mail environment'ını ve volume'u ver: notification worker private/AI-model/template volume'u veya integration credential'ı; cleanup worker mail/integration credential'ı veya AI-model/template volume'u; backend/local worker mail credential'ı almamalıdır.
+- Windows-native production'da database, private artifact, TLS, AI model ve DOCX template yolları `%LOCALAPPDATA%\AWCenter` altındaki açık ve birbirinden ayrılmış host yollarıdır; development production database/private-media yolunu paylaşmaz. Gelecekteki container profilinde private artifact volume ve read-only AI/template mount sınırları korunur.
+- Güncel host asset sözleşmesi `%LOCALAPPDATA%\AWCenter\assets\sets\<asset-set-id>\ai-models` ve `document-templates` dizinleridir. Gelecekteki container mount karşılıkları `/app/ai-models` ve `/app/document-templates` olarak kalır. `CUSTOM_TEMPLATE_DIR` veya model path'lerini source tree'ye ya da writable private artifact alanına yönlendirme.
+- Windows-native production yalnız `check --deploy`, pending-migration kontrolü, `collectstatic` ve `verify_frontend_artifact` kapılarından sonra açılır. Gelecekteki container profilinin ilk ingress'i ayrıca `run_release_smoke --stage core` ve `--stage notification` geçtikten sonra açılır; smoke komutunu upgrade/veri temizleme aracı olarak gevşetme.
+- Gelecekteki container production image reference'ı mutable tag olamaz. `deployment_preflight.py`, CI release evidence, `verify_release_image.py` ve `repository@sha256:<digest>` zincirini container aşamasında koru.
+- Dockerfile/Compose base ve infrastructure image digest'lerini veya CI action commit SHA pinlerini yalnız bağımlılık yükseltmesi olarak, deployment contract testleriyle birlikte değiştir; pinleri mutable tag/major referansa gevşetme.
+- Gelecekteki Redis authentication'ını command argümanına taşıma; restricted config + non-root process ve authenticated healthcheck sözleşmesini koru. Nginx container health'ini hosta açılan bypass route'uyla değil, loopback aggregate readiness listener'ıyla ölç.
+
+## Çalışma ve doğrulama
 
 Repository kökünden temel kapılar:
 
 ```bash
 python launcher.py check
 python launcher.py test
+python launcher.py prod --help
 ```
 
-Değişiklik kapsamına göre daha dar veya ek kontroller:
+Değişiklik kapsamına göre exact kontroller:
 
 ```bash
 # Backend (backend/ içinden)
-../.venv/bin/python manage.py test <app_veya_test_labeli>
 ../.venv/bin/python manage.py check
 ../.venv/bin/python manage.py makemigrations --check --dry-run
 ../.venv/bin/python manage.py migrate --check
+../.venv/bin/python manage.py test <app_veya_test_labeli>
+../.venv/bin/python manage.py check_project_registry
 
 # Frontend (repository kökünden)
 npm --prefix frontend run format:check
 npm --prefix frontend run typecheck
 npm --prefix frontend run test:ci
+npm --prefix frontend run test:e2e
 npm --prefix frontend run build
 
-# Launcher
-.venv/bin/python -m unittest scripts.test_launcher scripts.test_launcher_jobs
+# Launcher ve release metadata
+.venv/bin/python -m unittest scripts.test_launcher scripts.test_launcher_jobs scripts.test_release_metadata
 ```
 
-- Model/registry değişikliğinde backend tam testine ek olarak `manage.py check_project_registry` ve `manage.py sync_projects --dry-run` çalıştır.
-- Frontend artifact serving, Vite base/chunking, static ayarları veya container değişikliğinde frontend build'den sonra `backend/` içinde `../.venv/bin/python manage.py collectstatic --noinput` ve `../.venv/bin/python manage.py verify_frontend_artifact` çalıştır. Container/deployment değişikliğinde ayrıca kök `backend/Dockerfile`, `docker-compose.yml`, `deploy/nginx/awcenter.conf` ve `.github/workflows/ci.yml` sözleşmelerini birlikte kontrol et.
+- Model değişikliğinde PostgreSQL üzerinde `migrate --check` ve `makemigrations --check --dry-run` çalıştır.
+- Session/route erişimi değişikliğinde backend auth/CSRF testleri ile frontend session, access ve route testlerini birlikte çalıştır.
+- Playwright Chromium'u ilk local E2E kullanımından önce `frontend/` içinde `npx playwright install chromium` ile kur. CI browser kurulumunda `npx playwright install --with-deps chromium` kullan; browser binary'sini repository'ye ekleme.
+- Frontend artifact/static/container değişikliğinde build sonrası `backend/` içinde `../.venv/bin/python manage.py collectstatic --clear --noinput` ve `../.venv/bin/python manage.py verify_frontend_artifact` çalıştır.
+- Windows production değişikliğinde launcher testleri, production system check'leri, frontend build/collectstatic/artifact verification, SQLite concurrency ve Windows worker/DOORS adapter testlerini birlikte doğrula. Container profili değişikliğinde ayrıca `backend/Dockerfile`, `docker-compose.yml`, Nginx, CI, preflight, image verification ve deployment contract testlerini çalıştır.
+- Çalıştırılmayan veya çevre yüzünden başarısız kalan kontrolü ve kalan riski açıkça raporla.
+
+## Kullanıcı tercihleri ve içerik
+
+- Kullanıcıya gösterilen tüm tarihleri `dd.MM.yyyy`, saatleri 24 saat biçiminde ve `Europe/Istanbul` (UTC+3) saat diliminde sun. Takvim tarihlerini saat dilimi dönüşümüyle kaydırma. API, storage, vendor payload ve date-picker value formatlarında ISO sözleşmesini koru; yalnız sunum biçimini TR standardına çevir. Frontend ortak biçimleyicileri `shared/utils/time.ts` içindedir.
+
+- AW Center ilk kez ürün olarak kullanılacak; bu ayrım/taşıma kapsamında eski API uyumu ve alias gerekmez. Mevcut veriler ve migration geçmişi korunur.
+- UserPreferences yalnız tercihlerdir. JIRA kayıtlı listeleri integrations.JiraUserContent, özel analiz soruları word.DocumentAnalysisUserContent içinde owner-scoped saklanır; session/user administration response'una içerik ekleme.
+- Görünüm reseti theme, has_particles, items_per_page, compact_view ve Watcher görünümünü sıfırlar; kayıtlı içerikleri, dil/timezone, bildirim/abonelik/gizlilik değerlerini ve diğer extra_settings anahtarlarını korur.
+- İçerik JSON yazmaları version CAS kullanır; SQLite üzerinde yalnız select_for_update korumasına güvenme. User save signal'ı tercih/içerik kaydetmez.

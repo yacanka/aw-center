@@ -15,11 +15,24 @@ AW Center, kullanıcı erişimini ve doküman işlemlerini uygulama sunucusunda 
 
 ## Gereksinimler
 
-- Python 3.11
+- CPython 3.11.x (geliştirme, CI ve production)
 - Node.js 22 ve npm
 - Kullanılacak doküman araçlarının sistem bağımlılıkları
 
 ## Kurulum ve çalıştırma
+
+Windows masaüstü yöneticisi için taşınabilir ZIP'in tamamını çıkarıp
+`AWCenterManager.exe` dosyasını açın. Arayüz dev/prod kurulumu, başlatma/durdurma,
+kurumsal ve offline kaynaklar ile durum raporlarını yönetir. İlk pencere için
+kurulu Python, Node veya Git gerekmez. ZIP, Windows build workflow'u tarafından
+üretilir; kaynak `.pyw` dosyası taşınabilir EXE'nin yerine geçmez.
+[Masaüstü yöneticisi rehberi](docs/windows-manager.md) paketleme ve kullanımı açıklar.
+
+Terminal akışı `AWCenter.cmd` ile kullanılabilir.
+[Windows CLI yardımcısı](docs/windows-install-helper.md) ayrıntıları açıklar.
+
+Mevcut Python/Node kurulumu olan development ortamlarında aşağıdaki düşük seviyeli
+launcher akışı da kullanılabilir.
 
 Bağımlılıkları kurun:
 
@@ -70,3 +83,5 @@ python launcher.py prod --help
 - [Launcher ve çevrimdışı kurulum](docs/launcher-runtime.md)
 - [Test stratejisi](docs/testing-strategy.md)
 - [Windows DOORS otomasyonu](docs/doors-worker.md)
+
+Yönetim raporları, haftalık snapshot karşılaştırması ve özel PDF indirme için [Management Reports](docs/management-reports.md) rehberini kullanın.

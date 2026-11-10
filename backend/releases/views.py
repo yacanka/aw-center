@@ -7,27 +7,31 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ReleaseNote, ReleaseNoteSeen
-from .serializers import ReleaseNoteSerializer
+from .serializers import BulkSeenSerializer, ReleaseNoteSerializer
 
 
 class UnseenReleaseNotesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = ReleaseNote.objects.filter(is_active=True).order_by("-published_at")
+        qs = ReleaseNote.objects.filter(is_active=True).order_by("-published_at", "-id")
 
-        seen_ids = set(
+        seen = dict(
             ReleaseNoteSeen.objects.filter(user=request.user)
-            .values_list("release_note_id", flat=True)
+            .values_list("release_note_id", "acknowledged_at")
         )
 
-        unseen = [n for n in qs if n.id not in seen_ids]
+        unseen = [
+            note for note in qs
+            if note.id not in seen or (note.requires_ack and seen[note.id] is None)
+        ]
 
         if not unseen:
             return Response(status=204)
 
-        latest = unseen[0]
-        mark_seen_ids = [n.id for n in unseen]
+        # Required notes must each be presented and explicitly acknowledged.
+        latest = next((note for note in unseen if note.requires_ack), unseen[0])
+        mark_seen_ids = [latest.id] if latest.requires_ack else [note.id for note in unseen]
 
         return Response({
             "latest": ReleaseNoteSerializer(latest).data,
@@ -74,32 +78,35 @@ class BulkSeenView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        ids = request.data.get("ids", [])
+        serializer = BulkSeenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ids = serializer.validated_data["ids"]
         if not ids:
             return Response({"ok": True, "created": 0})
 
-        notes = ReleaseNote.objects.filter(id__in=ids, is_active=True)
-
-        existing = set(
-            ReleaseNoteSeen.objects.filter(
-                user=request.user,
-                release_note_id__in=ids
-            ).values_list("release_note_id", flat=True)
-        )
-
-        to_create = [
-            ReleaseNoteSeen(
-                user=request.user,
-                release_note=note
-            )
-            for note in notes
-            if note.id not in existing
-        ]
-
+        created_count = 0
+        # SQLite uses BEGIN IMMEDIATE: acquire the writer lock before reading
+        # existing rows, avoiding a read-to-write lock upgrade under contention.
         with transaction.atomic():
-            ReleaseNoteSeen.objects.bulk_create(to_create)
+            note_ids = ReleaseNote.objects.filter(
+                id__in=ids, is_active=True
+            ).order_by("id").values_list("id", flat=True)
+            existing = set(
+                ReleaseNoteSeen.objects.filter(
+                    user=request.user, release_note_id__in=ids
+                ).values_list("release_note_id", flat=True)
+            )
+            for note_id in note_ids:
+                if note_id in existing:
+                    continue
+                # get_or_create resolves unique-key races on PostgreSQL too;
+                # its created flag keeps the count exact for this request.
+                _, created = ReleaseNoteSeen.objects.get_or_create(
+                    user=request.user, release_note_id=note_id
+                )
+                created_count += int(created)
 
         return Response({
             "ok": True,
-            "created": len(to_create)
+            "created": created_count
         })

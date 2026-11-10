@@ -75,6 +75,7 @@ capability'leri process başına daha dar biçimde ayrılmaya devam edecektir.
 | `orgs` | `Project`, organizasyon verisi ve project-scoped role assignment | Registry slug'ıyla hizalanır |
 | `jobs` | Durable job/workflow state, leases, fencing, private artifact lifecycle | Feature package import etmez |
 | `automations` | Executor metadata catalog ve workflow use-case'leri | Generic workflow/event framework değildir |
+| `management_reports` | Owner-private immutable portfolio snapshots, weekly comparisons and authenticated PDF output; canonical compliance reads and project-role checks | Does not own compliance models or bypass project scope |
 | `attention` | Kullanıcının action/decision görünümü | Domain aggregate'lerini sahiplenmez |
 | `integrations` | Vendor transport/session adapterları ile DOORS, Teamcenter ve DocProof HTTP/use-case yüzeyleri | Credential response/log üretmez; vendor başına kök Django app oluşturmaz |
 | `integrations.jira`, tools | Domain HTTP adapterı, validation ve executor | Kernel'e ters bağımlılık oluşturmaz |
@@ -91,6 +92,11 @@ assessment, assistant veya job modüllerini import etmez. Prompt, domain şemas�
 yetki çağıran feature'da kalır. `integrations.assessment` mevcut DDF/Watcher çağrı
 ve hata sözleşmesini bu client'a uyarlar; ayrı konuşmalar arasında history veya
 mutable HTTP session paylaşılmaz.
+
+AI transport, diğer entegrasyonlarla ortak `integrations.tls` altyapısını
+kullanır; bu modül iş mantığı veya Django bağımlılığı içermez. AI sınır testi
+bu ortak modülü de denetler: iş modülleri, kullanıcı modelleri, jobs ve Django
+bağımlılıkları TLS üzerinden dolaylı olarak da çekirdeğe taşınamaz.
 
 `integrations.assistant` salt okunur yetkili rehber kataloğu, bounded bağlam,
 prompt, sonuç doğrulaması ve authenticated catalog/chat endpoint'lerini sahiplenir.

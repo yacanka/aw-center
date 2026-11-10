@@ -3,41 +3,87 @@
 from __future__ import annotations
 
 import json
+import os
+import io
+import ipaddress
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
+from contextlib import nullcontext, redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from scripts.launcher.cli import build_parser, project_path
-from scripts.launcher.dependencies import install_backend
-from scripts.launcher.discovery import discover_project, infer_wsgi_application
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+
+from scripts.launcher.cli import build_parser, external_path, prod_command, project_path
+from scripts.launcher.dependencies import (
+    check_virtual_environment_version, ensure_launcher_python,
+    install, install_backend, prepare_offline,
+)
+from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError, Project, Scope
-from scripts.launcher.packaging import package_offline
+from scripts.launcher.offline_manifest import (
+    command_version,
+    verify_offline_manifest,
+    write_offline_manifest,
+)
+from scripts.launcher.packaging import package_changes, package_offline, write_zip
 from scripts.launcher.runtime import (
     dev,
     frontend_env,
-    production_argv,
+    print_urls,
+    prod,
     production_env,
-    prepare_production,
+    production_url,
+    require_external_file,
+    require_production_host,
     runtime_env,
+    test as run_repository_tests,
 )
 
+from scripts.launcher.tls import validate_tls_identity
 
-def create_project(root: Path) -> Project:
-    """Create the minimum discoverable Django and Vue layout for a test."""
-    backend = root / "backend"
-    frontend = root / "frontend"
-    backend.mkdir()
-    frontend.mkdir()
-    manage_py = backend / "manage.py"
-    manage_py.write_text("os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'demo.settings')\n", encoding="utf-8")
-    package_json = frontend / "package.json"
-    manifest = {"scripts": {"dev": "vite"}, "dependencies": {"vue": "3"}}
-    package_json.write_text(json.dumps(manifest), encoding="utf-8")
-    requirements = root / "requirements.txt"
-    requirements.write_text("Django==5.2\n", encoding="utf-8")
-    return Project(root, manage_py, package_json, requirements)
+
+from scripts.launcher_test_support import create_project
+
+
+def write_test_certificate(directory: Path, host: str) -> tuple[Path, Path]:
+    """Write a short-lived test-only certificate and matching private key."""
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "AW Center test")])
+    now = datetime.now(timezone.utc)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=2))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(host))]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    certificate_file = directory / "tls.crt"
+    private_key_file = directory / "tls.key"
+    certificate_file.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    private_key_file.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return certificate_file, private_key_file
 
 
 def create_sensitive_runtime_files(project: Project) -> None:
@@ -46,6 +92,9 @@ def create_sensitive_runtime_files(project: Project) -> None:
     runtime_file = project.root / ".runtime/state.txt"
     runtime_file.parent.mkdir()
     runtime_file.write_text("state", encoding="utf-8")
+    backup_file = project.root / "backups/production.dump"
+    backup_file.parent.mkdir()
+    backup_file.write_text("database-secret", encoding="utf-8")
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -59,15 +108,186 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(actual.manage_py.name, "manage.py")
         self.assertEqual(actual.package_json.parent.name, "frontend")
 
-    def test_wsgi_application_is_inferred_from_manage_py(self) -> None:
-        """Production should derive its WSGI import instead of hard-coding a project."""
+class DependencyTests(unittest.TestCase):
+    def test_launcher_requires_python_311_minor_and_accepts_patch_releases(self):
+        for version in ((3, 11, 0), (3, 11, 3), (3, 11, 15)):
+            with self.subTest(version=version), mock.patch("sys.version_info", version):
+                ensure_launcher_python()
+        for version in ((3, 10, 9), (3, 12, 0), (3, 14, 0)):
+            with self.subTest(version=version), mock.patch("sys.version_info", version):
+                with self.assertRaisesRegex(LauncherError, "3.11"):
+                    ensure_launcher_python()
+
+    def test_project_virtual_environment_requires_python_311_minor(self):
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary))
-            self.assertEqual(infer_wsgi_application(project), "demo.wsgi:application")
+            for version in ("3.10.9", "3.12.0", "3.14.0"):
+                with self.subTest(version=version), mock.patch(
+                    "scripts.launcher.dependencies.run", return_value=mock.Mock(stdout=version),
+                ):
+                    with self.assertRaisesRegex(LauncherError, "3.11"):
+                        check_virtual_environment_version(project)
+            with mock.patch("scripts.launcher.dependencies.run", return_value=mock.Mock(stdout="3.11.3")):
+                check_virtual_environment_version(project)
 
+    def test_offline_wheels_reject_another_minor_before_creating_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            output = project.root / "offline"
+            with mock.patch("sys.version_info", (3, 14, 0)), \
+                 mock.patch("scripts.launcher.dependencies.run") as run:
+                with self.assertRaisesRegex(LauncherError, "3.11"):
+                    prepare_offline(project, Scope(frontend=False), output)
+            run.assert_not_called()
+            self.assertFalse(output.exists())
 
-class DependencyTests(unittest.TestCase):
+    def test_tls_probe_cannot_write_managed_runtime_bytecode(self):
+        from scripts.launcher import runtime
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            with mock.patch.object(runtime, 'run') as probe:
+                runtime.validate_tls_identity(project, Path('cert.pem'), Path('key.pem'), '192.0.2.10')
+            command = probe.call_args.args[0]
+            with mock.patch.dict('os.environ', {'PYTHONDONTWRITEBYTECODE': ''}):
+                result = subprocess.run(
+                    [sys.executable, *command[1:command.index('-m')], '-c',
+                     'import sys; print(sys.dont_write_bytecode)'],
+                    capture_output=True, text=True, check=True,
+                )
+            self.assertEqual(result.stdout.strip(), 'True')
+
     """Validate explicit online and offline dependency behavior."""
+
+    def test_cli_backend_install_uses_scoped_package_trust(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            trust = {"PIP_CERT": "scoped-trust.pem", "NODE_TLS_REJECT_UNAUTHORIZED": "1"}
+            with mock.patch("scripts.launcher.dependencies.ensure_virtual_environment"), \
+                 mock.patch("scripts.launcher.dependencies.package_trust_environment",
+                            return_value=nullcontext(trust)) as trusted, \
+                 mock.patch("scripts.launcher.dependencies.run") as run_mock:
+                install_backend(project, "online", project.root / "offline")
+            self.assertTrue(all(call.kwargs.get("extra_env") == trust for call in run_mock.call_args_list))
+            self.assertEqual(trusted.call_args.kwargs["python"], project.python)
+
+    def test_cli_frontend_install_uses_scoped_package_trust_without_python(self):
+        from scripts.launcher.dependencies import install_frontend
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            trust = {"NODE_EXTRA_CA_CERTS": "scoped-trust.pem", "NPM_CONFIG_STRICT_SSL": "true"}
+            with mock.patch("scripts.launcher.dependencies.required_tool", side_effect=lambda name: name), \
+                 mock.patch("scripts.launcher.dependencies.package_trust_environment",
+                            return_value=nullcontext(trust)) as trusted, \
+                 mock.patch("scripts.launcher.dependencies.run") as run_mock:
+                install_frontend(project, "online", project.root / "offline")
+            self.assertEqual(run_mock.call_args.kwargs.get("extra_env"), trust)
+            self.assertIsNone(trusted.call_args.kwargs.get("python"))
+            self.assertEqual(trusted.call_args.kwargs["node"], "node")
+
+    def test_cli_offline_preparation_scopes_both_package_managers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            trust = {"PIP_CERT": "scoped-trust.pem", "NODE_EXTRA_CA_CERTS": "scoped-trust.pem"}
+            with mock.patch("scripts.launcher.dependencies.package_trust_environment",
+                            side_effect=lambda *args, **kwargs: nullcontext(trust)), \
+                 mock.patch("scripts.launcher.dependencies.required_tool", side_effect=lambda name: name), \
+                 mock.patch("scripts.launcher.dependencies.run") as run_mock, \
+                 mock.patch("scripts.launcher.dependencies.write_offline_manifest"):
+                prepare_offline(project, Scope(), project.root / "offline")
+            self.assertEqual(len(run_mock.call_args_list), 3)
+            self.assertTrue(all(call.kwargs.get("extra_env") == trust for call in run_mock.call_args_list))
+
+    def test_cli_help_does_not_require_installed_application_packages(self):
+        root = Path(__file__).resolve().parent.parent
+        for arguments in (("--help",), ("setup", "--help"), ("prod", "--help")):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [sys.executable, "-S", str(root / "launcher.py"), *arguments],
+                    cwd=root, capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("usage:", result.stdout)
+
+    def test_cli_help_survives_a_windows_ansi_output_encoding(self):
+        root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            [sys.executable, "-S", str(root / "launcher.py"), "--help"],
+            cwd=root, capture_output=True, text=True, encoding="cp1252", timeout=10,
+            env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("usage:", result.stdout)
+
+    def test_tls_gate_uses_project_python_when_launcher_has_no_site_packages(self):
+        root = Path(__file__).resolve().parent.parent
+        script = (
+            "import sys; from pathlib import Path; from types import SimpleNamespace; "
+            "from scripts.launcher.runtime import validate_tls_identity; "
+            "project = SimpleNamespace(python=Path(sys.argv[1]), root=Path.cwd()); "
+            "validate_tls_identity(project, Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4])"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            certificate, key = write_test_certificate(Path(temporary), "192.0.2.10")
+            for host, succeeds in (("192.0.2.10", True), ("192.0.2.11", False)):
+                with self.subTest(host=host):
+                    result = subprocess.run(
+                        [sys.executable, "-S", "-c", script, sys.executable, str(certificate), str(key), host],
+                        cwd=root, capture_output=True, text=True, timeout=15,
+                    )
+                    self.assertEqual(result.returncode == 0, succeeds, result.stderr)
+                    if not succeeds:
+                        self.assertIn("SAN does not contain", result.stderr)
+
+    @mock.patch("scripts.launcher.dependencies.write_offline_manifest")
+    @mock.patch("scripts.launcher.dependencies.run")
+    def test_offline_preparation_builds_missing_wheels(
+        self, run_mock: mock.Mock, manifest_mock: mock.Mock
+    ) -> None:
+        """Source-only dependencies should be built into the wheel bundle."""
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            offline_dir = project.root / "offline"
+            prepare_offline(project, Scope(frontend=False), offline_dir)
+
+        command, working_directory = run_mock.call_args_list[0].args
+        self.assertEqual(command[1:4], ["-m", "pip", "wheel"])
+        self.assertIn("--wheel-dir", command)
+        self.assertIn(offline_dir / "wheels", command)
+        self.assertNotIn("--only-binary=:all:", command)
+        self.assertEqual(working_directory, project.root)
+        verification, verification_directory = run_mock.call_args_list[1].args
+        self.assertEqual(verification[1:4], ["-m", "pip", "install"])
+        self.assertIn("--dry-run", verification)
+        self.assertIn("--ignore-installed", verification)
+        self.assertIn("--no-index", verification)
+        self.assertIn(offline_dir / "wheels", verification)
+        self.assertEqual(verification[-2:], ["-r", project.requirements])
+        self.assertEqual(verification_directory, project.root)
+        manifest_mock.assert_called_once_with(project, Scope(frontend=False), offline_dir)
+
+    @mock.patch("scripts.launcher.dependencies.install_frontend")
+    @mock.patch("scripts.launcher.dependencies.install_backend")
+    @mock.patch("scripts.launcher.dependencies.verify_offline_manifest")
+    def test_offline_setup_verifies_target_before_installing(
+        self,
+        verify_mock: mock.Mock,
+        backend_mock: mock.Mock,
+        frontend_mock: mock.Mock,
+    ) -> None:
+        """A bundle from another platform must fail before installation starts."""
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            offline_dir = project.root / "offline"
+            verify_mock.side_effect = LauncherError("target mismatch")
+
+            with self.assertRaisesRegex(LauncherError, "target mismatch"):
+                install(project, Scope(), "offline", offline_dir)
+
+        verify_mock.assert_called_once_with(project, Scope(), offline_dir)
+        backend_mock.assert_not_called()
+        frontend_mock.assert_not_called()
 
     @mock.patch("scripts.launcher.dependencies.run")
     @mock.patch("scripts.launcher.dependencies.ensure_virtual_environment")
@@ -75,7 +295,9 @@ class DependencyTests(unittest.TestCase):
         self, ensure_mock: mock.Mock, run_mock: mock.Mock
     ) -> None:
         """Offline pip installation must disable all package indexes."""
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch(
+            "scripts.launcher.dependencies.package_trust_environment", return_value=nullcontext({})
+        ):
             project = create_project(Path(temporary))
             wheels = project.root / "offline/wheels"
             wheels.mkdir(parents=True)
@@ -94,12 +316,37 @@ class DependencyTests(unittest.TestCase):
         """Cache preparation should use an isolated tree and disable lifecycle scripts."""
         from scripts.launcher.dependencies import populate_npm_cache
 
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch(
+            "scripts.launcher.dependencies.package_trust_environment", return_value=nullcontext({})
+        ):
             project = create_project(Path(temporary))
+            (project.frontend / "package-lock.json").write_text("{}\n", encoding="utf-8")
             populate_npm_cache(project, project.root / "offline/npm-cache")
             command, working_directory = run_mock.call_args.args
             self.assertNotEqual(working_directory, project.frontend)
+            self.assertEqual(command[1], "ci")
             self.assertIn("--ignore-scripts", command)
+
+    @mock.patch("scripts.launcher.offline_manifest.controlled_run")
+    @mock.patch(
+        "scripts.launcher.offline_manifest.required_tool",
+        return_value=r"C:\\Program Files\\nodejs\\npm.cmd",
+    )
+    def test_toolchain_version_uses_resolved_windows_command_shim(
+        self, required_tool_mock: mock.Mock, run_mock: mock.Mock
+    ) -> None:
+        """Manifest creation should invoke the resolved Windows npm.cmd shim."""
+        run_mock.return_value = mock.Mock(returncode=0, stdout="10.9.2\n")
+
+        self.assertEqual(command_version("npm"), "10.9.2")
+
+        required_tool_mock.assert_called_once_with("npm")
+        run_mock.assert_called_once_with(
+            [r"C:\\Program Files\\nodejs\\npm.cmd", "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
 
 class RuntimeTests(unittest.TestCase):
@@ -111,29 +358,18 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(values["PORT"], "8000")
         self.assertNotIn("AWCENTER_ENV_FILE", values)
         self.assertEqual(frontend_env("http://127.0.0.1:8000"), {
-            "VITE_API_URL": "http://127.0.0.1:8000"
+            "VITE_API_URL": "http://127.0.0.1:8000", "NUMARATOR_API_KEY": ""
         })
 
-    def test_production_selects_repository_profile_when_available(self) -> None:
-        """Production must not inherit development values from backend/.env."""
-        with tempfile.TemporaryDirectory() as temporary:
-            project = create_project(Path(temporary))
-            (project.backend / ".env.production").write_text("DEBUG=False\n", encoding="utf-8")
-            values = production_env(project, "127.0.0.1", 8000)
-        self.assertEqual(values["AWCENTER_ENV_FILE"], ".env.production")
+    def test_dev_urls_warn_that_browser_hostname_must_match(self) -> None:
+        """The launcher should make its same-host API constraint actionable."""
+        output = io.StringIO()
 
-    @mock.patch("scripts.launcher.runtime.run_script")
-    @mock.patch("scripts.launcher.runtime.django")
-    def test_production_migrates_before_final_schema_check(
-        self, django_mock: mock.Mock, _: mock.Mock
-    ) -> None:
-        """An explicit migration must run before the clean-schema gate."""
-        with tempfile.TemporaryDirectory() as temporary:
-            project = create_project(Path(temporary))
-            prepare_production(project, {}, True, False, False, True)
-        commands = [call.args[1] for call in django_mock.call_args_list]
-        self.assertEqual(commands[1], ["migrate", "--noinput"])
-        self.assertEqual(commands[2], ["migrate", "--check"])
+        with redirect_stdout(output):
+            print_urls(Scope(), "127.0.0.1", 8000, 5173)
+
+        self.assertIn("Frontend: http://127.0.0.1:5173", output.getvalue())
+        self.assertIn("Use the frontend URL exactly as printed", output.getvalue())
 
     @mock.patch("scripts.launcher.runtime.supervise")
     @mock.patch("scripts.launcher.runtime.start")
@@ -155,23 +391,261 @@ class RuntimeTests(unittest.TestCase):
                 frontend_port=5173, no_backend_reload=False, migrate=False)
         django_mock.assert_not_called()
 
-    def test_custom_production_command_expands_safe_placeholders(self) -> None:
-        """A configured server command should be tokenized without a shell."""
+    @mock.patch("scripts.launcher.runtime.supervise")
+    @mock.patch("scripts.launcher.runtime.start")
+    @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
+    @mock.patch("scripts.launcher.runtime.require_port")
+    @mock.patch("scripts.launcher.runtime.django")
+    def test_dev_migrates_with_explicit_flag(
+        self,
+        django_mock: mock.Mock,
+        _: mock.Mock,
+        __: mock.Mock,
+        ___: mock.Mock,
+        ____: mock.Mock,
+    ) -> None:
+        """The development migration option must run before child startup."""
+
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary))
-            command = production_argv(
+            dev(
                 project,
-                "0.0.0.0",
-                9000,
-                "{python} -m waitress --call {wsgi} --port {port}",
+                Scope(frontend=False),
+                host="127.0.0.1",
+                backend_port=8000,
+                frontend_port=5173,
+                no_backend_reload=False,
+                migrate=True,
             )
-        self.assertEqual(command[0], str(project.python))
-        self.assertIn("demo.wsgi:application", command)
-        self.assertIn("9000", command)
+
+        django_mock.assert_called_once_with(
+            project,
+            ["migrate", "--noinput"],
+            {**runtime_env("127.0.0.1", 8000, 5173), "NUMARATOR_API_KEY": ""},
+        )
+
+    @mock.patch("scripts.launcher.runtime.supervise")
+    @mock.patch("scripts.launcher.runtime.start_job_workers", return_value=[mock.sentinel.worker])
+    @mock.patch(
+        "scripts.launcher.runtime.start_production_backend",
+        return_value=mock.sentinel.backend,
+    )
+    @mock.patch("scripts.launcher.runtime.validate_tls_identity")
+    @mock.patch("scripts.launcher.runtime.require_external_file")
+    @mock.patch("scripts.launcher.runtime.require_port")
+    @mock.patch("scripts.launcher.runtime.require_production_host")
+    @mock.patch("scripts.launcher.runtime.require_windows_production")
+    @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
+    @mock.patch("scripts.launcher.runtime.django")
+    def test_production_runs_gates_without_implicit_migration(
+        self,
+        django_mock,
+        _environment,
+        _windows,
+        _host,
+        _port,
+        _external,
+        _tls,
+        backend_start,
+        worker_start,
+        supervise,
+    ) -> None:
+        """Production verifies its environment and artifact before serving HTTPS."""
+
+        for build_frontend, fails in ((False, False), (True, False), (True, True)):
+            with self.subTest(build_frontend=build_frontend, fails=fails), tempfile.TemporaryDirectory() as temporary:
+                django_mock.reset_mock()
+                backend_start.reset_mock()
+                worker_start.reset_mock()
+                supervise.reset_mock()
+                project = create_project(Path(temporary))
+                project.package_json.write_text(json.dumps({"scripts": {"build": "vite build"}}))
+                events = mock.Mock()
+                events.attach_mock(django_mock, "django")
+                with (
+                    mock.patch("scripts.launcher.quality.required_tool", return_value="npm") as npm,
+                    mock.patch("scripts.launcher.quality.run") as build,
+                ):
+                    events.attach_mock(build, "build")
+                    if fails:
+                        build.side_effect = LauncherError("build failed")
+                    arguments = dict(
+                        host="192.0.2.10",
+                        port=443,
+                        env_file=Path(temporary).parent / "production.env",
+                        certificate_file=Path(temporary).parent / "tls.crt",
+                        private_key_file=Path(temporary).parent / "tls.key",
+                        exclude_doors=False,
+                        migrate=False,
+                        build_frontend=build_frontend,
+                    )
+                    if fails:
+                        with self.assertRaisesRegex(LauncherError, "build failed"):
+                            prod(project, **arguments)
+                    else:
+                        prod(project, **arguments)
+                    if build_frontend:
+                        npm.assert_called_once_with("npm")
+                        build.assert_called_once_with(["npm", "run", "build"], project.frontend)
+                    else:
+                        npm.assert_not_called()
+                        build.assert_not_called()
+
+                env = production_env(arguments["env_file"], "192.0.2.10", 443)
+                expected = [
+                    mock.call.django(project, ["check", "--deploy"], env),
+                    mock.call.django(project, ["migrate", "--check"], env),
+                ]
+                if build_frontend:
+                    expected.append(mock.call.build(["npm", "run", "build"], project.frontend))
+                if not fails:
+                    expected.extend([
+                        mock.call.django(project, ["collectstatic", "--clear", "--noinput"], env),
+                        mock.call.django(project, ["verify_frontend_artifact"], env),
+                    ])
+                    backend_start.assert_called_once()
+                    worker_start.assert_called_once()
+                    self.assertTrue(worker_start.call_args.kwargs["include_doors_if_enabled"])
+                    supervise.assert_called_once_with([mock.sentinel.backend, mock.sentinel.worker])
+                else:
+                    backend_start.assert_not_called()
+                    worker_start.assert_not_called()
+                    supervise.assert_not_called()
+                self.assertEqual(events.mock_calls, expected)
+
+    def test_production_can_exclude_doors_queue(self) -> None:
+        """Production opt-out must leave the general worker on local queues."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            external = Path(temporary).parent
+            with (
+                mock.patch("scripts.launcher.runtime.require_windows_production"),
+                mock.patch("scripts.launcher.runtime.ensure_virtual_environment"),
+                mock.patch("scripts.launcher.runtime.require_production_host"),
+                mock.patch("scripts.launcher.runtime.require_port"),
+                mock.patch("scripts.launcher.runtime.require_external_file"),
+                mock.patch("scripts.launcher.runtime.validate_tls_identity"),
+                mock.patch("scripts.launcher.runtime.django"),
+                mock.patch("scripts.launcher.runtime.start_production_backend"),
+                mock.patch(
+                    "scripts.launcher.runtime.start_job_workers", return_value=[]
+                ) as worker_start,
+                mock.patch("scripts.launcher.runtime.supervise"),
+            ):
+                prod(
+                    project,
+                    host="192.0.2.10",
+                    port=443,
+                    env_file=external / "production.env",
+                    certificate_file=external / "tls.crt",
+                    private_key_file=external / "tls.key",
+                    exclude_doors=True,
+                    migrate=False,
+                )
+
+        worker_start.assert_called_once()
+        self.assertFalse(worker_start.call_args.kwargs["include_doors_if_enabled"])
+
+    def test_production_runtime_values_are_explicit(self) -> None:
+        env_file = Path("C:/runtime/production.env")
+
+        self.assertEqual(
+            production_env(env_file, "192.0.2.10", 443),
+            {
+                "AWCENTER_ENV_FILE": str(env_file),
+                "AWCENTER_DEPLOYMENT_MODE": "windows-native",
+                "IPV4_ADDRESS": "192.0.2.10",
+                "PORT": "443",
+            },
+        )
+        self.assertEqual(production_url("192.0.2.10", 443), "https://192.0.2.10")
+        with self.assertRaises(LauncherError):
+            require_production_host("127.0.0.1")
+
+    def test_production_tls_certificate_must_contain_selected_ip(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            certificate, private_key = write_test_certificate(
+                Path(temporary), "192.0.2.10"
+            )
+
+            validate_tls_identity(certificate, private_key, "192.0.2.10")
+            with self.assertRaises(LauncherError):
+                validate_tls_identity(certificate, private_key, "192.0.2.11")
+
+    def test_production_runtime_files_must_be_outside_the_repository(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as project_directory,
+            tempfile.TemporaryDirectory() as external_directory,
+        ):
+            project = create_project(Path(project_directory))
+            internal_file = project.root / "production.env"
+            internal_file.write_text("DEBUG=False\n", encoding="utf-8")
+            external_file = Path(external_directory) / "production.env"
+            external_file.write_text("DEBUG=False\n", encoding="utf-8")
+
+            require_external_file(project, external_file, "production environment")
+            with self.assertRaises(LauncherError):
+                require_external_file(project, internal_file, "production environment")
+
+    def test_external_path_does_not_hide_a_symlink_from_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.env"
+            target.write_text("DEBUG=False\n", encoding="utf-8")
+            link = root / "production.env"
+            try:
+                link.symlink_to(target)
+            except OSError:
+                self.skipTest("This platform does not allow test symlink creation.")
+
+            self.assertTrue(external_path(link).is_symlink())
+
+    @mock.patch("scripts.launcher.runtime.run")
+    @mock.patch("scripts.launcher.runtime.django")
+    @mock.patch("scripts.launcher.runtime.ensure_virtual_environment")
+    def test_backend_gate_includes_launcher_regressions(
+        self, _environment: mock.Mock, django_mock: mock.Mock, run_mock: mock.Mock
+    ) -> None:
+        """The public test command must validate its own orchestration layer."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            run_repository_tests(project, Scope(frontend=False))
+
+        django_mock.assert_called_once_with(project, ["test"])
+        command, cwd = run_mock.call_args.args
+        self.assertEqual(command[:3], [project.python, "-m", "unittest"])
+        self.assertIn("scripts.test_launcher_jobs", command)
+        self.assertEqual(cwd, project.root)
 
 
 class PackagingTests(unittest.TestCase):
     """Validate deterministic source packaging and secret exclusions."""
+
+    @mock.patch("scripts.launcher.packaging.git_paths")
+    @mock.patch("scripts.launcher.offline_manifest.git_commit", return_value="abc123")
+    def test_offline_package_includes_verifiable_manifest(
+        self, _commit: mock.Mock, git_mock: mock.Mock
+    ) -> None:
+        """A transferred bundle must pass the same check used by offline setup."""
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            scope = Scope(frontend=False)
+            wheels = project.root / "offline/wheels"
+            wheels.mkdir(parents=True)
+            (wheels / "demo-1-py3-none-any.whl").write_bytes(b"wheel")
+            write_offline_manifest(project, scope, project.root / "offline")
+            git_mock.return_value = [Path("requirements.txt"), Path("backend/manage.py")]
+
+            output = project.root / "bundle.zip"
+            package_offline(project, scope, project.root / "offline", output, include_packages=True)
+            extracted = project.root / "extracted"
+            with zipfile.ZipFile(output) as archive:
+                self.assertIn("offline/manifest.json", archive.namelist())
+                archive.extractall(extracted)
+
+            verify_offline_manifest(project, scope, extracted / "offline")
 
     @mock.patch("scripts.launcher.packaging.git_paths")
     def test_offline_package_excludes_env_and_generated_state(self, git_mock: mock.Mock) -> None:
@@ -179,8 +653,14 @@ class PackagingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             project = create_project(Path(temporary))
             create_sensitive_runtime_files(project)
-            names_to_track = ("requirements.txt", "backend/manage.py", "frontend/package.json",
-                              ".env", ".runtime/state.txt")
+            names_to_track = (
+                "requirements.txt",
+                "backend/manage.py",
+                "frontend/package.json",
+                ".env",
+                ".runtime/state.txt",
+                "backups/production.dump",
+            )
             git_mock.return_value = [Path(name) for name in names_to_track]
             output = project.root / "bundle.zip"
             package_offline(project, Scope(), project.root / "offline", output, include_packages=False)
@@ -189,23 +669,201 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("backend/manage.py", names)
         self.assertNotIn(".env", names)
         self.assertNotIn(".runtime/state.txt", names)
+        self.assertNotIn("backups/production.dump", names)
+
+    def test_legacy_private_directories_are_excluded_but_python_packages_remain(self):
+        from scripts.launcher.packaging import packageable
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for folder in ("_certificates", "_custom_templates", "_models", "_private_media", "_media"):
+                asset = root / folder / "asset.txt"
+                asset.parent.mkdir()
+                asset.write_text("fixture")
+                self.assertFalse(packageable(asset))
+            for filename in ("__init__.py", "_helpers.py"):
+                source = root / filename
+                source.write_text("# source")
+                self.assertTrue(packageable(source))
+
+    def test_zip_rejects_symlink_sources(self) -> None:
+        """An untracked symlink cannot exfiltrate a file outside the repository."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            outside = root.parent / f"{root.name}-sensitive.txt"
+            outside.write_text("sensitive", encoding="utf-8")
+            link = root / "leak.txt"
+            link.symlink_to(outside)
+            try:
+                with self.assertRaises(LauncherError):
+                    write_zip(
+                        root / "bundle.zip",
+                        [(link, Path("leak.txt"))],
+                        allowed_roots=(root,),
+                    )
+            finally:
+                outside.unlink(missing_ok=True)
+
+    def test_zip_rejects_archive_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "safe.txt"
+            source.write_text("safe", encoding="utf-8")
+            with self.assertRaises(LauncherError):
+                write_zip(
+                    root / "bundle.zip",
+                    [(source, Path("../escape.txt"))],
+                    allowed_roots=(root,),
+                )
+
+    @mock.patch("scripts.launcher.offline_manifest.git_commit", return_value="abc123")
+    def test_offline_manifest_detects_artifact_tampering(self, _commit: mock.Mock) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            (project.frontend / "package-lock.json").write_text("{}", encoding="utf-8")
+            wheels = project.root / "offline/wheels"
+            wheels.mkdir(parents=True)
+            wheel = wheels / "demo-1-py3-none-any.whl"
+            wheel.write_bytes(b"wheel")
+            write_offline_manifest(project, Scope(), project.root / "offline")
+            verify_offline_manifest(project, Scope(), project.root / "offline")
+            wheel.write_bytes(b"tampered")
+            with self.assertRaises(LauncherError):
+                verify_offline_manifest(project, Scope(), project.root / "offline")
+
+
+class GitPackagingTests(unittest.TestCase):
+    """Exercise Git's actual filename serialization through the resulting ZIP."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.project = create_project(Path(temporary.name))
+        self._git("init", "--template=", "--quiet")
+        self._git("config", "core.quotePath", "true")
+
+    def _git(self, *arguments: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(self.project.root), *arguments],
+            check=True,
+            capture_output=True,
+        )
+
+    def _assert_offline_preserves_filename(self, filename: str) -> None:
+        source = self.project.backend / filename
+        source.write_bytes(b"# tracked source\n")
+        self._git("add", "--", "backend")
+        output = self.project.root / "offline.zip"
+
+        package_offline(
+            self.project, Scope(), self.project.root / "offline", output, include_packages=False
+        )
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertIn(f"backend/{filename}", archive.namelist())
+            self.assertEqual(archive.read(f"backend/{filename}"), b"# tracked source\n")
+
+    def _assert_changes_preserve_filenames(self, filename: str) -> None:
+        tracked = self.project.backend / filename
+        tracked.write_bytes(b"# original source\n")
+        self._git("add", "--", ".")
+        self._git(
+            "-c", "user.name=AW Center test", "-c", "user.email=test@example.invalid",
+            "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Initial test source",
+        )
+        tracked.write_bytes(b"# changed source\n")
+        untracked = self.project.frontend / filename
+        untracked.write_bytes(b"# untracked source\n")
+        output = self.project.root / "changes.zip"
+
+        self.assertEqual(package_changes(self.project, output), output)
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(set(archive.namelist()), {f"backend/{filename}", f"frontend/{filename}"})
+            self.assertEqual(archive.read(f"backend/{filename}"), b"# changed source\n")
+            self.assertEqual(archive.read(f"frontend/{filename}"), b"# untracked source\n")
+
+    def test_offline_package_preserves_unicode_filename(self) -> None:
+        self._assert_offline_preserves_filename("Türkçe.py")
+
+    @unittest.skipIf(sys.platform == "win32", "Windows filenames cannot contain newlines.")
+    def test_offline_package_preserves_newline_filename(self) -> None:
+        self._assert_offline_preserves_filename("line\nbreak.py")
+
+    def test_changes_package_preserves_unicode_tracked_and_untracked_filenames(self) -> None:
+        self._assert_changes_preserve_filenames("Türkçe.py")
+
+    @unittest.skipIf(sys.platform == "win32", "Windows filenames cannot contain newlines.")
+    def test_changes_package_preserves_newline_tracked_and_untracked_filenames(self) -> None:
+        self._assert_changes_preserve_filenames("line\nbreak.py")
 
 
 class CliTests(unittest.TestCase):
     """Validate the focused public command surface."""
 
     def test_required_commands_and_runtime_parameters_remain_available(self) -> None:
-        """Dev, prod, packaging, and offline preparation must keep their parameters."""
+        """Local, packaging, and offline workflows keep their focused parameters."""
         parser = build_parser()
         development = parser.parse_args(["dev", "--backend-port", "8010", "--migrate"])
-        production = parser.parse_args(["prod", "--no-build", "--backend-port", "9000"])
         package = parser.parse_args(["package-offline", "--ignore-packages"])
         prepare = parser.parse_args(["prepare-offline", "--skip-frontend"])
         self.assertEqual(development.backend_port, 8010)
         self.assertTrue(development.migrate)
-        self.assertTrue(production.no_build)
+        self.assertFalse(development.exclude_doors)
+        self.assertTrue(parser.parse_args(["dev", "--exclude-doors"]).exclude_doors)
         self.assertTrue(package.ignore_packages)
         self.assertTrue(prepare.skip_frontend)
+
+    def test_windows_production_exposes_doors_opt_out(self) -> None:
+        """Production consumes enabled DOORS jobs unless explicitly excluded."""
+
+        production = build_parser().parse_args(
+            [
+                "prod",
+                "--env-file",
+                "production.env",
+                "--host",
+                "192.0.2.10",
+                "--tls-cert-file",
+                "tls.crt",
+                "--tls-key-file",
+                "tls.key",
+            ]
+        )
+        excluded = build_parser().parse_args(
+            [
+                "prod",
+                "--env-file",
+                "production.env",
+                "--host",
+                "192.0.2.10",
+                "--tls-cert-file",
+                "tls.crt",
+                "--tls-key-file",
+                "tls.key",
+                "--exclude-doors",
+            ]
+        )
+
+        self.assertFalse(production.build_frontend)
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            for enabled in (False, True):
+                arguments = [
+                    "prod", "--env-file", "production.env", "--host", "192.0.2.10",
+                    "--tls-cert-file", "tls.crt", "--tls-key-file", "tls.key",
+                ]
+                if enabled:
+                    arguments.append("--build-frontend")
+                parsed = build_parser().parse_args(arguments)
+                with mock.patch("scripts.launcher.cli.prod") as runtime:
+                    prod_command(project, parsed)
+                self.assertEqual(runtime.call_args.kwargs["build_frontend"], enabled)
+
+        self.assertEqual(production.port, 443)
+        self.assertFalse(production.exclude_doors)
+        self.assertTrue(excluded.exclude_doors)
 
     def test_relative_paths_resolve_from_project_root(self) -> None:
         """Outputs should not depend on the shell's current working directory."""

@@ -1,0 +1,564 @@
+"""Canonical compliance-document aggregate and directly related evidence."""
+
+import uuid
+
+from django.conf import settings
+from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.db.models import Q
+from django.utils import timezone
+from simple_history.models import HistoricalRecords
+
+from orgs.models import Panel, Project
+
+class DocumentStatus(models.Model):
+    """Assignable vocabulary shared by users of one compliance project."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="compliance_statuses")
+    value = models.CharField(max_length=128)
+    label = models.CharField(max_length=128)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["project", "value"], name="compliance_unique_project_status")]
+        ordering = ["label", "value"]
+
+
+
+class CoverPage(models.Model):
+    """Canonical cover page shared by documents in one project."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="cover_pages",
+    )
+    number = models.CharField(max_length=32)
+    issue = models.CharField(max_length=255, null=True, blank=True)
+    version = models.PositiveBigIntegerField(default=1)
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["project__name", "number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "number"],
+                condition=~Q(number=""),
+                name="compliance_unique_project_cover_page",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if not self.number or not self.number.strip():
+            raise ValidationError({"number": "Cover page number is required."})
+
+    def __str__(self):
+        return f"{self.project.slug}: {self.number}"
+
+
+class CoverPageNumberAllocation(models.Model):
+    """Track one idempotent Numarator allocation through local document creation."""
+
+    class Status(models.TextChoices):
+        REQUESTED = "requested", "Requested"
+        ALLOCATED = "allocated", "Allocated"
+        USE_PENDING = "use_pending", "Use pending"
+        COMPLETED = "completed", "Completed"
+        RECONCILIATION_REQUIRED = "reconciliation_required", "Reconciliation required"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.PROTECT,
+        related_name="cover_page_number_allocations",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cover_page_number_allocations",
+    )
+    client_operation_id = models.UUIDField()
+    request_hash = models.CharField(max_length=64)
+    document_snapshot = models.JSONField()
+    format_code = models.CharField(max_length=100)
+    context_data = models.JSONField(default=dict, blank=True)
+    credential_fingerprint = models.CharField(max_length=16)
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.REQUESTED,
+        db_index=True,
+    )
+    remote_id = models.PositiveBigIntegerField(null=True, blank=True)
+    remote_number = models.CharField(max_length=200, blank=True)
+    remote_status = models.CharField(max_length=20, blank=True)
+    remote_request_id = models.CharField(max_length=128, blank=True)
+    cover_page = models.OneToOneField(
+        CoverPage,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="number_allocation",
+    )
+    document = models.OneToOneField(
+        "ComplianceDocument",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="cover_page_number_allocation",
+    )
+    current_job = models.ForeignKey(
+        "jobs.Job",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cover_page_number_allocations",
+    )
+    version = models.PositiveBigIntegerField(default=1)
+    error_code = models.CharField(max_length=64, blank=True)
+    error_detail = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "actor", "client_operation_id"],
+                name="compliance_unique_cover_allocation_request",
+            ),
+        ]
+        indexes = [models.Index(fields=["project", "status", "updated_at"])]
+
+
+class ComplianceDocument(models.Model):
+    """Project-scoped compliance register document with optimistic versioning."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="compliance_documents",
+    )
+    panel = models.ForeignKey(
+        Panel,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="compliance_documents",
+    )
+    cover_page = models.ForeignKey(
+        CoverPage,
+        on_delete=models.PROTECT,
+        related_name="compliance_documents",
+    )
+    name = models.CharField(max_length=256)
+    signature_panel = models.JSONField(default=list, blank=True)
+    number = models.CharField(max_length=64, null=True, blank=True)
+    issue = models.CharField(max_length=255, null=True, blank=True)
+    responsible = models.CharField(max_length=64, null=True, blank=True)
+    cat = models.CharField(max_length=12, null=True, blank=True)
+    moc = models.CharField(max_length=1, null=True, blank=True)
+    mom_no = models.CharField(max_length=128, null=True, blank=True)
+    requirements = models.JSONField(default=list, blank=True)
+    status = models.CharField(
+        max_length=128,
+        default="unknown",
+        db_index=True,
+        editable=False,
+    )
+    target_date = models.DateField(null=True, blank=True, db_index=True)
+    revised_target_date = models.DateField(null=True, blank=True, db_index=True)
+    release_date = models.DateField(null=True, blank=True, db_index=True)
+    path = models.CharField(max_length=512, null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="owned_compliance_documents",
+    )
+    owner_group = models.ForeignKey(
+        Group,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="owned_compliance_documents",
+    )
+    next_action_due_date = models.DateField(null=True, blank=True, db_index=True)
+    is_archived = models.BooleanField(default=False, db_index=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="archived_compliance_documents",
+    )
+    archive_reason = models.CharField(max_length=255, blank=True)
+    version = models.PositiveBigIntegerField(default=1)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["-created_at", "name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "cover_page", "name"],
+                name="compliance_unique_cover_page_document_name",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["project", "is_archived", "status"]),
+            models.Index(fields=["project", "next_action_due_date"]),
+        ]
+
+    @property
+    def current_target_date(self):
+        """Use the revised target for due calculations when one is recorded."""
+        return self.revised_target_date or self.target_date
+
+    def clean(self):
+        super().clean()
+        if not self.name or not self.name.strip():
+            raise ValidationError({"name": "Document name is required."})
+        if self.cover_page_id and not self.cover_page.number.strip():
+            raise ValidationError({"cover_page": "Cover page number is required."})
+        if self.cover_page_id and self.cover_page.project_id != self.project_id:
+            raise ValidationError({"cover_page": "Cover page must belong to the project."})
+        if self.panel_id and self.panel.project_id != self.project_id:
+            raise ValidationError({"panel": "Panel must belong to the project."})
+
+    def __str__(self):
+        return self.name
+
+
+class WorkflowEvent(models.Model):
+    """Immutable actor-attributed lifecycle transition."""
+
+    class Source(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        IMPORT = "import", "Import"
+        SYSTEM = "system", "System"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.ForeignKey(
+        ComplianceDocument,
+        on_delete=models.CASCADE,
+        related_name="workflow_events",
+    )
+    sequence = models.PositiveIntegerField()
+    previous_status = models.CharField(max_length=128, blank=True)
+    status = models.CharField(max_length=128)
+    effective_date = models.DateField()
+    next_action_due_date = models.DateField(null=True, blank=True)
+    reason = models.CharField(max_length=255)
+    source = models.CharField(max_length=16, choices=Source.choices)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    actor_username = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "sequence"],
+                name="compliance_unique_document_workflow_sequence",
+            )
+        ]
+        indexes = [models.Index(fields=["document", "created_at"])]
+
+
+class ReviewTask(models.Model):
+    """Review or approval tied to the document version that was requested."""
+
+    class Kind(models.TextChoices):
+        REVIEW = "review", "Review"
+        APPROVAL = "approval", "Approval"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        CANCELLED = "cancelled", "Cancelled"
+        SUPERSEDED = "superseded", "Superseded"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.ForeignKey(
+        ComplianceDocument,
+        on_delete=models.CASCADE,
+        related_name="review_tasks",
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="compliance_review_tasks",
+    )
+    assignee_username = models.CharField(max_length=150)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="requested_compliance_reviews",
+    )
+    requested_by_username = models.CharField(max_length=150)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="decided_compliance_reviews",
+    )
+    decided_by_username = models.CharField(max_length=150, blank=True)
+    due_date = models.DateField(null=True, blank=True, db_index=True)
+    request_note = models.CharField(max_length=500)
+    decision_note = models.CharField(max_length=500, blank=True)
+    source_version = models.PositiveBigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "kind", "assignee", "source_version"],
+                condition=Q(status="pending"),
+                name="compliance_unique_pending_review_source",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["document", "status"]),
+            models.Index(fields=["assignee", "status", "due_date"]),
+        ]
+
+
+class TrackingProfile(models.Model):
+    class ResponsibleMode(models.TextChoices):
+        AUTOMATIC = "automatic", "Automatic from panel"
+        CUSTOM = "custom", "Custom selection"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.OneToOneField(
+        ComplianceDocument,
+        on_delete=models.CASCADE,
+        related_name="tracking_profile",
+    )
+    responsible_mode = models.CharField(
+        max_length=16,
+        choices=ResponsibleMode.choices,
+        default=ResponsibleMode.AUTOMATIC,
+    )
+    responsible_people = models.ManyToManyField(
+        "orgs.Person",
+        related_name="compliance_tracking_profiles",
+        blank=True,
+    )
+    notification_enabled = models.BooleanField(default=False)
+    notification_events = models.JSONField(default=list, blank=True)
+    docproof_issue = models.CharField(max_length=32, blank=True)
+    docproof_status = models.CharField(max_length=32, default="never_checked")
+    docproof_checked_at = models.DateTimeField(null=True, blank=True)
+    notification_checked_at = models.DateTimeField(null=True, blank=True)
+    version = models.PositiveBigIntegerField(default=1)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="updated_compliance_tracking_profiles",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class NotificationLog(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CLAIMED = "claimed", "Claimed"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    profile = models.ForeignKey(
+        TrackingProfile,
+        on_delete=models.CASCADE,
+        related_name="notification_logs",
+    )
+    event_type = models.CharField(max_length=32)
+    event_key = models.CharField(max_length=160, unique=True)
+    message_id = models.CharField(max_length=255, unique=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    recipient_count = models.PositiveSmallIntegerField(default=0)
+    error_code = models.CharField(max_length=64, blank=True)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    lease_token = models.UUIDField(null=True, blank=True, editable=False)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [models.Index(fields=["status", "next_attempt_at"])]
+
+
+class NotificationPolicy(models.Model):
+    """Immutable project policy revision; exactly one revision is active."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="compliance_notification_policies",
+    )
+    version = models.PositiveIntegerField()
+    event_rules = models.JSONField(default=dict)
+    is_active = models.BooleanField(default=True)
+    change_note = models.CharField(max_length=255)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="compliance_notification_policy_revisions",
+    )
+    updated_by_username = models.CharField(max_length=150)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "version"],
+                name="compliance_unique_project_policy_version",
+            ),
+            models.UniqueConstraint(
+                fields=["project"],
+                condition=Q(is_active=True),
+                name="compliance_unique_active_project_policy",
+            ),
+        ]
+
+
+class ImportAudit(models.Model):
+    """Sanitized evidence for preview/confirm tabular imports."""
+
+    class Status(models.TextChoices):
+        PROCESSING = "processing", "Processing"
+        SUCCESS = "success", "Success"
+        PARTIAL = "partial", "Partial"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="compliance_import_audits",
+    )
+    source_filename = models.CharField(max_length=255)
+    source_size = models.PositiveBigIntegerField(default=0)
+    source_sha256 = models.CharField(max_length=64, editable=False)
+    imported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="compliance_import_audits",
+    )
+    request_id = models.CharField(max_length=64, blank=True)
+    header_row = models.PositiveSmallIntegerField(null=True)
+    mapped_columns = models.JSONField(default=list)
+    unmapped_columns = models.JSONField(default=list)
+    missing_columns = models.JSONField(default=list)
+    total_rows = models.PositiveIntegerField(default=0)
+    created_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    unchanged_count = models.PositiveIntegerField(default=0)
+    rejected_count = models.PositiveIntegerField(default=0)
+    error_summary = models.JSONField(default=list)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PROCESSING)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True)
+    duration_ms = models.PositiveIntegerField(null=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [models.Index(fields=["project", "started_at"])]
+
+
+class DoorsImportMapping(models.Model):
+    """Last successful source-to-target mapping for one project/module pair."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="doors_import_mappings",
+    )
+    module_path = models.CharField(max_length=1024)
+    mapping = models.JSONField(default=dict)
+    source_columns = models.JSONField(default=list)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="updated_doors_import_mappings",
+    )
+    successful_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-successful_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "module_path"],
+                name="compliance_unique_doors_import_mapping",
+            )
+        ]
+        indexes = [models.Index(fields=["project", "successful_at"])]
+
+
+class DocumentPurgeAudit(models.Model):
+    """Content-free durable evidence for an explicitly purged document."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document_id = models.UUIDField(unique=True, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.PROTECT,
+        related_name="compliance_document_purge_audits",
+    )
+    document_version = models.PositiveBigIntegerField(editable=False)
+    purged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="compliance_document_purge_audits",
+    )
+    purged_by_username = models.CharField(max_length=150)
+    reason = models.CharField(max_length=255)
+    purged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-purged_at"]
+        indexes = [models.Index(fields=["project", "purged_at"])]
+
+
+class DeveloperResetState(models.Model):
+    """Durable development-only write pause, released explicitly or after reset."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    active = models.BooleanField(default=False)
+    generation = models.UUIDField(default=uuid.uuid4, editable=False)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(id=1), name="compliance_reset_singleton")]

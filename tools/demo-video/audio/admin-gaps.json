@@ -1,0 +1,12 @@
+[
+  {
+    "route": "/app/organization",
+    "feature": "Yeni veya mevcut panel sorumluluğunu kaydetme",
+    "reason": "Panel seçeneğinin değeri sayısal ID. ResponsiblePopup.vue formunda panel için string doğrulaması çalışıyor. Gerçek ekranda 'panel is not a string' uyarısı kaydı engelledi."
+  },
+  {
+    "route": "/app/organization",
+    "feature": "Mevcut sorumluyu listede açma, düzenleme ve kaldırma onayı",
+    "reason": "Demo API tüm proje için 24, 21-00 paneli için 6 atama döndürdü. handleRequest sayfalı yanıtı sonuç dizisine dönüştürüyor. fetchResponsibles bu diziye yeniden getPaginatedResults uygulayınca arayüz boş liste çiziyor. Satır işlemleri bu sürümde erişilemedi."
+  }
+]

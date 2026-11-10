@@ -1,127 +1,151 @@
-"""Project registry API contract tests."""
+"""User-visible project catalog contract tests."""
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
-from .constants import ALLOWED_PROJECT_CAPABILITIES, PROJECT_CAPABILITY_DCC
-from .registry import PROJECT_DEFINITIONS
+from orgs.models import Project, ProjectRoleAssignment
 
-SAFE_RESPONSE_KEYS = {
-    "slug",
-    "display_name",
-    "route",
-    "enabled",
-    "capabilities",
-    "tags",
-}
-UNSAFE_RESPONSE_KEYS = {
-    "app_label",
-    "url_prefix",
-    "jira_component",
-    "dcc_label",
-    "dcc_template_name",
-    "mail_template_name",
-    "dcc_parent_path_setting",
-    "filesystem_path",
-    "environment_key",
-    "mail_address",
-}
+
+SAFE_KEYS = {"slug", "name", "capabilities", "roles"}
 
 
 class ProjectRegistryApiTests(TestCase):
-    """Validate the frontend-facing project registry API contract."""
-
     def setUp(self):
-        """Create an authenticated API client for protected registry requests."""
         self.client = APIClient()
-        self.user = get_user_model().objects.create_user(
-            username="registry-user",
-            password="safe-test-password",
+        self.user = get_user_model().objects.create_user("registry-user")
+        self.ozgur = Project.objects.get(slug="ozgur")
+        self.hurjet = Project.objects.get(slug="hurjet")
+
+    def test_catalog_requires_authentication_and_has_no_static_fallback(self):
+        anonymous = self.client.get("/api/projects/")
+        self.client.force_authenticate(self.user)
+        empty = self.client.get("/api/projects/")
+
+        self.assertIn(anonymous.status_code, {401, 403})
+        self.assertEqual(empty.status_code, 200)
+        self.assertEqual(empty.data, [])
+
+    @override_settings(PROJECT_CONFIGURATION_FILE="")
+    def test_catalog_joins_enabled_business_record_roles_and_capabilities(self):
+        ProjectRoleAssignment.objects.create(
+            project=self.ozgur,
+            domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+            role=ProjectRoleAssignment.Role.EDITOR,
+            user=self.user,
         )
         self.client.force_authenticate(self.user)
 
-    def test_registry_requires_authentication(self):
-        """Unauthenticated callers cannot read project metadata."""
-        anonymous_client = APIClient()
-
-        response = anonymous_client.get("/projects/registry/")
-
-        self.assertEqual(response.status_code, 401)
-
-    def test_registry_returns_only_safe_frontend_fields(self):
-        """Registry response excludes internal identifiers and integration metadata."""
-        response = self.client.get("/projects/registry/")
+        response = self.client.get("/api/projects/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.data)
-        for project in response.data:
-            self.assertEqual(set(project), SAFE_RESPONSE_KEYS)
-            self.assertTrue(UNSAFE_RESPONSE_KEYS.isdisjoint(project))
+        self.assertEqual(len(response.data), 1)
+        project = response.data[0]
+        self.assertEqual(set(project), SAFE_KEYS)
+        self.assertEqual(project["slug"], "ozgur")
+        self.assertEqual(project["roles"]["compliance"], "editor")
+        self.assertIsNone(project["roles"]["jira"])
+        self.assertNotIn("jira_component", project)
 
-    def test_registry_contract_contains_expected_project_values(self):
-        """A registry entry exposes route-oriented metadata without app paths."""
-        response = self.client.get("/projects/registry/")
-        ozgur_project = self.get_project(response.data, "ozgur")
+    def test_disabled_or_unknown_projects_are_hidden(self):
+        ProjectRoleAssignment.objects.create(
+            project=self.ozgur,
+            domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+            role=ProjectRoleAssignment.Role.VIEWER,
+            user=self.user,
+        )
+        self.ozgur.enabled = False
+        self.ozgur.save(update_fields=["enabled"])
+        unknown = Project.objects.create(slug="unknown", name="Unknown", enabled=True)
+        ProjectRoleAssignment.objects.create(
+            project=unknown,
+            domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+            role=ProjectRoleAssignment.Role.VIEWER,
+            user=self.user,
+        )
+        self.client.force_authenticate(self.user)
 
-        self.assertEqual(ozgur_project["display_name"], "Ozgur")
-        self.assertEqual(ozgur_project["route"], "/ozgur/")
-        self.assertTrue(ozgur_project["enabled"])
-        self.assertIn(PROJECT_CAPABILITY_DCC, ozgur_project["capabilities"])
-        self.assertIn("certification", ozgur_project["tags"])
+        self.assertEqual(self.client.get("/api/projects/").data, [])
 
-    def test_registry_supports_capability_filter(self):
-        """Capability query returns only projects declaring that capability."""
-        response = self.client.get(f"/projects/registry/?capability={PROJECT_CAPABILITY_DCC}")
+    def test_new_compliance_projects_require_individual_roles_and_use_shared_api(self):
+        self.client.force_authenticate(self.user)
+        for slug in (
+            "havasoj_stc1", "havasoj_stc2", "hyeu", "hurkus_aviyonik",
+            "hjt", "hsp", "navy", "bkm", "mmu",
+        ):
+            with self.subTest(slug=slug):
+                project = Project.objects.get(slug=slug)
+                url = f"/api/projects/{slug}/compliance-documents/"
+                self.assertEqual(self.client.get(url).status_code, 403)
+                assignment = ProjectRoleAssignment.objects.create(
+                    project=project,
+                    domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+                    role=ProjectRoleAssignment.Role.VIEWER,
+                    user=self.user,
+                )
+                catalog = self.client.get("/api/projects/").data
+                self.assertEqual([item["slug"] for item in catalog], [slug])
+                self.assertEqual(set(catalog[0]["capabilities"]), {"compliance", "organization"})
+                self.assertEqual(catalog[0]["roles"]["compliance"], "viewer")
+                self.assertIsNone(catalog[0]["roles"]["jira"])
+                self.assertEqual(self.client.get(url).status_code, 200)
+                statuses = self.client.get(f"{url}statuses/")
+                self.assertEqual(statuses.status_code, 200)
+                self.assertEqual([item["value"] for item in statuses.data], ["unknown"])
+                assignment.delete()
+
+    def test_hurjet_is_exposed_through_the_dynamic_project_catalog(self):
+        ProjectRoleAssignment.objects.create(
+            project=self.hurjet,
+            domain=ProjectRoleAssignment.Domain.ORGANIZATION,
+            role=ProjectRoleAssignment.Role.VIEWER,
+            user=self.user,
+        )
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get("/api/projects/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.data)
-        for project in response.data:
-            self.assertIn(PROJECT_CAPABILITY_DCC, project["capabilities"])
-
-    def test_registry_supports_enabled_filter(self):
-        """Enabled query can return disabled registry entries for UI gating."""
-        response = self.client.get("/projects/registry/?enabled=false")
-        response_slugs = {project["slug"] for project in response.data}
-        disabled_slugs = {
-            slug for slug, definition in PROJECT_DEFINITIONS.items() if not definition.enabled
-        }
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response_slugs, disabled_slugs)
-
-    def test_registry_response_uses_documented_capabilities(self):
-        """Frontend response capabilities stay inside the documented contract."""
-        response = self.client.get("/projects/registry/")
-
-        self.assertEqual(response.status_code, 200)
-        for project in response.data:
-            self.assertLessEqual(set(project["capabilities"]), ALLOWED_PROJECT_CAPABILITIES)
-
-    def test_registry_rejects_invalid_capability_filter(self):
-        """Unknown capability filters fail instead of creating implicit contracts."""
-        response = self.client.get("/projects/registry/?capability=unknown")
-
-        self.assertEqual(response.status_code, 400)
-
-    def test_registry_rejects_invalid_enabled_filter(self):
-        """Invalid enabled query values fail closed instead of broadening results."""
-        response = self.client.get("/projects/registry/?enabled=maybe")
-
-        self.assertEqual(response.status_code, 400)
-
-    def test_registry_supports_combined_filters(self):
-        """Capability and enabled filters compose without leaking unsafe fields."""
-        response = self.client.get(
-            f"/projects/registry/?capability={PROJECT_CAPABILITY_DCC}&enabled=true"
+        self.assertEqual(response.data[0]["slug"], "hurjet")
+        self.assertEqual(response.data[0]["name"], "Hürjet")
+        self.assertEqual(
+            set(response.data[0]["capabilities"]),
+            {"jira", "compliance", "organization"},
         )
 
-        self.assertEqual(response.status_code, 200)
-        for project in response.data:
-            self.assertTrue(project["enabled"])
-            self.assertIn(PROJECT_CAPABILITY_DCC, project["capabilities"])
-            self.assertEqual(set(project), SAFE_RESPONSE_KEYS)
+    def test_hurkus_exposes_only_dcc_and_requires_its_own_role(self):
+        ProjectRoleAssignment.objects.create(
+            project=Project.objects.get(slug="hurkus"),
+            domain=ProjectRoleAssignment.Domain.JIRA,
+            role=ProjectRoleAssignment.Role.OPERATOR,
+            user=self.user,
+        )
+        self.client.force_authenticate(self.user)
+        response = self.client.get("/api/projects/")
+        self.assertEqual([item["slug"] for item in response.data], ["hurkus"])
+        self.assertEqual(response.data[0]["capabilities"], ["jira"])
+        self.assertEqual(set(response.data[0]), SAFE_KEYS)
 
-    def get_project(self, projects, slug):
-        """Return one project payload by slug."""
-        return next(project for project in projects if project["slug"] == slug)
+    def test_superuser_catalog_roles_match_supported_capabilities(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get("/api/projects/")
+
+        self.assertEqual(response.status_code, 200)
+        projects = {item["slug"]: item for item in response.data}
+        self.assertIn("gokbey_jandarma", projects)
+        self.assertIn("gokbey_sivil", projects)
+        self.assertEqual(
+            projects["hurkus"]["roles"],
+            {"compliance": None, "organization": None, "jira": "publisher"},
+        )
+        self.assertEqual(
+            projects["ozgur"]["roles"],
+            {"compliance": "manager", "organization": "manager", "jira": "publisher"},
+        )
+        for project in projects.values():
+            for domain, role in project["roles"].items():
+                with self.subTest(slug=project["slug"], domain=domain):
+                    self.assertEqual(role is not None, domain in project["capabilities"])

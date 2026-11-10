@@ -7,6 +7,7 @@ from django.test import override_settings
 from docx import Document
 from openpyxl import Workbook
 
+from awcenter.job_executors import resolve_job_executor
 from excel.cover_pages import REQUIRED_COLUMNS
 from jobs.models import Job, JobStatus
 from jobs.services import create_job
@@ -21,9 +22,10 @@ class DocumentJobApiTests(JobTestCase):
         """Translation direction is allowlisted before job persistence."""
 
         response = self.client.post(
-            "/word/jobs/translate/",
+            "/api/tools/word/jobs/translate/",
             {"file": word_upload(), "translate_type": "tr2en"},
             format="multipart",
+            HTTP_IDEMPOTENCY_KEY="word-translation-tr2en",
         )
 
         self.assertEqual(response.status_code, 201)
@@ -35,9 +37,10 @@ class DocumentJobApiTests(JobTestCase):
         """Invalid workbook contracts fail before consuming worker capacity."""
 
         response = self.client.post(
-            "/excel/jobs/cover-pages/",
+            "/api/tools/excel/jobs/cover-pages/",
             {"file": excel_upload(["Wrong Column"])},
             format="multipart",
+            HTTP_IDEMPOTENCY_KEY="cover-pages-invalid-columns",
         )
 
         self.assertEqual(response.status_code, 400)
@@ -47,9 +50,10 @@ class DocumentJobApiTests(JobTestCase):
         """The cover-page contract stores no JIRA session or unused browser state."""
 
         response = self.client.post(
-            "/excel/jobs/cover-pages/",
+            "/api/tools/excel/jobs/cover-pages/",
             {"file": excel_upload(REQUIRED_COLUMNS), "JSESSIONID": "secret-session"},
             format="multipart",
+            HTTP_IDEMPOTENCY_KEY="cover-pages-session-safety",
         )
 
         self.assertEqual(response.status_code, 201)
@@ -68,7 +72,7 @@ class DocumentJobWorkerTests(JobTestCase):
             self.user, "word.translate", "Translate", {"translate_type": "tr2en"}, word_upload()
         )
 
-        execute_claimed_job(claim_next_job("word-worker"))
+        execute_claimed_job(claim_next_job("word-worker"), resolve_job_executor)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatus.SUCCEEDED)
@@ -83,14 +87,14 @@ class DocumentJobWorkerTests(JobTestCase):
             self.user, "word.translate", "Translate", {"translate_type": "tr2en"}, word_upload()
         )
 
-        execute_claimed_job(claim_next_job("word-worker"))
+        execute_claimed_job(claim_next_job("word-worker"), resolve_job_executor)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatus.FAILED)
         self.assertEqual(job.error_code, "WORD_MODEL_UNAVAILABLE")
         self.assertTrue(job.retryable)
         self.assertNotIn("private path", job.message)
-        detail = self.client.get(f"/jobs/{job.id}/")
+        detail = self.client.get(f"/api/jobs/{job.id}/")
         self.assertIn("deploy", detail.data["recovery_hint"].lower())
 
     @override_settings(COVER_PAGE_TEMPLATE_PATH="/missing/template.docx")
@@ -101,7 +105,7 @@ class DocumentJobWorkerTests(JobTestCase):
             self.user, "excel.cover_pages", "Cover pages", {}, excel_upload(REQUIRED_COLUMNS)
         )
 
-        execute_claimed_job(claim_next_job("excel-worker"))
+        execute_claimed_job(claim_next_job("excel-worker"), resolve_job_executor)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatus.SUCCEEDED)

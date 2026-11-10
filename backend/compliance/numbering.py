@@ -1,0 +1,320 @@
+"""Durable orchestration for Numarator-backed cover page creation."""
+
+import hashlib
+import json
+from datetime import date
+
+from django.core.files.base import ContentFile
+from django.db import IntegrityError, transaction
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException
+
+from integrations.numarator.client import (
+    credential_fingerprint, is_configured, project_format_code, project_format_codes,
+)
+from jobs.models import JobStatus
+from jobs.serializers import JobSerializer
+from jobs.services import create_job
+from orgs.models import Panel
+
+from .reset_guard import reset_sensitive_write
+from .models import CoverPageNumberAllocation
+from .serializers import ComplianceDocumentSerializer
+from .services import VersionConflict
+
+
+class NumaratorUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "NUMARATOR_NOT_CONFIGURED"
+    default_detail = "Numarator is not configured for this project."
+
+
+class AllocationConflict(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "NUMARATOR_ALLOCATION_CONFLICT"
+    default_detail = "This allocation request was already used with different input."
+
+
+class CoverPageAllocationRequestSerializer(serializers.Serializer):
+    client_operation_id = serializers.UUIDField()
+    document = serializers.JSONField()
+    document_id = serializers.UUIDField(required=False)
+    format_code = serializers.CharField(max_length=100, required=False)
+    context_data = serializers.JSONField(required=False)
+
+    def validate_context_data(self, value):
+        if not isinstance(value, dict) or any(
+            not isinstance(key, str) or not key or len(key) > 200
+            or type(item) not in (str, int, float, bool)
+            for key, item in value.items()
+        ):
+            raise serializers.ValidationError("Use named text, number or boolean values.")
+        try:
+            encoded = json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        except (ValueError, TypeError) as error:
+            raise serializers.ValidationError("Use valid JSON values.") from error
+        if len(encoded) > 8192:
+            raise serializers.ValidationError("Format values cannot exceed 8 KiB.")
+        return value
+
+    def validate_document(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Use a document object.")
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > 32 * 1024:
+            raise serializers.ValidationError("The document payload is too large.")
+        cover_page = value.get("cover_page")
+        if not isinstance(cover_page, dict):
+            raise serializers.ValidationError({"cover_page": "Use a cover page object."})
+        candidate = json.loads(encoded)
+        candidate["cover_page"] = {**cover_page, "number": "NUMARATOR-PENDING"}
+        document_serializer = ComplianceDocumentSerializer(
+            data=candidate,
+            context={**self.context, "numbering_draft": True},
+        )
+        document_serializer.is_valid(raise_exception=True)
+        snapshot = _json_snapshot(document_serializer.validated_data)
+        if "version" in value:
+            snapshot["version"] = serializers.IntegerField(min_value=1).run_validation(
+                value["version"]
+            )
+        return snapshot
+
+    def validate(self, attrs):
+        project = self.context["project"]
+        if not is_configured(project.slug):
+            raise NumaratorUnavailable()
+        format_code = attrs.get("format_code", project_format_code(project.slug))
+        if format_code not in project_format_codes(project.slug):
+            raise serializers.ValidationError(
+                {"format_code": "Select an allowed cover page format for this project."}
+            )
+        attrs["format_code"] = format_code
+        document_id = attrs.get("document_id")
+        if document_id is None:
+            return attrs
+        document = self.context["project"].compliance_documents.select_related(
+            "cover_page"
+        ).filter(pk=document_id).first()
+        if document is None:
+            raise serializers.ValidationError({"document_id": "Document not found."})
+        attrs["existing_document"] = document
+        # A successful replay must survive the original document becoming numbered.
+        if CoverPageNumberAllocation.objects.filter(
+            project=project,
+            actor=self.context["request"].user,
+            client_operation_id=attrs["client_operation_id"],
+        ).exists():
+            return attrs
+        if document.is_archived:
+            raise serializers.ValidationError(
+                {"document_id": "Restore the document before assigning its number."}
+            )
+        if document.cover_page.number:
+            raise serializers.ValidationError(
+                {"document_id": "The document already has a cover page number."}
+            )
+        if document.cover_page.compliance_documents.exclude(pk=document.pk).exists():
+            raise serializers.ValidationError(
+                {"document_id": "The unnumbered cover page is shared by multiple documents."}
+            )
+        snapshot = attrs["document"]
+        if snapshot.get("version", document.version) != document.version:
+            raise VersionConflict()
+        if snapshot["cover_page"].get("version", document.cover_page.version) != document.cover_page.version:
+            raise VersionConflict("The cover page changed after you opened it.")
+        return attrs
+
+
+@reset_sensitive_write
+@transaction.atomic
+def create_allocation(
+    *,
+    project,
+    actor,
+    client_operation_id,
+    document,
+    document_id=None,
+    existing_document=None,
+    format_code=None,
+    context_data=None,
+    request_id="",
+):
+    """Persist one idempotent allocation intent and ensure it has a durable job."""
+
+    if not is_configured(project.slug):
+        raise NumaratorUnavailable()
+    format_code = format_code or project_format_code(project.slug)
+    if format_code not in project_format_codes(project.slug):
+        raise serializers.ValidationError({"format_code": "Select an allowed format."})
+    # Legacy callers omitted context entirely; explicit input follows the format contract.
+    context_data = {"project": project.slug} if context_data is None else dict(context_data)
+    canonical_request = {
+        "document": document,
+        "document_id": str(existing_document.pk) if existing_document else None,
+        "format_code": format_code,
+        "context_data": context_data,
+    }
+    request_hash = hashlib.sha256(
+        json.dumps(
+            canonical_request,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    try:
+        with transaction.atomic():
+            snapshot = dict(document)
+            if existing_document is not None:
+                snapshot.setdefault("version", existing_document.version)
+                snapshot["cover_page"] = dict(snapshot["cover_page"])
+                snapshot["cover_page"].setdefault("version", existing_document.cover_page.version)
+            allocation = CoverPageNumberAllocation.objects.create(
+                project=project,
+                actor=actor,
+                client_operation_id=client_operation_id,
+                request_hash=request_hash,
+                document_snapshot=snapshot,
+                format_code=format_code,
+                context_data=_document_numbering_context(
+                    context_data, snapshot, project, existing_document,
+                ),
+                credential_fingerprint=credential_fingerprint(),
+                document=existing_document,
+                cover_page=existing_document.cover_page if existing_document else None,
+            )
+    except IntegrityError:
+        allocation = CoverPageNumberAllocation.objects.filter(
+            project=project,
+            actor=actor,
+            client_operation_id=client_operation_id,
+        ).first()
+        if allocation is None or allocation.request_hash != request_hash:
+            raise AllocationConflict()
+    ensure_allocation_job(allocation, request_id=request_id)
+    allocation.refresh_from_db()
+    return allocation
+
+
+def _document_numbering_context(values, snapshot, project, existing_document):
+    """Resolve reserved format keys at enqueue time so retries keep their values."""
+    context = dict(values)
+    if "ata" in context:
+        panel_id = snapshot.get(
+            "panel", existing_document.panel_id if existing_document else None,
+        )
+        context["ata"] = Panel.objects.filter(
+            project=project, pk=panel_id,
+        ).values_list("ata", flat=True).first() or ""
+        context["ata"] = context["ata"].replace("-", "")
+    if "moc" in context:
+        context["moc"] = snapshot.get(
+            "moc", existing_document.moc if existing_document else None,
+        ) or ""
+    for key in ("ata", "moc"):
+        if key in context and not context[key]:
+            del context[key]
+    return context
+
+
+@reset_sensitive_write
+def resume_allocation(*, allocation, expected_version, request_id=""):
+    """Queue another attempt for a failed allocation without changing remote identity."""
+
+    with transaction.atomic():
+        locked = CoverPageNumberAllocation.objects.select_for_update().get(pk=allocation.pk)
+        if locked.version != expected_version:
+            raise VersionConflict("The allocation changed after you opened it.")
+        if locked.status == CoverPageNumberAllocation.Status.COMPLETED:
+            return locked
+        if locked.current_job_id and locked.current_job.status in {
+            JobStatus.QUEUED,
+            JobStatus.RUNNING,
+            JobStatus.CANCEL_REQUESTED,
+        }:
+            return locked
+        locked.version += 1
+        locked.current_job = None
+        locked.error_code = ""
+        locked.error_detail = ""
+        locked.save(
+            update_fields=["version", "current_job", "error_code", "error_detail", "updated_at"]
+        )
+        ensure_allocation_job(locked, request_id=request_id)
+    locked.refresh_from_db()
+    return locked
+
+
+@reset_sensitive_write
+def ensure_allocation_job(allocation, *, request_id=""):
+    """Create the allocation's current durable job if one is not already linked."""
+
+    with transaction.atomic():
+        locked = CoverPageNumberAllocation.objects.select_for_update().get(pk=allocation.pk)
+        if (
+            locked.current_job_id
+            or locked.status == CoverPageNumberAllocation.Status.COMPLETED
+        ):
+            return locked.current_job
+        payload = json.dumps(
+            {"schema_version": 1, "allocation_id": str(locked.id)},
+            separators=(",", ":"),
+        ).encode("utf-8")
+        job, _created = create_job(
+            owner=locked.actor,
+            kind="compliance.allocate_cover_page_number",
+            title=f"Create cover page number · {locked.project.slug}"[:160],
+            parameters={"allocation_id": str(locked.id)},
+            uploaded_file=ContentFile(payload, name="cover-page-number.json"),
+            idempotency_key=f"numarator:{locked.id}:v{locked.version}",
+            request_id=request_id,
+            reconcile_on_lease_loss=True,
+        )
+        locked.current_job = job
+        locked.save(update_fields=["current_job", "updated_at"])
+        return job
+
+
+def allocation_payload(allocation, request=None):
+    """Serialize safe allocation state with its current job and created document."""
+
+    document = None
+    if allocation.document_id:
+        document = ComplianceDocumentSerializer(
+            allocation.document,
+            context={"request": request, "project": allocation.project},
+        ).data
+    return {
+        "id": str(allocation.id),
+        "version": allocation.version,
+        "status": allocation.status,
+        "number": allocation.remote_number,
+        "format_code": allocation.format_code,
+        "context_data": allocation.context_data,
+        "error_code": allocation.error_code,
+        "error_detail": allocation.error_detail,
+        "job": JobSerializer(allocation.current_job).data if allocation.current_job_id else None,
+        "document": document,
+        "created_at": allocation.created_at,
+        "updated_at": allocation.updated_at,
+    }
+
+
+def _json_snapshot(validated_data):
+    snapshot = {}
+    for field, value in validated_data.items():
+        if field == "panel":
+            snapshot[field] = value.pk if value is not None else None
+        elif field == "cover_page":
+            snapshot[field] = {
+                **({"issue": value["issue"]} if "issue" in value else {}),
+                **({"version": value["version"]} if "version" in value else {}),
+            }
+        elif hasattr(value, "pk"):
+            snapshot[field] = value.pk
+        elif isinstance(value, date):
+            snapshot[field] = value.isoformat()
+        else:
+            snapshot[field] = value
+    return snapshot

@@ -1,0 +1,901 @@
+"""Preview/confirm workbook imports bound to document UUID and version."""
+
+import hashlib
+import json
+import re
+from collections import Counter
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+from uuid import UUID
+
+from django.conf import settings
+from django.core import signing
+from django.db import IntegrityError, transaction
+from django.db.models import OuterRef, Subquery
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+
+from awcenter.spreadsheet_security import SpreadsheetLimitError, validate_worksheet_bounds
+
+from .compdoc_import import (
+    HeaderMappingResult,
+    HEADER_SCAN_ROWS,
+    REQUIRED_IMPORT_FIELDS,
+    build_mapping_preview,
+    choose_header_row,
+    get_missing_required_fields,
+)
+from .compdoc_workflow import parse_workflow_date
+from .status_catalog import normalize_status, ensure_status, lock_status_project
+from .models import DocumentStatus
+from .import_panels import ImportPanels, PanelReference, PlannedPanelField, apply_panel_changes
+from .models import ComplianceDocument, CoverPage, ImportAudit, WorkflowEvent
+from .serializers import ComplianceDocumentSerializer
+from .services import (
+    VersionConflict,
+    require_tracking_panel_compatibility,
+    transition_document,
+    update_document,
+)
+
+
+CONFIRMATION_SALT = "awcenter.compliance-import.v2"
+MAX_IMPORT_COLUMNS = 100
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+IMPORT_FIELDS = {
+    "id",
+    "name",
+    "panel",
+    "ata",
+    "signature_panel",
+    "responsible",
+    "cat",
+    "moc",
+    "mom_no",
+    "cover_page_no",
+    "cover_page_issue",
+    "number",
+    "issue",
+    "requirements",
+    "status",
+    "effective_date",
+    "target_date",
+    "revised_target_date",
+    "release_date",
+    "notes",
+    "path",
+}
+MODEL_FIELDS = {
+    "name",
+    "signature_panel",
+    "responsible",
+    "cat",
+    "moc",
+    "mom_no",
+    "number",
+    "issue",
+    "requirements",
+    "notes",
+    "path",
+}
+LIST_FIELDS = {"signature_panel", "requirements"}
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedWorkflowEvent:
+    status: str
+    effective_date: date
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedRow:
+    row_number: int
+    payload: dict
+    workflow_events: tuple[PlannedWorkflowEvent, ...]
+    target: ComplianceDocument | None
+    action: str
+    panel_reference: PanelReference
+    status_value: str
+    status_label: str
+
+
+@dataclass(frozen=True, slots=True)
+class ImportPlan:
+    rows: tuple[PlannedRow, ...]
+    errors: tuple[dict, ...]
+    mapping: dict
+    panel_changes: tuple[dict, ...] = ()
+    panel_snapshot: tuple[dict, ...] = ()
+    status_changes: tuple[dict, ...] = ()
+    unknown_status_rows: tuple[int, ...] = ()
+
+    @property
+    def counts(self):
+        counts = Counter(row.action for row in self.rows)
+        return {
+            "created_count": counts["create"],
+            "updated_count": counts["update"],
+            "unchanged_count": counts["unchanged"],
+            "rejected_count": len(self.errors),
+        }
+
+
+def hash_upload(uploaded_file) -> str:
+    digest = hashlib.sha256()
+    uploaded_file.seek(0)
+    for chunk in uploaded_file.chunks():
+        digest.update(chunk)
+    uploaded_file.seek(0)
+    return digest.hexdigest()
+
+
+def parse_excel_mapping(request):
+    """Read optional explicit column links from multipart requests."""
+    raw = request.data.get("mapping")
+    if raw is None:
+        return None
+    try:
+        mapping = json.loads(raw)
+    except (TypeError, ValueError) as error:
+        raise ValidationError({"mapping": "Use a JSON object of column-to-field links."}) from error
+    if not isinstance(mapping, dict) or any(
+        not isinstance(source, str)
+        or not isinstance(target, str)
+        or target not in IMPORT_FIELDS
+        for source, target in mapping.items()
+    ):
+        raise ValidationError({"mapping": "Use supported import fields."})
+    if len(set(mapping.values())) != len(mapping):
+        raise ValidationError({"mapping": "Each field can be linked only once."})
+    return mapping
+
+
+def read_workbook(uploaded_file, *, column_mapping=None):
+    """Parse the bounded source once, before acquiring any import write lock."""
+    import pandas as pd
+
+    uploaded_file.seek(0)
+    row_limit = max(int(settings.AWCENTER_MAX_COMPDOC_IMPORT_ROWS), 1)
+    with pd.ExcelFile(uploaded_file) as workbook:
+        try:
+            validate_worksheet_bounds(
+                workbook, max_columns=MAX_IMPORT_COLUMNS, max_rows=row_limit + HEADER_SCAN_ROWS,
+            )
+        except SpreadsheetLimitError as error:
+            if error.limit_kind == "rows":
+                raise ValidationError(
+                    {"file": f"Workbook exceeds the {row_limit}-row import limit."},
+                    code="IMPORT_ROW_LIMIT",
+                ) from error
+            raise ValidationError(
+                {"file": f"Workbook exceeds the {MAX_IMPORT_COLUMNS}-column import limit."},
+                code="IMPORT_COLUMN_LIMIT",
+            ) from error
+        header = choose_header_row(workbook, pd, IMPORT_FIELDS)
+        preview_frame = pd.read_excel(
+            workbook, header=header.header_row_index, nrows=row_limit + 1,
+        )
+    if len(preview_frame) > row_limit:
+        raise ValidationError(
+            {"file": f"Workbook exceeds the {row_limit}-row import limit."},
+            code="IMPORT_ROW_LIMIT",
+        )
+    if column_mapping is not None:
+        columns = {str(column): column for column in preview_frame.columns}
+        if any(source not in columns for source in column_mapping):
+            raise ValidationError({"mapping": "An Excel column is no longer available."})
+        header = HeaderMappingResult(
+            header.header_row_index,
+            {columns[source]: target for source, target in column_mapping.items()},
+            get_missing_required_fields(column_mapping.values(), IMPORT_FIELDS),
+        )
+    mapping = build_mapping_preview(preview_frame.columns, header)
+    mapping["source_columns"] = [str(column) for column in preview_frame.columns]
+    mapping["target_fields"] = [
+        {"key": field, "label": field.replace("_", " ").title(), "required": field in REQUIRED_IMPORT_FIELDS}
+        for field in sorted(IMPORT_FIELDS)
+    ]
+    if mapping["missing_columns"]:
+        return (), mapping
+    dataframe = preview_frame.loc[:, list(header.column_mapping)].rename(
+        columns=header.column_mapping,
+    )
+    dataframe = dataframe.astype(object).where(pd.notnull(dataframe), None)
+
+    source_rows = tuple(
+        (
+            index + header.header_row_index + 2,
+            source,
+        )
+        for index, source in enumerate(dataframe.to_dict(orient="records"))
+    )
+    return source_rows, mapping
+
+
+def prepare_plan(
+    uploaded_file, project, request, *, lock_existing=False, column_mapping=None,
+    workbook_source=None,
+) -> ImportPlan:
+    source_rows, mapping = (
+        workbook_source if workbook_source is not None
+        else read_workbook(uploaded_file, column_mapping=column_mapping)
+    )
+    if mapping["missing_columns"]:
+        return ImportPlan((), ({
+            "row": None,
+            "code": "IMPORT_COLUMNS_MISSING",
+            "fields": {"columns": mapping["missing_columns"]},
+        },), mapping)
+    return prepare_tabular_plan(
+        source_rows,
+        project,
+        request,
+        mapping=mapping,
+        lock_existing=lock_existing,
+    )
+
+
+def _load_import_targets(normalized, project, *, lock_existing):
+    requested_ids = {row["id"] for _, row in normalized if row["id"]}
+    requested_keys = {key for _, row in normalized for key in _payload_keys(row)}
+    requested_covers = {key[1] for key in requested_keys}
+    candidate_ids = []
+    identity_ids = {}
+    # SQL LOWER is not Python's Unicode casefold. Stream only identity metadata
+    # to retain the matching contract without loading every document payload.
+    identity_query = ComplianceDocument.objects.filter(project=project)
+    if lock_existing:
+        # Ordinary document editors use row locks, not the import project fence.
+        # Keep those locks while matching, or an unrelated row could change its
+        # identity between the metadata scan and candidate hydration.
+        identity_query = identity_query.select_for_update(of=("self",))
+    identities = identity_query.values_list(
+        "pk", "name", "cover_page__number",
+    ).iterator(chunk_size=1000)
+    for document_id, name, number in identities:
+        key = ("name", _canonical_identity(number), _canonical_identity(name))
+        if str(document_id) in requested_ids or key in requested_keys:
+            candidate_ids.append(document_id)
+            identity_ids.setdefault((number, name), set()).add(document_id)
+    latest_transition = WorkflowEvent.objects.filter(
+        document_id=OuterRef("pk")
+    ).order_by("-sequence").values("effective_date")[:1]
+    documents = (
+        ComplianceDocument.objects.filter(project=project, pk__in=candidate_ids)
+        .select_related("cover_page", "panel")
+        .annotate(latest_workflow_date=Subquery(latest_transition))
+    )
+    if lock_existing:
+        # ``panel`` is nullable, so PostgreSQL renders its select_related join as
+        # an outer join and rejects an unscoped FOR UPDATE.  Only document rows
+        # participate in the optimistic import contract; related objects remain
+        # eager-loaded without broadening the lock surface.
+        documents = documents.select_for_update(of=("self",))
+    cover_query = CoverPage.objects.filter(project=project)
+    if lock_existing:
+        cover_query = cover_query.select_for_update()
+    cover_ids = [
+        cover_id for cover_id, number in cover_query
+        .values_list("pk", "number").iterator(chunk_size=1000)
+        if _canonical_identity(number) in requested_covers
+    ]
+    cover_pages = CoverPage.objects.filter(project=project, pk__in=cover_ids)
+    if lock_existing:
+        cover_pages = cover_pages.select_for_update()
+    cover_pages_by_number = {
+        _canonical_identity(cover_page.number): cover_page
+        for cover_page in cover_pages
+        if cover_page.number
+    }
+    return list(documents), cover_pages_by_number, identity_ids
+
+
+def prepare_tabular_plan(
+    source_rows,
+    project,
+    request,
+    *,
+    mapping,
+    lock_existing=False,
+) -> ImportPlan:
+    """Apply the canonical Excel validation and matching rules to mapped rows."""
+
+    panels = ImportPanels(project, lock_existing=lock_existing)
+    normalized = []
+    errors = []
+    for row_number, source in source_rows:
+        try:
+            normalized.append((row_number, _normalize_row(source, panels)))
+        except ValidationError as error:
+            errors.append(_row_error(row_number, error))
+
+    existing_documents, cover_pages_by_number, identity_ids = _load_import_targets(
+        normalized, project, lock_existing=lock_existing,
+    )
+    by_id = {str(document.pk): document for document in existing_documents}
+    by_key = {}
+    ambiguous_keys = set()
+    for document in existing_documents:
+        for key in _document_keys(document):
+            if key in by_key and by_key[key].pk != document.pk:
+                ambiguous_keys.add(key)
+                continue
+            by_key[key] = document
+    identity_counts = Counter(
+        key
+        for _, normalized_row in normalized
+        for key in _payload_keys(normalized_row)
+    )
+    duplicates = {key for key, count in identity_counts.items() if count > 1}
+    document_id_counts = Counter(
+        normalized_row["id"] for _, normalized_row in normalized if normalized_row["id"]
+    )
+    duplicate_document_ids = {
+        document_id for document_id, count in document_id_counts.items() if count > 1
+    }
+    cover_issue_requests = {}
+    for _, normalized_row in normalized:
+        cover_data = normalized_row["payload"]["cover_page"]
+        cover_key = _canonical_identity(cover_data["number"])
+        if not cover_key or "issue" not in cover_data:
+            continue
+        cover_issue_requests.setdefault(cover_key, set()).add(
+            _normalized_cover_issue(cover_data.get("issue"))
+        )
+    conflicting_cover_issues = {
+        cover_key for cover_key, issues in cover_issue_requests.items() if len(issues) > 1
+    }
+    planned = []
+    for row_number, normalized_row in normalized:
+        payload = normalized_row["payload"]
+        target = None
+        document_id = normalized_row["id"]
+        if _canonical_identity(payload["cover_page"]["number"]) in conflicting_cover_issues:
+            errors.append(
+                {
+                    "row": row_number,
+                    "code": "IMPORT_CONFLICTING_COVER_PAGE_ISSUE",
+                    "fields": {
+                        "cover_page_issue": (
+                            "Rows sharing a cover-page number must use the same issue."
+                        )
+                    },
+                }
+            )
+            continue
+        if document_id:
+            if document_id in duplicate_document_ids:
+                errors.append(
+                    {
+                        "row": row_number,
+                        "code": "IMPORT_DUPLICATE_DOCUMENT_ID",
+                        "fields": {"id": "Workbook contains this document UUID more than once."},
+                    }
+                )
+                continue
+            target = by_id.get(document_id)
+            if target is None:
+                errors.append(
+                    {
+                        "row": row_number,
+                        "code": "IMPORT_DOCUMENT_NOT_FOUND",
+                        "fields": {"id": "Document UUID does not exist in this project."},
+                    }
+                )
+                continue
+        else:
+            keys = _payload_keys(normalized_row)
+            if any(key in duplicates for key in keys):
+                errors.append(
+                    {
+                        "row": row_number,
+                        "code": "IMPORT_DUPLICATE_IDENTITY",
+                        "fields": {"document": "Workbook contains this identity more than once."},
+                    }
+                )
+                continue
+            if any(key in ambiguous_keys for key in keys):
+                errors.append(
+                    {
+                        "row": row_number,
+                        "code": "IMPORT_IDENTITY_CONFLICT",
+                        "fields": {
+                            "document": (
+                                "More than one existing document matches this identity; "
+                                "export and provide the document UUID."
+                            )
+                        },
+                    }
+                )
+                continue
+            matches = {by_key[key] for key in keys if key in by_key}
+            target = next(iter(matches), None)
+        if target is not None and target.is_archived:
+            errors.append(
+                {
+                    "row": row_number,
+                    "code": "IMPORT_TARGET_ARCHIVED",
+                    "fields": {"document": "Archived documents must be restored before import."},
+                }
+            )
+            continue
+
+        cover_page = cover_pages_by_number.get(
+            _canonical_identity(payload["cover_page"]["number"])
+        )
+        if cover_page is not None:
+            payload["cover_page"]["version"] = cover_page.version
+
+        reference = normalized_row["panel_reference"]
+        serializer_payload = dict(payload)
+        if "panel" in payload:
+            serializer_payload["panel"] = reference.panel
+        serializer = ComplianceDocumentSerializer(
+            target,
+            data=serializer_payload,
+            partial=target is not None,
+            context={"request": request, "project": project, "import_identity_ids": identity_ids},
+        )
+        serializer.fields["panel"] = PlannedPanelField(allow_null=True, required=False)
+        if not serializer.is_valid():
+            errors.append(
+                {
+                    "row": row_number,
+                    "code": "IMPORT_ROW_INVALID",
+                    "fields": serializer.errors,
+                }
+            )
+            continue
+        next_panel = serializer.validated_data.get("panel", target.panel if target else None)
+        new_panel = next_panel is not None and next_panel.pk is None
+        if target is not None and (new_panel or getattr(next_panel, "pk", None) != target.panel_id):
+            try:
+                # An unsaved panel has no responsible assignments yet.
+                require_tracking_panel_compatibility(target, None if new_panel else next_panel)
+            except ValidationError as error:
+                errors.append(_row_error(row_number, error))
+                continue
+        try:
+            workflow_events = _pending_workflow_events(target, normalized_row)
+        except ValidationError as error:
+            errors.append(_row_error(row_number, error))
+            continue
+        action = _resolve_action(target, serializer.validated_data, workflow_events)
+        if target is not None and new_panel:
+            action = "update"
+        status_value = (
+            target.status if target is not None and not normalized_row["status_provided"]
+            else normalized_row["status"]
+        )
+        status_label = (
+            status_value.replace("_", " ").title()
+            if target is not None and not normalized_row["status_provided"]
+            else normalized_row["status_label"]
+        )
+        planned.append(
+            PlannedRow(
+                row_number=row_number,
+                payload=payload,
+                workflow_events=workflow_events,
+                target=target,
+                action=action,
+                panel_reference=reference,
+                status_value=status_value,
+                status_label=status_label,
+            )
+        )
+    existing_statuses = set(DocumentStatus.objects.filter(project=project).values_list("value", flat=True))
+    requested_statuses = {}
+    for row in planned:
+        requested_statuses.setdefault(row.status_value, row.status_label)
+        for event in row.workflow_events:
+            requested_statuses.setdefault(event.status, event.status.replace("_", " ").title())
+    changes = tuple({"value": value, "label": label} for value, label in requested_statuses.items()
+                    if value not in existing_statuses)
+    return ImportPlan(
+        tuple(planned), tuple(errors), mapping,
+        panels.changes(planned), tuple(panels.snapshot), changes,
+        tuple(row.row_number for row in planned if row.status_value == "unknown"),
+    )
+
+
+def _normalize_row(source, panels):
+    values = {key: _scalar(value) for key, value in source.items()}
+    if values.get("moc") not in (None, ""):
+        values["moc"] = _normalize_import_moc(values["moc"])
+    name = str(values["name"]) if values.get("name") is not None else ""
+    cover_number = str(values["cover_page_no"]) if values.get("cover_page_no") is not None else ""
+    if not name:
+        raise ValidationError({"name": "Document name is required."})
+    if not cover_number:
+        raise ValidationError({"cover_page_no": "Cover page number is required."})
+
+    reference = panels.resolve(values)
+    panel = reference.panel
+
+    payload = {
+        field: _list_value(values.get(field)) if field in LIST_FIELDS else values.get(field)
+        for field in MODEL_FIELDS
+        if values.get(field) not in (None, "")
+    }
+    payload["name"] = name
+    # Omitted optional columns preserve existing values; explicit blank cells clear them.
+    if "panel" in values or "ata" in values:
+        payload["panel"] = panel.pk if panel else None
+    payload["cover_page"] = {"number": cover_number}
+    if "cover_page_issue" in values:
+        payload["cover_page"]["issue"] = values["cover_page_issue"]
+    for field in ("target_date", "revised_target_date", "release_date"):
+        if field in values:
+            payload[field] = _parse_import_date(values[field], field)
+    status, status_label = normalize_status(values.get("status"))
+    workflow_events = (
+        PlannedWorkflowEvent(status, _effective_date(values.get("effective_date"))),
+    )
+    return {
+        "panel_reference": reference,
+        "id": _document_id(values.get("id")),
+        "payload": payload,
+        "status": status,
+        "status_label": status_label,
+        "status_provided": "status" in values,
+        "explicit_effective_date": values.get("effective_date") not in (None, ""),
+        "workflow_events": workflow_events,
+    }
+
+
+def _normalize_import_moc(value):
+    """Keep a single MOC or collapse separator-delimited digits to ``M``.
+
+    Excel may return an integral float for a numeric cell in a sparse column.
+    Text decimals and adjacent digits are not lists of compliance methods.
+    """
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    text = str(value).strip()
+    if text == "M":
+        return text
+    if re.fullmatch(r"[0-9](?:[\s,;/|\-]+[0-9])*", text):
+        return text if len(text) == 1 else "M"
+    raise ValidationError({
+        "moc": "Use a digit from 0 to 9, M, or separator-delimited single digits.",
+    })
+
+
+def _document_id(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return str(UUID(text))
+    except ValueError as error:
+        raise ValidationError({"id": "Use a valid document UUID."}) from error
+
+
+def _effective_date(value):
+    return _parse_import_date(value, "effective_date") or timezone.localdate()
+
+
+def _parse_import_date(value, field):
+    if value in (None, ""):
+        return None
+    parsed = parse_workflow_date(value)
+    if parsed is None:
+        raise ValidationError({field: "Use a supported calendar date."})
+    return parsed
+
+
+def _scalar(value):
+    return value.strip() if isinstance(value, str) else value
+
+
+def _list_value(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [part.strip() for part in re.split(r"[;,\n]", str(value)) if part.strip()]
+
+
+def _payload_keys(values):
+    payload = values["payload"]
+    cover = _canonical_identity(payload["cover_page"]["number"])
+    keys = {("name", cover, _canonical_identity(payload["name"]))}
+    return frozenset(keys)
+
+
+def _document_keys(document):
+    cover = _canonical_identity(document.cover_page.number)
+    keys = {("name", cover, _canonical_identity(document.name))}
+    return frozenset(keys)
+
+
+def _canonical_identity(value):
+    return str(value or "").strip().casefold()
+
+
+def _normalized_cover_issue(value):
+    return None if value is None else str(value).strip()
+
+
+def _pending_workflow_events(target, normalized_row):
+    requested = normalized_row["workflow_events"]
+    if target is None:
+        return () if len(requested) == 1 and requested[0].status == "unknown" else requested
+    if not normalized_row["status_provided"]:
+        return ()
+    if requested[-1].status == target.status:
+        return ()
+    if target.latest_workflow_date and normalized_row["explicit_effective_date"]:
+        if requested[-1].effective_date < target.latest_workflow_date:
+            raise ValidationError({
+                "effective_date": "The effective date cannot precede the latest transition."
+            })
+    if not normalized_row["explicit_effective_date"] and target.latest_workflow_date:
+        # Legacy imports used target dates as transition dates; keep their immutable
+        # history ordered without making new document dates depend on that history.
+        event = requested[-1]
+        return (PlannedWorkflowEvent(
+            event.status, max(event.effective_date, target.latest_workflow_date)
+        ),)
+    return requested
+
+
+def _resolve_action(target, validated_data, workflow_events):
+    if target is None:
+        return "create"
+    cover_data = validated_data.get("cover_page")
+    if cover_data and (
+        target.cover_page.number != cover_data["number"]
+        or "issue" in cover_data and target.cover_page.issue != cover_data["issue"]
+    ):
+        return "update"
+    for field, value in validated_data.items():
+        if field == "cover_page":
+            continue
+        comparable = value.pk if hasattr(value, "pk") else value
+        current = getattr(target, f"{field}_id", None) if hasattr(value, "pk") else getattr(target, field)
+        if current != comparable:
+            return "update"
+    if workflow_events:
+        return "update"
+    return "unchanged"
+
+
+def plan_fingerprint(plan: ImportPlan) -> str:
+    state = [
+        {
+            "row": row.row_number,
+            "action": row.action,
+            "target": str(row.target.pk) if row.target else None,
+            "version": row.target.version if row.target else None,
+            "identity": sorted(_payload_keys({"payload": row.payload})),
+            "payload": row.payload,
+            "status_value": row.status_value,
+            "status_label": row.status_label,
+            "panel_ata": row.panel_reference.panel.ata if row.panel_reference.panel else None,
+            "workflow_events": row.workflow_events,
+            "target_cover": (
+                {
+                    "id": str(row.target.cover_page_id),
+                    "number": row.target.cover_page.number,
+                    "issue": row.target.cover_page.issue,
+                }
+                if row.target
+                else None
+            ),
+        }
+        for row in plan.rows
+    ]
+    encoded = json.dumps(
+        {"rows": state, "panels": plan.panel_snapshot, "panel_changes": plan.panel_changes},
+        sort_keys=True, separators=(",", ":"), default=str,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def create_confirmation(uploaded_file, user, project, plan, column_mapping=None):
+    return signing.dumps(
+        {
+            "version": 1,
+            "sha256": hash_upload(uploaded_file),
+            "user_id": str(user.pk),
+            "project": project.slug,
+            "database_fingerprint": plan_fingerprint(plan),
+            "column_mapping": column_mapping,
+        },
+        salt=CONFIRMATION_SALT,
+        compress=True,
+    )
+
+
+def verify_confirmation(token, uploaded_file, user, project, column_mapping=None):
+    if not token:
+        raise ValidationError(
+            {"confirmation_token": "Import preview confirmation is required."},
+            code="IMPORT_CONFIRMATION_REQUIRED",
+        )
+    try:
+        payload = signing.loads(
+            token,
+            salt=CONFIRMATION_SALT,
+            max_age=max(int(settings.COMPDOC_IMPORT_PREVIEW_TTL_SECONDS), 1),
+        )
+    except (signing.BadSignature, signing.SignatureExpired) as error:
+        raise ValidationError(
+            {"confirmation_token": "Import preview expired or is invalid."},
+            code="IMPORT_PREVIEW_EXPIRED",
+        ) from error
+    identity_matches = all(
+        (
+            payload.get("version") == 1,
+            payload.get("column_mapping") == column_mapping,
+            payload.get("sha256") == hash_upload(uploaded_file),
+            payload.get("user_id") == str(user.pk),
+            payload.get("project") == project.slug,
+            SHA256_PATTERN.fullmatch(str(payload.get("database_fingerprint", ""))),
+        )
+    )
+    if not identity_matches:
+        raise ValidationError(
+            {"confirmation_token": "Workbook does not match the reviewed preview."},
+            code="IMPORT_PREVIEW_MISMATCH",
+        )
+    return payload["database_fingerprint"]
+
+
+def execute_plan(uploaded_file, project, request, expected_fingerprint, column_mapping=None):
+    return execute_source_plan(
+        project,
+        request,
+        expected_fingerprint,
+        prepare_source=lambda: read_workbook(uploaded_file, column_mapping=column_mapping),
+        prepare_locked=lambda workbook_source: prepare_plan(
+            uploaded_file,
+            project,
+            request,
+            lock_existing=True,
+            column_mapping=column_mapping,
+            workbook_source=workbook_source,
+        ),
+        audit_values={
+            "source_filename": Path(str(uploaded_file.name)).name[:255],
+            "source_size": max(int(uploaded_file.size or 0), 0),
+            "source_sha256": hash_upload(uploaded_file),
+        },
+    )
+
+
+def execute_source_plan(
+    project,
+    request,
+    expected_fingerprint,
+    *,
+    prepare_locked,
+    audit_values,
+    prepare_source=None,
+):
+    """Execute one immutable tabular source through the shared import transaction."""
+
+    audit = ImportAudit.objects.create(
+        project=project,
+        imported_by=request.user,
+        request_id=str(getattr(request, "request_id", ""))[:64],
+        **audit_values,
+    )
+    try:
+        # Parsing failures still finalize this audit, without holding write locks
+        # while workbook decoding allocates and validates the bounded source.
+        source = prepare_source() if prepare_source is not None else None
+        with lock_status_project(project):
+            plan = prepare_locked(source) if prepare_source is not None else prepare_locked()
+            if plan_fingerprint(plan) != expected_fingerprint:
+                raise VersionConflict("Import targets changed after preview.")
+            _apply_plan(plan, project, request, audit)
+            _finish_plan_audit(audit, plan)
+    except IntegrityError as error:
+        _finish_failed_audit(audit, "IMPORT_TARGET_CONFLICT")
+        raise VersionConflict("Import targets changed during confirmation.") from error
+    except Exception as error:
+        _finish_failed_audit(
+            audit,
+            str(getattr(error, "default_code", "") or "IMPORT_CONFIRM_FAILED")[:64],
+        )
+        raise
+
+    return audit, plan
+
+
+def _finish_plan_audit(audit, plan):
+    """Persist terminal evidence in the same transaction as imported changes."""
+    audit.header_row = plan.mapping["header_row"]
+    audit.mapped_columns = plan.mapping["mapped_columns"][:100]
+    audit.unmapped_columns = plan.mapping["unmapped_columns"][:100]
+    audit.missing_columns = plan.mapping["missing_columns"][:100]
+    audit.total_rows = len(plan.rows) + len(plan.errors)
+    counts = plan.counts
+    for field, value in counts.items():
+        setattr(audit, field, value)
+    audit.error_summary = list(plan.errors)[:100]
+    audit.status = (
+        ImportAudit.Status.PARTIAL
+        if plan.errors and (counts["created_count"] or counts["updated_count"] or plan.panel_changes)
+        else ImportAudit.Status.FAILED
+        if plan.errors
+        else ImportAudit.Status.SUCCESS
+    )
+    audit.completed_at = timezone.now()
+    audit.duration_ms = max(int((audit.completed_at - audit.started_at).total_seconds() * 1000), 0)
+    audit.save()
+
+
+def _apply_plan(plan, project, request, audit):
+    panels = apply_panel_changes(plan.panel_changes, project)
+    statuses = {}
+    for row in plan.rows:
+        statuses.setdefault(row.status_value, row.status_label)
+        for event in row.workflow_events:
+            statuses.setdefault(event.status, event.status.replace("_", " ").title())
+    for value, label in statuses.items():
+        ensure_status(project, value, label)
+    for row in plan.rows:
+        if row.action == "unchanged":
+            continue
+        payload = dict(row.payload)
+        panel = row.panel_reference.panel
+        if panel is not None and panel.ata in panels:
+            payload["panel"] = panels[panel.ata].pk
+        serializer = ComplianceDocumentSerializer(
+            row.target,
+            data=payload,
+            partial=row.target is not None,
+            context={"request": request, "project": project},
+        )
+        serializer.is_valid(raise_exception=True)
+        if row.target is None:
+            document = serializer.save()
+        else:
+            # Earlier rows may have versioned this document through a shared
+            # cover revision. The plan was verified with all target locks held.
+            row.target.refresh_from_db(fields=["version"])
+            document = update_document(
+                project=project,
+                document_id=row.target.pk,
+                expected_version=row.target.version,
+                serializer=serializer,
+                user=request.user,
+            )
+        for workflow_event in row.workflow_events:
+            document, _event = transition_document(
+                project=project,
+                document_id=document.pk,
+                expected_version=document.version,
+                new_status=workflow_event.status,
+                effective_date=workflow_event.effective_date,
+                next_action_due_date=None,
+                reason=f"Compliance import {audit.pk}",
+                user=request.user,
+                source=WorkflowEvent.Source.IMPORT,
+            )
+
+
+def _finish_failed_audit(audit, code):
+    completed_at = timezone.now()
+    ImportAudit.objects.filter(pk=audit.pk).update(
+        status=ImportAudit.Status.FAILED,
+        error_summary=[{"row": None, "code": code, "fields": {}}],
+        completed_at=completed_at,
+        duration_ms=max(
+            int((completed_at - audit.started_at).total_seconds() * 1000),
+            0,
+        ),
+    )
+
+
+def _row_error(row_number, error):
+    return {
+        "row": row_number,
+        "code": "IMPORT_ROW_INVALID",
+        "fields": error.detail,
+    }

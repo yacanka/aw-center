@@ -1,4 +1,4 @@
-"""Tests for read-only project registry/database alignment checks."""
+"""Read-only project catalog/database alignment command tests."""
 
 from io import StringIO
 
@@ -7,46 +7,54 @@ from django.core.management.base import CommandError
 from django.test import TestCase
 
 from orgs.models import Project
-from projects.registry import PROJECT_DEFINITIONS, get_enabled_project_definitions
 
 
 class ProjectRegistryDatabaseAlignmentTests(TestCase):
-    """Validate orgs.Project slug alignment with enabled registry definitions."""
-
-    def test_command_passes_when_enabled_registry_projects_exist(self):
-        """Every enabled registry slug must have a matching orgs.Project row."""
-        self.create_enabled_registry_projects()
-
+    def test_seeded_catalog_passes(self):
         call_command("check_project_registry")
 
-    def test_command_fails_when_enabled_registry_project_is_missing(self):
-        """Missing enabled registry project rows produce a non-destructive failure."""
-        first_definition = get_enabled_project_definitions()[0]
+    def test_compliance_variants_are_seeded_with_default_status(self):
+        from compliance.models import DocumentStatus
 
-        with self.assertRaisesMessage(CommandError, first_definition.slug):
+        expected = {
+            "havasoj_stc1": "Havasoj STC1",
+            "havasoj_stc2": "Havasoj STC2",
+            "hyeu": "HYEU",
+            "hurkus_aviyonik": "Hürkuş Aviyonik",
+            "hjt": "HJT",
+            "hsp": "HSP",
+            "navy": "Navy",
+            "bkm": "BKM",
+            "mmu": "MMU",
+        }
+        for slug, name in expected.items():
+            with self.subTest(slug=slug):
+                project = Project.objects.get(slug=slug)
+                self.assertEqual(project.name, name)
+                self.assertTrue(project.enabled)
+                self.assertEqual(
+                    DocumentStatus.objects.get(project=project, value="unknown").label,
+                    "Unknown",
+                )
+
+    def test_hurjet_is_seeded_with_its_business_name(self):
+        project = Project.objects.get(slug="hurjet")
+
+        self.assertEqual(project.name, "Hürjet")
+        self.assertTrue(project.enabled)
+
+    def test_missing_catalog_project_fails(self):
+        Project.objects.filter(slug="ozgur").delete()
+        with self.assertRaisesMessage(CommandError, "ozgur"):
             call_command("check_project_registry")
 
-    def test_command_warns_for_database_project_missing_from_registry(self):
-        """Database-only project rows are reported without deleting them."""
-        self.create_enabled_registry_projects()
-        Project.objects.create(name="Legacy Project", slug="legacy")
-
+    def test_unknown_database_project_is_only_reported(self):
+        Project.objects.create(name="Unknown", slug="unknown")
         stderr = StringIO()
-
         call_command("check_project_registry", stderr=stderr)
+        self.assertIn("unknown", stderr.getvalue())
 
-        self.assertIn("legacy", stderr.getvalue())
-        self.assertTrue(Project.objects.filter(slug="legacy").exists())
-
-    def create_enabled_registry_projects(self):
-        """Create the minimal orgs.Project rows required by enabled definitions."""
-        for definition in get_enabled_project_definitions():
-            Project.objects.create(name=definition.display_name, slug=definition.slug)
-
-    def test_project_model_stays_free_of_registry_technical_fields(self):
-        """orgs.Project remains business data, not a registry implementation mirror."""
-        project_fields = {field.name for field in Project._meta.fields}
-        forbidden_fields = {"app_label", "serializer_path", "model_path"}
-
-        self.assertTrue(forbidden_fields.isdisjoint(project_fields))
-        self.assertTrue(PROJECT_DEFINITIONS)
+    def test_new_dcc_projects_are_seeded_without_replacing_gokbey(self):
+        for slug in ("gokbey", "gokbey_jandarma", "gokbey_sivil", "hurkus"):
+            self.assertTrue(Project.objects.get(slug=slug).enabled)
+        self.assertEqual(Project.objects.get(slug="ozgur").name, "Özgür")

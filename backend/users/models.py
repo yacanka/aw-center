@@ -1,4 +1,7 @@
 from django.contrib.auth.models import Group, User
+import uuid
+
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.db.models.signals import post_save
@@ -105,15 +108,9 @@ class UserPreferences(models.Model):
         help_text='Additional custom settings'
     )
 
-    jira_list = models.JSONField(
-        default=list,
-        blank=True,
-        help_text='JIRA subtask list'
-    )
-    document_analysis_checks = models.JSONField(default=list, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    version = models.PositiveIntegerField(default=0)
 
     class Meta:
         verbose_name = 'User Preference'
@@ -127,27 +124,6 @@ class UserPreferences(models.Model):
     def get_extra_setting(self, key, default=None):
         return self.extra_settings.get(key, default)
 
-    def set_extra_setting(self, key, value):
-        self.extra_settings[key] = value
-        self.save(update_fields=['extra_settings', 'updated_at'])
-
-    def reset_to_defaults(self):
-        self.theme = 'system'
-        self.language = 'en'
-        self.timezone = 'UTC'
-        self.email_notifications = True
-        self.push_notifications = True
-        self.sms_notifications = False
-        self.newsletter_subscribed = False
-        self.profile_visible = True
-        self.show_online_status = True
-        self.show_activity = True
-        self.items_per_page = 25
-        self.compact_view = False
-        self.extra_settings = {}
-        self.jira_list = []
-        self.document_analysis_checks = []
-        self.save()
 
 
 # Signal for NEW users only
@@ -155,12 +131,6 @@ class UserPreferences(models.Model):
 def create_user_preferences(sender, instance, created, **kwargs):
     if created:
         UserPreferences.objects.get_or_create(user=instance)
-
-@receiver(post_save, sender=User)
-def save_user_preferences(sender, instance, **kwargs):
-    # Save UserPreferences when User is saved
-    if hasattr(instance, 'preferences'):
-        instance.preferences.save()
 
 def get_user_preferences(user):
     preferences, created = UserPreferences.objects.get_or_create(user=user)
@@ -198,3 +168,57 @@ class UserInvitation(models.Model):
                 name="users_one_open_invitation_per_email",
             )
         ]
+
+
+class PasswordResetDelivery(models.Model):
+    """Durable mail outbox entry without a recoverable password-reset token."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CLAIMED = "claimed", "Claimed"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="password_reset_deliveries",
+    )
+    state_digest = models.CharField(max_length=64, editable=False)
+    token_timestamp = models.PositiveBigIntegerField(editable=False)
+    message_id = models.CharField(max_length=255, unique=True, editable=False)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    error_code = models.CharField(max_length=64, blank=True)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    lease_token = models.UUIDField(null=True, blank=True, editable=False)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    requested_at = models.DateTimeField()
+    sent_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["requested_at", "id"]
+        indexes = [models.Index(fields=["status", "next_attempt_at"])]
+
+
+class EmailIdentity(models.Model):
+    """Database-maintained reservations; legacy collisions retain their owner count.
+
+    Only auth_user triggers write this table. It deliberately has no admin/API
+    surface, and no owner FK because an existing identity may have several owners.
+    """
+
+    email = models.CharField(max_length=254, primary_key=True)
+    owner_count = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'users_email_identity'

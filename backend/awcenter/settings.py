@@ -11,7 +11,10 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import base64
+import binascii
 import os
+from cryptography.fernet import Fernet
 from corsheaders.defaults import default_headers, default_methods
 from django.core.exceptions import ImproperlyConfigured
 import environ
@@ -21,76 +24,148 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env()
 
 
-def resolve_environment_file_path(selected_file):
+def resolve_environment_file_path(selected_file, base_dir=BASE_DIR):
     """Resolve a backend env file path in a cwd-independent way."""
     environment_file = Path(selected_file).expanduser()
     if not environment_file.is_absolute():
-        environment_file = BASE_DIR / environment_file
+        environment_file = base_dir / environment_file
     return environment_file
 
 
-def get_environment_file_path():
-    """Return the backend env profile selected by OS env or backend/.env."""
-    selected_file = os.environ.get("AWCENTER_ENV_FILE") or env.str("AWCENTER_ENV_FILE", ".env")
-    return resolve_environment_file_path(selected_file)
+def load_environment_files(environment, base_dir=BASE_DIR):
+    """Load a selected profile without allowing dotenv values to replace OS values."""
+
+    original_environment = dict(os.environ)
+    default_file = base_dir / ".env"
+    selected_by_os = original_environment.get("AWCENTER_ENV_FILE")
+    if selected_by_os:
+        selected_file = resolve_environment_file_path(selected_by_os, base_dir)
+        environment.read_env(selected_file)
+        return selected_file
+
+    environment.read_env(default_file)
+    selected_file = resolve_environment_file_path(
+        os.environ.get("AWCENTER_ENV_FILE", ".env"), base_dir
+    )
+    if selected_file != default_file:
+        environment.read_env(selected_file, overwrite=True)
+        os.environ.update(original_environment)
+    return selected_file
 
 
-DEFAULT_ENV_FILE = BASE_DIR / ".env"
-SELECTED_ENV_FILE = os.environ.get("AWCENTER_ENV_FILE")
-if SELECTED_ENV_FILE:
-    ENV_FILE = resolve_environment_file_path(SELECTED_ENV_FILE)
-    env.read_env(ENV_FILE)
-else:
-    env.read_env(DEFAULT_ENV_FILE)
-    ENV_FILE = get_environment_file_path()
-    if ENV_FILE != DEFAULT_ENV_FILE:
-        env.read_env(ENV_FILE, overwrite=True)
+ENV_FILE = load_environment_files(env)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-DEV_SECRET_KEY = "aw-center-local-development-secret-key-change-before-production-2026"
 SECRET_KEY = env.str("SECRET_KEY", default="")
+if not SECRET_KEY.strip():
+    raise ImproperlyConfigured(
+        "SECRET_KEY must be explicitly configured through the process environment "
+        "or an external AWCENTER_ENV_FILE."
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool("DEBUG", default=False)
 
-if not SECRET_KEY:
-    if DEBUG:
-        SECRET_KEY = DEV_SECRET_KEY
-    else:
-        raise ImproperlyConfigured("SECRET_KEY must be defined when DEBUG is False.")
-
-IPV4_ADDRESS = env.str("IPV4_ADDRESS")
-PORT = env.int("PORT")
-
-DOCPROOF_URL = env.str("DOCPROOF_URL")
-DOCPROOF_VERIFY_SSL = env.bool("DOCPROOF_VERIFY_SSL", default=True)
-DOCPROOF_CERTIFICATE_FILE = Path(
-    env.path(
-        "DOCPROOF_CERTIFICATE_FILE",
-        default=BASE_DIR / "certificates" / "configured-ca.pem",
+AWCENTER_DEPLOYMENT_MODE = env.str(
+    "AWCENTER_DEPLOYMENT_MODE",
+    default="development" if DEBUG else "windows-native",
+).strip().casefold()
+if AWCENTER_DEPLOYMENT_MODE not in {"development", "windows-native", "container"}:
+    raise ImproperlyConfigured(
+        "AWCENTER_DEPLOYMENT_MODE must be development, windows-native, or container."
     )
+
+IPV4_ADDRESS = env.str("IPV4_ADDRESS", default="127.0.0.1")
+PORT = env.int("PORT", default=8000)
+
+def credential_from_env(name, default=""):
+    """Decode a UTF-8 Base64 env credential; empty overrides inherit default.
+
+    Base64 is an encoding, not encryption. Never include the value in errors.
+    The default is already decoded and must not be decoded a second time.
+    """
+    encoded = env.str(name, default="")
+    if not encoded:
+        return default
+    try:
+        return base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (ValueError, binascii.Error, UnicodeError):
+        raise ImproperlyConfigured(
+            f"{name} must contain a Base64-encoded UTF-8 value."
+        ) from None
+
+
+# Avoid Windows' built-in USERNAME environment variable.
+USERNAME = credential_from_env("AWCENTER_USERNAME")
+PASSWORD = credential_from_env("AWCENTER_PASSWORD")
+
+DOCPROOF_ENABLED = env.bool("DOCPROOF_ENABLED", default=False)
+DOCPROOF_URL = env.str("DOCPROOF_URL", default="")
+DOCPROOF_VERIFY_SSL = env.bool("DOCPROOF_VERIFY_SSL", default=True)
+DOCPROOF_USERNAME = credential_from_env("DOCPROOF_USERNAME", default=USERNAME)
+DOCPROOF_PASSWORD = credential_from_env("DOCPROOF_PASSWORD", default=PASSWORD)
+DOCPROOF_MAX_RESPONSE_BYTES = env.int(
+    "DOCPROOF_MAX_RESPONSE_BYTES",
+    default=10 * 1024 * 1024,
 )
-DOORS_EXECUTABLE = env.str("DOORS_EXECUTABLE")
+_docproof_certificate_file = env.str("DOCPROOF_CERTIFICATE_FILE", default="").strip()
+DOCPROOF_CERTIFICATE_FILE = (
+    Path(_docproof_certificate_file).expanduser() if _docproof_certificate_file else None
+)
+GOKBEY_DCC_POLICY_FILE = env.str("GOKBEY_DCC_POLICY_FILE", default="").strip()
+NUMARATOR_ENABLED = env.bool("NUMARATOR_ENABLED", default=False)
+NUMARATOR_BASE_URL = env.str("NUMARATOR_BASE_URL", default="")
+NUMARATOR_API_KEY = env.str("NUMARATOR_API_KEY", default="")
+NUMARATOR_CREDENTIAL_ID = env.str("NUMARATOR_CREDENTIAL_ID", default="")
+NUMARATOR_VERIFY_SSL = env.bool("NUMARATOR_VERIFY_SSL", default=True)
+NUMARATOR_CERTIFICATE_FILE = Path(
+    env.path("NUMARATOR_CERTIFICATE_FILE", default=BASE_DIR / "certificates" / "numarator.crt")
+)
+NUMARATOR_PROJECT_FORMATS = env.json("NUMARATOR_PROJECT_FORMATS", default={})
+NUMARATOR_CONNECT_TIMEOUT_SECONDS = env.float(
+    "NUMARATOR_CONNECT_TIMEOUT_SECONDS", default=3.0
+)
+NUMARATOR_READ_TIMEOUT_SECONDS = env.float(
+    "NUMARATOR_READ_TIMEOUT_SECONDS", default=10.0
+)
+NUMARATOR_MAX_RESPONSE_BYTES = env.int(
+    "NUMARATOR_MAX_RESPONSE_BYTES", default=1024 * 1024
+)
+DOORS_ENABLED = env.bool("DOORS_ENABLED", default=False)
+DOORS_EXECUTABLE = env.str("DOORS_EXECUTABLE", default="")
 DOORS_DATABASE = env.str("DOORS_DATABASE", default="")
 DOORS_OLE_PROG_ID = env.str("DOORS_OLE_PROG_ID", default="DOORS.Application")
+DOORS_USERNAME = credential_from_env("DOORS_USERNAME", default=USERNAME)
+DOORS_PASSWORD = credential_from_env("DOORS_PASSWORD", default=PASSWORD)
 DOORS_PREFER_ACTIVE_INSTANCE = env.bool("DOORS_PREFER_ACTIVE_INSTANCE", default=True)
-DOORS_AUTO_START_CLIENT = env.bool("DOORS_AUTO_START_CLIENT", default=False)
-DOORS_STARTUP_TIMEOUT_SECONDS = env.float("DOORS_STARTUP_TIMEOUT_SECONDS", default=30.0)
+DOORS_AUTO_START_CLIENT = env.bool("DOORS_AUTO_START_CLIENT", default=True)
+DOORS_STARTUP_TIMEOUT_SECONDS = env.float("DOORS_STARTUP_TIMEOUT_SECONDS", default=90.0)
 DOORS_RUN_TIMEOUT_SECONDS = env.float("DOORS_RUN_TIMEOUT_SECONDS", default=120.0)
 DOORS_MAX_RESULT_BYTES = env.int("DOORS_MAX_RESULT_BYTES", default=10 * 1024 * 1024)
-DOORS_RESULT_MODE = env.str("DOORS_RESULT_MODE", default="file")
-
+# Shared by module export, compliance import validation, and quality reports.
+MAX_DOORS_COLUMNS = env.int("MAX_DOORS_COLUMNS", default=50)
+if MAX_DOORS_COLUMNS < 1:
+    raise ImproperlyConfigured("MAX_DOORS_COLUMNS must be greater than zero.")
+DOORS_RESULT_MODE = env.str("DOORS_RESULT_MODE", default="application_result")
+_LOCAL_APP_DATA = Path(os.environ.get("LOCALAPPDATA", BASE_DIR / ".runtime"))
+DOORS_WORKER_LOCK_FILE = Path(
+    env.path(
+        "DOORS_WORKER_LOCK_FILE",
+        default=_LOCAL_APP_DATA / "AWCenter" / "state" / "doors-worker.lock",
+    )
+)
+TEAMCENTER_ENABLED = env.bool("TEAMCENTER_ENABLED", default=False)
 TEAMCENTER_BASE_URL = env.str("TEAMCENTER_BASE_URL", default="")
 TEAMCENTER_SERVICE_ROOT = env.str("TEAMCENTER_SERVICE_ROOT", default="RestServices")
 TEAMCENTER_AUTH_MODE = env.str("TEAMCENTER_AUTH_MODE", default="password")
-TEAMCENTER_USERNAME = env.str("TEAMCENTER_USERNAME", default="")
-TEAMCENTER_PASSWORD = env.str("TEAMCENTER_PASSWORD", default="")
+TEAMCENTER_USERNAME = credential_from_env("TEAMCENTER_USERNAME", default=USERNAME)
+TEAMCENTER_PASSWORD = credential_from_env("TEAMCENTER_PASSWORD", default=PASSWORD)
 TEAMCENTER_GROUP = env.str("TEAMCENTER_GROUP", default="")
 TEAMCENTER_ROLE = env.str("TEAMCENTER_ROLE", default="")
-TEAMCENTER_VERIFY_SSL = env.str("TEAMCENTER_VERIFY_SSL", default="true")
+TEAMCENTER_VERIFY_SSL = env.bool("TEAMCENTER_VERIFY_SSL", default=True)
 TEAMCENTER_JSESSIONID = env.str("TEAMCENTER_JSESSIONID", default="")
 TEAMCENTER_XSRF_TOKEN = env.str("TEAMCENTER_XSRF_TOKEN", default="")
 TEAMCENTER_CONNECT_TIMEOUT_SECONDS = env.float("TEAMCENTER_CONNECT_TIMEOUT_SECONDS", default=10.0)
@@ -98,12 +173,38 @@ TEAMCENTER_READ_TIMEOUT_SECONDS = env.float("TEAMCENTER_READ_TIMEOUT_SECONDS", d
 TEAMCENTER_MAX_READ_RETRIES = env.int("TEAMCENTER_MAX_READ_RETRIES", default=2)
 TEAMCENTER_MAX_RESPONSE_BYTES = env.int("TEAMCENTER_MAX_RESPONSE_BYTES", default=10 * 1024 * 1024)
 
-JIRA_URL = env.str("JIRA_URL")
+JIRA_VERIFY_SSL = env.bool("JIRA_VERIFY_SSL", default=True)
+JIRA_CERTIFICATE_FILE = Path(
+    env.path("JIRA_CERTIFICATE_FILE", default=BASE_DIR / "certificates" / "JIRA_Chain.crt")
+)
+TEAMCENTER_CERTIFICATE_FILE = Path(
+    env.path("TEAMCENTER_CERTIFICATE_FILE", default=BASE_DIR / "certificates" / "teamcenter.crt")
+)
+GOKBEY_SOFTWARE_AS_NAME = env.str("GOKBEY_SOFTWARE_AS_NAME", default="")
+
+JIRA_ENABLED = env.bool("JIRA_ENABLED", default=False)
+JIRA_URL = env.str("JIRA_URL", default="")
 JIRA_DEFAULT_PROJECT_KEY = env.str("JIRA_DEFAULT_PROJECT_KEY", default="CHN")
 JIRA_DRAFT_PUBLISH_STALE_SECONDS = env.int("JIRA_DRAFT_PUBLISH_STALE_SECONDS", default=300)
+JIRA_SESSION_TTL_SECONDS = env.int("JIRA_SESSION_TTL_SECONDS", default=3600)
+JIRA_SESSION_ENCRYPTION_KEY = env.str("JIRA_SESSION_ENCRYPTION_KEY", default="").strip()
+if JIRA_ENABLED:
+    try:
+        Fernet(JIRA_SESSION_ENCRYPTION_KEY.encode("ascii"))
+    except (TypeError, ValueError, UnicodeError):
+        raise ImproperlyConfigured(
+            "JIRA_SESSION_ENCRYPTION_KEY must be explicitly configured as a valid "
+            "Fernet key when JIRA is enabled."
+        ) from None
+# One provider for assistant and assessment; preserve absence until validation.
+AI_API_URL = os.environ.get("AI_API_URL")
+AI_API_MODEL_ID = os.environ.get("AI_API_MODEL_ID")
+AI_API_TOKEN = os.environ.get("AI_API_TOKEN")
+AI_API_ALLOWED_HOSTS = os.environ.get("AI_API_ALLOWED_HOSTS")
+AI_API_CONNECT_TIMEOUT_SECONDS = os.environ.get("AI_API_CONNECT_TIMEOUT_SECONDS")
+AI_API_READ_TIMEOUT_SECONDS = os.environ.get("AI_API_READ_TIMEOUT_SECONDS")
+AI_API_MAX_RESPONSE_BYTES = os.environ.get("AI_API_MAX_RESPONSE_BYTES")
 
-AW_USERNAME = env.str("AW_USERNAME", "")
-AW_PASSWORD = env.str("AW_PASSWORD", "")
 FFMPEG_EXECUTABLE = env.str("FFMPEG_EXECUTABLE", default="ffmpeg")
 
 
@@ -124,41 +225,38 @@ def unique_items(items):
     return list(dict.fromkeys(item for item in items if item))
 
 
-def get_default_auth_cookie_samesite(debug):
-    """Return the safe default SameSite policy for the runtime mode."""
-    return "Lax" if debug else "None"
-
-
-def get_default_auth_cookie_secure(debug):
-    """Return whether auth cookies should default to Secure for the runtime mode."""
-    return not debug
-
-
 CERTIFICATES_DIR = BASE_DIR / "certificates"
-CUSTOM_TEMPLATE_DIR = BASE_DIR / "custom_templates"
+MODEL_RUNTIME_DIR = Path(
+    env.path(
+        "MODEL_RUNTIME_DIR",
+        default=BASE_DIR.parent / ".runtime" / "ai-models",
+    )
+)
+CUSTOM_TEMPLATE_DIR = Path(
+    env.path(
+        "CUSTOM_TEMPLATE_DIR",
+        default=BASE_DIR.parent / ".runtime" / "document-templates",
+    )
+)
 WORD_TRANSLATION_TR_EN_MODEL = Path(
-    env.path("WORD_TRANSLATION_TR_EN_MODEL", default=BASE_DIR / "models" / "opus-mt-tr-en")
+    env.path("WORD_TRANSLATION_TR_EN_MODEL", default=MODEL_RUNTIME_DIR / "opus-mt-tr-en")
 )
 WORD_TRANSLATION_EN_TR_MODEL = Path(
-    env.path("WORD_TRANSLATION_EN_TR_MODEL", default=BASE_DIR / "models" / "opus-mt-en-tr")
+    env.path("WORD_TRANSLATION_EN_TR_MODEL", default=MODEL_RUNTIME_DIR / "opus-mt-en-tr")
 )
 WORD_ANALYZER_BI_MODEL = Path(
-    env.path("WORD_ANALYZER_BI_MODEL", default=BASE_DIR / "models" / "paraphrase-multilingual")
+    env.path("WORD_ANALYZER_BI_MODEL", default=MODEL_RUNTIME_DIR / "paraphrase-multilingual")
 )
 WORD_ANALYZER_CROSS_MODEL = Path(
-    env.path("WORD_ANALYZER_CROSS_MODEL", default=BASE_DIR / "models" / "ms-marco-cross-encoder")
+    env.path("WORD_ANALYZER_CROSS_MODEL", default=MODEL_RUNTIME_DIR / "ms-marco-cross-encoder")
 )
 WORD_ANALYZER_MAX_UNITS = env.int("WORD_ANALYZER_MAX_UNITS", default=10000)
 COVER_PAGE_TEMPLATE_PATH = Path(
     env.path("COVER_PAGE_TEMPLATE_PATH", default=CUSTOM_TEMPLATE_DIR / "cover_page_template.docx")
 )
 COVER_PAGE_MAX_ROWS = env.int("COVER_PAGE_MAX_ROWS", default=1000)
-COVER_PAGE_B30_PROJECT_LABEL = env.str(
-    "COVER_PAGE_B30_PROJECT_LABEL", default="Example Work Package"
-)
-COVER_PAGE_DEFAULT_PROJECT_LABEL = env.str(
-    "COVER_PAGE_DEFAULT_PROJECT_LABEL", default="Example Work Package"
-)
+PROJECT_CONFIGURATION_FILE = env.str("PROJECT_CONFIGURATION_FILE", default="").strip()
+DDF_ASSESSMENT_POLICY_FILE = env.str("DDF_ASSESSMENT_POLICY_FILE", default="").strip()
 REPOSITORY_DIR = BASE_DIR.parent
 FRONTEND_DIST_DIR = Path(env.path("FRONTEND_DIST_DIR", default=REPOSITORY_DIR / "frontend" / "dist"))
 FRONTEND_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
@@ -183,6 +281,7 @@ if DEBUG and env.bool("ALLOW_ALL_DEBUG_HOSTS", default=True):
 
 INSTALLED_APPS = [
     'awcenter.admin.AwCenterAdminConfig',
+    'awcenter',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -190,21 +289,14 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django_extensions',
     'rest_framework',
-    'rest_framework.authtoken',
     'simple_history',
     'users',
-    'common',
-    'projects.ozgur',
-    'projects.piku',
-    'projects.aesa',
-    'projects.hys',
-    'projects.blok30',
-    'projects.blok4050',
-    'projects.havasoj',
-    'projects.gokbey',
-    'dcc',
-    'doors',
-    'teamcenter',
+    'word.apps.WordConfig',
+    'integrations',
+    'automations',
+    'compliance',
+    'management_reports',
+    'attention',
     'ddf',
     'orgs',
     'pptxgallery',
@@ -228,6 +320,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'simple_history.middleware.HistoryRequestMiddleware',
+    'awcenter.developer_reset_middleware.DeveloperResetWriteMiddleware',
 ]
 
 if not DEBUG:
@@ -251,8 +344,6 @@ else:
     CORS_ALLOW_ALL_ORIGINS = False
     CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
     CORS_ALLOWED_ORIGIN_REGEXES = env.list("CORS_ALLOWED_ORIGIN_REGEXES", default=[])
-    if not CORS_ALLOWED_ORIGINS and not CORS_ALLOWED_ORIGIN_REGEXES:
-        raise ImproperlyConfigured("CORS_ALLOWED_ORIGINS must be set when DEBUG is False.")
 
 CORS_ALLOW_HEADERS = [*default_headers, "idempotency-key", "x-request-id"]
 CORS_ALLOW_METHODS = list(default_methods)
@@ -263,22 +354,8 @@ CSRF_TRUSTED_ORIGINS = env.list(
     default=unique_items(DEV_SERVER_ORIGINS) if DEBUG else [],
 )
 
-# Browser authentication strategy:
-# - The SPA uses a DRF token stored in an HttpOnly auth cookie.
-# - Header tokens remain supported for non-browser clients and DEBUG fallback.
-# - Unsafe cookie-authenticated requests are protected by Django CSRF checks.
-#
-# Cross-site deployments must use HTTPS, AUTH_COOKIE_SAMESITE=None,
-# AUTH_COOKIE_SECURE=True, CORS_ALLOWED_ORIGINS, and CSRF_TRUSTED_ORIGINS.
-# Same-site deployments should prefer AUTH_COOKIE_SAMESITE=Lax.
-AUTH_COOKIE_NAME = env.str("AUTH_COOKIE_NAME", default="auth_token")
-AUTH_COOKIE_MAX_AGE = env.int("AUTH_COOKIE_MAX_AGE", default=60 * 60 * 24 * 14)
-AUTH_COOKIE_DEFAULT_SAMESITE = get_default_auth_cookie_samesite(DEBUG)
-AUTH_COOKIE_SAMESITE = env.str("AUTH_COOKIE_SAMESITE", default=AUTH_COOKIE_DEFAULT_SAMESITE)
-AUTH_COOKIE_SECURE = env.bool("AUTH_COOKIE_SECURE", default=get_default_auth_cookie_secure(DEBUG))
-AUTH_TOKEN_RESPONSE_ENABLED = env.bool("AUTH_TOKEN_RESPONSE_ENABLED", default=DEBUG)
-
 ROOT_URLCONF = 'awcenter.urls'
+TEST_RUNNER = 'awcenter.test_runner.ProcessSafeDiscoverRunner'
 
 TEMPLATES = [
     {
@@ -304,11 +381,32 @@ WSGI_APPLICATION = 'awcenter.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+
+def configure_sqlite_concurrency(database, busy_timeout_seconds):
+    """Serialize SQLite writers before reads can create lock-upgrade races."""
+
+    if database.get("ENGINE") != "django.db.backends.sqlite3":
+        return
+    if busy_timeout_seconds <= 0:
+        raise ImproperlyConfigured(
+            "SQLITE_BUSY_TIMEOUT_SECONDS must be greater than zero."
+        )
+    options = database.setdefault("OPTIONS", {})
+    options["timeout"] = busy_timeout_seconds
+    options["transaction_mode"] = "IMMEDIATE"
+
+
 DATABASES = {
     "default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
-    "db_old": env.db("DB_OLD_URL", default=f"sqlite:///{BASE_DIR / 'db_old.sqlite3'}"),
 }
+if env.str("DB_OLD_URL", default=""):
+    DATABASES["db_old"] = env.db("DB_OLD_URL")
+
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("DATABASE_CONN_MAX_AGE", default=60)
+configure_sqlite_concurrency(
+    DATABASES["default"],
+    env.float("SQLITE_BUSY_TIMEOUT_SECONDS", default=30.0),
+)
 
 
 # Password validation
@@ -342,13 +440,16 @@ USE_TZ = True
 DATE_INPUT_FORMATS = ['%d.%m.%Y', '%d/%m/%Y', '%Y-%m-%d']
 DATETIME_INPUT_FORMATS = ['%d.%m.%Y %H:%M']
 DATE_FORMAT = 'd.m.Y'
+DATETIME_FORMAT = 'd.m.Y H:i:s'
+TIME_FORMAT = 'H:i:s'
+FORMAT_MODULE_PATH = 'awcenter.formats'
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = '/core/'
 STATIC_ROOT = Path(env.path('STATIC_ROOT', default=BASE_DIR / 'static'))
-STATICFILES_DIRS = [BASE_DIR / 'core']
+STATICFILES_DIRS = []
 if FRONTEND_ASSETS_DIR.exists():
     STATICFILES_DIRS.append(('assets', FRONTEND_ASSETS_DIR))
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
@@ -385,6 +486,10 @@ AWCENTER_MAX_ARCHIVE_EXPANDED_BYTES = env.int(
 AWCENTER_MAX_ARCHIVE_ENTRIES = env.int("AWCENTER_MAX_ARCHIVE_ENTRIES", default=5000)
 AWCENTER_MAX_COMPDOC_IMPORT_ROWS = env.int("AWCENTER_MAX_COMPDOC_IMPORT_ROWS", default=10000)
 AWCENTER_MAX_COMPDOC_EXPORT_ROWS = env.int("AWCENTER_MAX_COMPDOC_EXPORT_ROWS", default=10000)
+AWCENTER_MAX_PANEL_IMPORT_ROWS = env.int("AWCENTER_MAX_PANEL_IMPORT_ROWS", default=10000)
+PANEL_IMPORT_PREVIEW_TTL_SECONDS = env.int(
+    "PANEL_IMPORT_PREVIEW_TTL_SECONDS", default=15 * 60
+)
 COMPDOC_IMPORT_PREVIEW_TTL_SECONDS = env.int(
     "COMPDOC_IMPORT_PREVIEW_TTL_SECONDS", default=15 * 60
 )
@@ -403,10 +508,10 @@ COMPDOC_NOTIFICATION_RETRY_SECONDS = env.int(
 COMPDOC_DOCPROOF_REFRESH_SECONDS = env.int(
     "COMPDOC_DOCPROOF_REFRESH_SECONDS", default=30 * 60
 )
-AWCENTER_MAIL_TRANSPORT = env.str("AWCENTER_MAIL_TRANSPORT", default="outlook").lower()
-if AWCENTER_MAIL_TRANSPORT not in {"outlook", "django", "disabled"}:
+AWCENTER_MAIL_TRANSPORT = env.str("AWCENTER_MAIL_TRANSPORT", default="disabled").lower()
+if AWCENTER_MAIL_TRANSPORT not in {"django", "disabled"}:
     raise ImproperlyConfigured(
-        "AWCENTER_MAIL_TRANSPORT must be outlook, django, or disabled."
+        "AWCENTER_MAIL_TRANSPORT must be django or disabled."
     )
 EMAIL_BACKEND = env.str(
     "EMAIL_BACKEND",
@@ -414,8 +519,17 @@ EMAIL_BACKEND = env.str(
 )
 EMAIL_HOST = env.str("EMAIL_HOST", default="localhost")
 EMAIL_PORT = env.int("EMAIL_PORT", default=25)
-EMAIL_HOST_USER = env.str("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD", default="")
+EMAIL_TIMEOUT = env.float("EMAIL_TIMEOUT", default=10.0)
+if not 0 < EMAIL_TIMEOUT <= 30:
+    raise ImproperlyConfigured("EMAIL_TIMEOUT must be greater than 0 and at most 30 seconds.")
+if EMAIL_TIMEOUT >= max(COMPDOC_NOTIFICATION_LOCK_SECONDS, 30):
+    raise ImproperlyConfigured("EMAIL_TIMEOUT must be shorter than the notification lease.")
+EMAIL_HOST_USER = credential_from_env(
+    "EMAIL_HOST_USER", default=USERNAME if AWCENTER_MAIL_TRANSPORT == "django" else ""
+)
+EMAIL_HOST_PASSWORD = credential_from_env(
+    "EMAIL_HOST_PASSWORD", default=PASSWORD if AWCENTER_MAIL_TRANSPORT == "django" else ""
+)
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
 EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
 DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="awcenter@localhost")
@@ -448,6 +562,7 @@ JOB_LEASE_SECONDS = env.int("JOB_LEASE_SECONDS", default=60)
 JOB_HEARTBEAT_SECONDS = env.int("JOB_HEARTBEAT_SECONDS", default=2)
 JOB_WORKER_STALE_SECONDS = env.int("JOB_WORKER_STALE_SECONDS", default=10)
 JOB_EXECUTION_TIMEOUT_SECONDS = env.int("JOB_EXECUTION_TIMEOUT_SECONDS", default=900)
+JOB_JSON_MAX_INPUT_BYTES = env.int("JOB_JSON_MAX_INPUT_BYTES", default=1024 * 1024)
 JOB_MAX_OUTPUT_BYTES = env.int("JOB_MAX_OUTPUT_BYTES", default=1024 * 1024 * 1024)
 JOB_ARTIFACT_RETENTION_DAYS = env.int("JOB_ARTIFACT_RETENTION_DAYS", default=30)
 DCC_PREVIEW_TTL_SECONDS = env.int("DCC_PREVIEW_TTL_SECONDS", default=900)
@@ -457,9 +572,11 @@ FILE_UPLOAD_HANDLERS = [
     "django.core.files.uploadhandler.TemporaryFileUploadHandler",
 ]
 
+TRUSTED_PROXY_COUNT = env.int("TRUSTED_PROXY_COUNT", default=0)
+
 REST_FRAMEWORK = {
      'DEFAULT_AUTHENTICATION_CLASSES': [
-         'awcenter.authentication.CookieTokenAuthentication',
+         'rest_framework.authentication.SessionAuthentication',
      ],
      'DEFAULT_PERMISSION_CLASSES': [
          'rest_framework.permissions.IsAuthenticated',
@@ -467,17 +584,29 @@ REST_FRAMEWORK = {
      'EXCEPTION_HANDLER': 'awcenter.api_errors.api_exception_handler',
      'DEFAULT_PAGINATION_CLASS': 'awcenter.pagination.StandardResultsSetPagination',
      'PAGE_SIZE': 50,
-     'NUM_PROXIES': env.int('TRUSTED_PROXY_COUNT', default=0),
+     'NUM_PROXIES': TRUSTED_PROXY_COUNT,
 }
 
 CACHE_URL = env.str("CACHE_URL", default="")
-CACHES = {
-    "default": {
+CACHE_DIRECTORY_VALUE = env.str("CACHE_DIRECTORY", default="").strip()
+if CACHE_URL and CACHE_DIRECTORY_VALUE:
+    raise ImproperlyConfigured("Configure CACHE_URL or CACHE_DIRECTORY, not both.")
+if CACHE_URL:
+    DEFAULT_CACHE = {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": CACHE_URL,
     }
-    if CACHE_URL
-    else {
+elif CACHE_DIRECTORY_VALUE:
+    DEFAULT_CACHE = {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": str(Path(CACHE_DIRECTORY_VALUE).expanduser()),
+        "TIMEOUT": 60,
+        "OPTIONS": {
+            "MAX_ENTRIES": 1000,
+        },
+    }
+else:
+    DEFAULT_CACHE = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "awcenter-local-cache",
         "TIMEOUT": 60,
@@ -485,11 +614,12 @@ CACHES = {
             "MAX_ENTRIES": 1000,
         },
     }
-}
+CACHES = {"default": DEFAULT_CACHE}
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = env.str("SESSION_COOKIE_SAMESITE", default="Lax")
 SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=not DEBUG)
+SESSION_COOKIE_AGE = env.int("SESSION_COOKIE_AGE", default=60 * 60 * 12)
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = env.str("CSRF_COOKIE_SAMESITE", default="Lax")
 CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
@@ -499,8 +629,11 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", defa
 SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=not DEBUG)
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-USE_X_FORWARDED_HOST = env.bool("USE_X_FORWARDED_HOST", default=not DEBUG)
+TRUST_PROXY_HEADERS = env.bool("TRUST_PROXY_HEADERS", default=False)
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https") if TRUST_PROXY_HEADERS else None
+)
+USE_X_FORWARDED_HOST = TRUST_PROXY_HEADERS
 X_FRAME_OPTIONS = "DENY"
 
 LOG_LEVEL = env.str("LOG_LEVEL", default="INFO")
@@ -508,12 +641,7 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "standard": {
-            "format": (
-                "%(asctime)s %(levelname)s %(name)s "
-                "[request_id=%(request_id)s] %(message)s"
-            ),
-        },
+        "json": {"()": "awcenter.logging.JsonEventFormatter"},
     },
     "filters": {
         "request_id": {
@@ -523,7 +651,7 @@ LOGGING = {
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "standard",
+            "formatter": "json",
             "filters": ["request_id"],
         },
     },

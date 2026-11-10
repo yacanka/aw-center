@@ -2,28 +2,44 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const componentUrl = new URL('../src/views/dcc/DCCCreator.vue', import.meta.url)
-const dccServiceUrl = new URL('../src/services/dccJobs.ts', import.meta.url)
-const dccStoreUrl = new URL('../src/stores/dcc.ts', import.meta.url)
-const storageServiceUrl = new URL('../src/services/storage.ts', import.meta.url)
-const routesUrl = new URL('../src/router/routes.ts', import.meta.url)
-const menuUrl = new URL('../src/services/mainMenu.ts', import.meta.url)
-const jobCenterUrl = new URL('../src/views/JobCenter.vue', import.meta.url)
-const watcherUrl = new URL('../src/views/dcc/Watcher.vue', import.meta.url)
-const detailedInfoUrl = new URL('../src/components/dcc/DetailedInfo.vue', import.meta.url)
+const componentUrl = new URL(
+  '../src/features/integrations/jira/pages/DCCCreator.vue',
+  import.meta.url
+)
+const dccServiceUrl = new URL('../src/features/integrations/jira/api/dccJobs.ts', import.meta.url)
+const jiraStoreUrl = new URL('../src/features/integrations/jira/stores/jira.ts', import.meta.url)
+const dccRecordsUrl = new URL(
+  '../src/features/integrations/jira/api/jiraRecords.ts',
+  import.meta.url
+)
+const jiraSessionUrl = new URL(
+  '../src/features/integrations/jira/api/jiraSession.ts',
+  import.meta.url
+)
+const storageServiceUrl = new URL('../src/shared/services/storage.ts', import.meta.url)
+const routesUrl = new URL('../src/app/router/routes.ts', import.meta.url)
+const menuUrl = new URL('../src/app/services/mainMenu.ts', import.meta.url)
+const jobCenterUrl = new URL('../src/features/jobs/pages/JobCenter.vue', import.meta.url)
+const watcherUrl = new URL('../src/features/integrations/jira/pages/Watcher.vue', import.meta.url)
+const subtaskPageUrl = new URL(
+  '../src/features/integrations/jira/pages/SubtaskGenerator.vue',
+  import.meta.url
+)
+const subtaskServiceUrl = new URL(
+  '../src/features/integrations/jira/api/jiraSubtasks.ts',
+  import.meta.url
+)
 const sessionConsumerUrls = [
-  '../src/views/JiraContainer.vue',
-  '../src/views/dcc/SubtaskGenerator.vue',
-  '../src/views/dcc/ExcelSubtaskGenerator.vue',
-  '../src/views/dcc/Watcher.vue',
-  '../src/components/dcc/EmailPopup.vue',
-  '../src/components/dcc/UploadPopup.vue'
+  '../src/features/integrations/jira/pages/Jira.vue',
+  '../src/features/integrations/jira/pages/Watcher.vue',
+  '../src/features/integrations/jira/pages/DCCCreator.vue',
+  '../src/features/integrations/jira/pages/SubtaskGenerator.vue',
+  '../src/features/integrations/jira/pages/ExcelSubtaskGenerator.vue'
 ].map((path) => new URL(path, import.meta.url))
-const jiraCredentialUrls = [
-  '../src/views/JiraContainer.vue',
-  '../src/components/outlook/EcrTask.vue',
-  '../src/components/jobs/JiraDraftPreflightPanel.vue'
-].map((path) => new URL(path, import.meta.url))
+const jiraCredentialUrl = new URL(
+  '../src/features/integrations/jira/pages/Jira.vue',
+  import.meta.url
+)
 
 test('DCC creator previews and confirms one durable snapshot without job secrets', async () => {
   const [component, service] = await Promise.all([
@@ -31,8 +47,8 @@ test('DCC creator previews and confirms one durable snapshot without job secrets
     readFile(dccServiceUrl, 'utf8')
   ])
 
-  assert.match(service, /\/dcc\/jobs\/create-document\/preview\//)
-  assert.match(service, /\/dcc\/jobs\/create-document\/\$\{jobId\}\/confirm\//)
+  assert.match(service, /integrations\/jira\/jobs\/create-document\/preview\//)
+  assert.match(service, /integrations\/jira\/jobs\/create-document\/\$\{jobId\}\/confirm\//)
   assert.match(component, /previewDccDocumentJob/)
   assert.match(component, /confirmDccDocumentJob/)
   assert.match(component, /DccCreationPreview/)
@@ -42,14 +58,14 @@ test('DCC creator previews and confirms one durable snapshot without job secrets
   assert.doesNotMatch(component, /\batob\s*\(/)
   assert.doesNotMatch(component, /localStorage|sessionStorage/)
   assert.doesNotMatch(component, /type="password"|JSESSIONID/)
-  assert.doesNotMatch(service, /['"]\/dcc\/jobs\/create-document\/['"]/)
+  assert.doesNotMatch(service, /['"]\/integrations\/jira\/jobs\/create-document\/['"]/)
   assert.doesNotMatch(service, /compdoc_project|compdoc_ids|compdoc-recommendations/)
   assert.doesNotMatch(component, /DccCompdoc|compdocSelection/)
 })
 
 test('DCC confirmation UI exposes readiness, warnings, and expiry', async () => {
   const preview = await readFile(
-    new URL('../src/components/dcc/DccCreationPreview.vue', import.meta.url),
+    new URL('../src/features/integrations/jira/components/DccCreationPreview.vue', import.meta.url),
     'utf8'
   )
 
@@ -71,8 +87,11 @@ test('DCC confirmation UI exposes readiness, warnings, and expiry', async () => 
 test('Job Center performs one action and links pending DCC previews back to review', async () => {
   const [jobCenter, drawer, listItem] = await Promise.all([
     readFile(jobCenterUrl, 'utf8'),
-    readFile(new URL('../src/components/jobs/JobDetailDrawer.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/jobs/JobListItem.vue', import.meta.url), 'utf8')
+    readFile(
+      new URL('../src/features/jobs/components/JobDetailDrawer.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(new URL('../src/features/jobs/components/JobListItem.vue', import.meta.url), 'utf8')
   ])
   const actionBlock = jobCenter.match(/async function runAction[\s\S]*?\n}/)?.[0] || ''
 
@@ -83,18 +102,27 @@ test('Job Center performs one action and links pending DCC previews back to revi
   assert.match(listItem, /job.status === 'awaiting_confirmation'/)
 })
 
-test('JIRA tools reuse one locally persisted session without direct storage access', async () => {
-  const [store, storage, ...consumers] = await Promise.all([
-    readFile(dccStoreUrl, 'utf8'),
+test('JIRA credential is exchanged once and all other consumers use opaque connection state', async () => {
+  const [store, jiraSession, storage, ...consumers] = await Promise.all([
+    readFile(jiraStoreUrl, 'utf8'),
+    readFile(jiraSessionUrl, 'utf8'),
     readFile(storageServiceUrl, 'utf8'),
     ...sessionConsumerUrls.map((url) => readFile(url, 'utf8'))
   ])
 
-  assert.match(storage, /jiraSession: 'jira_session_id'/)
-  assert.match(store, /readString\(STORAGE_KEYS\.jiraSession\)/)
-  assert.match(store, /writeString\(STORAGE_KEYS\.jiraSession/)
-  assert.match(store, /removeKey\(STORAGE_KEYS\.jiraSession\)/)
-  assert.doesNotMatch(consumers.join('\n'), /localStorage|sessionStorage/)
+  assert.doesNotMatch(storage, /jiraSession:/)
+  assert.doesNotMatch(storage, /LEGACY_CREDENTIAL_KEYS|clearLegacyCredentialStorage/)
+  assert.match(store, /jiraConnection: disconnectedJiraConnection/)
+  assert.doesNotMatch(store, /readString|writeString|STORAGE_KEYS/)
+  assert.match(jiraSession, /apiClient\.post<JiraConnection>/)
+  assert.match(jiraSession, /JSESSIONID: credential/)
+  assert.match(jiraSession, /apiClient\.get<JiraConnection>/)
+  assert.match(jiraSession, /apiClient\.delete/)
+  assert.doesNotMatch(
+    `${store}\n${jiraSession}`,
+    /jSessionId|getSessionId|setSessionId|importSessionId/
+  )
+  assert.doesNotMatch(consumers.slice(1).join('\n'), /JSESSIONID|getSessionId|sessionId/)
 })
 
 test('JIRA is the canonical navigation and route name', async () => {
@@ -103,29 +131,91 @@ test('JIRA is the canonical navigation and route name', async () => {
   assert.match(menu, /menuItem\('JIRA', '\/jira', 'jira'/)
   assert.match(routes, /path: '\/jira',[\s\S]*name: 'jira'/)
   assert.doesNotMatch(routes, /path: '\/dcc'/)
-  assert.match(routes, /JiraContainer\.vue/)
+  assert.match(routes, /features\/integrations\/jira\/pages\/Jira\.vue/)
 })
 
-test('JIRA browser links are owned by backend API responses', async () => {
-  const [watcher, detailedInfo, store] = await Promise.all([
+test('DCC records and JIRA browser links are owned by canonical backend responses', async () => {
+  const [watcher, records] = await Promise.all([
     readFile(watcherUrl, 'utf8'),
-    readFile(detailedInfoUrl, 'utf8'),
-    readFile(dccStoreUrl, 'utf8')
+    readFile(dccRecordsUrl, 'utf8')
   ])
-  const sources = `${watcher}\n${detailedInfo}\n${store}`
+  const sources = `${watcher}\n${records}`
 
   assert.doesNotMatch(sources, /VITE_JIRA_SERVER|jiraServer/)
   assert.match(watcher, /row\.jira_issue_url/)
-  assert.match(detailedInfo, /subtasks\[index\]\.jira_issue_url/)
-  assert.match(store, /JiraIssueResponse/)
+  assert.match(
+    records,
+    /apiClient\.get<PaginatedResponse<IJiraTrackedIssue>>\(\s*'integrations\/jira\/records\/'/
+  )
+  assert.match(records, /integrations\/jira\/records\/\$\{record\.id\}\/reminders\//)
+  assert.match(records, /Idempotency-Key/)
+  assert.doesNotMatch(records, /JSESSIONID|getSessionId|sessionId/)
+  assert.doesNotMatch(
+    sources,
+    /integrations\/jira\/(?:add|get_issue|create_issue|send_mail|upload|ecd_assessment|add_attachment|subtask_fields|create_queue)\//
+  )
 })
 
 test('JIRA session fields cannot be populated as saved login passwords', async () => {
-  const sources = await Promise.all(jiraCredentialUrls.map((url) => readFile(url, 'utf8')))
+  const source = await readFile(jiraCredentialUrl, 'utf8')
 
-  for (const source of sources) {
-    assert.match(source, /input-props/)
-    assert.match(source, /autocomplete: 'one-time-code'/)
-    assert.doesNotMatch(source, /autocomplete="off"/)
-  }
+  assert.match(source, /input-props/)
+  assert.match(source, /autocomplete: 'one-time-code'/)
+  assert.doesNotMatch(source, /autocomplete="off"/)
+})
+
+test('subtask creation uses credential-free durable jobs and explicit marker reconciliation', async () => {
+  const [container, page, service] = await Promise.all([
+    readFile(new URL('../src/features/integrations/jira/pages/Jira.vue', import.meta.url), 'utf8'),
+    readFile(subtaskPageUrl, 'utf8'),
+    readFile(subtaskServiceUrl, 'utf8')
+  ])
+
+  assert.match(container, /SubtaskGenerator/)
+  const progress = await readFile(
+    new URL('../src/features/integrations/jira/composables/useSubtaskProgress.ts', import.meta.url),
+    'utf8'
+  )
+  assert.match(page, /useSubtaskProgress\('subtask_job'\)/)
+  assert.match(page, /<subtask-list/)
+  assert.match(page, /<n-progress/)
+  assert.match(progress, /usePageJob\(queryKey\)/)
+  assert.match(progress, /resumeSubtaskJob\(previous.id, key\)/)
+  assert.match(progress, /Resume previous batch/)
+  assert.doesNotMatch(page, /PageJobStatus/)
+  assert.match(service, /integrations\/jira\/subtasks\/jobs\//)
+  assert.match(service, /Idempotency-Key/)
+  assert.match(service, /resumeSubtaskJob/)
+  assert.match(service, /'Idempotency-Key': idempotencyKey/)
+  assert.doesNotMatch(service, /crypto\.randomUUID/)
+  assert.doesNotMatch(`${page}\n${service}`, /JSESSIONID|getSessionId|sessionId/)
+  assert.doesNotMatch(page, /EventSource|localStorage|sessionStorage/)
+})
+
+test('ECR uses the reviewed durable workflow and keeps retired direct actions closed', async () => {
+  const [container, ecrTask, ecrService] = await Promise.all([
+    readFile(new URL('../src/features/integrations/jira/pages/Jira.vue', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../src/features/integrations/jira/components/EcrTask.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/features/integrations/jira/api/ecrWorkflows.ts', import.meta.url),
+      'utf8'
+    )
+  ])
+
+  assert.match(container, /SubtaskGenerator/)
+  assert.match(container, /name="subtask" tab="Subtask Generator \(List\)"/)
+  assert.match(container, /name="excelSubtask" tab="Subtask Generator \(Excel\)"/)
+  assert.match(ecrTask, /api\/ecrWorkflows/)
+  assert.match(ecrTask, /allowed_actions/)
+  assert.match(ecrTask, /reconciliation_required/)
+  assert.doesNotMatch(ecrTask, /apiClient|JSESSIONID/)
+  assert.match(ecrService, /workflows\/ecr\//)
+  assert.match(ecrService, /Idempotency-Key/)
+  assert.doesNotMatch(
+    [ecrTask, ecrService].join('\n'),
+    /JSESSIONID|integrations\/jira\/(?:create_issue|send_mail|add_attachment|subtask_fields|create_queue)\//
+  )
 })

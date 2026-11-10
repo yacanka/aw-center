@@ -1,19 +1,21 @@
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import ContentType, Group, Permission
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.utils.encoding import force_bytes, force_str
-from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
 from rest_framework.serializers import CharField, ListField, ModelSerializer, Serializer
 
-from dcc.service.MailSender import SendMail, html_to_text, replace_all_keys
 from .models import UserPreferences
+from .email_policy import accounts_for_email, email_identity_write, validate_email_identity
+from .password_reset_notifications import enqueue_password_reset
+from .password_reset_tokens import token_generator
+from .password_policy import MAX_PASSWORD_LENGTH
+from .username_policy import validate_username_format
 
-TEMPLATE_DIR = settings.CUSTOM_TEMPLATE_DIR
 User = get_user_model()
-token_generator = PasswordResetTokenGenerator()
 
 
 class ContentTypeSerializer(ModelSerializer):
@@ -45,15 +47,20 @@ class GroupSerializer(ModelSerializer):
             raise serializers.ValidationError("Unknown permission id supplied.")
         return value
 
+    @transaction.atomic
     def create(self, validated_data):
         permission_ids = validated_data.pop("permission_ids", [])
         group = super().create(validated_data)
         self._set_permissions(group, permission_ids)
         return group
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         permission_ids = validated_data.pop("permission_ids", None)
-        group = super().update(instance, validated_data)
+        # A permission-only PATCH must not restore a stale group name.
+        from django.shortcuts import get_object_or_404
+        locked = get_object_or_404(Group.objects.select_for_update(), pk=instance.pk)
+        group = super().update(locked, validated_data)
         if permission_ids is not None:
             self._set_permissions(group, permission_ids)
         return group
@@ -63,6 +70,17 @@ class GroupSerializer(ModelSerializer):
 
 
 class UserPreferencesSerializer(ModelSerializer):
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            forbidden = set(data) & {"jira_list", "document_analysis_checks", "extra_settings", "version"}
+            if forbidden:
+                raise serializers.ValidationError({name: "This field is not writable on user preferences." for name in sorted(forbidden)})
+        return super().to_internal_value(data)
+
+    def update(self, instance, validated_data):
+        from .preference_service import update_user_preferences
+        return update_user_preferences(instance.user, validated_data)
+
     class Meta:
         model = UserPreferences
         fields = [
@@ -81,13 +99,42 @@ class UserPreferencesSerializer(ModelSerializer):
             "compact_view",
             "extra_settings",
             "updated_at",
-            "jira_list",
         ]
-        read_only_fields = ["updated_at"]
+        read_only_fields = ["updated_at", "extra_settings"]
+
+
+class UserProfileSerializer(ModelSerializer):
+    """Allow self-service identity edits without exposing account administration."""
+
+    class Meta:
+        model = User
+        fields = ["first_name", "last_name", "email"]
+        extra_kwargs = {"email": {"allow_blank": False}}
+
+    def validate_email(self, value):
+        return validate_email_identity(value, user=self.instance)
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            unknown = set(data) - set(self.fields)
+            if unknown:
+                raise serializers.ValidationError({
+                    field: "This field cannot be updated here." for field in sorted(unknown)
+                })
+        return super().to_internal_value(data)
+
+    @email_identity_write()
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        if validated_data:
+            instance.save(update_fields=list(validated_data))
+        return instance
 
 
 class UserSerializer(ModelSerializer):
-    password = CharField(write_only=True, required=False, allow_blank=False)
+    password = CharField(write_only=True, required=False, allow_blank=False,
+                         max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False)
     permissions = PermissionSerializer(source="user_permissions", many=True, read_only=True)
     group_details = GroupSerializer(source="groups", many=True, read_only=True)
     preferences = UserPreferencesSerializer(required=False)
@@ -116,8 +163,6 @@ class UserSerializer(ModelSerializer):
             "id",
             "last_login",
             "is_superuser",
-            "is_staff",
-            "is_active",
             "date_joined",
         ]
         extra_kwargs = {
@@ -132,16 +177,38 @@ class UserSerializer(ModelSerializer):
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return False
-        return request.user.has_perm("auth.change_user")
+        return request.user.is_superuser
+
+    def validate_username(self, value):
+        validate_username_format(value)
+        return value
+
+    def validate_email(self, value):
+        return validate_email_identity(value, user=self.instance)
 
     def validate(self, attrs):
-        restricted_fields = {"groups", "user_permissions"}
-        if not self._can_manage_auth_fields() and restricted_fields.intersection(attrs.keys()):
+        request = self.context.get("request")
+        actor = request.user if request else None
+        restricted_fields = {"groups", "user_permissions", "is_staff", "is_active"}
+        if not self._can_manage_auth_fields() and restricted_fields.intersection(attrs):
             raise serializers.ValidationError(
-                {"detail": "You are not allowed to modify groups or permissions."}
+                {"detail": "Only superusers can change roles, permissions or account access."}
             )
+        if self.instance and actor:
+            if not actor.is_superuser and (self.instance.is_staff or self.instance.is_superuser):
+                raise serializers.ValidationError({"detail": "Only superusers can edit administrators."})
+            if self.instance.pk == actor.pk or self.instance.is_superuser:
+                if attrs.get("is_active") is False or attrs.get("is_staff") is False:
+                    raise serializers.ValidationError(
+                        {"detail": "You cannot disable your own administrator access or a superuser."}
+                    )
+        if attrs.get("password"):
+            validate_password(attrs["password"], user=self.instance or User(
+                **{key: attrs[key] for key in ("username", "email", "first_name", "last_name") if key in attrs}
+            ))
         return attrs
 
+    @email_identity_write()
     def create(self, validated_data):
         password = validated_data.pop("password", None)
         groups = validated_data.pop("groups", None)
@@ -163,14 +230,14 @@ class UserSerializer(ModelSerializer):
                 user.user_permissions.set(permissions)
 
         if preferences_data:
-            preferences, _ = UserPreferences.objects.get_or_create(user=user)
-            for attr, value in preferences_data.items():
-                setattr(preferences, attr, value)
-            preferences.save()
+            from .preference_service import update_user_preferences
+            update_user_preferences(user, preferences_data)
 
         return user
 
+    @email_identity_write()
     def update(self, instance, validated_data):
+        instance = get_object_or_404(User.objects.select_for_update(), pk=instance.pk)
         password = validated_data.pop("password", None)
         groups = validated_data.pop("groups", None)
         permissions = validated_data.pop("user_permissions", None)
@@ -190,18 +257,30 @@ class UserSerializer(ModelSerializer):
                 instance.user_permissions.set(permissions)
 
         if preferences_data:
-            preferences, _ = UserPreferences.objects.get_or_create(user=instance)
-            for attr, value in preferences_data.items():
-                setattr(preferences, attr, value)
-            preferences.save()
+            from .preference_service import update_user_preferences
+            update_user_preferences(instance, preferences_data)
 
         return instance
 
 
+class UserAdministrationSerializer(UserSerializer):
+    """Expose project assignments only on the protected administration surface."""
+
+    project_access = serializers.SerializerMethodField()
+
+    class Meta(UserSerializer.Meta):
+        fields = [*UserSerializer.Meta.fields, "project_access"]
+
+    def get_project_access(self, user):
+        from .access_summary import project_access_summary
+
+        return project_access_summary(user)
+
+
 class PasswordChangeSerializer(Serializer):
-    current_password = CharField(write_only=True)
-    new_password = CharField(write_only=True)
-    confirm_password = CharField(write_only=True)
+    current_password = CharField(write_only=True, max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False)
+    new_password = CharField(write_only=True, max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False)
+    confirm_password = CharField(write_only=True, max_length=MAX_PASSWORD_LENGTH, trim_whitespace=False)
 
     def validate(self, data):
         user = self.context["request"].user
@@ -221,32 +300,19 @@ class PasswordResetRequestSerializer(serializers.Serializer):
     def save(self):
         email = self.validated_data["email"]
 
-        # Kullanıcı var/yok bilgisini sızdırmamak için her durumda 200 döneceğiz.
-        user = User.objects.filter(email__iexact=email, is_active=True).first()
-        if not user:
+        # Account existence is deliberately not reflected in the public response.
+        # Legacy duplicate addresses cannot authorize choosing an arbitrary account.
+        users = list(accounts_for_email(email)[:2])
+        if len(users) != 1 or not users[0].is_active:
             return
-
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = token_generator.make_token(user)
-        reset_link = f"{settings.FRONTEND_RESET_URL}?uid={uid}&token={token}"
-
-        mail_placeholder = {
-            "RESET_LINK": reset_link,
-        }
-
-        html_file_path = TEMPLATE_DIR / "mail_password_reset_request_template.html"
-        mail_title = "Şifre sıfırlama"
-
-        content = html_to_text(html_file_path)
-        content = replace_all_keys(content, mail_placeholder)
-
-        SendMail(mail_title, content, user.email, "")
+        enqueue_password_reset(users[0])
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    uid = serializers.CharField()
-    token = serializers.CharField()
-    new_password = serializers.CharField(min_length=8, write_only=True)
+    uid = serializers.CharField(max_length=128)
+    token = serializers.CharField(max_length=128)
+    new_password = serializers.CharField(min_length=8, max_length=MAX_PASSWORD_LENGTH,
+                                         write_only=True, trim_whitespace=False)
 
     def validate(self, attrs):
         uid = attrs["uid"]
@@ -266,9 +332,16 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         return attrs
 
     def save(self):
-        user = self.validated_data["user"]
         new_password = self.validated_data["new_password"]
-        user.set_password(new_password)
-        user.save(update_fields=["password"])
-        return user
-
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(
+                pk=self.validated_data["user"].pk,
+                is_active=True,
+            )
+            if not token_generator.check_token(user, self.validated_data["token"]):
+                raise serializers.ValidationError(
+                    {"detail": "Token is invalid or has expired."}
+                )
+            user.set_password(new_password)
+            user.save(update_fields=["password"])
+            return user

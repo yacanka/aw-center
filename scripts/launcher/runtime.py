@@ -1,18 +1,20 @@
-"""Development, production, check, and test workflows."""
+"""Local development, check, and test workflows."""
 
 from __future__ import annotations
 
+import ipaddress
 import os
-import shlex
 import socket
 import subprocess
+import sys
 from pathlib import Path
+from collections.abc import Callable
 
 from .dependencies import ensure_virtual_environment
-from .discovery import infer_wsgi_application
 from .job_worker import start_job_workers
 from .model import LauncherError, Project, Scope
-from .process import required_tool, start, supervise
+from .process import (frontend_environment, non_notification_environment, npm_command,
+                      required_tool, run, start, starting_processes, supervise)
 from .quality import django, run_first_script, run_script, select_script
 
 
@@ -22,8 +24,13 @@ def check(project: Project, scope: Scope) -> None:
     if scope.backend:
         ensure_virtual_environment(project, create=False)
         django(project, ["check"])
-        django(project, ["makemigrations", "--check", "--dry-run"])
-        django(project, ["migrate", "--check"])
+        isolated_database = {"DATABASE_URL": "sqlite:///:memory:"}
+        django(
+            project,
+            ["makemigrations", "--check", "--dry-run"],
+            isolated_database,
+        )
+        django(project, ["migrate", "--plan"], isolated_database)
     if scope.frontend:
         for candidates in (("format:check",), ("typecheck", "type-check")):
             run_first_script(project, candidates)
@@ -36,11 +43,26 @@ def test(project: Project, scope: Scope) -> None:
     if scope.backend:
         ensure_virtual_environment(project, create=False)
         django(project, ["test"])
+        run(
+            [
+                project.python,
+                "-m",
+                "unittest",
+                "scripts.test_launcher",
+                "scripts.test_launcher_jobs",
+                "scripts.test_release_metadata",
+            ],
+            project.root,
+        )
     if scope.frontend:
         run_first_script(project, ("test:ci", "test", "unit"))
     print("[ok] tests completed")
 
 
+from .resource_locks import windows_lifecycle
+
+
+@windows_lifecycle('dev')
 def dev(
     project: Project,
     scope: Scope,
@@ -50,26 +72,158 @@ def dev(
     frontend_port: int,
     no_backend_reload: bool,
     migrate: bool,
+    exclude_doors: bool = False,
+    ready: Callable[[list[subprocess.Popen]], None] | None = None,
+    worker_heartbeat_dir: Path | None = None,
+    protect_credentials: bool = False,
+    health=None,
 ) -> None:
     """Run Django and Vite as launcher-owned foreground children."""
     scope.require_any()
     require_runtime_ports(scope, host, backend_port, frontend_port)
-    processes = []
-    if scope.backend:
-        processes.append(start_backend(project, host, backend_port, frontend_port, no_backend_reload, migrate))
-        processes.extend(start_job_workers(project, runtime_env(host, backend_port, frontend_port)))
-    if scope.frontend:
-        processes.append(start_frontend(project, host, backend_port, frontend_port))
-    print_urls(scope, host, backend_port, frontend_port)
-    supervise(processes)
+    with starting_processes() as processes:
+        if scope.backend:
+            processes.append(
+                start_backend(
+                    project,
+                    host,
+                    backend_port,
+                    frontend_port,
+                    no_backend_reload,
+                    migrate,
+                    **({"protect_credentials": True} if protect_credentials else {}),
+                )
+            )
+            processes.extend(
+                start_job_workers(
+                    project,
+                    runtime_env(host, backend_port, frontend_port),
+                    include_doors_if_enabled=not exclude_doors,
+                    **({"heartbeat_dir": worker_heartbeat_dir} if worker_heartbeat_dir else {}),
+                    **({"protect_credentials": True} if protect_credentials else {}),
+                )
+            )
+        if scope.frontend:
+            processes.append(start_frontend(project, host, backend_port, frontend_port,
+                                           **({"protect_credentials": True} if protect_credentials else {})))
+        if ready is not None:
+            ready(processes)
+        print_urls(scope, host, backend_port, frontend_port)
+    supervise(processes, **({'health': health} if health is not None else {}))
+
+
+@windows_lifecycle('prod')
+def prod(
+    project: Project,
+    *,
+    host: str,
+    port: int,
+    env_file: Path,
+    certificate_file: Path,
+    private_key_file: Path,
+    exclude_doors: bool,
+    migrate: bool,
+    build_frontend: bool = False,
+    ready: Callable[[list[subprocess.Popen]], None] | None = None,
+    worker_heartbeat_dir: Path | None = None,
+    protect_credentials: bool = False,
+    health=None,
+) -> None:
+    """Run the single-host Windows HTTPS production lifecycle."""
+
+    require_windows_production()
+    ensure_virtual_environment(project, create=False)
+    require_production_host(host)
+    require_port(host, port)
+    require_external_file(project, env_file, "production environment")
+    require_external_file(project, certificate_file, "TLS certificate")
+    require_external_file(project, private_key_file, "TLS private key")
+    if certificate_file == private_key_file:
+        raise LauncherError("TLS certificate and private key must be different files")
+    validate_tls_identity(project, certificate_file, private_key_file, host)
+
+    extra_env = production_env(env_file, host, port)
+    gate_env = {**extra_env, **non_notification_environment()} if protect_credentials else extra_env
+    # Validate the notification worker's real SMTP transport/TLS settings too.
+    # Redaction is for non-notification runtime roles, not deployment policy.
+    django(project, ["check", "--deploy"], extra_env)
+    if migrate:
+        django(project, ["migrate", "--noinput"], gate_env)
+    django(project, ["migrate", "--check"], gate_env)
+    if build_frontend:
+        run_script(project, "build")
+    django(project, ["collectstatic", "--clear", "--noinput"], gate_env)
+    django(project, ["verify_frontend_artifact"], gate_env)
+
+    with starting_processes() as processes:
+        processes.append(
+            start_production_backend(
+                project,
+                host,
+                port,
+                certificate_file,
+                private_key_file,
+                gate_env,
+            )
+        )
+        processes.extend(
+            start_job_workers(
+                project,
+                extra_env,
+                include_doors_if_enabled=not exclude_doors,
+                **({"heartbeat_dir": worker_heartbeat_dir} if worker_heartbeat_dir else {}),
+                **({"protect_credentials": True} if protect_credentials else {}),
+            )
+        )
+        if ready is not None:
+            ready(processes)
+        print(f"Production: {production_url(host, port)}")
+        print("Press Ctrl+C to stop.")
+    supervise(processes, **({'health': health} if health is not None else {}))
+
+
+def start_production_backend(
+    project: Project,
+    host: str,
+    port: int,
+    certificate_file: Path,
+    private_key_file: Path,
+    extra_env: dict[str, str],
+) -> subprocess.Popen:
+    """Start one TLS-enabled ASGI server for the SQLite production profile."""
+
+    command = [
+        project.python,
+        "-m",
+        "uvicorn",
+        "awcenter.asgi:application",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--ssl-certfile",
+        certificate_file,
+        "--ssl-keyfile",
+        private_key_file,
+        "--no-server-header",
+        "--timeout-keep-alive",
+        "5",
+    ]
+    return start(command, project.backend, extra_env=extra_env)
 
 
 def start_backend(
-    project: Project, host: str, port: int, frontend_port: int, no_reload: bool, migrate: bool
+    project: Project, host: str, port: int, frontend_port: int, no_reload: bool, migrate: bool,
+    *, protect_credentials: bool = False,
 ) -> subprocess.Popen:
     """Prepare and start the Django development child."""
     ensure_virtual_environment(project, create=False)
     extra_env = runtime_env(host, port, frontend_port)
+    # Only the local job worker performs number allocation; dotenv must not
+    # reintroduce the generation credential into the development web process.
+    extra_env["NUMARATOR_API_KEY"] = ""
+    if protect_credentials:
+        extra_env.update(non_notification_environment())
     if migrate:
         django(project, ["migrate", "--noinput"], extra_env)
     command = [project.python, "manage.py", "runserver", f"{host}:{port}"]
@@ -79,73 +233,16 @@ def start_backend(
 
 
 def start_frontend(
-    project: Project, host: str, backend_port: int, port: int
+    project: Project, host: str, backend_port: int, port: int, *, protect_credentials: bool = False,
 ) -> subprocess.Popen:
     """Start the Vue development child with an ephemeral API URL."""
     script = select_script(project, ("dev", "serve", "start"), required=True)
-    command = [required_tool("npm"), "run", script, "--", "--host", host, "--port", str(port)]
-    if script == "dev":
-        command.append("--strictPort")
-    return start(command, project.frontend, extra_env=frontend_env(public_url(host, backend_port)))
-
-
-def prod(
-    project: Project,
-    *,
-    host: str,
-    port: int,
-    migrate: bool,
-    build: bool,
-    collect_static: bool,
-    checks: bool,
-    production_command: str | None,
-) -> None:
-    """Build, validate, and run one production WSGI process."""
-    require_port(host, port)
-    ensure_virtual_environment(project, create=False)
-    extra_env = production_env(project, host, port)
-    prepare_production(project, extra_env, migrate, build, collect_static, checks)
-    command = production_argv(project, host, port, production_command)
-    print(f"Production endpoint: {public_url(host, port)}")
-    supervise([start(command, project.backend, extra_env=extra_env), *start_job_workers(project, extra_env)])
-
-
-def prepare_production(
-    project: Project,
-    extra_env: dict[str, str],
-    migrate: bool,
-    build: bool,
-    collect_static: bool,
-    checks: bool,
-) -> None:
-    """Run the explicit pre-start production gates."""
-    if build:
-        run_script(project, "build")
-    if checks:
-        django(project, ["check", "--deploy", "--fail-level", "WARNING"], extra_env)
-    if migrate:
-        django(project, ["migrate", "--noinput"], extra_env)
-    if checks:
-        django(project, ["migrate", "--check"], extra_env)
-    if collect_static:
-        django(project, ["collectstatic", "--noinput"], extra_env)
-
-
-def production_argv(project: Project, host: str, port: int, configured: str | None) -> list[str]:
-    """Resolve an explicit server command or infer a Gunicorn command."""
-    wsgi = infer_wsgi_application(project)
-    if configured:
-        values = {"host": host, "port": str(port), "wsgi": wsgi, "python": str(project.python)}
-        try:
-            return [part.format_map(values) for part in shlex.split(configured)]
-        except KeyError as error:
-            raise LauncherError(f"unknown production command placeholder: {error}") from error
-    if os.name == "nt":
-        cheroot = project.backend / "run_cheroot.py"
-        if cheroot.is_file():
-            return [str(project.python), cheroot.name]
-        raise LauncherError("Windows production requires --production-command")
-    return [str(project.python), "-m", "gunicorn", wsgi, "--bind", f"{host}:{port}"]
+    with frontend_environment(protect_credentials):
+        prefix = npm_command() if os.environ.get("AWCENTER_MANAGED_NPM_CLI") else [required_tool("npm")]
+        command = [*prefix, "run", script, "--", "--host", host, "--port", str(port)]
+        if script == "dev":
+            command.append("--strictPort")
+        return start(command, project.frontend, extra_env=frontend_env(public_url(host, backend_port)))
 
 
 def runtime_env(host: str, backend_port: int, frontend_port: int | None) -> dict[str, str]:
@@ -157,18 +254,84 @@ def runtime_env(host: str, backend_port: int, frontend_port: int | None) -> dict
     return values
 
 
-def production_env(project: Project, host: str, port: int) -> dict[str, str]:
-    """Select the repository production profile when it is available."""
-    values = runtime_env(host, port, None)
-    production_profile = project.backend / ".env.production"
-    if production_profile.is_file():
-        values["AWCENTER_ENV_FILE"] = production_profile.name
-    return values
+def production_env(env_file: Path, host: str, port: int) -> dict[str, str]:
+    """Select the external production profile and authoritative bind address."""
+
+    return {
+        "AWCENTER_ENV_FILE": str(env_file),
+        "AWCENTER_DEPLOYMENT_MODE": "windows-native",
+        "IPV4_ADDRESS": host,
+        "PORT": str(port),
+    }
+
+
+def require_windows_production() -> None:
+    """Reject accidental use of the native production command on other platforms."""
+
+    if sys.platform != "win32":
+        raise LauncherError("launcher.py prod is supported only on Windows")
+
+
+def require_production_host(host: str) -> None:
+    """Require one explicit, non-loopback IPv4 address for LAN production."""
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as error:
+        raise LauncherError("production host must be a static IPv4 address") from error
+    if (
+        address.version != 4
+        or address.is_unspecified
+        or address.is_loopback
+        or address.is_multicast
+    ):
+        raise LauncherError("production host must be a static, non-loopback IPv4 address")
+
+
+def require_external_file(project: Project, path: Path, label: str) -> None:
+    """Require an unlinked regular file outside the source checkout."""
+
+    if path.is_symlink() or not path.is_file():
+        raise LauncherError(f"{label} must be an existing regular file: {path}")
+    try:
+        path.resolve(strict=True).relative_to(project.root.resolve())
+    except ValueError:
+        return
+    raise LauncherError(f"{label} must be stored outside the repository")
+
+
+def validate_tls_identity(
+    project: Project, certificate_file: Path, private_key_file: Path, host: str
+) -> None:
+    """Use the project interpreter so the launcher itself needs only the standard library."""
+
+    run(
+        # Cold provisioning calls this before the managed runtime environment is
+        # active; keep the verified interpreter inventory immutable here too.
+        [project.python, "-B", "-m", "scripts.launcher.tls", certificate_file, private_key_file, host],
+        project.root,
+        capture=True,
+    )
+
+
+def production_url(host: str, port: int) -> str:
+    """Return the public same-origin production URL."""
+
+    suffix = "" if port == 443 else f":{port}"
+    return f"https://{host}{suffix}"
 
 
 def frontend_env(backend_url: str) -> dict[str, str]:
     """Expose the backend URL only to the Vite child process."""
-    return {"VITE_API_URL": backend_url}
+    return {"VITE_API_URL": backend_url, "NUMARATOR_API_KEY": ""}
+
+
+class PortUnavailable(LauncherError):
+    """Confirmed address-in-use only; other bind failures are never retryable."""
+
+    def __init__(self, host, port):
+        self.port = port
+        super().__init__(f"port is unavailable: {host}:{port}")
 
 
 def require_port(host: str, port: int | None) -> None:
@@ -181,6 +344,9 @@ def require_port(host: str, port: int | None) -> None:
         try:
             probe.bind((host, port))
         except OSError as error:
+            import errno
+            if error.errno == errno.EADDRINUSE or getattr(error, 'winerror', None) == 10048:
+                raise PortUnavailable(host, port) from error
             raise LauncherError(f"port is unavailable: {host}:{port}") from error
 
 
@@ -202,4 +368,9 @@ def print_urls(scope: Scope, host: str, backend_port: int, frontend_port: int) -
         print(f"Backend:  {public_url(host, backend_port)}")
     if scope.frontend:
         print(f"Frontend: {public_url(host, frontend_port)}")
+    if scope.backend and scope.frontend:
+        print(
+            "Use the frontend URL exactly as printed; "
+            "its hostname is part of the API security check."
+        )
     print("Press Ctrl+C to stop.")

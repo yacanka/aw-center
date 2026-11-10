@@ -1,0 +1,255 @@
+<template>
+  <ParticleBackground v-if="useSessionStore().getPreferences.has_particles" />
+  <n-layout has-sider class="transparent protected-shell">
+    <n-layout-sider
+      bordered
+      collapse-mode="width"
+      :collapsed="collapsed"
+      :collapsed-width="64"
+      :width="240"
+      :show-trigger="!isNarrow"
+      class="transparent protected-sider"
+      @update:collapsed="handleCollapsedUpdate"
+    >
+      <div class="sider-navigation">
+        <n-menu
+          :options="menuOptions"
+          :value="currentPage"
+          :collapsed-width="64"
+          :collapsed-icon-size="22"
+          @update:value="handleMenuSelect"
+        />
+      </div>
+      <Profile :collapsed="collapsed" />
+    </n-layout-sider>
+
+    <div class="protected-main">
+      <n-layout-content class="transparent protected-content" content-class="protected-scroll">
+        <main class="protected-page">
+          <RouterView />
+        </main>
+      </n-layout-content>
+      <footer class="protected-footer">
+        <nav class="protected-tools" aria-label="Application tools">
+          <CommandPalette :options="menuOptions" />
+          <n-button
+            class="assistant-trigger"
+            size="small"
+            type="primary"
+            secondary
+            aria-label="Open AW Center Assistant"
+            aria-haspopup="dialog"
+            :aria-expanded="assistantVisible"
+            @click="openAssistant"
+          >
+            Assistant
+          </n-button>
+        </nav>
+        <span class="footer-copy">AW Center · v{{ appVersion }} · © 2026</span>
+      </footer>
+    </div>
+    <ReleaseNotesModal />
+  </n-layout>
+  <AssistantPanel v-if="assistantLoaded" v-model:show="assistantVisible" />
+  <Popup />
+</template>
+
+<script setup lang="ts">
+import { ref, computed, provide, watch, defineAsyncComponent } from 'vue'
+import { useThemeVars } from 'naive-ui'
+import { RouterView, useRouter, useRoute } from 'vue-router'
+import ParticleBackground from '@/shared/components/ParticleBackground.vue'
+import Profile from '@/features/session/pages/Profile.vue'
+import Popup from '@/app/components/GlobalPopup.vue'
+import { useSessionStore } from '@/features/session/stores/session'
+import ReleaseNotesModal from '@/app/components/ReleaseNotesModal.vue'
+import { useReleaseNotesStore } from '@/app/stores/releaseNotes'
+import { formatApiError } from '@/shared/api/apiError'
+import { createMainMenuOptions, MAIN_MENU_OPTIONS_KEY } from '@/app/services/mainMenu'
+import CommandPalette from '@/app/components/navigation/CommandPalette.vue'
+import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
+import { useMediaQuery } from '@/shared/composables/mediaQuery'
+
+const themeVars = useThemeVars()
+const userStore = useSessionStore()
+const projectCatalog = useProjectCatalogStore()
+
+const router = useRouter()
+const route = useRoute()
+const releaseNotes = useReleaseNotesStore()
+const AssistantPanel = defineAsyncComponent(
+  () => import('@/features/assistant/components/AssistantPanel.vue')
+)
+const assistantLoaded = ref(false)
+const assistantVisible = ref(false)
+
+function openAssistant(): void {
+  assistantLoaded.value = true
+  assistantVisible.value = true
+}
+
+function handleMenuSelect(key: string) {
+  router.push(key)
+}
+
+const menuOptions = computed(() =>
+  createMainMenuOptions(
+    projectCatalog.complianceProjects,
+    userStore.getUser,
+    projectCatalog.hasAnyRole('jira'),
+    projectCatalog.hasAnyRole('organization')
+  )
+)
+provide(MAIN_MENU_OPTIONS_KEY, menuOptions)
+
+const currentPage = computed(() => route.path)
+const appVersion = import.meta.env.VITE_VERSION
+const isNarrow = useMediaQuery('(max-width: 900px)')
+const desktopCollapsed = ref(false)
+const collapsed = computed(() => isNarrow.value || desktopCollapsed.value)
+
+function handleCollapsedUpdate(value: boolean): void {
+  if (!isNarrow.value) desktopCollapsed.value = value
+}
+
+const authenticatedShellLoaded = ref(false)
+
+async function initializeAuthenticatedShell() {
+  if (authenticatedShellLoaded.value || !userStore.getUser.id) return
+  authenticatedShellLoaded.value = true
+  await loadProjectRegistry()
+  await releaseNotes.checkUnseen()
+}
+
+watch(
+  () => userStore.getUser.id,
+  (userId, previousUserId) => {
+    if (!userId || (previousUserId && previousUserId !== userId)) {
+      authenticatedShellLoaded.value = false
+      assistantVisible.value = false
+      assistantLoaded.value = false
+    }
+    if (userId) void initializeAuthenticatedShell()
+  },
+  { immediate: true }
+)
+
+async function loadProjectRegistry() {
+  try {
+    await projectCatalog.load()
+  } catch (error) {
+    window.$message.warning(`Project list could not be refreshed: ${formatApiError(error)}`)
+  }
+}
+</script>
+
+<style scoped>
+.transparent {
+  background-color: transparent !important;
+}
+
+/* Bound the shell so only the navigation and page scroll containers can scroll. */
+.protected-shell {
+  --shell-footer-height: calc(58px + env(safe-area-inset-bottom));
+  height: 100dvh;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.protected-shell :deep(> .n-layout-scroll-container) {
+  overflow: hidden;
+}
+
+.protected-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.protected-sider {
+  height: 100%;
+}
+
+.protected-sider :deep(.n-layout-sider-scroll-container) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sider-navigation {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.protected-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.protected-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.protected-content :deep(.protected-scroll) {
+  padding: var(--app-gutter);
+  scroll-padding-bottom: var(--app-gutter);
+  overscroll-behavior: contain;
+}
+
+.protected-page {
+  margin-inline: auto;
+  max-width: var(--app-content-max-width);
+  min-width: 0;
+  width: 100%;
+}
+
+.protected-footer {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  box-sizing: border-box;
+  min-height: var(--shell-footer-height);
+  flex-shrink: 0;
+  background: v-bind('themeVars.bodyColor');
+  border-top: 1px solid v-bind('themeVars.borderColor');
+  color: v-bind('themeVars.textColor3');
+  font-size: 11px;
+  padding: 2px var(--app-gutter) calc(2px + env(safe-area-inset-bottom));
+  text-align: right;
+}
+
+.footer-copy {
+  line-height: 16px;
+}
+
+.assistant-trigger {
+  min-width: 44px;
+  min-height: 32px;
+}
+
+.assistant-trigger:focus-visible {
+  outline: 2px solid v-bind('themeVars.primaryColor');
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .protected-shell {
+    --shell-footer-height: calc(68px + env(safe-area-inset-bottom));
+  }
+  .assistant-trigger {
+    min-height: 44px;
+    padding-inline: 10px;
+  }
+}
+</style>

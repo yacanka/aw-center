@@ -1,0 +1,226 @@
+import { expect, test } from '@playwright/test'
+import {
+  dashboardAnalytics,
+  dashboardSummary
+} from '../src/features/compliance/models/compdocDashboard.fixtures'
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [390, 1440]) {
+    test(`panel breakdown modes inherit ${theme} theme at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ colorScheme: theme })
+      await page.route('**/api/**', async (route) => {
+        const path = new URL(route.request().url()).pathname
+        if (!path.startsWith('/api/')) return route.fallback()
+        let body: unknown = { count: 0, results: [], next: null, previous: null }
+        if (path === '/api/session/')
+          body = {
+            state: 'authenticated',
+            user: {
+              id: 1,
+              username: 'panel-test',
+              is_active: true,
+              is_staff: false,
+              is_superuser: false
+            }
+          }
+        else if (path === '/api/users/preferences/') body = { theme, has_particles: false }
+        else if (path === '/api/projects/')
+          body = [
+            {
+              slug: 'ozgur',
+              name: 'OZGUR',
+              capabilities: ['compliance'],
+              roles: { compliance: 'manager', jira: null, organization: null }
+            }
+          ]
+        else if (path.endsWith('/compliance-documents/dashboard/')) {
+          const summary = dashboardSummary()
+          const structures = {
+            id: 'panel-3',
+            panel: 'Structures',
+            ata: '53',
+            analytics: dashboardAnalytics(4, 7)
+          }
+          const overview = dashboardAnalytics(7, 27)
+          overview.timeline.revised_scheduled = [{ x: '10.07.2026', y: 0 }]
+          overview.cat_counts.B = 0
+          overview.publication.issued.status_counts.authority_review = 0
+          overview.publication.not_issued.status_counts.expected = 0
+          overview.unissued_moc_counts['2'] = 0
+          overview.risk.counts = { very_high: 1, high: 1, medium: 1, low: 4 }
+          overview.risk.at_risk_count = 4
+          overview.risk.average_score = 32.9
+          overview.risk.max_score = 100
+          const source = overview.risk.priorities[0]
+          overview.risk.priorities = (['very_high', 'high', 'medium', 'low'] as const).map(
+            (level, index) => ({
+              ...source,
+              document_id: `priority-${index}`,
+              name: `Risk level ${index}`,
+              level,
+              score: [100, 80, 30, 20][index],
+              signals: [
+                {
+                  ...source.signals[0],
+                  points: [100, 80, 30, 20][index],
+                  severity: index === 3 ? 'medium' : 'high'
+                }
+              ]
+            })
+          )
+          body = {
+            ...summary,
+            ...overview,
+            panels: [...summary.panels, structures],
+            panel_groups: [...summary.panel_groups, { ...structures, id: 'panel:Structures' }]
+          }
+        } else if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
+        return route.fulfill({ json: body })
+      })
+
+      await page.goto('/app/compdocs/home')
+      const card = page.locator('.panel-breakdown')
+      const rows = card.locator('tbody tr')
+      await expect(rows).toHaveCount(2)
+      const distributions = page.locator('.dashboard-column .dashboard-card')
+      await expect(distributions).toHaveCount(2)
+      const catCard = distributions.nth(1)
+      await expect(catCard).toContainText('Document CAT')
+      await expect(distributions.first().locator('.publication-group')).toHaveCount(2)
+      await expect(distributions.first().locator('.publication-group').first()).toContainText(
+        'Issued'
+      )
+      await expect(distributions.first().locator('.publication-group').last()).toContainText(
+        'Not issued'
+      )
+      await expect(catCard.locator('.moc-distribution')).toContainText('Unspecified7100%')
+      await expect(catCard.locator('.status-row')).toContainText('A7100%')
+      await expect(distributions.first().locator('.status-row')).toHaveCount(1)
+      await expect(catCard.locator('.status-row')).toHaveCount(1)
+      await expect(catCard.locator('.moc-row')).toHaveCount(1)
+      await expect(page.getByText('Accumulated pending days', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('Flow performance', { exact: true })).toBeVisible()
+      const riskCard = page.locator('.risk-card')
+      await expect(riskCard.locator('.summary-item').nth(0)).toContainText('Very high1')
+      await expect(riskCard.locator('.summary-item').nth(3)).toContainText('Low4')
+      await expect(riskCard.locator('.priority-header')).toHaveCount(4)
+      await riskCard.locator('.n-base-selection').click()
+      await page.getByText('Very high risk', { exact: true }).click()
+      await expect(page.locator('.n-base-select-menu:visible')).toHaveCount(0)
+      await expect(riskCard.locator('.priority-header')).toHaveCount(1)
+      await expect(riskCard.locator('.priority-header')).toContainText('Risk level 0')
+      await page.screenshot({
+        path: `test-results/risk-very-high-${theme}-${width}.png`,
+        animations: 'disabled'
+      })
+      await riskCard.locator('.n-base-selection').click()
+      await page.getByText('All priorities', { exact: true }).last().click()
+      await expect(riskCard.locator('.priority-header')).toHaveCount(4)
+
+      // Distribution cards use a transparent gradient over the inherited theme surface.
+      const cardTheme = await card.evaluate((node) =>
+        getComputedStyle(node).getPropertyValue('--n-color')
+      )
+      await expect(catCard).toHaveCSS('--n-color', cardTheme)
+      const statusBox = await distributions.first().boundingBox()
+      const catBox = await catCard.boundingBox()
+      const graphBox = await page.locator('.dashboard-grid').boundingBox()
+      const riskBox = await page.locator('.risk-card').boundingBox()
+      expect(catBox!.y).toBeGreaterThanOrEqual(statusBox!.y + statusBox!.height)
+      expect(riskBox!.y).toBeGreaterThanOrEqual(graphBox!.y + graphBox!.height)
+      expect(riskBox!.width).toBeCloseTo(graphBox!.width, 0)
+      await expect(card).toHaveCSS(
+        'background-color',
+        theme === 'dark' ? 'rgb(24, 24, 28)' : 'rgb(255, 255, 255)'
+      )
+      const tabs = card.getByRole('tablist', { name: 'Panel breakdown mode' })
+      const tabsBox = await tabs.boundingBox()
+      const tableBox = await card.locator('.n-data-table').boundingBox()
+      expect(tabsBox!.y + tabsBox!.height).toBeLessThanOrEqual(tableBox!.y)
+      const panelTab = tabs.getByRole('tab', { name: 'Panel based' })
+      expect(await tabs.getByRole('tab').allTextContents()).toEqual(['Panel based', 'ATA based'])
+      await expect(panelTab).toHaveAttribute('aria-selected', 'true')
+      await expect(panelTab).toHaveClass(/n-tabs-tab--active/)
+      await expect(panelTab).toHaveCSS(
+        'color',
+        theme === 'dark' ? 'rgb(99, 226, 183)' : 'rgb(24, 160, 88)'
+      )
+      await expect(rows).toHaveCount(2)
+      const timeline = page.locator('.timeline-surface canvas')
+      await timeline.scrollIntoViewIfNeeded()
+      // Use the loaded Chart.js module's public registry in the production artifact.
+      const chartHandle = await timeline.evaluateHandle(async (canvas) => {
+        const moduleUrls = performance
+          .getEntriesByType('resource')
+          .map((resource) => new URL(resource.name))
+          .filter(
+            (url) =>
+              url.origin === location.origin && /^\/core\/assets\/[^/]+\.js$/.test(url.pathname)
+          )
+        for (const url of moduleUrls) {
+          const chartModule: Record<string, unknown> = await import(url.href)
+          const ChartJS = Object.values(chartModule).find(
+            (value): value is typeof import('chart.js').Chart =>
+              typeof value === 'function' &&
+              'getChart' in value &&
+              typeof value.getChart === 'function'
+          )
+          const chart = ChartJS?.getChart(canvas as HTMLCanvasElement)
+          if (chart) return chart
+        }
+        throw new Error('The timeline chart was not registered in any loaded module')
+      })
+      const hoverPoint = await chartHandle.evaluate((chart) => {
+        const x = chart.scales.x.getPixelForValue(new Date(2026, 6, 5).getTime())
+        return { x, y: (chart.chartArea.top + chart.chartArea.bottom) / 2 }
+      })
+      await timeline.hover({ position: hoverPoint })
+      await expect
+        .poll(() =>
+          chartHandle.evaluate((chart) =>
+            chart.tooltip?.dataPoints?.map((item) => ({
+              label: item.dataset.label,
+              value: item.parsed.y
+            }))
+          )
+        )
+        .toEqual([
+          { label: 'Scheduled', value: 0 },
+          { label: 'Actual', value: 7 },
+          { label: 'Revised scheduled', value: 7 }
+        ])
+      await expect.poll(() => chartHandle.evaluate((chart) => chart.tooltip?.opacity)).toBe(1)
+      await chartHandle.dispose()
+      await page.screenshot({ path: `test-results/burndown-${theme}-${width}.png` })
+      await expect(rows.first()).toContainText('27, 28')
+      await rows.first().dblclick()
+      await expect(rows.first()).toHaveAttribute('aria-selected', 'true')
+      await expect(page.locator('.summary-meta')).toContainText('Systems · 27, 28')
+      await expect(page.locator('.metrics .n-statistic').first()).toContainText('3')
+      await expect(catCard.locator('.status-row')).toContainText('A3100%')
+      await expect(catCard.locator('.moc-distribution')).toContainText('Unspecified3100%')
+      await rows.first().dblclick()
+      await expect(page.locator('.metrics .n-statistic').first()).toContainText('7')
+      await rows.first().focus()
+      await rows.first().press('Enter')
+      await expect(page.locator('.metrics .n-statistic').first()).toContainText('3')
+      await expect(rows.first().locator('td').last()).toHaveText('3')
+      const dimensions = await page.evaluate(() => ({
+        width: document.documentElement.clientWidth,
+        scroll: document.documentElement.scrollWidth
+      }))
+      expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width + 1)
+      await page.screenshot({ path: `test-results/panel-${theme}-${width}.png`, fullPage: true })
+      await catCard.scrollIntoViewIfNeeded()
+      await page.screenshot({ path: `test-results/cat-${theme}-${width}.png` })
+      await page.locator('.risk-card').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: `test-results/risk-${theme}-${width}.png` })
+      await tabs.getByRole('tab', { name: 'ATA based' }).click()
+      await expect(rows).toHaveCount(3)
+      await expect(page.locator('.metrics .n-statistic').first()).toContainText('7')
+      await rows.first().dblclick()
+      await expect(page.locator('.summary-meta')).toContainText('Systems · 27')
+    })
+  }
+}

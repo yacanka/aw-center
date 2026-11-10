@@ -1,0 +1,196 @@
+"""Render immutable DCC snapshots as verified private DOCX job artifacts."""
+
+import json
+import re
+import zipfile
+
+from jobs.artifacts import (
+    materialize_job_input,
+    remove_temporary_artifact,
+    temporary_output,
+)
+from jobs.contracts import JobExecutionFailure, JobExecutionResult
+from jobs.worker import update_progress
+from projects.registry import UnknownProjectDefinitionError, get_project_integration_definition
+from projects.policies.gokbey import DccPolicyConfigurationError
+from projects.configuration import ProjectConfigurationError
+
+from .services.render_controllers import apply_project_dcc_controller
+from .services.template_resolver import DccTemplateResolutionError, resolve_dcc_template_path
+
+SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = frozenset({1, 2})
+LEGACY_PANEL_FIELD_PATTERN = re.compile(
+    r"^(Panel_Status|Panel_Updated_Time|Panel_AS_Name|Affected_Requirements|"
+    r"Further_Compliance|Design_Change_Assessment|"
+    r"Certification_Change_Classification)_(\d+)$"
+)
+
+
+def execute_dcc_document_creation(job):
+    """Render a stored credential-free JIRA snapshot into a DCC document."""
+
+    input_path = materialize_job_input(job)
+    output_path = temporary_output(".docx")
+    result_ready = False
+    try:
+        snapshot = load_snapshot(input_path)
+        update_progress(job.id, 30, "JIRA snapshot verified.")
+        render_snapshot(snapshot, output_path)
+        validate_docx(output_path)
+        update_progress(job.id, 90, "DCC document verified.")
+        result_ready = True
+        return build_result(snapshot, output_path)
+    finally:
+        remove_temporary_artifact(input_path)
+        if not result_ready:
+            remove_temporary_artifact(output_path)
+
+
+def load_snapshot(path):
+    """Load and validate the versioned JSON rendering contract."""
+
+    try:
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise JobExecutionFailure("The DCC source snapshot is invalid.", "DCC_SNAPSHOT_INVALID") from error
+    required = {"schema_version", "issue_key", "project_slug", "output_name", "placeholders"}
+    if (
+        snapshot.get("schema_version") not in SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS
+        or not required.issubset(snapshot)
+    ):
+        raise JobExecutionFailure("The DCC source snapshot is unsupported.", "DCC_SNAPSHOT_INVALID")
+    if not isinstance(snapshot["placeholders"], dict):
+        raise JobExecutionFailure("The DCC source snapshot is invalid.", "DCC_SNAPSHOT_INVALID")
+    return snapshot
+
+
+def render_snapshot(snapshot, output_path):
+    """Render one allowlisted project template without using persisted credentials."""
+
+    try:
+        from docxtpl import DocxTemplate
+        document = create_template_document(snapshot, DocxTemplate)
+        render_document(document, snapshot, output_path)
+    except ProjectConfigurationError as error:
+        raise JobExecutionFailure(
+            "Private project configuration is unavailable or invalid.",
+            "PROJECT_CONFIGURATION_UNAVAILABLE", True,
+        ) from error
+    except DccPolicyConfigurationError as error:
+        raise JobExecutionFailure(
+            "The private DCC signatory policy is unavailable or invalid.",
+            "DCC_POLICY_UNAVAILABLE", True,
+        ) from error
+    except (ImportError, OSError, DccTemplateResolutionError) as error:
+        raise JobExecutionFailure(
+            "The configured DCC template is unavailable.", "DCC_TEMPLATE_UNAVAILABLE", True
+        ) from error
+    except UnknownProjectDefinitionError as error:
+        raise JobExecutionFailure("The DCC project is no longer available.", "DCC_PROJECT_INVALID") from error
+    except Exception as error:
+        raise JobExecutionFailure(
+            "The DCC template could not render the captured source.", "DCC_RENDER_FAILED"
+        ) from error
+
+
+def create_template_document(snapshot, template_class):
+    """Create one allowlisted project template instance."""
+
+    project = get_project_integration_definition(snapshot["project_slug"])
+    return template_class(resolve_dcc_template_path(project))
+
+
+def render_document(document, snapshot, output_path):
+    """Render template fields and save the DCC document."""
+
+    render_context = build_render_context(snapshot)
+    document.render(render_context, autoescape=True)
+    document.save(output_path)
+
+
+def build_render_context(snapshot):
+    """Upgrade legacy panel fields and apply the project controller."""
+
+    placeholders = snapshot["placeholders"]
+    if snapshot.get("schema_version") == 1:
+        placeholders = upgrade_legacy_panel_fields(placeholders, snapshot.get("panel_count"))
+    context = apply_project_dcc_controller(snapshot["project_slug"], placeholders)
+    context["panels"] = [template_panel_fields(panel) for panel in context.get("Panels", [])]
+    context.setdefault("extras", context.get("Project_Subtasks", {}))
+    return context
+
+
+def template_panel_fields(panel):
+    """Expose incoming template names while preserving the canonical panel contract."""
+
+    aliases = {
+        "status": "Panel_Status",
+        "update_time": "Panel_Updated_Time",
+        "as_name": "Panel_AS_Name",
+        "affected_requirements": "Affected_Requirements",
+        "further_compliance": "Further_Compliance",
+        "design_change_assessment": "Design_Change_Assessment",
+    }
+    values = {alias: panel.get(alias, panel.get(source, "")) for alias, source in aliases.items()}
+    values["panel_name"] = str(panel.get("Panel_Name") or "").partition("Panel")[0].strip()
+    return values
+
+
+def upgrade_legacy_panel_fields(placeholders, panel_count):
+    """Convert queued schema-v1 numbered panel fields to the array contract."""
+
+    context = dict(placeholders)
+    indexed_values = []
+    for key in tuple(context):
+        match = LEGACY_PANEL_FIELD_PATTERN.fullmatch(key)
+        if not match:
+            continue
+        field_name, raw_index = match.groups()
+        indexed_values.append((int(raw_index), field_name, context.pop(key)))
+    required_count = max(
+        [normalized_panel_count(panel_count), *(index for index, _field, _value in indexed_values)]
+    )
+    panels = [dict() for _index in range(required_count)]
+    for index, field_name, value in indexed_values:
+        panels[index - 1][field_name] = value
+    context.setdefault("Panels", panels)
+    return context
+
+
+def normalized_panel_count(value):
+    """Return a safe non-negative legacy panel count."""
+
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def validate_docx(path):
+    """Require a non-empty valid OOXML ZIP artifact before publishing it."""
+
+    if not path.exists() or not zipfile.is_zipfile(path):
+        raise JobExecutionFailure("DCC rendering produced an invalid document.", "DCC_OUTPUT_INVALID")
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if "word/document.xml" not in archive.namelist():
+                raise JobExecutionFailure(
+                    "DCC rendering produced an invalid document.", "DCC_OUTPUT_INVALID"
+                )
+    except (OSError, zipfile.BadZipFile) as error:
+        raise JobExecutionFailure(
+            "DCC rendering produced an invalid document.", "DCC_OUTPUT_INVALID"
+        ) from error
+
+
+def build_result(snapshot, output_path):
+    """Return safe result metadata for Job Center and download APIs."""
+
+    summary = {
+        "type": "dcc_document",
+        "issue_key": snapshot["issue_key"],
+        "project": snapshot.get("project_label", ""),
+    }
+    return JobExecutionResult(
+        output_path, snapshot["output_name"], "DCC document created.", summary
+    )

@@ -8,17 +8,18 @@ setuptools
 
 # Core web framework
 # Django 6.x requires Python >=3.12; stay on Django 5.2 LTS for Python 3.11.
-Django
+Django>=5.2.17,<5.3
 djangorestframework
 django-cors-headers
 django-simple-history
 django-environ
 django-extensions
 whitenoise
-cheroot
 gunicorn
+uvicorn; sys_platform == "win32"
 psycopg[binary]
 redis
+cryptography
 
 # Integrations and HTTP clients
 jira
@@ -36,14 +37,27 @@ openpyxl
 pandas
 pdfplumber
 Pillow
-pypdf
+pypdf>=6.21.4,<7
+reportlab
 python-dateutil
 python-docx
 
-# NLP-assisted tooling
-sentence-transformers
-transformers
-torch
+# Security floors for existing transitive parsers, without unnecessary major upgrades.
+soupsieve>=2.9,<3
+
+# Approved NLP set for CPython 3.11 and the corporate package repository.
+sentence-transformers==5.6.0
+transformers[sentencepiece]==5.22.1
+torch==2.13.0
+huggingface-hub==2.2.0
+sentencepiece==0.2.2
+# Keep the validated transitive versions available in the corporate repository.
+tokenizers==0.23.3
+hf-xet==1.8.0
+httpx2==2.16.0
+httpcore2==2.16.0
+truststore==0.10.5
+protobuf==7.36.2
 
 # Windows-only automation used by DOORS, Outlook, and PowerPoint helpers
 pywin32; sys_platform == "win32"

@@ -1,0 +1,23 @@
+{
+  "invitation-audit.1": "Kullanılmış daveti geçmişte bırakıyoruz. Bu örnekte ikinci bir alıcı için bağlantı oluşturup etkin daveti seçiyoruz. Geri çekme, yönetici onayından sonra uygulanıyor.",
+  "assignments.1": "Projede seçtiğimiz kişiyle rolü birlikte kontrol ediyoruz. Aynı kişi farklı panellerde görev alabileceği için atamayı onaylarken bölüm koduna da bakıyoruz.",
+  "baglama.0": "Önizleme için iki ayrı modül yolu giriliyor. Alan adları, kaynak belgedeki anahtarın hedef gereksinimde nerede aranacağını tarif ediyor. Bu aşamada eşleşmeleri okuyabiliyoruz.",
+  "panels.0": "Panel adı ekibin çalıştığı alanı anlatıyor. Disiplin bilgisini ve bölüm kodunu da girerek bu satırı aynı projenin diğer panellerinden ayırıyoruz.",
+  "eslesme.2": "Tablodaki başlık değeri hedef nesnenin başlık alanına gidecek. Önizleme üzerinden altı satır için kurulan eşleştirmeleri çalıştırmadan önce denetleyebiliyoruz.",
+  "invites.1": "Yönetici oturumunu kapattıktan sonra formu davetlinin gözünden görüyoruz. Sicil bir harf ve beş rakamdan oluşuyor. Ad ve soyad dizinde görünecek.",
+  "accounts.4": "Rol kartı seçilen izinlerin sayısını gösteriyor. Yönetici aynı karttan tanımı yeniden açıp hangi yetkilerin verildiğini kontrol edebilir.",
+  "panels.4": "Silme onayı hangi panel üzerinde çalışıldığını kodu ve adıyla hatırlatıyor. Proje kataloğu ise hangi projelerin etkin olduğunu aynı sayfada topluyor.",
+  "settings.0": "Profil alanında ad, soyad ve e-posta adresi bulunuyor. Bu örnekte adımızı değiştirirken sicilimiz aynı kalıyor.",
+  "baglama.2": "Sonuçtaki grup bilgisiyle isteği başlatırken seçtiğimiz eşleşmeyi karşılaştırabiliriz.",
+  "eslesme.1": "Soldaki belge sütununu hedefteki numara alanına bağlıyoruz. Anahtar seçimi hangi satırın aranacağını, eşleşme kuralı ise karşılaştırmanın nasıl yapılacağını belirliyor.",
+  "nesne.0": "Modül yolu kaydın yerini, üst nesnenin numarası ise hiyerarşideki konumunu belirliyor. Başlık ve açıklama oluşturulacak maddeyi tanımlıyor.",
+  "eslesme.0": "İlk adımda yalnızca modül yolunu veriyoruz. Hedefteki alan adlarını elle tahmin etmek yerine modülün gösterdiği listeden seçim yapabiliriz.",
+  "people.2": "İçe aktarım için tek kişilik bir örnek dosya kullanıyoruz. Gelen satırı siciliyle kontrol edebiliriz.",
+  "invitation-audit.0": "Yönetici davetleri tek bir listede izleyebilir. Burada gönderen ve daveti kullanan kişi ayrı sütunlarda gösteriliyor.",
+  "people.1": "Sicil aynı kalıyor, yalnız adın yazımı değişiyor. Listede iki ayrı kişi görünmesini bu şekilde önlüyoruz.",
+  "nesne.1": "Sonuç kartındaki numara, nesneyi aynı modüldeki diğer maddelerden ayırıyor.",
+  "panels.1": "Bu örnekte bölüm kodunu koruyor, yalnızca disiplin açıklamasını değiştiriyoruz.",
+  "nesne.2": "Mevcut açıklamaya yayın tarihini ekliyoruz. Güncelleme için başlığı yeniden girmek gerekmiyor.",
+  "accounts.1": "İzin aramasını daralttığımızda yalnız o işle ilgili seçenekler kalıyor.",
+  "member-password.1": "Yeni girişte aynı kullanıcı adı kullanılıyor. Değişen bilgi bu hesabın parolası."
+}

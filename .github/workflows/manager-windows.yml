@@ -1,0 +1,210 @@
+name: Portable Windows desktop manager
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - AWCenterManager.pyw
+      - scripts/manager/**
+      - scripts/launcher/**
+      - scripts/build_manager.py
+      - scripts/manager_windows_acceptance.py
+      - scripts/test_manager*.py
+      - scripts/test_launcher*.py
+      - packaging/**
+      - .github/workflows/manager-windows.yml
+      - frontend/package-lock.json
+      - requirements.txt
+  pull_request:
+    paths:
+      - AWCenterManager.pyw
+      - scripts/manager/**
+      - scripts/launcher/**
+      - scripts/build_manager.py
+      - scripts/manager_windows_acceptance.py
+      - scripts/test_manager*.py
+      - scripts/test_launcher*.py
+      - packaging/**
+      - .github/workflows/manager-windows.yml
+      - frontend/package-lock.json
+      - requirements.txt
+
+permissions:
+  contents: read
+
+jobs:
+  source-acceptance:
+    name: Source .pyw - online first use and offline restart
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11.9'
+          architecture: x64
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '26.12.1'
+          architecture: x64
+      - name: Run source entrypoint with fresh application storage
+        env:
+          AWCENTER_ACCEPTANCE_SOURCE_CHECKOUT: ${{ github.workspace }}
+          AWCENTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/manager-evidence
+          PYTHONUTF8: '1'
+        run: |
+          sc start MpsSvc
+          netsh advfirewall set allprofiles state on
+          if errorlevel 1 exit /b 1
+          python -m unittest -f -v scripts.test_manager_windows_acceptance.NativeSourceAcceptance
+      - name: Upload source lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-startup-${{ github.sha }}
+          path: ${{ runner.temp }}/manager-evidence
+          if-no-files-found: warn
+
+  windows-manager:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11.9'
+          architecture: x64
+      - name: Reproduce the reported system Node version
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '26.12.1'
+          architecture: x64
+      - name: Require a working native Tk display
+        run: python -c "import tkinter as tk; root = tk.Tk(); root.update(); root.destroy()"
+      - name: Require working offline network containment before building
+        run: |
+          sc start MpsSvc
+          netsh advfirewall set allprofiles state on
+          if errorlevel 1 exit /b 1
+          python -c "import socket, sys; from scripts.manager_windows_acceptance import deny_external_network; exec('with deny_external_network(socket.gethostbyname(socket.gethostname()), [sys.executable]):\n    pass')"
+      - name: Record source manager startup evidence
+        run: |
+          if not exist "%RUNNER_TEMP%\manager-ui-evidence" mkdir "%RUNNER_TEMP%\manager-ui-evidence"
+          python -m scripts.manager.main --smoke-test "%RUNNER_TEMP%\manager-ui-evidence\startup.json"
+      - name: Verify system tools, bundle prerequisites and permission diagnostics
+        env:
+          TEST_EXPECT_PYTHON_VERSION: '3.11.9'
+        run: python -m unittest scripts.test_launcher_system_python scripts.test_launcher_system_node scripts.test_launcher_runtime_validation scripts.test_launcher_install_dependencies scripts.test_launcher_package_network scripts.test_launcher_package_sources scripts.test_launcher_package_cache scripts.test_launcher_certificates scripts.test_manager_system_tools scripts.test_manager_tool_paths scripts.test_launcher_bundle scripts.test_launcher_bundle_patch_compat scripts.test_launcher_env_selection scripts.test_launcher_permissions scripts.test_launcher_restricted scripts.test_launcher_resource_locks scripts.test_launcher_health scripts.test_launcher_installation scripts.test_launcher_preflight scripts.test_launcher_resume scripts.test_launcher_venv_repair scripts.test_launcher_windows_python_identity
+      - name: Verify issue 131 with real Node 26 and npm archives
+        env:
+          AWCENTER_RUN_RUNTIME_PROBE_SMOKE: '1'
+        run: python -m unittest scripts.test_launcher_runtime_validation
+      - name: Verify source payload, package and manager contracts
+        run: python -m unittest discover -s scripts -p "test_manager*.py"
+      - name: Verify real TLS handshakes with the Windows native trust provider
+        run: |
+          python -m venv "%RUNNER_TEMP%\manager-tls-tests"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\manager-tls-tests\Scripts\python.exe" -c "from pathlib import Path; import subprocess, sys; requirement = next(line for line in Path('requirements.txt').read_text().splitlines() if line.startswith('cryptography==')); subprocess.run([sys.executable, '-m', 'pip', '--isolated', 'install', requirement], check=True)"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\manager-tls-tests\Scripts\python.exe" -m unittest scripts.test_launcher_local_tls scripts.test_manager_tls_recovery
+      - name: Build portable windowed ZIP with reviewed runtime archives
+        run: python scripts/build_manager.py --output "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip"
+      - name: Upload manager ZIP and reviewable checksum inventory
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: AWCenterManager-windows-x64
+          path: |
+            ${{ runner.temp }}/AWCenterManager-windows-x64.zip
+            ${{ runner.temp }}/AWCenterManager-windows-x64.zip.sha256
+            ${{ runner.temp }}/AWCenterManager-windows-x64.zip.inventory.json
+          if-no-files-found: error
+      - name: Upload manager startup evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: AWCenterManager-ui-evidence
+          path: ${{ runner.temp }}/manager-ui-evidence
+          if-no-files-found: warn
+
+  native-acceptance:
+    name: Native Windows - ${{ matrix.name }}
+    needs: windows-manager
+    runs-on: windows-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: packaged lifecycle
+            suite: scripts.test_manager_package.NativeWindowsPackageTests
+          - name: offline dev system
+            suite: scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+            profile: dev
+            tools: system
+          - name: offline dev managed
+            suite: scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+            profile: dev
+            tools: managed
+          - name: offline prod system
+            suite: scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+            profile: prod
+            tools: system
+          - name: offline prod managed
+            suite: scripts.test_manager_windows_acceptance.NativeOfflineAcceptance
+            profile: prod
+            tools: managed
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '26.12.1'
+          architecture: x64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: AWCenterManager-windows-x64
+          path: ${{ runner.temp }}
+      - name: Verify and extract the exact build artifact
+        run: |
+          python -c "import hashlib, os, pathlib; p=pathlib.Path(os.environ['RUNNER_TEMP'])/'AWCenterManager-windows-x64.zip'; assert hashlib.file_digest(p.open('rb'), 'sha256').hexdigest() == p.with_suffix('.zip.sha256').read_text().split()[0]"
+          if errorlevel 1 exit /b 1
+          python -m zipfile -e "%RUNNER_TEMP%\AWCenterManager-windows-x64.zip" "%RUNNER_TEMP%\awcenter-manager-portable"
+      - name: Require Windows Firewall
+        run: |
+          sc start MpsSvc
+          netsh advfirewall set allprofiles state on
+          if errorlevel 1 exit /b 1
+      - name: Native packaged acceptance
+        env:
+          AWCENTER_RUN_MANAGER_WINDOWS_SMOKE: '1'
+          AWCENTER_MANAGER_EXE: ${{ runner.temp }}\awcenter-manager-portable\AWCenterManager.exe
+          AWCENTER_ACCEPTANCE_PROFILE: ${{ matrix.profile }}
+          AWCENTER_ACCEPTANCE_TOOLS: ${{ matrix.tools }}
+          AWCENTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/manager-evidence
+        run: python -m unittest -f -v ${{ matrix.suite }}
+      - name: Upload packaged restart evidence and matching ZIP checksum
+        if: always() && matrix.profile
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packaged-startup-${{ matrix.profile }}-${{ matrix.tools }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/manager-evidence
+            ${{ runner.temp }}/AWCenterManager-windows-x64.zip.sha256
+          if-no-files-found: warn

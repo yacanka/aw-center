@@ -27,6 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_development(commands)
     add_production(commands)
     add_offline_commands(commands)
+    from .installation_cli import add_installation_commands
+    add_installation_commands(commands)
     return parser
 
 
@@ -52,20 +54,45 @@ def add_development(commands: Subparsers) -> None:
     add_scope(development)
     add_server_options(development, frontend=True)
     development.add_argument("--no-backend-reload", action="store_true")
+    development.add_argument(
+        "--exclude-doors",
+        action="store_true",
+        help="Keep the development worker from consuming the DOORS queue.",
+    )
     development.add_argument("--migrate", action="store_true", help="Apply migrations before startup.")
 
 
 def add_production(commands: Subparsers) -> None:
-    """Register production validation and server arguments."""
-    production = commands.add_parser("prod", help="Build and run the production WSGI service.")
-    add_server_options(production, frontend=False)
-    production.add_argument("--migrate", action="store_true", help="Apply migrations explicitly.")
-    production.add_argument("--no-build", action="store_true", help="Skip the Vue build.")
-    production.add_argument("--no-collectstatic", action="store_true")
-    production.add_argument("--skip-checks", action="store_true")
+    """Register the Windows-native production runtime."""
+
+    production = commands.add_parser(
+        "prod",
+        help="Run the Windows-native HTTPS production lifecycle.",
+    )
     production.add_argument(
-        "--production-command",
-        help="Server argv with optional {python}, {wsgi}, {host}, and {port} placeholders.",
+        "--env-file",
+        type=Path,
+        required=True,
+        help="Untracked production environment file outside the repository.",
+    )
+    production.add_argument("--host", required=True, help="Static production IPv4 address.")
+    production.add_argument("--port", type=int, default=443)
+    production.add_argument("--tls-cert-file", type=Path, required=True)
+    production.add_argument("--tls-key-file", type=Path, required=True)
+    production.add_argument(
+        "--build-frontend",
+        action="store_true",
+        help="Run npm run build before collecting static files; requires installed frontend dependencies.",
+    )
+    production.add_argument(
+        "--exclude-doors",
+        action="store_true",
+        help="Keep the production worker from consuming the DOORS queue.",
+    )
+    production.add_argument(
+        "--migrate",
+        action="store_true",
+        help="Apply migrations before startup; omitted during normal restarts.",
     )
 
 

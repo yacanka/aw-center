@@ -9,7 +9,7 @@ globalThis.window = {
   $message: { error: () => (notificationCount += 1) }
 }
 
-const { selectedUploadFile } = await import('../src/utils/uploads.ts')
+const { selectedUploadFile } = await import('../src/shared/utils/uploads.ts')
 
 test('empty reactive upload state stays silent when requested', () => {
   notificationCount = 0

@@ -35,12 +35,12 @@ class UserInvitationTests(TestCase):
     def test_only_staff_with_add_user_permission_can_create_invitation(self):
         """Authentication or model permission alone cannot mint links."""
 
-        anonymous = APIClient().post("/auth/invitations/", self._create_payload(), format="json")
+        anonymous = APIClient().post("/api/users/invitations/", self._create_payload(), format="json")
         self.regular.user_permissions.add(Permission.objects.get(codename="add_user"))
         self.client.force_authenticate(self.regular)
-        regular = self.client.post("/auth/invitations/", self._create_payload(), format="json")
+        regular = self.client.post("/api/users/invitations/", self._create_payload(), format="json")
 
-        self.assertEqual(anonymous.status_code, 401)
+        self.assertEqual(anonymous.status_code, 403)
         self.assertEqual(regular.status_code, 403)
         self.assertEqual(UserInvitation.objects.count(), 0)
 
@@ -65,7 +65,7 @@ class UserInvitationTests(TestCase):
 
         _, token = self._create_invitation()
         response = APIClient().post(
-            "/auth/invitations/inspect/", {"token": token}, format="json"
+            "/api/users/invitations/inspect/", {"token": token}, format="json"
         )
 
         self.assertEqual(response.status_code, 200)
@@ -78,13 +78,13 @@ class UserInvitationTests(TestCase):
         _, token = self._create_invitation()
         anonymous = APIClient()
         response = anonymous.post(
-            "/auth/invitations/accept/", self._accept_payload(token), format="json"
+            "/api/users/invitations/accept/", self._accept_payload(token), format="json"
         )
         second = anonymous.post(
-            "/auth/invitations/accept/", self._accept_payload(token, "another-user"), format="json"
+            "/api/users/invitations/accept/", self._accept_payload(token, "u30002"), format="json"
         )
 
-        user = User.objects.get(username="invited-user")
+        user = User.objects.get(username="u30001")
         self.assertEqual(response.status_code, 201)
         self.assertTrue(user.check_password("StrongInvite!123"))
         self.assertTrue(user.groups.filter(pk=self.group.pk).exists())
@@ -98,12 +98,12 @@ class UserInvitationTests(TestCase):
         _, token = self._create_invitation()
         UserInvitation.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
         response = APIClient().post(
-            "/auth/invitations/accept/", self._accept_payload(token), format="json"
+            "/api/users/invitations/accept/", self._accept_payload(token), format="json"
         )
 
         self.assertEqual(response.status_code, 410)
         self.assertEqual(response.data["code"], "INVITATION_EXPIRED")
-        self.assertFalse(User.objects.filter(username="invited-user").exists())
+        self.assertFalse(User.objects.filter(username="u30001").exists())
 
     def test_new_link_for_same_email_revokes_previous_link(self):
         """Only the newest administrator-issued link remains usable."""
@@ -113,10 +113,10 @@ class UserInvitationTests(TestCase):
         anonymous = APIClient()
 
         first = anonymous.post(
-            "/auth/invitations/inspect/", {"token": first_token}, format="json"
+            "/api/users/invitations/inspect/", {"token": first_token}, format="json"
         )
         second = anonymous.post(
-            "/auth/invitations/inspect/", {"token": second_token}, format="json"
+            "/api/users/invitations/inspect/", {"token": second_token}, format="json"
         )
 
         self.assertEqual(first.status_code, 410)
@@ -128,11 +128,11 @@ class UserInvitationTests(TestCase):
 
         _, token = self._create_invitation()
         invalid = APIClient().post(
-            "/auth/invitations/inspect/", {"token": secrets.token_urlsafe(32)}, format="json"
+            "/api/users/invitations/inspect/", {"token": secrets.token_urlsafe(32)}, format="json"
         )
         weak_payload = self._accept_payload(token)
         weak_payload["password"] = weak_payload["password_confirm"] = "password"
-        weak = APIClient().post("/auth/invitations/accept/", weak_payload, format="json")
+        weak = APIClient().post("/api/users/invitations/accept/", weak_payload, format="json")
 
         self.assertEqual(invalid.status_code, 404)
         self.assertEqual(invalid.data["code"], "INVITATION_INVALID")
@@ -144,11 +144,11 @@ class UserInvitationTests(TestCase):
 
         _, token = self._create_invitation()
         response = self.client.post(
-            "/auth/invitations/accept/", self._accept_payload(token), format="json"
+            "/api/users/invitations/accept/", self._accept_payload(token), format="json"
         )
 
         self.assertEqual(response.status_code, 403)
-        self.assertFalse(User.objects.filter(username="invited-user").exists())
+        self.assertFalse(User.objects.filter(username="u30001").exists())
 
     def test_public_acceptance_attempts_are_rate_limited(self):
         """Repeated token guesses from one client are bounded."""
@@ -156,7 +156,7 @@ class UserInvitationTests(TestCase):
         client = APIClient()
         payload = self._accept_payload(secrets.token_urlsafe(32))
         responses = [
-            client.post("/auth/invitations/accept/", payload, format="json") for _ in range(21)
+            client.post("/api/users/invitations/accept/", payload, format="json") for _ in range(21)
         ]
 
         self.assertEqual(responses[-2].status_code, 404)
@@ -167,24 +167,45 @@ class UserInvitationTests(TestCase):
 
         existing = self._create_payload()
         existing["email"] = self.regular.email
-        duplicate = self.client.post("/auth/invitations/", existing, format="json")
+        duplicate = self.client.post("/api/users/invitations/", existing, format="json")
         invalid_group = self._create_payload()
         invalid_group["group_ids"] = [999999]
-        unknown = self.client.post("/auth/invitations/", invalid_group, format="json")
+        unknown = self.client.post("/api/users/invitations/", invalid_group, format="json")
 
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(unknown.status_code, 400)
         self.assertEqual(UserInvitation.objects.count(), 0)
 
+    def test_username_format_is_enforced_without_consuming_invitation(self):
+        _, token = self._create_invitation()
+        anonymous = APIClient()
+        for username in ("123456", "u1234", "u123456", "uu2345", "u1234x", "u123_5"):
+            with self.subTest(username=username):
+                response = anonymous.post(
+                    "/api/users/invitations/accept/",
+                    self._accept_payload(token, username),
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("username", response.data["errors"])
+                self.assertIsNone(UserInvitation.objects.get().used_at)
+        response = anonymous.post(
+            "/api/users/invitations/accept/",
+            self._accept_payload(token, "Ç12345"),
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(User.objects.filter(username="Ç12345").exists())
+
     def _create_invitation(self):
-        response = self.client.post("/auth/invitations/", self._create_payload(), format="json")
+        response = self.client.post("/api/users/invitations/", self._create_payload(), format="json")
         return response, urlsplit(response.data["invitation_link"]).fragment
 
     def _create_payload(self):
         return {"email": "recipient@example.com", "group_ids": [self.group.pk]}
 
     @staticmethod
-    def _accept_payload(token, username="invited-user"):
+    def _accept_payload(token, username="u30001"):
         return {
             "token": token,
             "username": username,

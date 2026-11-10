@@ -1,0 +1,87 @@
+<template>
+  <n-modal
+    v-model:show="showModal"
+    preset="dialog"
+    title="DDF Summary"
+    :on-after-leave="onAfterLeave"
+    class="app-modal"
+  >
+    <div class="ddf-chart-container">
+      <Pie :data="pieChartData" :options="chartOptions" />
+    </div>
+
+    <template #action>
+      <n-button :onClick="closeModal"> OK </n-button>
+    </template>
+  </n-modal>
+</template>
+
+<script setup lang="ts">
+import { defineAsyncComponent, ref } from 'vue'
+import type { ChartData, ChartOptions } from 'chart.js'
+import { IDdf } from '@/features/tools/models/ddf'
+import { ensureChartPluginsRegistered, pieChartOptions } from '@/shared/stores/chartStore'
+
+const Pie = defineAsyncComponent(() => import('vue-chartjs').then((module) => module.Pie))
+ensureChartPluginsRegistered()
+
+const showModal = ref(false)
+const chartOptions = pieChartOptions as ChartOptions<'pie'>
+
+const pieChartData = ref<ChartData<'pie', number[], string>>({
+  labels: ['Teknik Görüş', 'Bilgi Görüşü', 'Editöryel Görüş', 'Panel Ekleme/Çıkarma'],
+  datasets: [
+    {
+      data: [],
+      backgroundColor: ['#0ecfbf', '#c5252d', '#ffd966', '#1463bd'],
+      hoverBorderWidth: 3,
+      hoverBorderColor: '#aaaaaa'
+    }
+  ]
+})
+
+function openModal(ddfs: IDdf[]) {
+  showModal.value = true
+  calculatePieChart(ddfs)
+}
+
+function calculatePieChart(ddfs: IDdf[]) {
+  const counter: Record<string, number> = {
+    'Teknik Görüş': 0,
+    'Bilgi Görüşü': 0,
+    'Editöryel Görüş': 0,
+    'Panel Ekleme/Çıkarma Görüşü': 0
+  }
+  ddfs.forEach((ddf: IDdf) => {
+    ddf.comment_types.forEach((type) => {
+      counter[type]++
+    })
+  })
+  pieChartData.value.datasets[0].data = [
+    counter['Teknik Görüş'],
+    counter['Bilgi Görüşü'],
+    counter['Editöryel Görüş'],
+    counter['Panel Ekleme/Çıkarma Görüşü']
+  ]
+}
+
+function closeModal() {
+  showModal.value = false
+}
+
+function onAfterLeave() {}
+
+defineExpose({
+  openModal
+})
+</script>
+
+<style scoped>
+.ddf-chart-container {
+  align-items: center;
+  display: flex;
+  height: clamp(280px, 58dvh, 440px);
+  min-width: 0;
+  width: 100%;
+}
+</style>

@@ -1,0 +1,72 @@
+export interface IPermission {
+  id?: number
+  name?: string
+  codename?: string
+  content_type?: { app_label?: string; model?: string }
+  [key: string]: unknown
+}
+
+export interface IPreferences {
+  theme?: 'light' | 'dark' | 'system'
+  has_particles?: boolean
+  language?: 'en' | 'tr'
+  timezone?: string
+  email_notifications?: boolean
+  push_notifications?: boolean
+  sms_notifications?: boolean
+  newsletter_subscribed?: boolean
+  profile_visible?: boolean
+  show_online_status?: boolean
+  show_activity?: boolean
+  items_per_page?: number
+  compact_view?: boolean
+  extra_settings?: Record<string, unknown>
+}
+
+export interface IGroup {
+  id?: number
+  name?: string
+  permissions?: IPermission[]
+  [key: string]: unknown
+}
+
+export interface ProjectAccess {
+  project_id: number
+  project_name: string
+  project_slug: string
+  project_enabled: boolean
+  domain: string
+  application: string
+  role: string
+  sources: {
+    kind: 'direct' | 'group'
+    group_id: number | null
+    group_name: string | null
+    role: string
+  }[]
+}
+
+export interface IUser {
+  project_access?: ProjectAccess[]
+  id?: number
+  username?: string
+  email?: string
+  first_name?: string
+  last_name?: string
+  last_login?: string | null
+  is_active?: boolean
+  is_staff?: boolean
+  is_superuser?: boolean
+  permissions?: IPermission[]
+  user_permissions?: number[]
+  groups?: number[]
+  group_details?: IGroup[]
+  preferences?: IPreferences
+  [key: string]: unknown
+}
+
+export interface UserProfile {
+  first_name: string
+  last_name: string
+  email: string
+}

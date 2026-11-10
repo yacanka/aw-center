@@ -1,40 +1,235 @@
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+from tempfile import TemporaryDirectory
+from unittest import skipUnless
 
 import yaml
 from django.test import SimpleTestCase
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+COMPOSE_COMMAND = (
+    [shutil.which("docker-compose")] if shutil.which("docker-compose") else None
+)
+AI_SETTING_NAMES = (
+    "URL", "MODEL_ID", "TOKEN", "ALLOWED_HOSTS", "CONNECT_TIMEOUT_SECONDS",
+    "READ_TIMEOUT_SECONDS", "MAX_RESPONSE_BYTES",
+)
 
 
 class DeploymentContractTests(SimpleTestCase):
-    """Protect the immutable same-origin production topology."""
+    """Protect the future immutable container topology."""
+
+    @skipUnless(COMPOSE_COMMAND, "Compose CLI is required for environment rendering")
+    def test_compose_keeps_unset_central_settings_absent_and_explicit_empty_present(self):
+        with TemporaryDirectory(prefix="ai-compose-test-") as directory:
+            env_file = Path(directory) / "empty.env"
+            env_file.write_text("", encoding="utf-8")
+            environment = {
+                "PATH": os.environ.get("PATH", ""),
+                "AWCENTER_RELEASE": "synthetic-release",
+                "SECRET_KEY": "synthetic-test-secret",
+                "AWCENTER_HOST": "awcenter.example.test",
+                "DATABASE_URL": "postgres://synthetic:synthetic@database/awcenter",
+                "REDIS_PASSWORD": "synthetic-password",
+                "AWCENTER_IMAGE": "example.test/awcenter@sha256:" + "a" * 64,
+                "AI_MODEL_DIRECTORY": directory,
+                "DOCUMENT_TEMPLATE_DIRECTORY": directory,
+                "TLS_CERTIFICATE_FILE": str(Path(directory) / "cert.pem"),
+                "TLS_PRIVATE_KEY_FILE": str(Path(directory) / "key.pem"),
+                "POSTGRES_PASSWORD": "synthetic-password",
+            }
+            for explicit_empty in (False, True):
+                with self.subTest(explicit_empty=explicit_empty):
+                    fixture = {**environment}
+                    if explicit_empty:
+                        fixture["AI_API_TOKEN"] = ""
+                    result = subprocess.run(
+                        [*COMPOSE_COMMAND, "--env-file", str(env_file), "-f",
+                         str(REPOSITORY_ROOT / "docker-compose.yml"), "config", "--format", "json"],
+                        env=fixture, capture_output=True, text=True, check=True, timeout=30,
+                    )
+                    services = json.loads(result.stdout)["services"]
+                    backend_environment = services["backend"]["environment"]
+                    for suffix in AI_SETTING_NAMES:
+                        name = f"AI_API_{suffix}"
+                        if explicit_empty and suffix == "TOKEN":
+                            self.assertEqual(backend_environment[name], "")
+                        else:
+                            # Compose retains unresolved passthrough keys as null;
+                            # they are unset in the container, unlike explicit "".
+                            self.assertIsNone(backend_environment.get(name))
+
+    def test_ai_provider_environment_is_limited_to_backend_lifecycle(self):
+        services = yaml.safe_load(self.read("docker-compose.yml"))["services"]
+        backend_environment = services["backend"]["environment"]
+        self.assertFalse(any(key.startswith("ASSESSMENT_API_") for key in backend_environment))
+        for suffix in AI_SETTING_NAMES:
+            self.assertIn(f"AI_API_{suffix}", backend_environment)
+        for name in ("worker", "notification-worker", "cleanup-worker"):
+            self.assertFalse(any(
+                key.startswith(("AI_API_", "ASSESSMENT_API_"))
+                for key in services[name]["environment"]
+            ))
+
+    def test_docker_context_excludes_workstation_generated_and_secret_state(self):
+        """Local ignored artifacts cannot alter or leak into a release image build."""
+
+        ignored = {
+            line.strip()
+            for line in self.read(".dockerignore").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        required = {
+            ".runtime/",
+            ".env",
+            ".env.*",
+            "backend/.env*",
+            "frontend/.env*",
+            "backend/static/",
+            "backend/staticfiles/",
+            "frontend/test-results/",
+            "frontend/playwright-report/",
+            "release-metadata/",
+            "image-build-metadata.json",
+            "image-frontend-dist/",
+        }
+
+        self.assertTrue(required.issubset(ignored), required - ignored)
 
     def test_backend_image_builds_and_verifies_frontend_before_runtime(self):
         """The runtime image must contain a verified frontend without Node."""
 
         dockerfile = self.read("backend/Dockerfile")
-        frontend_stage = dockerfile.index("FROM node:22-alpine AS frontend-build")
-        runtime_stage = dockerfile.index("FROM python:3.14-slim AS runtime")
+        frontend_stage = dockerfile.index("FROM node:22-alpine@sha256:")
+        runtime_stage = dockerfile.index("FROM python:3.11-slim@sha256:", frontend_stage)
+        runtime_stage = dockerfile.index("FROM python:3.11-slim@sha256:", runtime_stage + 1)
 
         self.assertLess(frontend_stage, runtime_stage)
         self.assertIn("RUN npm ci", dockerfile[:runtime_stage])
         self.assertIn("COPY --from=frontend-build /frontend/dist /app/frontend-dist", dockerfile)
-        self.assertIn("python manage.py collectstatic --noinput", dockerfile)
+        self.assertIn("python manage.py collectstatic --clear --noinput", dockerfile)
         self.assertIn("python manage.py verify_frontend_artifact", dockerfile)
+        self.assertIn("AWCENTER_DEPLOYMENT_MODE=container", dockerfile)
+        self.assertIn("SECRET_KEY=\"$(python -c 'import secrets; print(secrets.token_urlsafe(64))')\"", dockerfile)
+        self.assertIn("/app/ai-models", dockerfile)
+        self.assertIn("/app/document-templates", dockerfile)
+        self.assertIn("chmod -R a-w /app", dockerfile)
+        self.assertIn("USER 10001:10001", dockerfile)
+        self.assertNotIn("chown -R awcenter:awcenter /app\n", dockerfile)
         self.assertNotIn("node:22", dockerfile[runtime_stage:])
+        self.assertNotIn("build-essential", dockerfile[runtime_stage:])
+        self.assertNotIn("pip install --upgrade pip", dockerfile)
+        for line in dockerfile.splitlines():
+            if line.startswith("FROM "):
+                self.assertIn("@sha256:", line)
 
     def test_compose_uses_one_origin_without_masking_image_static_files(self):
         """Compose must expose Django's SPA and API through one service."""
 
         compose = yaml.safe_load(self.read("docker-compose.yml"))
-        backend = compose["services"]["backend"]
+        services = compose["services"]
+        backend = services["backend"]
 
         self.assertNotIn("frontend", compose["services"])
-        self.assertEqual(backend["ports"], ["8080:8000"])
-        self.assertEqual(backend["build"]["args"]["VITE_API_URL"], "/")
+        self.assertEqual(
+            services["ingress"]["ports"],
+            ["80:80", "443:443"],
+        )
+        self.assertNotIn("ports", backend)
+        self.assertNotIn("build", backend)
+        self.assertIn("AWCENTER_IMAGE", backend["image"])
+        self.assertIn("immutable digest", backend["image"])
         self.assertNotIn("backend-static", compose["volumes"])
         self.assertNotIn("/app/static", " ".join(backend.get("volumes", [])))
+        rendered = self.read("docker-compose.yml")
+        self.assertIn("${SECRET_KEY:?", rendered)
+        self.assertIn("${DATABASE_URL:?", rendered)
+        self.assertNotIn("change-me-local-only", rendered)
+        self.assertIn(
+            "/etc/nginx/templates/default.conf.template:ro",
+            " ".join(services["ingress"]["volumes"]),
+        )
+        self.assertNotIn("windows-bridge-ingress", services)
+        for name in ("ingress", "database", "redis"):
+            self.assertIn("@sha256:", services[name]["image"])
+        for name in ("backend", "worker", "notification-worker", "cleanup-worker"):
+            self.assertEqual(services[name]["user"], "10001:10001")
+            self.assertEqual(services[name]["cap_drop"], ["ALL"])
+            self.assertIn("no-new-privileges:true", services[name]["security_opt"])
+
+    def test_compose_supervises_each_background_lifecycle_with_health(self):
+        """Execution, notification, and retention responsibilities stay independent."""
+
+        compose = yaml.safe_load(self.read("docker-compose.yml"))
+        services = compose["services"]
+
+        for name in ("worker", "notification-worker", "cleanup-worker"):
+            service = services[name]
+            self.assertEqual(service["restart"], "unless-stopped")
+            self.assertIn("healthcheck", service)
+            self.assertTrue(service["init"])
+        self.assertIn("run_job_worker", services["worker"]["command"])
+        self.assertIn(
+            "run_compdoc_notification_worker", services["notification-worker"]["command"]
+        )
+        self.assertIn("run_job_cleanup_worker", services["cleanup-worker"]["command"])
+        self.assertIn("private-artifacts:/app/private_media", services["cleanup-worker"]["volumes"])
+        self.assertIn("--heartbeat-file", services["notification-worker"]["command"])
+        self.assertEqual(services["notification-worker"]["volumes"], [])
+        self.assertNotIn(
+            "JIRA_SESSION_ENCRYPTION_KEY",
+            services["notification-worker"]["environment"],
+        )
+        self.assertNotIn(
+            "TEAMCENTER_PASSWORD",
+            services["cleanup-worker"]["environment"],
+        )
+        self.assertNotIn(
+            "EMAIL_HOST_PASSWORD",
+            services["worker"]["environment"],
+        )
+        self.assertNotIn(
+            "EMAIL_HOST_PASSWORD",
+            services["backend"]["environment"],
+        )
+        self.assertNotIn("NUMARATOR_API_KEY", services["backend"]["environment"])
+        self.assertIn("NUMARATOR_API_KEY", services["worker"]["environment"])
+        for service_name in ("backend", "worker"):
+            service = services[service_name]
+            volumes = " ".join(service["volumes"])
+            self.assertIn("/app/ai-models:ro", volumes)
+            self.assertIn("/app/document-templates:ro", volumes)
+            self.assertNotIn("/app/models", volumes)
+            self.assertEqual(
+                service["environment"]["MODEL_RUNTIME_DIR"],
+                "/app/ai-models",
+            )
+            self.assertEqual(
+                service["environment"]["CUSTOM_TEMPLATE_DIR"],
+                "/app/document-templates",
+            )
+            self.assertEqual(
+                service["environment"]["PROJECT_CONFIGURATION_FILE"],
+                "/app/document-templates/project-configuration.json",
+            )
+            self.assertEqual(
+                service["environment"]["GOKBEY_DCC_POLICY_FILE"],
+                "/app/document-templates/gokbey-dcc-policy.json",
+            )
+        for service_name in ("notification-worker", "cleanup-worker"):
+            self.assertNotIn("GOKBEY_DCC_POLICY_FILE", services[service_name]["environment"])
+            self.assertNotIn("PROJECT_CONFIGURATION_FILE", services[service_name]["environment"])
+        self.assertEqual(services["backend"]["environment"]["DDF_ASSESSMENT_POLICY_FILE"],
+                         "/app/document-templates/ddf-assessment-policy.json")
+        for service_name in ("worker", "notification-worker", "cleanup-worker"):
+            self.assertNotIn("DDF_ASSESSMENT_POLICY_FILE", services[service_name]["environment"])
+        self.assertEqual(services["redis"]["user"], "redis")
+        self.assertIn("requirepass %s", " ".join(services["redis"]["command"]))
+        self.assertNotIn("--requirepass", services["redis"]["command"][-1])
+        self.assertIn("unset REDIS_PASSWORD", services["redis"]["command"][-1])
 
     def test_ci_uses_strict_read_only_and_container_quality_gates(self):
         """CI cannot mutate sources or bypass type and artifact checks."""
@@ -44,13 +239,63 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertNotIn("npm run format\n", workflow)
         self.assertNotIn("--noCheck", workflow)
         self.assertGreaterEqual(workflow.count("npm ci"), 2)
+        self.assertIn("npx playwright install --with-deps chromium", workflow)
+        self.assertIn("npm run test:e2e", workflow)
         self.assertIn("makemigrations --check --dry-run", workflow)
+        self.assertIn("python manage.py check_project_registry", workflow)
+        self.assertNotIn("Project.objects.count() == 8", workflow)
         self.assertIn("python manage.py verify_frontend_artifact", workflow)
         self.assertIn("docker build", workflow)
         self.assertIn("docker run --rm", workflow)
+        self.assertIn('python-version: "3.11"', workflow)
+        self.assertEqual(self.read(".python-version").strip(), "3.11")
+        for workflow_path in (".github/workflows/ci.yml", ".github/workflows/manager-windows.yml"):
+            parsed = yaml.safe_load(self.read(workflow_path))
+            versions = [
+                str(step["with"]["python-version"])
+                for job in parsed["jobs"].values() for step in job.get("steps", [])
+                if "python-version" in step.get("with", {})
+            ]
+            self.assertTrue(versions, workflow_path)
+            self.assertTrue(all(version == "3.11" or version.startswith("3.11.") for version in versions), versions)
+        self.assertIn("runs-on: windows-latest", workflow)
+        self.assertIn('AWCENTER_DEPLOYMENT_MODE = "windows-native"', workflow)
+        self.assertIn('DATABASE_URL = "sqlite:///$databasePath"', workflow)
+        self.assertIn("python backend/manage.py check --deploy --fail-level ERROR", workflow)
+        self.assertIn("scripts.test_launcher_jobs", workflow)
+        self.assertIn("postgres:17-alpine", workflow)
+        self.assertIn("redis:7-alpine", workflow)
+        self.assertIn("build_release_metadata.py", workflow)
+        self.assertIn("verify_release_image.py", workflow)
+        self.assertIn('docker cp "$container_id:/app/frontend-dist/." -', workflow)
+        self.assertIn("--no-same-owner --delay-directory-restore", workflow)
+        self.assertIn("PROJECT_CONFIGURATION_FILE=/app/document-templates/project-configuration.json", workflow)
+        self.assertIn("deployment_preflight.py", workflow)
+        self.assertIn("--release-manifest", workflow)
+        self.assertIn("--image-verification", workflow)
+        self.assertIn("--sbom=true", workflow)
+        self.assertIn(
+            "python -m unittest scripts.test_launcher scripts.test_launcher_jobs scripts.test_release_metadata",
+            workflow,
+        )
+        self.assertIn("not os.access('/app/manage.py', os.W_OK)", workflow)
+        self.assertIn('JIRA_ENABLED: "False"', workflow)
+        self.assertNotIn("JIRA_LEGACY_URL", workflow)
+        self.assertNotIn("JIRA_BTB_URL", workflow)
+        for line in workflow.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("uses: actions/"):
+                action = stripped.split("#", 1)[0].rstrip()
+                self.assertRegex(action, r"@[0-9a-f]{40}$")
 
         launcher = self.read("launcher.py")
         self.assertNotIn('"typecheck:ci"', launcher)
+        runtime = self.read("scripts/launcher/runtime.py")
+        parser = self.read("scripts/launcher/parser.py")
+        self.assertIn("def prod(", runtime)
+        self.assertIn('"prod",', parser)
+        self.assertIn('"awcenter.asgi:application"', runtime)
+        self.assertIn('"--ssl-certfile"', runtime)
 
     def test_root_npm_manifest_is_dependency_free_strict_proxy(self):
         """Root npm commands cannot use stale dependencies or bypass frontend gates."""
@@ -64,6 +309,25 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertNotIn("typecheck:ci", scripts)
         self.assertNotIn("deploy", scripts)
         self.assertTrue(all("--prefix frontend" in command for command in scripts.values()))
+
+    def test_nginx_rejects_public_media_and_matches_backend_upload_ceiling(self):
+        """The reverse proxy cannot expose media or reject backend-approved uploads early."""
+
+        nginx = self.read("deploy/nginx/awcenter.conf")
+        media_start = nginx.index("location ^~ /media/")
+        media_end = nginx.index("location ^~ /internal/", media_start)
+        media_block = nginx[media_start:media_end]
+
+        self.assertIn("client_max_body_size 600m;", nginx)
+        self.assertIn("return 404;", media_block)
+        self.assertNotIn("proxy_pass", media_block)
+        self.assertIn("listen 443 ssl", nginx)
+        self.assertIn("listen 127.0.0.1:8080", nginx)
+        self.assertIn("return 308 https://${AWCENTER_HOST}$request_uri;", nginx)
+        self.assertIn('"$request_method $uri $server_protocol"', nginx)
+        self.assertIn("access_log /var/log/nginx/access.log awcenter_safe;", nginx)
+        self.assertNotIn("listen 8765;", nginx)
+        self.assertFalse((REPOSITORY_ROOT / "deploy/nginx/windows-bridge.conf").exists())
 
     def read(self, relative_path):
         """Read one bounded repository deployment file."""

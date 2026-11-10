@@ -19,30 +19,59 @@ jobs:
     name: Backend checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+        env:
+          POSTGRES_DB: awcenter
+          POSTGRES_USER: awcenter
+          POSTGRES_PASSWORD: ci-database-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U awcenter -d awcenter"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     env:
       SECRET_KEY: ci-secret-key-not-for-production
       DEBUG: "True"
       IPV4_ADDRESS: 127.0.0.1
       PORT: 8000
-      DOCPROOF_URL: http://localhost/docproof
-      DOORS_EXECUTABLE: /usr/bin/false
-      JIRA_LEGACY_URL: http://localhost/jira-legacy
-      JIRA_BTB_URL: http://localhost/jira-btb
-      AW_USERNAME: ""
-      AW_PASSWORD: ""
+      DATABASE_URL: postgres://awcenter:ci-database-password@127.0.0.1:5432/awcenter
+      CACHE_URL: redis://127.0.0.1:6379/1
+      JIRA_ENABLED: "False"
+      DOCPROOF_ENABLED: "False"
+      DOORS_ENABLED: "False"
       ALLOWED_HOSTS: 127.0.0.1,localhost
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.14"
+          python-version: "3.11"
           cache: pip
 
       - name: Install Python dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt
+
+      - name: Migrate a fresh PostgreSQL database and verify project seed
+        working-directory: backend
+        run: |
+          python manage.py migrate --noinput
+          python manage.py migrate --check
+          python manage.py check_project_registry
 
       - name: Run Django system check
         working-directory: backend
@@ -52,15 +81,30 @@ jobs:
         working-directory: backend
         run: python manage.py makemigrations --check --dry-run
 
+      - name: Ensure FFmpeg integration runtime
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+
       - name: Run Django tests
         working-directory: backend
         run: python manage.py test
 
+      - name: Run PDF regressions explicitly
+        working-directory: backend
+        run: python manage.py test pdf.tests
+
+      - name: Run launcher regression tests
+        run: python -m unittest scripts.test_launcher scripts.test_launcher_jobs scripts.test_release_metadata
+
       - name: Scan Python dependencies
-        run: python -m pip install pip-audit && pip-audit -r requirements.txt
+        run: python -m pip install pip-audit==2.9.0 && pip-audit -r requirements.txt
 
       - name: Setup Node.js for integrated artifact smoke test
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "22"
           cache: npm
@@ -72,7 +116,7 @@ jobs:
 
       - name: Verify Django serves the built frontend artifact
         working-directory: backend
-        run: python manage.py collectstatic --noinput && python manage.py verify_frontend_artifact
+        run: python manage.py collectstatic --clear --noinput && python manage.py verify_frontend_artifact
 
   frontend:
     name: Frontend checks
@@ -83,10 +127,10 @@ jobs:
         working-directory: frontend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "22"
           cache: npm
@@ -104,24 +148,306 @@ jobs:
       - name: Run frontend regression tests
         run: npm run test:ci
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        run: npm run test:e2e
+
       - name: Build Vite assets
         run: npm run build
+        env:
+          VITE_API_URL: /
+          VITE_VERSION: ci
+          VITE_APP_TITLE: AW Center
+
+      - name: Upload immutable frontend artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
 
       - name: Scan npm dependencies
         run: npm audit --audit-level=high
 
+  windows-native:
+    name: Windows native production contract
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      SECRET_KEY: development-only-ci-key
+      DEBUG: "True"
+      JIRA_ENABLED: "False"
+      DOCPROOF_ENABLED: "False"
+      DOORS_ENABLED: "False"
+      NUMARATOR_ENABLED: "False"
+      TEAMCENTER_ENABLED: "False"
+      ALLOWED_HOSTS: 127.0.0.1,localhost
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11.9"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run managed installation unit contracts
+        shell: cmd
+        env:
+          TEST_EXPECT_PYTHON_VERSION: "3.11.9"
+        run: >-
+          python -m unittest
+          scripts.test_launcher_profiles
+          scripts.test_launcher_sources
+          scripts.test_launcher_bootstrap
+          scripts.test_launcher_bundle
+          scripts.test_launcher_features
+          scripts.test_launcher_install_dependencies
+          scripts.test_launcher_certificates
+          scripts.test_launcher_installation
+          scripts.test_launcher_system_python
+          scripts.test_launcher_env_selection
+          scripts.test_launcher_venv_repair
+          scripts.test_launcher_windows_python_identity
+
+      - name: Run native CMD bootstrap and owner-only ACL smoke
+        shell: cmd
+        timeout-minutes: 20
+        env:
+          AWCENTER_RUN_WINDOWS_INSTALL_SMOKE: "1"
+        run: python -m unittest scripts.test_launcher_windows_smoke
+
+      - name: Verify initial administrator provisioning
+        shell: cmd
+        run: python backend/manage.py test users.test_initial_admin
+
+      - name: Setup Node.js for Windows frontend artifact
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build and verify Windows frontend artifact
+        shell: cmd
+        run: |
+          call npm install --global npm@10.9.4
+          if errorlevel 1 exit /b %errorlevel%
+          call npm ci --prefix frontend
+          if errorlevel 1 exit /b %errorlevel%
+          call npm run build --prefix frontend
+          if errorlevel 1 exit /b %errorlevel%
+          python backend/manage.py collectstatic --clear --noinput
+          if errorlevel 1 exit /b %errorlevel%
+          python backend/manage.py verify_frontend_artifact
+
+      - name: Verify private development configuration and NTFS permissions
+        shell: pwsh
+        run: |
+          $privateDir = Join-Path $env:RUNNER_TEMP ("awcenter-private-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $privateDir | Out-Null
+          try {
+            $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $acl = [System.Security.AccessControl.DirectorySecurity]::new()
+            $acl.SetOwner($sid)
+            $acl.SetAccessRuleProtection($true, $false)
+            $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+              $sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'
+            ))
+            Set-Acl -LiteralPath $privateDir -AclObject $acl
+            $actual = Get-Acl -LiteralPath $privateDir
+            if (-not $actual.AreAccessRulesProtected -or @($actual.Access).Count -ne 1 -or
+                $actual.Access[0].IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]) -ne $sid -or
+                $actual.Access[0].AccessControlType -ne 'Allow') {
+              throw 'Private directory ACL verification failed.'
+            }
+            $env:AWCENTER_ENV_FILE = Join-Path $privateDir 'development.env'
+            @'
+          import os
+          import secrets
+          from pathlib import Path
+          from cryptography.fernet import Fernet
+          content = (
+              "DEBUG=True\nJIRA_ENABLED=True\n"
+              "SECRET_KEY=" + secrets.token_urlsafe(64) + "\n"
+              "JIRA_SESSION_ENCRYPTION_KEY=" + Fernet.generate_key().decode("ascii") + "\n"
+          )
+          with Path(os.environ["AWCENTER_ENV_FILE"]).open("x", encoding="utf-8") as output:
+              output.write(content)
+          '@ | python -
+            if ($LASTEXITCODE -ne 0) { throw 'Private configuration provisioning failed.' }
+            $fileAcl = Get-Acl -LiteralPath $env:AWCENTER_ENV_FILE
+            if (@($fileAcl.Access).Count -ne 1 -or
+                $fileAcl.Access[0].IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]) -ne $sid -or
+                $fileAcl.Access[0].AccessControlType -ne 'Allow' -or -not $fileAcl.Access[0].IsInherited) {
+              throw 'Private configuration file ACL verification failed.'
+            }
+            Remove-Item Env:SECRET_KEY, Env:JIRA_ENABLED -ErrorAction SilentlyContinue
+            $env:PYTHONPATH = (Resolve-Path backend).Path
+            $probe = @'
+          import hashlib
+          from awcenter import settings
+          assert settings.DEBUG and settings.JIRA_ENABLED
+          assert len(settings.SECRET_KEY) >= 50
+          print(hashlib.sha256((settings.SECRET_KEY + settings.JIRA_SESSION_ENCRYPTION_KEY).encode()).hexdigest())
+          '@
+            $first = $probe | python -
+            if ($LASTEXITCODE -ne 0) { throw 'First private configuration import failed.' }
+            $second = $probe | python -
+            if ($LASTEXITCODE -ne 0 -or $first -ne $second) { throw 'Private keys changed across processes.' }
+          } finally {
+            Remove-Item -LiteralPath $privateDir -Recurse -Force
+          }
+
+      - name: Run Windows launcher and worker regressions
+        run: >-
+          python -m unittest
+          scripts.test_launcher
+          scripts.test_launcher_jobs
+
+      - name: Run Windows production-focused Django regressions
+        working-directory: backend
+        run: >-
+          python manage.py test
+          awcenter.test_environment
+          awcenter.test_production_checks
+          awcenter.test_architecture
+          awcenter.test_database_settings
+          awcenter.test_runner_lifecycle
+          awcenter.test_spreadsheet_security
+          jobs.tests.test_isolated_worker
+          jobs.tests.test_artifact_deletion
+          compliance.test_imports
+          compliance.test_import_concurrency
+          compliance.test_reset_concurrency
+          compliance.test_doors_imports
+          compliance.tests_compdoc_import
+          ddf.test_upload
+          word.test_compare_api
+          excel.test_compare_limits
+          integrations.tests.test_doors_worker_tasks
+          integrations.tests.test_probes
+          integrations.tests.test_jira_sessions
+          outlook.tests
+          integrations.tests.test_mail
+          awcenter.test_mail_settings
+          users.test_password_reset_delivery
+          integrations.jira.test_reminder_notifications
+          compliance.test_notifications
+          releases.tests
+          awcenter.test_safe_logging
+
+      - name: Verify isolated Windows SQLite production profile
+        shell: pwsh
+        run: |
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP "awcenter-windows-native"
+          $stateRoot = Join-Path $runtimeRoot "state"
+          $assetRoot = Join-Path $runtimeRoot "assets"
+          $paths = @(
+            $stateRoot,
+            (Join-Path $stateRoot "private-media"),
+            (Join-Path $stateRoot "media"),
+            (Join-Path $stateRoot "static"),
+            (Join-Path $stateRoot "cache"),
+            (Join-Path $assetRoot "ai-models"),
+            (Join-Path $assetRoot "document-templates")
+          )
+          New-Item -ItemType Directory -Force -Path $paths | Out-Null
+
+          $databasePath = (Join-Path $stateRoot "db.sqlite3").Replace("\", "/")
+          $env:AWCENTER_DEPLOYMENT_MODE = "windows-native"
+          $env:SECRET_KEY = "8f85b66b87c34bc391b19f783dd12945d634ec83b60b4f609992c2e20e2aa2c7"
+          $env:DEBUG = "False"
+          $env:IPV4_ADDRESS = "192.0.2.10"
+          $env:PORT = "443"
+          $env:ALLOWED_HOSTS = "192.0.2.10"
+          $env:CSRF_TRUSTED_ORIGINS = "https://192.0.2.10"
+          $env:DATABASE_URL = "sqlite:///$databasePath"
+          $env:DATABASE_CONN_MAX_AGE = "0"
+          $env:CACHE_URL = ""
+          $env:CACHE_DIRECTORY = Join-Path $stateRoot "cache"
+          $env:PRIVATE_MEDIA_ROOT = Join-Path $stateRoot "private-media"
+          $env:MEDIA_ROOT = Join-Path $stateRoot "media"
+          $env:STATIC_ROOT = Join-Path $stateRoot "static"
+          $env:MODEL_RUNTIME_DIR = Join-Path $assetRoot "ai-models"
+          $env:CUSTOM_TEMPLATE_DIR = Join-Path $assetRoot "document-templates"
+          $env:FRONTEND_RESET_URL = "https://192.0.2.10/app/login"
+          $env:FRONTEND_INVITATION_URL = "https://192.0.2.10/app/invite"
+          $env:SESSION_COOKIE_SECURE = "True"
+          $env:CSRF_COOKIE_SECURE = "True"
+          $env:TRUST_PROXY_HEADERS = "False"
+          $env:TRUSTED_PROXY_COUNT = "0"
+          $env:JIRA_ENABLED = "False"
+          $env:DOCPROOF_ENABLED = "False"
+          $env:DOORS_ENABLED = "False"
+          $env:NUMARATOR_ENABLED = "False"
+          $env:TEAMCENTER_ENABLED = "False"
+
+          python backend/manage.py migrate --noinput
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python backend/manage.py migrate --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python backend/manage.py check_project_registry
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python backend/manage.py check --deploy --fail-level ERROR
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   container:
-    name: Immutable runtime image
+    name: Future immutable runtime image
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+        env:
+          POSTGRES_DB: awcenter
+          POSTGRES_USER: awcenter
+          POSTGRES_PASSWORD: ci-database-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U awcenter -d awcenter"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Python for release verification
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Restore immutable frontend artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
 
       - name: Build combined backend and frontend image
         run: >-
-          docker build
+          docker buildx build
+          --load
+          --sbom=true
+          --provenance=mode=max
+          --metadata-file image-build-metadata.json
           --file backend/Dockerfile
           --tag awcenter:ci
           --build-arg VITE_API_URL=/
@@ -129,15 +455,154 @@ jobs:
           --build-arg VITE_APP_TITLE="AW Center"
           .
 
-      - name: Verify Django and immutable frontend inside image
+      - name: Generate release checksums and dependency SBOM
+        run: python scripts/build_release_metadata.py --release "$GITHUB_SHA" --output release-metadata
+
+      - name: Verify image contains the reviewed frontend and record its digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id="$(docker create awcenter:ci)"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          mkdir image-frontend-dist
+          docker cp "$container_id:/app/frontend-dist/." - \
+            | tar --extract --no-same-owner --delay-directory-restore --directory image-frontend-dist
+          docker rm "$container_id"
+          trap - EXIT
+          python scripts/verify_release_image.py \
+            --image-metadata image-build-metadata.json \
+            --release-manifest release-metadata/release-manifest.json \
+            --expected-dist frontend/dist \
+            --image-dist image-frontend-dist \
+            --output release-metadata/image-verification.json
+
+      - name: Bind deployment preflight to release evidence and image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_root="$(mktemp -d)"
+          trap 'rm -rf "$evidence_root"' EXIT
+          mkdir "$evidence_root/ai-models"
+          mkdir "$evidence_root/document-templates"
+          printf '%s\n' 'CI certificate placeholder' > "$evidence_root/tls.crt"
+          printf '%s\n' 'CI private key placeholder' > "$evidence_root/tls.key"
+          chmod 600 "$evidence_root/tls.key"
+          image_digest="$(python -c 'import json; print(json.load(open("release-metadata/image-verification.json", encoding="utf-8"))["image_digest"])')"
+          AWCENTER_RELEASE="$GITHUB_SHA" \
+          AWCENTER_IMAGE="registry.invalid/aw-center@${image_digest}" \
+          AWCENTER_HOST=awcenter.internal \
+          SECRET_KEY=ci-container-secret-that-is-longer-than-fifty-characters-and-not-production \
+          DATABASE_URL=postgres://awcenter:ci-database-password@database:5432/awcenter \
+          POSTGRES_PASSWORD=ci-database-password \
+          REDIS_PASSWORD=ci-url-safe-redis-password-123 \
+          AI_MODEL_DIRECTORY="$evidence_root/ai-models" \
+          DOCUMENT_TEMPLATE_DIRECTORY="$evidence_root/document-templates" \
+          TLS_CERTIFICATE_FILE="$evidence_root/tls.crt" \
+          TLS_PRIVATE_KEY_FILE="$evidence_root/tls.key" \
+          DOORS_ENABLED=false \
+          python scripts/deployment_preflight.py \
+            --release-manifest release-metadata/release-manifest.json \
+            --image-verification release-metadata/image-verification.json
+
+      - name: Upload release evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-metadata
+          path: |
+            release-metadata
+            image-build-metadata.json
+          if-no-files-found: error
+
+      - name: Smoke fresh schema, readiness, and worker heartbeat
+        shell: bash
+        run: |
+          set -euo pipefail
+          redis_password=ci-url-safe-redis-password-123
+          docker run -d \
+            --name awcenter-ci-auth-redis \
+            --publish 6380:6379 \
+            --env REDIS_PASSWORD="$redis_password" \
+            --user redis \
+            redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2 \
+            sh -ec 'umask 077; printf "appendonly no\nrequirepass %s\n" "$REDIS_PASSWORD" > /tmp/redis.conf; unset REDIS_PASSWORD; exec redis-server /tmp/redis.conf'
+          for attempt in {1..30}; do
+            if docker exec -e REDISCLI_AUTH="$redis_password" awcenter-ci-auth-redis redis-cli ping | grep -qx PONG; then break; fi
+            sleep 1
+          done
+          docker exec -e REDISCLI_AUTH="$redis_password" awcenter-ci-auth-redis redis-cli ping | grep -qx PONG
+          docker exec awcenter-ci-auth-redis redis-cli ping | grep -q '^NOAUTH'
+          runtime_env=(
+            -e SECRET_KEY=ci-container-secret-that-is-not-a-production-placeholder
+            -e DEBUG=False
+            -e ALLOWED_HOSTS=127.0.0.1,localhost,backend
+            -e DATABASE_URL=postgres://awcenter:ci-database-password@127.0.0.1:5432/awcenter
+            -e CACHE_URL=redis://:${redis_password}@127.0.0.1:6380/1
+            -e MODEL_RUNTIME_DIR=/app/ai-models
+            -e CUSTOM_TEMPLATE_DIR=/app/document-templates
+            -e COVER_PAGE_TEMPLATE_PATH=/app/document-templates/cover_page_template.docx
+            -e WORD_TRANSLATION_TR_EN_MODEL=/app/ai-models/opus-mt-tr-en
+            -e WORD_TRANSLATION_EN_TR_MODEL=/app/ai-models/opus-mt-en-tr
+            -e WORD_ANALYZER_BI_MODEL=/app/ai-models/paraphrase-multilingual
+            -e WORD_ANALYZER_CROSS_MODEL=/app/ai-models/ms-marco-cross-encoder
+            -e SESSION_COOKIE_SECURE=True
+            -e CSRF_COOKIE_SECURE=True
+            -e SECURE_SSL_REDIRECT=True
+            -e TRUST_PROXY_HEADERS=True
+            -e TRUSTED_PROXY_COUNT=1
+            -e JIRA_ENABLED=False
+            -e DOCPROOF_ENABLED=False
+            -e DOORS_ENABLED=False
+          )
+          docker volume create awcenter-ci-private
+          docker volume create awcenter-ci-ai-models
+          docker volume create awcenter-ci-document-templates
+          trap 'docker rm -f awcenter-web awcenter-worker awcenter-ci-auth-redis >/dev/null 2>&1 || true; docker volume rm awcenter-ci-private awcenter-ci-ai-models awcenter-ci-document-templates >/dev/null 2>&1 || true' EXIT
+          docker run --rm -i --user 0:0 -v awcenter-ci-document-templates:/app/document-templates awcenter:ci python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from docx import Document
+          from projects.registry import PROJECT_DEFINITIONS
+          root = Path('/app/document-templates')
+          document = Document()
+          document.add_paragraph('{{ Design_Change_Title }}')
+          document.save(root / 'hys_dcc_template.docx')
+          projects = {
+              slug: {
+                  'jira_component': slug.upper(), 'aliases': [], 'dcc_label': f'CI {slug}',
+                  'dcc_template_name': f'{slug}_dcc_template.docx', 'mail_template_name': f'ci_{slug}',
+              }
+              for slug, definition in PROJECT_DEFINITIONS.items() if 'jira' in definition.capabilities
+          }
+          configuration = root / 'project-configuration.json'
+          configuration.write_text(json.dumps({
+              'schema_version': 1, 'projects': projects,
+              'cover_pages': {'match_text': 'CI', 'match_label': 'CI Work Package', 'default_label': 'CI Project'},
+          }), encoding='utf-8')
+          configuration.chmod(0o600)
+          os.chown(configuration, 10001, 10001)
+          PY
+          runtime_volumes=(-v awcenter-ci-private:/app/private_media -v awcenter-ci-ai-models:/app/ai-models:ro -v awcenter-ci-document-templates:/app/document-templates:ro)
+          ci_operator_password="$(openssl rand -base64 32)"
+          docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci python manage.py migrate --noinput
+          docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci python manage.py check --deploy --fail-level WARNING
+          docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" -e DJANGO_SUPERUSER_USERNAME=ci-release-operator -e DJANGO_SUPERUSER_EMAIL=ci-release-operator@example.invalid -e DJANGO_SUPERUSER_PASSWORD="$ci_operator_password" awcenter:ci python manage.py createsuperuser --noinput
+          docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" -e PROJECT_CONFIGURATION_FILE=/app/document-templates/project-configuration.json awcenter:ci python manage.py run_release_smoke --stage core --project hys --operator-username ci-release-operator --confirm-fresh-install
+          docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" -e AWCENTER_MAIL_TRANSPORT=django -e EMAIL_BACKEND=django.core.mail.backends.locmem.EmailBackend -e DEFAULT_FROM_EMAIL=no-reply@example.invalid awcenter:ci python manage.py run_release_smoke --stage notification --operator-username ci-release-operator --notification-recipient ci-release-canary@example.invalid --confirm-fresh-install
+          docker run -d --name awcenter-web --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci
+          for attempt in {1..30}; do
+            if curl -fsS -H 'Host: 127.0.0.1' -H 'X-Forwarded-Proto: https' http://127.0.0.1:8000/health/ready/; then break; fi
+            sleep 1
+          done
+          curl -fsS -H 'Host: 127.0.0.1' -H 'X-Forwarded-Proto: https' http://127.0.0.1:8000/health/ready/
+          docker run -d --name awcenter-worker --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci python manage.py run_job_worker --poll-interval 1 --heartbeat-file /tmp/awcenter-job-worker.id
+          for attempt in {1..30}; do
+            if docker exec awcenter-worker python manage.py check_job_worker_health --worker-id-file /tmp/awcenter-job-worker.id; then break; fi
+            sleep 1
+          done
+          docker exec awcenter-worker python manage.py check_job_worker_health --worker-id-file /tmp/awcenter-job-worker.id
+
+      - name: Verify runtime source is read-only
         run: >-
-          docker run --rm
-          -e DEBUG=True
-          -e IPV4_ADDRESS=127.0.0.1
-          -e PORT=8000
-          -e DOCPROOF_URL=http://localhost/docproof
-          -e DOORS_EXECUTABLE=/usr/bin/false
-          -e JIRA_LEGACY_URL=http://localhost/jira-legacy
-          -e JIRA_BTB_URL=http://localhost/jira-btb
-          awcenter:ci
-          python manage.py verify_frontend_artifact
+          docker run --rm awcenter:ci
+          python -c "import os; assert not os.access('/app/manage.py', os.W_OK)"

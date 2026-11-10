@@ -1,0 +1,3 @@
+# Isolated desktop-manager build dependency only. Never install in the app venv.
+# Verified against https://pyinstaller.org/en/stable/ on 02.11.2026.
+PyInstaller==6.22.3

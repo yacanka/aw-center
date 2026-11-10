@@ -7,16 +7,18 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .certificates import package_trust_environment
 from .model import LauncherError, Project, Scope
+from .offline_manifest import ensure_wheels_only, verify_offline_manifest, write_offline_manifest
 from .process import required_tool, run
 
-MINIMUM_PYTHON = (3, 11)
+REQUIRED_PYTHON = (3, 11)
 
 
 def ensure_launcher_python() -> None:
     """Require a supported interpreter before creating a virtual environment."""
-    if sys.version_info[:2] < MINIMUM_PYTHON:
-        raise LauncherError("Python 3.11 or newer is required")
+    if sys.version_info[:2] != REQUIRED_PYTHON:
+        raise LauncherError("CPython 3.11 is required")
 
 
 def ensure_virtual_environment(project: Project, *, create: bool) -> None:
@@ -38,14 +40,19 @@ def check_virtual_environment_version(project: Project) -> None:
     script = "import sys; print('.'.join(map(str, sys.version_info[:3])))"
     completed = run([project.python, "-c", script], project.root, capture=True)
     version = tuple(int(part) for part in completed.stdout.strip().split("."))
-    if version[:2] < MINIMUM_PYTHON:
+    if version[:2] != REQUIRED_PYTHON:
         rendered = ".".join(str(part) for part in version)
-        raise LauncherError(f".venv uses unsupported Python {rendered}; recreate it with Python 3.11+")
+        raise LauncherError(f".venv uses unsupported Python {rendered}; recreate it with Python 3.11")
 
 
 def install(project: Project, scope: Scope, mode: str, offline_dir: Path) -> None:
     """Install selected project dependencies from online or prepared sources."""
     scope.require_any()
+    if mode == "offline":
+        # Validate the bundle before creating a venv or changing node_modules.
+        # Environment markers are platform-dependent, so accepting a bundle
+        # prepared on another OS can silently omit Windows-only dependencies.
+        verify_offline_manifest(project, scope, offline_dir)
     if scope.backend:
         install_backend(project, mode, offline_dir)
     if scope.frontend:
@@ -62,8 +69,9 @@ def install_backend(project: Project, mode: str, offline_dir: Path) -> None:
         require_files(offline_dir / "wheels", "offline Python wheels")
         command += ["--no-index", "--find-links", offline_dir / "wheels"]
     command += ["-r", project.requirements]
-    run(command, project.root)
-    run([project.python, "-m", "pip", "check"], project.root)
+    with package_trust_environment({}, python=project.python) as trust:
+        run(command, project.root, extra_env=trust)
+        run([project.python, "-m", "pip", "check"], project.root, extra_env=trust)
 
 
 def install_frontend(project: Project, mode: str, offline_dir: Path) -> None:
@@ -73,26 +81,63 @@ def install_frontend(project: Project, mode: str, offline_dir: Path) -> None:
     if mode == "offline":
         require_files(offline_dir / "npm-cache", "offline npm cache")
         command += ["--offline", "--cache", offline_dir / "npm-cache"]
-    run(command, project.frontend)
+    with package_trust_environment({}, node=required_tool("node")) as trust:
+        run(command, project.frontend, extra_env=trust)
 
 
 def prepare_offline(project: Project, scope: Scope, offline_dir: Path) -> None:
-    """Download Python artifacts and populate an npm cache for offline setup."""
+    """Build Python wheels and populate an npm cache for offline setup."""
     scope.require_any()
     if scope.backend:
+        ensure_launcher_python()
         if not project.requirements:
             raise LauncherError("requirements.txt was not found")
         wheels = offline_dir / "wheels"
         wheels.mkdir(parents=True, exist_ok=True)
-        run(
-            [sys.executable, "-m", "pip", "download", "--prefer-binary", "-r", project.requirements, "-d", wheels],
-            project.root,
-        )
+        with package_trust_environment({}, python=sys.executable) as trust:
+            run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "wheel",
+                    "-r",
+                    project.requirements,
+                    "--wheel-dir",
+                    wheels,
+                ],
+                project.root,
+                extra_env=trust,
+            )
+            ensure_wheels_only(wheels)
+            verify_backend_wheels(project, wheels, extra_env=trust)
     if scope.frontend:
         cache = offline_dir / "npm-cache"
         cache.mkdir(parents=True, exist_ok=True)
         populate_npm_cache(project, cache)
+    write_offline_manifest(project, scope, offline_dir)
     print(f"[ok] offline dependencies prepared at {offline_dir}")
+
+
+def verify_backend_wheels(project: Project, wheels: Path, *, extra_env=None) -> None:
+    """Ensure the wheelhouse resolves every lock entry for this target platform."""
+    run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--dry-run",
+            "--ignore-installed",
+            "--no-index",
+            "--find-links",
+            wheels,
+            "-r",
+            project.requirements,
+        ],
+        project.root,
+        extra_env=extra_env,
+    )
 
 
 def populate_npm_cache(project: Project, cache: Path) -> None:
@@ -104,7 +149,8 @@ def populate_npm_cache(project: Project, cache: Path) -> None:
             if source.is_file():
                 shutil.copy2(source, staging / name)
         command = [required_tool("npm"), npm_install_action(project), "--ignore-scripts"]
-        run([*command, "--cache", cache, "--prefer-offline"], staging)
+        with package_trust_environment({}, node=required_tool("node")) as trust:
+            run([*command, "--cache", cache, "--prefer-offline"], staging, extra_env=trust)
 
 
 def npm_install_action(project: Project) -> str:

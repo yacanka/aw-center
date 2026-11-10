@@ -1,36 +1,253 @@
-# AW Center Testing Strategy
+# AW Center test stratejisi
 
-## Evidence scope
+Test stratejisinin amacı yalnız assertion sayısı değil; architecture, security, migration, artifact ve deployment contract'larını release öncesi executable evidence olarak doğrulamaktır.
 
-This strategy is based on static repository evidence from backend settings, DRF auth/error handling, middleware, URL routing, frontend router and Axios configuration, Vite/package scripts, requirements, and app-level Django `models.py`, `views.py`, `serializers.py`, and `tests.py` files.
+## Test katmanları
 
-## Current state analysis
+| Katman | Araç/konum | Korunan sözleşme |
+|---|---|---|
+| Backend unit/domain | Django `SimpleTestCase`, `TestCase`; app yanındaki `test*.py`/`tests/` | Service, serializer, permission, transaction, error yolları |
+| Backend API/contract | DRF `APIClient` | Session/CSRF, status/body/error, project scope, idempotency |
+| Architecture fitness | `backend/awcenter/test_architecture.py`, `backend/automations/tests.py` | Import DAG, removed packages, canonical URLs, queue/catalog boundaries |
+| Deployment contract | `backend/awcenter/test_deployment_contract.py`, `test_environment.py`, `test_production_checks.py` | Windows launcher/SQLite/TLS sözleşmesi ve gelecekteki container profili |
+| Frontend unit | Vitest, `frontend/src/**/*.test.ts` | Session/project/API normalization ve typed services |
+| Frontend contract | `frontend/scripts/test-*.mjs` | Route/access/menu, store boundaries, upload/jobs/UI registration |
+| Browser smoke | Playwright Chromium, `frontend/e2e/` | Login+CSRF, protected deep-link ve explicit ECR reconciliation resume |
+| Launcher/release | Python unittest `scripts/test_*.py` | CLI, worker lifecycle, safe packaging, manifest/SBOM |
+| Container smoke | GitHub Actions | Gelecekteki profil için fresh PostgreSQL/Redis, release smoke ve immutable image sözleşmesi |
 
-The repository has Django tests, with meaningful coverage visible in the user/security area and placeholder tests in several apps. Frontend dependencies include TypeScript and `vue-tsc`, but `package.json` does not define a dedicated type-check or test script. Backend checks can be run through Django when dependencies and environment variables are available.
+## Ana local kapılar
 
-## Major improvements
+Repository kökünden:
 
-| Improvement | Severity | Location | Explanation | Recommendation | Business value | Technical value | Complexity | Risk | Confidence | Rollback strategy | Testing strategy |
-|---|---:|---|---|---|---|---|---|---|---|---|---|
-| Add backend smoke tests per mounted app | High | `backend/awcenter/urls.py`, app `tests.py` | Many apps are routable but have placeholder tests. | Add authenticated and unauthenticated smoke tests for each app's critical endpoints. | Catches broken releases early. | Establishes baseline behavior before refactoring. | Medium | Low | High | Tests are additive and can start non-blocking. | Django `manage.py test` by app. |
-| Build API contract tests | High | app `serializers.py`, `views.py`, `api_errors.py` | Enterprise integrations depend on stable payloads. | Assert status codes, fields, error contract, pagination, and auth behavior. | Prevents costly integration breakage. | Documents API behavior executable form. | Medium | Low | High | Version tests alongside endpoint migration. | DRF APIClient tests with fixtures/factories. |
-| File-processing security tests | Critical | `excel`, `word`, `pdf`, `outlook`, `pptxgallery`, `doors` | Upload and conversion endpoints are high-risk. | Test size limits, extension/MIME allowlists, safe paths, cleanup, and subprocess timeouts. | Reduces security incident risk. | Hardens common vulnerability surfaces. | Medium | Medium | Medium | Start with validators independent of external binaries. | Unit tests for validators and integration tests with small sample files. |
-| Frontend type-check and route tests | Medium | `frontend/package.json`, `frontend/src/router/index.ts` | TypeScript tooling exists, but scripts do not expose type-checking. | Add `typecheck`, route guard tests, and service tests with mocked Axios. | Reduces UI regressions. | Improves confidence in auth and API contracts. | Low | Low | High | Add scripts without blocking builds initially. | `npm run typecheck`, component/router tests when runner is added. |
-| End-to-end critical journeys | Medium | frontend routes and backend APIs | Login, document upload, compare, and report flows need integrated verification. | Add Playwright or Cypress for smoke journeys after stable test env exists. | Validates real user workflows. | Catches integration gaps across stack. | Medium | Medium | Medium | Keep E2E smoke suite small. | Login/logout, protected route, one upload workflow, one dashboard workflow. |
-| Performance regression tests | Medium | list endpoints and document workflows | Pagination and file processing can degrade with data volume. | Add query-count tests and synthetic dataset benchmarks for critical lists. | Protects user experience as data grows. | Finds N+1 and memory issues. | Medium | Low | Medium | Use thresholds per endpoint and tune gradually. | Query count assertions and timed smoke benchmarks. |
+```bash
+python launcher.py check
+python launcher.py test
+```
 
-## Test pyramid
+`check`:
 
-1. **Unit tests:** validators, serializers, selectors, DTO formatters, auth helpers.
-2. **Integration tests:** DRF endpoints, database interactions, file workflows with sample artifacts.
-3. **Contract tests:** API response shape, error contract, pagination, auth policies.
-4. **E2E smoke tests:** login, protected navigation, core document workflow.
-5. **Operational checks:** Django check, frontend build/type-check, dependency audit, health endpoints.
+- Django system check;
+- isolated in-memory database üzerinde migration drift ve migration plan;
+- frontend read-only format check ve strict TypeScript.
 
-## Minimum release gate proposal
+`test`:
 
-- `python manage.py check`
-- `python manage.py test users awcenter`
-- App-specific Django tests for changed backend modules
-- `npm run build` for frontend-affecting changes
-- Future: `npm run typecheck`, dependency audit, and E2E smoke tests
+- full Django suite;
+- launcher, worker lifecycle ve release metadata unittest'leri;
+- frontend `test:ci` zinciri.
+
+Bu komutlar source formatlamaz, migration üretmez ve mevcut database'e migration uygulamaz.
+
+## Explicit doğrulama komutları
+
+Backend, `backend/` dizininden:
+
+```bash
+../.venv/bin/python manage.py check
+../.venv/bin/python manage.py makemigrations --check --dry-run
+../.venv/bin/python manage.py migrate --check
+../.venv/bin/python manage.py test
+../.venv/bin/python manage.py check_project_registry
+```
+
+Dar backend örnekleri:
+
+```bash
+../.venv/bin/python manage.py test users.test_auth_csrf
+../.venv/bin/python manage.py test compliance
+../.venv/bin/python manage.py test pdf.tests
+../.venv/bin/python manage.py test jobs
+../.venv/bin/python manage.py test automations integrations.tests.test_doors_api \
+  integrations.tests.test_doors_worker_tasks
+../.venv/bin/python manage.py test awcenter.test_architecture awcenter.test_deployment_contract
+```
+
+PDF dizini namespace package olduğu için varsayılan test keşfine dahil olmaz. CI, CPython 3.11 backend kapısında `pdf.tests` etiketini ayrıca çalıştırır.
+
+Frontend, repository kökünden:
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run format:check
+npm --prefix frontend run typecheck
+npm --prefix frontend run test:ci
+npm --prefix frontend run build
+```
+
+İlk local browser smoke kurulumunda:
+
+```bash
+cd frontend
+npx playwright install chromium
+cd ..
+npm --prefix frontend run test:e2e
+```
+
+CI, `frontend/` çalışma dizininde `npx playwright install --with-deps chromium` kullanır ve ardından aynı `npm run test:e2e` gate'ini çalıştırır. Browser binary/cache'i source veya release manifestine eklenmez.
+
+E2E gate'i her çalıştırmada production frontend build'ini üretir ve Vite preview ile sunar; açık bir geliştirme sunucusunu yeniden kullanmaz. Böylece test süreleri, her navigasyonda kaynak modüllerini dönüştüren development/HMR sunucusuna bağlı kalmaz. Preview, Django'nun `/app/` SPA/PWA ve `/core/` derlenmiş asset URL sınırlarını korur. API fixture'ları aynı-origin `/api/` isteklerini karşılar. Paylaşılan geliştirme/CI makinelerinde tarayıcı ve trace belleğini sınırlamak için tek worker kullanılır; tüm testler çalışır, test beklentileri, timeout ve retry politikaları değiştirilmez.
+
+Launcher/release:
+
+```bash
+.venv/bin/python -m unittest \
+  scripts.test_launcher \
+  scripts.test_launcher_jobs \
+  scripts.test_release_metadata
+```
+
+Frontend artifact-serving değişikliğinde build sonrasında, `backend/` içinden:
+
+```bash
+../.venv/bin/python manage.py collectstatic --clear --noinput
+../.venv/bin/python manage.py verify_frontend_artifact
+```
+
+## Değişiklik → zorunlu evidence matrisi
+
+| Değişiklik | Minimum ek kontroller |
+|---|---|
+| Model/migration | Target app tests, `makemigrations --check --dry-run`, fresh Windows-production SQLite `migrate`, `migrate --check`; gelecekteki profil için ayrıca fresh PostgreSQL |
+| Project registry/roles | `projects`, `orgs`, `check_project_registry`, frontend project registry tests |
+| Compliance lifecycle/import | Compliance unit/API, optimistic version/confirmation, audit/history ve concurrency testleri |
+| Session/authorization | Backend auth/CSRF/permission + password-reset outbox/lease; frontend session, route access, menu/command tests |
+| Upload/private artifact | File security, path traversal/signature/size, authorization, SHA ve cleanup testleri |
+| Job/executor | Catalog resolution, queue allowlist, idempotency, lease/token fencing, heartbeat, cancellation, recovery, retention |
+| ECR workflow | Owner scope, bounded PDF/immutable review create replay'i, versioned approve/reject, ephemeral JIRA session, publish/resume idempotency, job fencing ve no-auto-retry reconciliation |
+| JIRA subtask | Operator/project scope, credential-free manual/Excel plan, live field contract, marker idempotency, uncertain write ve explicit resume |
+| DCC reminder | Record/version/role scope, recipient sınırı, idempotency/cooldown, outbox lease, stable Message-ID ve SMTP'siz web enqueue |
+| DOORS worker | Combined allowlist, spawn isolation, singleton lock ve adapter belirsizlikleri |
+| Frontend service/store | Vitest + ilgili script contract + typecheck |
+| Session/router/browser shell | Backend auth/CSRF + frontend unit/route contracts + `test:e2e` |
+| Static/Vite/production | Frontend build, collectstatic, artifact verify, Windows launcher/deploy checks; container değişirse ayrıca Docker/Nginx smoke |
+| Launcher/offline/release | Üç launcher/release unittest modülü, checksum/target mismatch ve secret-exclusion cases |
+| Compose/env/release gate | Preflight placeholder/path/password/evidence reddi, resolved digest, reviewed/image frontend tree eşliği, base/action pinleri ve per-process secret/volume assertions |
+
+## Güvenlik senaryoları
+
+Değişen yüzeyle orantılı olarak en az şunları değerlendirin:
+
+- anonymous, authenticated fakat yetkisiz ve doğru role sahip kullanıcı;
+- missing/invalid CSRF ve session invalidation;
+- known/unknown account için aynı password-reset response, SMTP'siz web enqueue, raw-token persistence reddi, stale mail lease ve fragment capability'nin hemen scrub edilmesi;
+- Sessiz loopback SMTP peer'inde sınırlı bekleme, geçersiz timeout ayarlarının başlangıçta reddi, timeout sonrası stable Message-ID/link ile retry, sonraki kaydın gönderim öncesine kadar pending kalması, expired/reclaimed lease ile sonuç yazılmaması ve diğer notification kuyruklarının ilerlemesi;
+- cross-project object ID ve disabled/unknown project;
+- Release bulk-seen'de erken liste sınırı, strict integer ID, duplicate/inactive/user scope, session+CSRF ve gerçek iki bağlantılı eşzamanlı POST'ların doğru `created` toplamı; frontend'de uzun listelerin bounded gruplar halinde gönderilmesi;
+- API/worker JSON log'larında hata konumu ve allowlisted aşama bilgisi; ham hata mesajı, payload, credential, local değerler ve filesystem yolu redaction regresyonları;
+- unsafe filename, traversal, yanlış signature, oversized upload, archive expansion;
+- Personel import'ta canonical partial-result satır raporu ve warm/in-flight cache sonrası awaited forced refresh; refresh hatasında raporun korunması;
+- HTTP signal listener'larında success/network/timeout/cancellation, malformed cookie, serialization ve config taşımayan adapter hatalarında cleanup; mounted DCC/ECR deferred cevaplarında unmount/selection/action revision ve superseded loading flag'ları;
+- Compliance import'ta SUCCESS/PARTIAL audit save hatasında business rollback, erken satır/sütun bütçesi, spoofed dimension/XFD sütunu, uzak sparse satırın sessizce kesilmeden reddi, her iki başlık konumunda tam satır sınırı, 100-column boundary, query scaling, candidate hydration ve parse sonrası concurrent edit fingerprint'i;
+- DDF'de eksik tablo/kısa satır ve eşit metinli bağımsız hücreler; legacy Word/Excel'de JSON/threshold/shape, aggregate character-work ve combined cell bütçeleri, malformed Office ve unexpected 500;
+- Worksheet XML preflight'ta completed node detach ile satır sayısından bağımsız memory; parent-remove mutation aynı peak-allocation regresyonunu tetikler;
+- Gerçek executor/child/grandchild ağacında timeout/cancel/crash/success, startup containment failure, publication öncesi çıkış ve dış write için containment exit timeout'ta reconciliation;
+- Isolated executor'da private scratch sahipliği, timeout/cancel/crash/success ve process-start failure sonrası temizleme; retention'da eski orphan temizliği, güncel token/expired lease ve symlink sınırlarının korunması;
+- JIRA draft publication'da provider timeout ve reconciliation lookup hatasının worker terminal projection sonrasında da reconciliation-required kalması; sunum upload/reconvert işinin ilk commit anında çalışan worker tarafından doğru sunumla eşleştirilmesi;
+- PDF bölmede `parts` için sayfa sayısı ve 1.000 parça sınırı, `pages_per_parts` ile türetilen parça sayısında aynı üst sınır, ondalıklı/geçersiz parametre reddi ve her iki modda ZIP içindeki sayfa sırasının korunması;
+- Outlook attachment capability'sinde cross-user kullanım, query/URL sızıntısı, replay ve cached SHA-256 mismatch; production file cache üzerinde aynı payload'ı okuyan thread/process'ler için tek başarılı tüketim, expiry ve kilit hatasında payload reddi;
+- idempotency key replay: aynı input ve farklı input;
+- ECR'de cross-owner erişim, stale approve/reject version, credential payload reddi, missing/expired JIRA session, stale publication fence ve explicit resume öncesi reconciliation doğrulaması;
+- JIRA'da `DEBUG=False` + Windows-native file cache ile şifreli oturumun ayrı process'ten okunması/silinmesi, owner scope, expiry/corrupt kayıt temizliği ve deployment profiline uymayan cache'in reddi; container Redis gereksiniminin korunması;
+- subtask create/resume'da legacy credential reddi, unknown/required field kontrolü, marker reuse ve uncertain provider write sonrası otomatik retry olmaması;
+- Watcher reminder'da record/project scope, stale version, aynı idempotency replay'i, saatlik cooldown, alıcıların response'ta gizlenmesi ve stale mail lease;
+- expired/recovered lease ve stale worker publish;
+- Job silmede gerçek commit, outer/savepoint/cascade rollback, artifact adlarının snapshot'ı, storage hatasında diğer dosyanın silinmesi ve cleanup worker retry; retention rollback'te input/output korunması;
+- untrusted proxy, missing/invalid/expired certificate ve fingerprint mismatch;
+- Redis authenticated health + unauthenticated command rejection ve Nginx loopback-only readiness;
+- response/log içinde secret, path, certificate veya upstream exception sızıntısı.
+
+Test kolaylığı için production guard kaldırılmaz, exception yutulmaz, assertion gevşetilmez ve expected failure skip'e çevrilmez.
+
+## Database ve concurrency
+
+Güncel production contract'ı tek Windows hostunda, yerel NTFS üzerindeki ayrı bir
+SQLite database'idir. `DATABASE_CONN_MAX_AGE=0`, bounded busy timeout, tek ASGI server
+process'i ve tek general worker zorunludur. Release doğrulaması development database'i
+yerine fresh bir production-benzeri SQLite kopyasında `migrate --noinput`,
+`migrate --check`, project seed ve işlevsel smoke kontrollerini kapsamalıdır.
+
+SQLite'ın write concurrency sınırı kabul edilmiş geçici bir trade-off'tur. Job claim,
+notification lease ve aggregate transition testleri lock/busy senaryolarını ayrıca
+kapsamalı; production database ve private media aynı noktadan backup edilmelidir.
+
+GitHub Actions'taki PostgreSQL/Redis ve container smoke'ları sonraki olgunluk profiline
+geçiş sözleşmesini çürümeye karşı korur; bugünkü Windows deployment girdisi değildir.
+
+Job claim/recovery, compliance/ECR version transition ve notification lease testleri row lock/token değişimini assertion ile kanıtlar; yalnız happy-path status kontrolü yeterli değildir. ECR external write timeout/lease loss `reconciliation_required` üretmeli, otomatik yeni job yaratmamalı ve resume yeni `Idempotency-Key` olmadan ilerlememelidir.
+
+## Frontend kalite zinciri
+
+`frontend/package.json` içindeki `test:ci` sırasıyla Vitest unit testleri ve repository-owned Node contract testlerini çalıştırır. `test:e2e` ayrı Playwright gate'idir; mevcut smoke session API'nin CSRF cookie/header contract'ını, anonymous protected deep-link redirect'ini ve `/app/task/ecr` ekranında `reconciliation_required` publication'ın version + yeni `Idempotency-Key` ile queued durable attempt'e resume edilmesini gerçek Chromium navigation'ıyla doğrular. Bu mocked browser contract smoke'u canlı Django/container smoke'unun yerine geçmez. Route görünürlüğü, navigation guard ve backend permission aynı policy niyetini paylaşmalıdır; UI gizleme authorization yerine geçmez.
+
+Frontend lock dosyasının canonical üreticisi `frontend/package.json` içindeki npm sürümüdür. Rolldown'ın optional WASI zincirindeki `@emnapi/core` ve `@emnapi/runtime` peer'ları doğrudan dev dependency olarak sabitlenir; böylece npm 10 ve npm 11 aynı lock dosyasını `npm ci` ile kabul eder. Dependency güncellemesinden sonra iki npm major'ünde de clean install doğrulanmalıdır.
+
+`format:check` read-only'dir. CI source'u otomatik formatlamaz. Bundle build, `check-bundle-budget.mjs` ve postbuild artifact existence kontrolüyle tamamlanır.
+
+## SQLite ve izole worker testleri
+
+Varsayılan Django test çalıştırıcısı `awcenter.test_runner.ProcessSafeDiscoverRunner`'dır. SQLite için otomatik seçilen test veritabanı sistemin geçici dizininde dosya olarak oluşturulur ve çalışma sonunda temizlenir. Böylece Windows/macOS `spawn` alt process'leri test kayıtlarına erişebilir. Açıkça verilen `TEST.NAME` ve PostgreSQL davranışı korunur; otomatik geçici SQLite dosyası `--keepdb` ile kalıcı hale gelmez. Geliştirme/production veritabanı yolu değiştirilmez. SQLite testleri seri çalışır: `--parallel` istenirse çalıştırıcı uyarı verir ve tüm testleri tek test sürecinde yürütür. Bu sınır, Django'nun daemon test havuzunun gerçek executor alt process'lerini başlatamaması ve SQLite spawn clone'larını belleğe taşıması nedeniyle gereklidir; PostgreSQL paralellik ayarı değiştirilmez.
+
+`jobs.tests.test_isolated_worker` gerçek alt process testleri, aktif test veritabanının yolunu ve geçici private-artifact dizinini yalnız test süresince alt process environment'ına aktarır. Parent terminal CAS/fencing, timeout, cancellation ve dış sisteme yazma belirsizliği senaryoları bu sınır üzerinden çalışır. Bootstrap Django'yu hazırladıktan sonra `jobs.child_execution` modülünü yükler; ana `jobs.worker` modülüne geri bağımlılık yoktur.
+
+Python 3.11 ortamında hedefli doğrulama:
+
+```bash
+python backend/manage.py test awcenter.test_architecture awcenter.test_database_settings jobs.tests.test_isolated_worker compliance.test_imports compliance.test_import_concurrency compliance.test_doors_imports
+```
+
+## Reset kilidi ve gerçek FFmpeg doğrulaması
+
+`compliance.test_reset_concurrency`, reset hazırlığının devam eden HTTP yazmasını
+beklediğini, bu yazmanın sonucunu gördüğünü ve sonradan gelen yazmayı 409 ile
+engellediğini gerçek ayrı bağlantılarla doğrular. Test hem PostgreSQL row lock'ı
+hem dosya tabanlı SQLite write fence'i için çalışır; `select_for_update` desteğine
+göre atlanmaz. SQLite için varsayılan dosya tabanlı test çalıştırıcısını kullanın.
+Windows CI bu senaryoyu SQLite test listesinde ayrıca çalıştırır.
+
+`jobs.tests.test_worker.JobWorkerTests.test_real_ffmpeg_executor_completes_when_available`,
+gerçek worker üzerinden JPEG'i PNG'ye dönüştürür ve çıktının okunabilir PNG,
+16 × 16 piksel olduğunu doğrular. Test `FFMPEG_EXECUTABLE` ayarına uyar; ikili PATH
+üzerinde veya açık bir dosya yolunda bulunabilir. İkili yoksa local test açık bir
+skip nedeni raporlar. Linux backend ve compatibility CI adımları testlerden önce
+FFmpeg'i doğrular, yoksa sistem paketinden kurar; eksik ikili CI hatasıdır.
+
+Repository kökünden, Python 3.11 ortamı ve doğrulanmış bir FFmpeg kurulumu ile:
+
+```bash
+# FFMPEG_EXECUTABLE varsayılan olarak PATH üzerindeki ffmpeg'dir.
+# Gerekirse process environment'ta kurulu ikilinin tam yolunu belirtin.
+python backend/manage.py test compliance.test_reset_concurrency \
+  awcenter.test_database_settings \
+  jobs.tests.test_worker.JobWorkerTests.test_real_ffmpeg_executor_completes_when_available \
+  --verbosity 2
+```
+
+Bu kontroller uygulama veritabanını sıfırlamaz; Django disposable test veritabanını
+ve geçici private-artifact dizinlerini kullanır. FFmpeg ikilisi kaynak veya Python
+lock dosyasına eklenmez.
+
+## CI ve release gate
+
+GitHub Actions jobs:
+
+- Backend: Python 3.11, PostgreSQL/Redis, fresh migration, checks/tests, dependency audit, integrated frontend/static smoke.
+- Frontend: Node 22, `npm ci`, format/type/unit-contract test, Playwright Chromium E2E, build, npm audit ve immutable artifact upload.
+- Windows native: Python 3.11 üzerinde launcher/DOORS, gerçek izole worker process'leri, SQLite eşzamanlılık, mimari ve compliance Excel/DOORS import regresyonları; repository dışındaki geçici dizinlerde production SQLite migration, file cache ve `check --deploy` sözleşmesi.
+- Future container: CPython 3.11 üzerinde release doğrulaması, digest-pinned base/infra image'lar, commit-SHA-pinned actions, combined image, resolved digest/frontend tree verification, release manifest/CycloneDX SBOM, fresh-schema migration, `run_release_smoke` core+notification kapıları, deploy checks, readiness, worker heartbeat ve source read-only assertion.
+
+`verify_release_image.py`, BuildKit digest'i ve image frontend ağacını schema-2 release manifestine bağlar. `deployment_preflight.py` environment/runtime-path sözleşmesinin yanında manifest ve verification kaydındaki release, commit, manifest SHA-256, frontend tree/count ve `AWCENTER_IMAGE` digest eşliğini yeniden doğrular. Testler hem image-verification üretimindeki değiştirilmiş dist/manifest reddini hem deploy-time değiştirilmiş evidence/env reddini ayrı kapsamalıdır.
+
+Required job başarısızken release deploy edilmez. Audit bulgusu gizlenmez; dependency exception gerekiyorsa risk, owner ve expiry ile ayrı karar kaydı gerekir.
+
+## Test verisi ve artifact hijyeni
+
+- Test credential'ları yalnız test scope'unda sentetik değerlerdir; gerçek secret/PII kullanılmaz.
+- Temporary file/directory context veya teardown ile temizlenir.
+- Generated `frontend/dist`, `frontend/test-results`, `frontend/playwright-report`, collected static, SQLite, private media ve release evidence commit edilmez.
+- Testler external JIRA/DOORS/Teamcenter servisine güvenmez; bounded adapter/transport mock'ları kullanır.
+- Windows-only callable contract'ları platformdan bağımsız artifact adapter testleriyle, gerçek OLE smoke'u kontrollü agent ortamında ayrıca doğrulanır.
+
+## Sonuç raporlama
+
+Teslim özetinde komut, test sayısı/sonuç, skip ve çalıştırılamayan kontrol açıkça yazılır. Bir kontrol environment nedeniyle çalışmadıysa yapılan alternatif doğrulama ve kalan risk belirtilir.

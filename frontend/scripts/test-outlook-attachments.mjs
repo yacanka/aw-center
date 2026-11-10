@@ -15,15 +15,15 @@ const {
   isPdfAttachment,
   loadOutlookPdfAttachments,
   selectOutlookPdfInputs,
-  validateOutlookDownloadUrl,
+  validateOutlookDownloadCapability,
   validatePdfBlob
-} = await import('../src/services/outlookAttachmentFiles.ts')
+} = await import('../src/features/tools/api/outlookAttachmentPolicy.ts')
 
 const pdfAttachment = {
   name: 'change.pdf',
   size: 9,
   mime: 'application/pdf',
-  download_url: '/outlook/msg/download/?token=private&index=0'
+  download_capability: 'A'.repeat(48)
 }
 
 test('loads PDF attachments sequentially and reports isolated failures', async () => {
@@ -42,12 +42,10 @@ test('loads PDF attachments sequentially and reports isolated failures', async (
   assert.deepEqual(result.failures, [{ name: 'bad.pdf', reason: 'expired' }])
 })
 
-test('accepts case-insensitive PDF names and rejects cross-origin links', () => {
+test('accepts case-insensitive PDF names and rejects malformed capabilities', () => {
   assert.equal(isPdfAttachment({ ...pdfAttachment, name: 'CHANGE.PDF' }), true)
-  assert.throws(
-    () => validateOutlookDownloadUrl('https://attacker.test/outlook/msg/download/?token=x'),
-    /invalid/
-  )
+  assert.equal(validateOutlookDownloadCapability('A'.repeat(48)), 'A'.repeat(48))
+  assert.throws(() => validateOutlookDownloadCapability('short'), /invalid/)
 })
 
 test('manual PDF replaces an expired attachment with the same name', () => {

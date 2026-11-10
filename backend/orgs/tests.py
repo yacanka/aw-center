@@ -1,288 +1,375 @@
-from io import StringIO
+"""Organization model, authorization, and project-scoped API tests."""
+
+from io import BytesIO
 
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
+from django.contrib.auth.models import Group, Permission
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.exceptions import ValidationError
 from django.test import TestCase
-
+from openpyxl import Workbook
 from rest_framework.test import APIClient
 
-from orgs.models import People, Project
-from projects.registry import PROJECT_DEFINITIONS, get_enabled_project_definitions
+from compliance.models import ComplianceDocument, CoverPage
+
+from .access_policy import effective_role, has_role_for_all_projects
+from .models import (
+    Panel,
+    Person,
+    Project,
+    ProjectRoleAssignment,
+    ResponsibleAssignment,
+)
 
 
-class SyncProjectsCommandTests(TestCase):
-    """Verify registry-to-org project synchronization behavior."""
-
-    def call_sync_projects(self, *arguments):
-        """Run sync_projects and return its stdout."""
-        output = StringIO()
-        call_command("sync_projects", *arguments, stdout=output)
-        return output.getvalue()
-
-    def test_creates_missing_enabled_projects(self):
-        """The command creates enabled registry projects by default."""
-        output = self.call_sync_projects()
-
-        expected_slugs = {definition.slug for definition in get_enabled_project_definitions()}
-        self.assertEqual(Project.objects.count(), len(expected_slugs))
-        self.assertEqual(set(Project.objects.values_list("slug", flat=True)), expected_slugs)
-        self.assertIn("created=6", output)
-        self.assertIn("skipped_disabled=2", output)
-
-    def test_existing_projects_are_no_op_by_default(self):
-        """Existing user-edited project names are preserved by default."""
-        Project.objects.create(slug="ozgur", name="Custom Ozgur")
-
-        output = self.call_sync_projects()
-
-        self.assertEqual(Project.objects.get(slug="ozgur").name, "Custom Ozgur")
-        self.assertIn("UNCHANGED ozgur: existing name preserved", output)
-
-    def test_dry_run_does_not_create_projects(self):
-        """Dry-run reports planned creates without database writes."""
-        output = self.call_sync_projects("--dry-run")
-
-        self.assertFalse(Project.objects.exists())
-        self.assertIn("CREATE ozgur: Ozgur", output)
-        self.assertIn("DRY RUN created=6", output)
-
-    def test_update_display_name_flag_updates_existing_projects(self):
-        """The explicit update flag synchronizes existing display names."""
-        Project.objects.create(slug="aesa", name="User AESA")
-
-        output = self.call_sync_projects("--update-display-name")
-
-        self.assertEqual(Project.objects.get(slug="aesa").name, "AESA")
-        self.assertIn("UPDATE aesa: User AESA -> AESA", output)
-
-    def test_include_disabled_flag_creates_disabled_projects(self):
-        """Disabled registry projects are only created when requested."""
-        output = self.call_sync_projects("--include-disabled")
-
-        self.assertEqual(Project.objects.count(), len(PROJECT_DEFINITIONS))
-        self.assertTrue(Project.objects.filter(slug="gokbey").exists())
-        self.assertIn("skipped_disabled=0", output)
-
-
-class RegisteredProjectsApiTests(TestCase):
-    """Verify Organizations exposes the central registry as read-only data."""
-
+class ProjectRolePolicyTests(TestCase):
     def setUp(self):
-        """Create an authenticated client for the protected registry alias."""
-        user = get_user_model().objects.create_user(username="org-admin", password="secret")
-        self.client = APIClient()
-        self.client.force_authenticate(user=user)
+        self.user = get_user_model().objects.create_user("role-user")
+        self.project = Project.objects.get(slug="ozgur")
 
-    def test_project_list_comes_from_registry_without_database_rows(self):
-        """Registered projects are visible even when orgs.Project is empty."""
-        response = self.client.get("/orgs/projects/", {"capability": "orgs"})
+    def test_highest_direct_or_group_role_is_effective(self):
+        group = Group.objects.create(name="Managers")
+        group.user_set.add(self.user)
+        ProjectRoleAssignment.objects.create(
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+            role=ProjectRoleAssignment.Role.VIEWER,
+            user=self.user,
+        )
+        ProjectRoleAssignment.objects.create(
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+            role=ProjectRoleAssignment.Role.MANAGER,
+            group=group,
+        )
 
-        expected_slugs = {
-            definition.slug
-            for definition in PROJECT_DEFINITIONS.values()
-            if "orgs" in definition.capabilities
-        }
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(Project.objects.exists())
-        self.assertEqual({item["slug"] for item in response.data}, expected_slugs)
+        self.assertEqual(
+            effective_role(
+                self.user,
+                self.project,
+                ProjectRoleAssignment.Domain.COMPLIANCE,
+            ),
+            ProjectRoleAssignment.Role.MANAGER,
+        )
 
-    def test_project_collection_rejects_mutation(self):
-        """Clients cannot create projects outside the backend registry."""
-        response = self.client.post("/orgs/projects/", {"name": "Unregistered"})
+    def test_assignment_accepts_exactly_one_subject_and_valid_domain_role(self):
+        assignment = ProjectRoleAssignment(
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.ORGANIZATION,
+            role=ProjectRoleAssignment.Role.OPERATOR,
+            user=self.user,
+        )
+        with self.assertRaises(ValidationError):
+            assignment.full_clean()
 
-        self.assertEqual(response.status_code, 405)
+        assignment.role = ProjectRoleAssignment.Role.MANAGER
+        assignment.group = Group.objects.create(name="invalid-second-subject")
+        with self.assertRaises(ValidationError):
+            assignment.full_clean()
+
+    def test_multi_project_role_requires_every_related_project(self):
+        second = Project.objects.get(slug="piku")
+        ProjectRoleAssignment.objects.create(
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.JIRA,
+            role=ProjectRoleAssignment.Role.OPERATOR,
+            user=self.user,
+        )
+
+        self.assertFalse(
+            has_role_for_all_projects(
+                self.user,
+                [self.project, second],
+                ProjectRoleAssignment.Domain.JIRA,
+                ProjectRoleAssignment.Role.OPERATOR,
+            )
+        )
 
 
-class ProjectOrganizationApiTests(TestCase):
-    """Verify project-specific panel and responsible query contracts."""
-
+class OrganizationApiTests(TestCase):
     def setUp(self):
-        """Create one project panel and responsibles with distinct ATA chapters."""
-        from projects.ozgur.models import Panel, Responsible
-
-        user = get_user_model().objects.create_user(username="org-user", password="secret")
+        self.project = Project.objects.get(slug="ozgur")
+        self.viewer = get_user_model().objects.create_user("org-viewer")
+        self.manager = get_user_model().objects.create_user("org-manager")
+        ProjectRoleAssignment.objects.create(
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.ORGANIZATION,
+            role=ProjectRoleAssignment.Role.VIEWER,
+            user=self.viewer,
+        )
+        ProjectRoleAssignment.objects.create(
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.ORGANIZATION,
+            role=ProjectRoleAssignment.Role.MANAGER,
+            user=self.manager,
+        )
+        permission = Permission.objects.get(codename="manage_people_directory")
+        self.manager.user_permissions.add(permission)
+        self.panel = Panel.objects.create(
+            project=self.project,
+            name="Flight",
+            discipline="Systems",
+            ata="27-00",
+        )
+        self.person = Person.objects.create(
+            person_id="100001",
+            name="Ada Engineer",
+            email="ada@example.com",
+        )
         self.client = APIClient()
-        self.client.force_authenticate(user=user)
-        first_panel = Panel.objects.create(name="Avionics", discipline="System", ata="21-00")
-        second_panel = Panel.objects.create(name="Propulsion", discipline="System", ata="72-00")
-        first_person = People.objects.create(
-            person_id="100001", name="Ada Engineer", email="ada@example.com"
-        )
-        second_person = People.objects.create(
-            person_id="100002", name="Grace Engineer", email="grace@example.com"
-        )
-        Responsible.objects.create(
-            panel=first_panel,
-            person=first_person,
-            title="AS",
-        )
-        Responsible.objects.create(
-            panel=second_panel,
-            person=second_person,
-            title="CVE",
-        )
 
-    def test_responsibles_are_filtered_by_panel_ata(self):
-        """The frontend panel value is an ATA chapter, not a panel name."""
-        response = self.client.get("/ozgur/orgs/responsibles/", {"panel": "21-00"})
+    @property
+    def root(self):
+        return "/api/projects/ozgur/organization/"
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["count"], 1)
-        self.assertEqual(response.data["results"][0]["person_id"], "100001")
+    def test_viewer_reads_project_assignments_but_cannot_mutate(self):
+        ResponsibleAssignment.objects.create(
+            panel=self.panel,
+            person=self.person,
+            responsibility_role="AS",
+        )
+        self.client.force_authenticate(self.viewer)
 
-    def test_people_changes_are_reflected_by_responsible(self):
-        """Responsible identity fields always reflect the related directory row."""
-        person = People.objects.create(
-            person_id="100003", name="Directory Name", email="directory@example.com"
+        listed = self.client.get(
+            f"{self.root}responsible-assignments/?panel=27-00"
         )
-        response = self.client.post(
-            "/ozgur/orgs/responsibles/",
-            self._responsible_payload("100003"),
-        )
-        changed = self.client.put(
-            f"/orgs/people/{person.pk}/",
-            {
-                "person_id": "100099",
-                "name": "Updated Directory Name",
-                "email": "updated@example.com",
-            },
+        rejected = self.client.post(
+            f"{self.root}panels/",
+            {"name": "New", "discipline": "Systems", "ata": "28-00"},
             format="json",
         )
-        updated = self.client.get(f"/ozgur/orgs/responsibles/{response.data['id']}/")
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(changed.status_code, 200)
-        self.assertEqual(updated.data["person_id"], "100099")
-        self.assertEqual(updated.data["name"], "Updated Directory Name")
-        self.assertEqual(updated.data["email"], "updated@example.com")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data["count"], 1)
+        self.assertEqual(rejected.status_code, 403)
 
-    def test_responsible_creation_rejects_unknown_person(self):
-        """New responsibles must reference an existing directory person."""
-        response = self.client.post(
-            "/ozgur/orgs/responsibles/",
-            self._responsible_payload("999999"),
+    def test_manager_with_global_permission_updates_people_directory(self):
+        self.client.force_authenticate(self.manager)
+
+        response = self.client.patch(
+            f"{self.root}people/{self.person.pk}/",
+            {"name": "Ada Updated"},
+            format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("person_id", response.data["errors"])
+        self.assertEqual(response.status_code, 200)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.name, "Ada Updated")
 
-    def test_assigned_person_cannot_be_deleted(self):
-        """Directory rows remain protected while responsible assignments reference them."""
-        person = People.objects.get(person_id="100001")
+    def test_project_manager_without_global_permission_cannot_update_people(self):
+        manager = get_user_model().objects.create_user("project-only-manager")
+        ProjectRoleAssignment.objects.create(
+            project=self.project,
+            domain=ProjectRoleAssignment.Domain.ORGANIZATION,
+            role=ProjectRoleAssignment.Role.MANAGER,
+            user=manager,
+        )
+        self.client.force_authenticate(manager)
 
-        response = self.client.delete(f"/orgs/people/{person.pk}/")
+        response = self.client.patch(
+            f"{self.root}people/{self.person.pk}/",
+            {"name": "Unauthorized"},
+            format="json",
+        )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertTrue(People.objects.filter(pk=person.pk).exists())
+        self.assertEqual(response.status_code, 403)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.name, "Ada Engineer")
 
-    @staticmethod
-    def _responsible_payload(person_id):
-        return {
-            "panel": "21-00",
-            "person_id": person_id,
-            "title": "AS",
-        }
+    def test_manager_can_delete_an_unused_panel_and_its_assignments(self):
+        ResponsibleAssignment.objects.create(
+            panel=self.panel,
+            person=self.person,
+            responsibility_role="AS",
+        )
+        self.client.force_authenticate(self.manager)
+
+        response = self.client.delete(f"{self.root}panels/{self.panel.pk}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Panel.objects.filter(pk=self.panel.pk).exists())
+        self.assertFalse(ResponsibleAssignment.objects.exists())
+
+    def test_panel_used_by_compliance_document_returns_a_conflict(self):
+        cover_page = CoverPage.objects.create(project=self.project, number="CP-001")
+        document = ComplianceDocument.objects.create(
+            project=self.project,
+            panel=self.panel,
+            cover_page=cover_page,
+            name="Flight controls compliance",
+        )
+        self.client.force_authenticate(self.manager)
+
+        response = self.client.delete(f"{self.root}panels/{self.panel.pk}/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "PANEL_IN_USE")
+        self.assertIn("compliance documents", response.data["detail"])
+        self.assertFalse(response.data["retryable"])
+        self.assertTrue(Panel.objects.filter(pk=self.panel.pk).exists())
+        self.assertTrue(ComplianceDocument.objects.filter(pk=document.pk).exists())
 
 
-class PeopleApiTests(TestCase):
-    """Verify people API authentication, search, and pagination behavior."""
+class PanelImportApiTests(TestCase):
+    """Protect panel workbook mapping, uniqueness, scope, and confirmation."""
 
     def setUp(self):
-        """Create an authenticated API client and representative people rows."""
-        user = get_user_model().objects.create_user(username="architect", password="secret")
+        self.project = Project.objects.get(slug="ozgur")
+        self.manager = get_user_model().objects.create_user("panel-import-manager")
+        self.viewer = get_user_model().objects.create_user("panel-import-viewer")
+        for user, role in (
+            (self.manager, ProjectRoleAssignment.Role.MANAGER),
+            (self.viewer, ProjectRoleAssignment.Role.VIEWER),
+        ):
+            ProjectRoleAssignment.objects.create(
+                project=self.project,
+                domain=ProjectRoleAssignment.Domain.ORGANIZATION,
+                role=role,
+                user=user,
+            )
+        self.existing = Panel.objects.create(
+            project=self.project,
+            name="Old flight panel",
+            discipline="Systems",
+            ata="27-00",
+        )
         self.client = APIClient()
-        self.client.force_authenticate(user=user)
-        People.objects.bulk_create(
+        self.client.force_authenticate(self.manager)
+
+    @property
+    def preview_url(self):
+        return "/api/projects/ozgur/organization/panels/imports/preview/"
+
+    @property
+    def confirm_url(self):
+        return "/api/projects/ozgur/organization/panels/imports/confirm/"
+
+    @staticmethod
+    def workbook(rows, headers=("Panel Name", "ATA Chapter", "Ignored"), title_rows=2):
+        workbook = Workbook()
+        sheet = workbook.active
+        for index in range(title_rows):
+            sheet.append([f"Panel inventory {index + 1}"])
+        sheet.append(list(headers))
+        for row in rows:
+            sheet.append(list(row))
+        output = BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+
+    @staticmethod
+    def upload(content):
+        return SimpleUploadedFile(
+            "panels.xlsx",
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def preview(self, content):
+        return self.client.post(
+            self.preview_url,
+            {"file": self.upload(content)},
+            format="multipart",
+        )
+
+    def confirm(self, content, token):
+        return self.client.post(
+            self.confirm_url,
+            {"file": self.upload(content), "confirmation_token": token},
+            format="multipart",
+        )
+
+    def test_preview_and_confirm_expand_multiple_ata_values_and_preserve_discipline(self):
+        content = self.workbook(
+            [("Flight Controls", "27; 28; 29-10", "not imported")],
+            headers=("Pannel Name", "ATA Chaptre", "Responsible"),
+        )
+
+        preview = self.preview(content)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["header_row"], 3)
+        self.assertEqual(preview.data["created_count"], 2)
+        self.assertEqual(preview.data["updated_count"], 1)
+        self.assertEqual(preview.data["unmapped_columns"], ["Responsible"])
+        self.assertEqual(confirmed.status_code, 201)
+        self.assertEqual(
+            list(
+                Panel.objects.filter(project=self.project)
+                .order_by("ata")
+                .values_list("ata", "name")
+            ),
             [
-                People(person_id="100001", name="Ada Lovelace", email="ada@example.com"),
-                People(person_id="100002", name="Grace Hopper", email="grace@example.com"),
-                People(person_id="100003", name="Alan Turing", email="alan@example.com"),
-                People(person_id="100004", name="Grace Murray", email="murray@example.com"),
-            ]
+                ("27-00", "Flight Controls"),
+                ("28-00", "Flight Controls"),
+                ("29-10", "Flight Controls"),
+            ],
+        )
+        self.existing.refresh_from_db()
+        self.assertEqual(self.existing.discipline, "Systems")
+
+    def test_same_ata_assigned_to_different_panels_is_rejected(self):
+        content = self.workbook(
+            [("Electrical", "24", ""), ("Avionics", "24-00", "")],
+            title_rows=0,
         )
 
-    def test_people_list_uses_drf_pagination(self):
-        """People list responses expose count and results for remote tables."""
-        response = self.client.get("/orgs/people/", {"page_size": 2})
+        preview = self.preview(content)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["count"], 4)
-        self.assertEqual(len(response.data["results"]), 2)
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["created_count"], 0)
+        self.assertEqual(preview.data["rejected_count"], 2)
+        self.assertFalse(Panel.objects.filter(project=self.project, ata="24-00").exists())
 
-    def test_people_search_filters_by_name(self):
-        """The search query limits results to matching person names."""
-        response = self.client.get("/orgs/people/", {"search": "Hopper"})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["count"], 1)
-        self.assertEqual(response.data["results"][0]["person_id"], "100002")
-
-    def test_people_search_ranks_exact_name_before_other_matches(self):
-        """Exact and prefix matches lead less similar directory results."""
-        response = self.client.get("/orgs/people/", {"search": "Grace", "page_size": 1})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["count"], 2)
-        self.assertEqual(response.data["results"][0]["person_id"], "100002")
-
-    def test_people_search_supports_typo_and_server_pagination(self):
-        """A bounded fuzzy search remains inside the shared pagination contract."""
-        response = self.client.get("/orgs/people/", {"search": "Grce", "page_size": 1})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertGreaterEqual(response.data["count"], 1)
-        self.assertEqual(len(response.data["results"]), 1)
-        self.assertEqual(response.data["results"][0]["person_id"], "100002")
-
-    def test_people_search_preserves_rank_across_dropdown_pages(self):
-        """Following pages continue the same deterministic similarity ordering."""
-        first = self.client.get("/orgs/people/", {"search": "Grce", "page_size": 1})
-        second = self.client.get(
-            "/orgs/people/",
-            {"search": "Grce", "page_size": 1, "page": 2},
+    def test_missing_required_headers_is_rejected_without_writes(self):
+        content = self.workbook(
+            [("Flight Controls", "27", "")],
+            headers=("Panel", "Owner", "Ignored"),
+            title_rows=0,
         )
 
-        self.assertEqual(first.data["count"], 2)
-        self.assertIsNotNone(first.data["next"])
-        self.assertEqual(second.status_code, 200)
-        self.assertEqual(second.data["count"], 2)
-        self.assertEqual(second.data["results"][0]["person_id"], "100004")
-        self.assertIsNone(second.data["next"])
-
-    def test_direct_search_count_is_not_fuzzy_candidate_limited(self):
-        """Ordinary server-filtered results retain an exact pagination count."""
-        People.objects.bulk_create(
-            [
-                People(person_id=str(200000 + index), name=f"Engineer {index}", email=f"e{index}@x.io")
-                for index in range(501)
-            ]
-        )
-
-        response = self.client.get("/orgs/people/", {"search": "Engineer", "page_size": 2})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["count"], 501)
-        self.assertEqual(len(response.data["results"]), 2)
-
-    def test_people_search_matches_email_and_person_id(self):
-        """Lookup fields are searchable without downloading the directory."""
-        email_response = self.client.get("/orgs/people/", {"search": "alan@example.com"})
-        id_response = self.client.get("/orgs/people/", {"search": "100001"})
-
-        self.assertEqual(email_response.data["results"][0]["person_id"], "100003")
-        self.assertEqual(id_response.data["results"][0]["name"], "Ada Lovelace")
-
-    def test_people_search_rejects_unbounded_input(self):
-        """Oversized search terms cannot trigger expensive fuzzy work."""
-        response = self.client.get("/orgs/people/", {"search": "x" * 101})
+        response = self.preview(content)
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("search", response.data["errors"])
+        self.assertEqual(response.data["code"], "PANEL_IMPORT_COLUMNS_MISSING")
+        self.assertIn("ata", response.data["detail"])
+        self.assertEqual(Panel.objects.filter(project=self.project).count(), 1)
 
-    def test_people_list_requires_authentication(self):
-        """Anonymous clients cannot pull people data from the login screen."""
-        anonymous_client = APIClient()
+    def test_viewer_cannot_preview_or_confirm_panel_import(self):
+        self.client.force_authenticate(self.viewer)
+        content = self.workbook([("Electrical", "24", "")], title_rows=0)
 
-        response = anonymous_client.get("/orgs/people/")
+        preview = self.preview(content)
+        confirmed = self.confirm(content, "not-a-token")
 
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(preview.status_code, 403)
+        self.assertEqual(confirmed.status_code, 403)
+
+    def test_confirm_rejects_changed_workbook(self):
+        first = self.workbook([("Electrical", "24", "")], title_rows=0)
+        second = self.workbook([("Hydraulics", "29", "")], title_rows=0)
+        preview = self.preview(first)
+
+        response = self.confirm(second, preview.data["confirmation_token"])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["code"], "PANEL_IMPORT_PREVIEW_MISMATCH")
+
+    def test_confirm_detects_panel_changes_after_preview(self):
+        content = self.workbook([("Electrical", "24", "")], title_rows=0)
+        preview = self.preview(content)
+        Panel.objects.create(
+            project=self.project,
+            name="Concurrent panel",
+            ata="24-00",
+        )
+
+        response = self.confirm(content, preview.data["confirmation_token"])
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "PANEL_IMPORT_VERSION_CONFLICT")
+        self.assertEqual(
+            Panel.objects.get(project=self.project, ata="24-00").name,
+            "Concurrent panel",
+        )

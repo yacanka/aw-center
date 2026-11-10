@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from awcenter.file_security import MSG_POLICY, validate_request_upload
 from jobs.api import job_creation_response
-from jobs.services import create_job
+from jobs.services import create_job, require_idempotency_key
 
 
 @api_view(["POST"])
@@ -13,6 +13,9 @@ from jobs.services import create_job
 def create_word_attachment_extraction_job(request):
     """Validate and enqueue one private Outlook attachment extraction job."""
 
+    idempotency_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key", "")
+    )
     uploaded_file = validate_request_upload(request, "file", MSG_POLICY)
     job, created = create_job(
         owner=request.user,
@@ -20,7 +23,7 @@ def create_word_attachment_extraction_job(request):
         title=f"Extract Word attachment from {uploaded_file.name}"[:160],
         parameters={},
         uploaded_file=uploaded_file,
-        idempotency_key=request.headers.get("Idempotency-Key", ""),
+        idempotency_key=idempotency_key,
         request_id=getattr(request, "request_id", ""),
     )
     return job_creation_response(job, created)

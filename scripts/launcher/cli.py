@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -16,19 +17,35 @@ from .runtime import check, dev, prod, test
 
 def main(arguments: list[str] | None = None) -> int:
     """Parse arguments, discover the project, and execute one workflow."""
+    # Redirected Windows output can use an ANSI code page without Turkish glyphs.
+    # Preserve the selected encoding while keeping help and errors printable.
+    for output in (sys.stdout, sys.stderr):
+        if callable(getattr(output, "reconfigure", None)):
+            output.reconfigure(errors="backslashreplace")
     try:
         args = build_parser().parse_args(arguments)
         project = discover_project(args.root)
         print_context(project, args.command)
-        dispatch(project, args)
-        return 0
+        return dispatch(project, args) or 0
+    except KeyboardInterrupt:
+        print("\nİşlem iptal edildi.", file=sys.stderr)
+        return 130
     except (LauncherError, OSError, ValueError) as error:
         print(f"[error] {error}", file=sys.stderr)
         return 1
 
 
-def dispatch(project: Project, args: argparse.Namespace) -> None:
+def dispatch(project: Project, args: argparse.Namespace) -> int | None:
     """Dispatch one parsed command to its focused workflow."""
+    if os.name == 'nt' and args.command in {'setup', 'prepare-offline'}:
+        from .installation_profiles import installation_home
+        from .resource_locks import path_claims, resource_locks
+        with resource_locks(installation_home(), path_claims(project.root, write=True)):
+            return _dispatch(project, args)
+    return _dispatch(project, args)
+
+
+def _dispatch(project: Project, args: argparse.Namespace) -> int | None:
     scope = scope_from(args)
     if args.command == "setup":
         install(project, scope, args.mode, project_path(project, args.offline_dir))
@@ -47,6 +64,9 @@ def dispatch(project: Project, args: argparse.Namespace) -> None:
     elif args.command == "package-changes":
         output = project_path(project, args.changes_zip) if args.changes_zip else None
         package_changes(project, output)
+    else:
+        from .installation_cli import dispatch_installation
+        return dispatch_installation(project, args)
 
 
 def dev_command(project: Project, scope: Scope, args: argparse.Namespace) -> None:
@@ -58,21 +78,24 @@ def dev_command(project: Project, scope: Scope, args: argparse.Namespace) -> Non
         backend_port=args.backend_port,
         frontend_port=args.frontend_port,
         no_backend_reload=args.no_backend_reload,
+        exclude_doors=args.exclude_doors,
         migrate=args.migrate,
     )
 
 
 def prod_command(project: Project, args: argparse.Namespace) -> None:
-    """Adapt production CLI arguments to the runtime workflow."""
+    """Adapt production CLI arguments to the Windows runtime workflow."""
+
     prod(
         project,
         host=args.host,
-        port=args.backend_port,
+        port=args.port,
+        env_file=external_path(args.env_file),
+        certificate_file=external_path(args.tls_cert_file),
+        private_key_file=external_path(args.tls_key_file),
+        build_frontend=args.build_frontend,
+        exclude_doors=args.exclude_doors,
         migrate=args.migrate,
-        build=not args.no_build,
-        collect_static=not args.no_collectstatic,
-        checks=not args.skip_checks,
-        production_command=args.production_command,
     )
 
 
@@ -99,6 +122,12 @@ def project_path(project: Project, value: str) -> Path:
     """Resolve a user path relative to the discovered project root."""
     path = Path(value).expanduser()
     return (path if path.is_absolute() else project.root / path).resolve()
+
+
+def external_path(value: Path) -> Path:
+    """Make an operator-owned path absolute without dereferencing a symlink."""
+
+    return value.expanduser().absolute()
 
 
 def print_context(project: Project, command: str) -> None:

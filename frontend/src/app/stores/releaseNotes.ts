@@ -1,0 +1,97 @@
+import { defineStore } from 'pinia'
+import { apiClient as axios } from '@/shared/api/http'
+import { sleep } from '@/shared/utils/general'
+
+export type ReleaseNoteItem = {
+  id: number
+  heading: string
+  body_md: string
+  item_type: 'feature' | 'fix' | 'breaking' | 'info' | 'security'
+  published_at: string
+  order: number
+}
+
+export type ReleaseNote = {
+  id: number
+  version: string
+  title: string
+  requires_ack: boolean
+  items: ReleaseNoteItem[]
+}
+
+const RELEASE_SEEN_BATCH_SIZE = 1000
+
+export const useReleaseNotesStore = defineStore('releaseNotes', {
+  state: () => ({
+    loading: false as boolean,
+    current: null as ReleaseNote | null,
+    unseen_ids: [] as Array<number>,
+    show: false as boolean,
+    _checkedThisSession: false as boolean // UI guard
+  }),
+
+  actions: {
+    async checkUnseen() {
+      if (this._checkedThisSession) return
+      this._checkedThisSession = true
+
+      this.loading = true
+      try {
+        const res = await axios.get<{ latest: ReleaseNote; mark_seen_ids: Array<number> }>(
+          'releases/release-notes/unseen'
+        )
+
+        if (!res.data) {
+          this.current = null
+          this.unseen_ids = []
+          this.show = false
+          return
+        }
+
+        this.current = res.data.latest
+        this.unseen_ids = res.data.mark_seen_ids
+        this.show = true
+
+        for (let offset = 0; offset < this.unseen_ids.length; offset += RELEASE_SEEN_BATCH_SIZE) {
+          await axios.post('releases/release-notes/bulk-seen', {
+            ids: this.unseen_ids.slice(offset, offset + RELEASE_SEEN_BATCH_SIZE)
+          })
+        }
+      } catch (err: any) {
+        const status = err?.response?.status
+        if (status === 204) {
+          this.current = null
+          this.show = false
+          return
+        }
+        console.error('checkUnseen failed:', err)
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async acknowledge() {
+      if (!this.current || this.loading) return
+      this.loading = true
+      try {
+        await axios.post(`releases/release-notes/${this.current.id}/ack`)
+      } finally {
+        this.loading = false
+      }
+
+      this.show = false
+      this.current = null
+      this.unseen_ids = []
+      this._checkedThisSession = false
+      await this.checkUnseen()
+    },
+
+    async closeIfAllowed() {
+      if (this.current && !this.current.requires_ack) {
+        this.show = false
+        await sleep(1000)
+        this.current = null
+      }
+    }
+  }
+})

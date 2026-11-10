@@ -8,7 +8,7 @@ import {
   navigationAccessPolicy,
   resolveRouteAccess,
   safePostLoginPath
-} from '../src/services/accessPolicy.ts'
+} from '../src/features/session/services/accessPolicy.ts'
 
 const permission = (appLabel, codename) => ({ content_type: { app_label: appLabel }, codename })
 const standardUser = { id: 7, is_active: true, permissions: [], group_details: [] }
@@ -31,24 +31,14 @@ test('recognizes direct and group-derived Django permissions', () => {
   assert.equal(hasEffectivePermission(groupUser, 'auth.delete_user'), false)
 })
 
-test('enforces granular user, DDF, Outlook Task, and developer policies', () => {
+test('enforces granular user, DDF, and developer policies without legacy DCC permissions', () => {
   const viewer = { ...standardUser, permissions: [permission('auth', 'view_user')] }
   const ddfViewer = { ...standardUser, permissions: [permission('ddf', 'view_ddf')] }
-  const dccCreator = { ...standardUser, permissions: [permission('dcc', 'add_jira_dcc')] }
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/users'), viewer), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/users'), viewer), 'forbidden')
   assert.equal(resolveRouteAccess(navigationAccessPolicy('/ddfAssistant'), ddfViewer), 'allow')
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), standardUser), 'forbidden')
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), dccCreator), 'allow')
-  assert.equal(
-    resolveRouteAccess(navigationAccessPolicy('/accelerator'), standardUser),
-    'forbidden'
-  )
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/accelerator'), dccCreator), 'allow')
-  assert.equal(
-    resolveRouteAccess(navigationAccessPolicy('/accelerator/outlook'), dccCreator),
-    'allow'
-  )
-  assert.equal(resolveRouteAccess(navigationAccessPolicy('/task/ecr'), dccCreator), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/outlook'), standardUser), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/accelerator'), standardUser), 'allow')
+  assert.equal(resolveRouteAccess(navigationAccessPolicy('/task/ecr'), standardUser), 'allow')
   assert.equal(
     resolveRouteAccess(navigationAccessPolicy('/developer/doors'), standardUser),
     'forbidden'
@@ -75,4 +65,34 @@ test('accepts only bounded internal post-login redirects', () => {
   assert.equal(safePostLoginPath('https://evil.example'), '/home')
   assert.equal(safePostLoginPath('/login?redirect=/users'), '/home')
   assert.equal(safePostLoginPath(`/${'a'.repeat(600)}`), '/home')
+})
+
+test('limits the test data reset page to superusers', () => {
+  const policy = navigationAccessPolicy('/developer/test-data')
+  assert.equal(resolveRouteAccess(policy, null), 'login')
+  assert.equal(resolveRouteAccess(policy, standardUser), 'forbidden')
+  assert.equal(resolveRouteAccess(policy, staffUser), 'forbidden')
+  assert.equal(resolveRouteAccess(policy, superuser), 'allow')
+})
+
+test('requires staff and explicit user authority', () => {
+  const policy = navigationAccessPolicy('/users')
+  assert.equal(resolveRouteAccess(policy, staffUser), 'forbidden')
+  assert.equal(
+    resolveRouteAccess(policy, { ...staffUser, permissions: [permission('auth', 'view_user')] }),
+    'allow'
+  )
+  assert.equal(
+    resolveRouteAccess(policy, { ...staffUser, permissions: [permission('auth', 'add_user')] }),
+    'allow'
+  )
+})
+
+test('management reporting requires login and remains available to authenticated project viewers', () => {
+  const policy = navigationAccessPolicy('/management-reports')
+  assert.equal(resolveRouteAccess(policy, null), 'login')
+  assert.equal(resolveRouteAccess(policy, { ...standardUser, is_active: false }), 'login')
+  assert.equal(resolveRouteAccess(policy, standardUser), 'allow')
+  assert.deepEqual(filterNavigationByAccess([{ key: '/management-reports' }], null), [])
+  assert.equal(filterNavigationByAccess([{ key: '/management-reports' }], standardUser).length, 1)
 })

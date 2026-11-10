@@ -1,0 +1,33 @@
+import type { IPerson, IPanel, IProject, IResponsible } from '@/features/organization/models/orgs'
+import type { PaginationMeta } from '@/shared/services/pagination'
+
+export interface OrganizationState {
+  loading: boolean
+  project: string
+  projects: IProject[]
+  panels: IPanel[]
+  responsibles: IResponsible[]
+  responsiblesRequestId: number
+  people: IPerson[]
+  peoplePagination: PaginationMeta
+  peopleFetched: boolean
+  peopleRequest: Promise<unknown> | null
+  peopleRequestId: number
+}
+
+/** Create isolated organization state for one route controller. */
+export function createOrganizationState(): OrganizationState {
+  return {
+    loading: false,
+    project: '',
+    projects: [],
+    panels: [],
+    responsibles: [],
+    responsiblesRequestId: 0,
+    people: [],
+    peoplePagination: { count: 0, next: null, previous: null },
+    peopleFetched: false,
+    peopleRequest: null,
+    peopleRequestId: 0
+  }
+}

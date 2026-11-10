@@ -1,33 +1,30 @@
 import logging
-
-from django.utils.deprecation import MiddlewareMixin
+import time
 
 request_logger = logging.getLogger("awcenter.requests")
 
 
-class RequestUserLogMiddleware(MiddlewareMixin):
-    """Log authenticated request metadata without writing sensitive payloads."""
+class RequestUserLogMiddleware:
+    """Emit one payload-free structured event after every request."""
 
-    def process_request(self, request):
-        """Emit one request log line for production request tracing."""
-        username = self.get_username(request)
-        ip = self.get_client_ip(request)
-        method = request.method
-        path = request.path
-        request_logger.info("%s - %s: %s %s", ip, username, method, path)
-        return None
+    def __init__(self, get_response):
+        self.get_response = get_response
 
-    def get_username(self, request):
-        """Return authenticated username or an anonymous placeholder."""
-        if request.user and request.user.is_authenticated:
-            return request.user.username
-        return "Anonymous"
-
-    def get_client_ip(self, request):
-        """Return the closest client IP from proxy headers or REMOTE_ADDR."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0].strip()
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
+    def __call__(self, request):
+        started_at = time.monotonic()
+        response = self.get_response(request)
+        duration_ms = round((time.monotonic() - started_at) * 1000, 2)
+        user = getattr(request, "user", None)
+        user_id = user.pk if user is not None and user.is_authenticated else None
+        request_logger.info(
+            "request.completed",
+            extra={
+                "event": "request.completed",
+                "method": request.method,
+                "path": request.path,
+                "status": response.status_code,
+                "duration_ms": duration_ms,
+                "user_id": user_id,
+            },
+        )
+        return response

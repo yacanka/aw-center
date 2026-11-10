@@ -1,0 +1,206 @@
+"""Profile actions follow lifecycle truth, independently of selected reports."""
+import unittest
+from unittest.mock import Mock, patch
+from pathlib import Path
+import tempfile
+
+from scripts.manager.view_model import ManagerState, ManagerTaskStates
+from scripts import test_manager_controller as fixtures
+
+
+class InspectionTests(unittest.TestCase):
+    def test_canonical_prod_provision_acquires_write_claim_before_nested_lifecycle(self):
+        self._check_prod_write_claim('releases/' + 'a' * 64 + '/source')
+
+    def test_compact_prod_provision_acquires_write_claim_before_nested_lifecycle(self):
+        self._check_prod_write_claim('r/' + 'a' * 12)
+
+    def _check_prod_write_claim(self, relative):
+        from scripts.manager import operations
+        from scripts.launcher_test_support import create_project
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary).resolve() / 'home'
+            source = home / relative
+            source.mkdir(parents=True)
+            from scripts.launcher.installation_permissions import secure_path
+            secure_path(home)
+            project = create_project(source)
+            args = operations.arguments({'action': 'provision', 'profile': 'prod'})
+            args.source_root, args.progress = str(source), lambda _: None
+            with patch('scripts.launcher.installation_profiles.installation_home', return_value=home), \
+                 patch.object(operations, '_project_for', return_value=project), \
+                 patch.object(operations, '_run_lifecycle') as provision:
+                operations._dispatch('provision', args, lambda _: None)
+            provision.assert_called_once()
+
+    def test_new_profile_inspection_does_not_create_state(self):
+        from scripts.manager import inspection, operations
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary).resolve() / 'not-created'
+            events = []
+            with patch.object(inspection, 'installation_home', return_value=home), \
+                 patch.object(inspection, 'require_windows'), \
+                 patch('scripts.launcher.runtime_selection.tool_choices', return_value={}):
+                inspection.inspect_profile(operations.arguments({'action': 'inspect'}), events.append)
+            self.assertEqual(events[-1]['status'], 'not_installed')
+            self.assertIn('Python 3.11', events[-1]['tools'])
+            self.assertFalse(home.exists())
+
+    def test_existing_canonical_profile_is_detected_as_prepared(self):
+        from scripts.manager import inspection, operations
+        from scripts.launcher.installation_profiles import provision_profile
+        from scripts.launcher_test_support import create_project
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / 'source').mkdir()
+            project = create_project(root / 'source')
+            home = root / 'private'
+            provision_profile(project, 'dev', home)
+            events = []
+            with patch.object(inspection, 'installation_home', return_value=home), \
+                 patch.object(inspection, 'require_windows'), \
+                 patch.object(operations, '_project_for', return_value=project), \
+                 patch.object(inspection, 'inspect_toolchain', return_value=[{'status': 'ready'}]), \
+                 patch.object(inspection, '_core_checks', return_value=[]):
+                inspection.inspect_profile(operations.arguments({'action': 'inspect'}), events.append)
+            self.assertEqual(events[-1]['status'], 'stopped')
+
+
+class AdaptiveStateTests(unittest.TestCase):
+    def test_user_can_open_while_initial_inspection_is_running(self):
+        state = ManagerTaskStates()
+        state.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'inspecting'})
+        self.assertEqual(state.profile_presentation('dev')['action'], 'ensure')
+
+    def test_completed_lifecycle_drops_live_url(self):
+        state = ManagerState()
+        state.handle_event({'type': 'ready', 'url': 'http://127.0.0.1:5173/app/'})
+        state.handle_event({'type': 'done', 'ok': True, 'cancelled': True})
+        self.assertEqual(state.ready_url, '')
+
+    def test_checks_cannot_hide_blockers_behind_generic_success(self):
+        state = ManagerState()
+        state.handle_event({'type': 'checks', 'checks': [{'name': 'database', 'status': 'blocked', 'detail': 'missing'}]})
+        state.handle_event({'type': 'done', 'ok': True})
+        self.assertIn('engellendi', state.status.lower())
+
+    def test_profile_action_survives_selecting_source_test(self):
+        states = ManagerTaskStates()
+        states.update_tasks([
+            {'id': 'server', 'action': 'start', 'profile': 'dev', 'status': 'ready'},
+            {'id': 'probe', 'action': 'test-sources', 'profile': 'dev', 'status': 'running'}], 'probe')
+        states.handle_event({'task_id': 'server', 'type': 'ready', 'url': 'http://127.0.0.1:5173/app/'})
+        self.assertTrue(hasattr(states, 'profile_presentation'), 'Independent profile presentation is missing')
+        presentation = states.profile_presentation('dev')
+        self.assertEqual(presentation['action'], 'open')
+        self.assertEqual(presentation['task_id'], 'server')
+        self.assertEqual(states.selected_id, 'probe')
+
+    def test_profile_inspection_selects_install_or_start_and_does_not_select_a_report(self):
+        states = ManagerTaskStates()
+        states.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'not_installed', 'checks': []})
+        self.assertTrue(hasattr(states, 'profile_presentation'), 'Independent profile presentation is missing')
+        self.assertEqual(states.profile_presentation('dev')['action'], 'ensure')
+        states.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped', 'checks': []})
+        self.assertEqual(states.profile_presentation('dev')['action'], 'ensure')
+        self.assertIsNone(states.selected_id)
+
+
+class AdaptiveControllerTests(unittest.TestCase):
+    setUp = fixtures.ControllerTests.setUp
+    cleanup = fixtures.ControllerTests.cleanup
+    start = fixtures.ControllerTests.start
+    event = fixtures.ControllerTests.event
+
+    def test_open_takes_over_background_inspection_without_showing_its_late_result(self):
+        self.view.form_values.return_value = {'profile': 'dev', 'source_root': '/source'}
+        self.controller.inspect_selected()
+        inspect_id = self.controller.inspection_ids['dev']
+        started = self.start('ensure')
+        self.assertIsNotNone(started)
+        self.assertTrue(self.controller.tasks[inspect_id].cancel_requested)
+        self.view.handle_event.reset_mock()
+        self.event(inspect_id, type='profile', profile='dev', status='blocked')
+        self.view.handle_event.assert_not_called()
+
+    def test_ensure_tracks_lifecycle_and_uses_resolved_source_claims(self):
+        task = self.start('ensure')
+        self.assertIsNotNone(task)
+        self.event(task, type='resources', action='provision', source_root='/resolved-source')
+        self.assertTrue(any(claim.path and claim.write and Path(claim.resource) == Path('/resolved-source').absolute()
+                            for claim in self.controller.tasks[task].claims))
+        self.event(task, type='ready', url='http://127.0.0.1:5173/app/')
+        self.assertFalse(any(claim.write and claim.path for claim in self.controller.tasks[task].claims))
+
+    def test_apply_after_stop_waits_for_actual_child_cleanup(self):
+        task = self.start('ensure')
+        self.event(task, type='ready', url='http://127.0.0.1:5173/app/')
+        self.controller.action('ensure', {'profile': 'dev', 'source_root': '/source', 'frontend_port': '15173'})
+        self.assertTrue(self.sessions[0].stopped)
+        self.assertEqual(len(self.sessions), 1)
+        self.event(task, type='done', ok=True, cancelled=True)
+        self.assertEqual(len(self.sessions), 1)
+        self.event(task, type='_closed')
+        callback = self.root.after_idle.call_args.args[0]
+        callback()
+        self.assertEqual(len(self.sessions), 2)
+        self.assertEqual(self.sessions[1].request['frontend_port'], '15173')
+
+    def test_window_close_minimizes_active_work_without_cancelling(self):
+        self.start('start')
+        self.assertTrue(hasattr(self.controller, 'window_close'), 'Minimize-on-close is missing')
+        self.controller.window_close()
+        self.root.iconify.assert_called_once()
+        self.assertFalse(any(session.stopped for session in self.sessions))
+        self.view.confirm_stop.assert_not_called()
+
+    def test_repeated_ready_event_opens_browser_once(self):
+        task = self.start('start')
+        self.controller.open_browser = Mock()
+        self.event(task, type='ready', url='http://127.0.0.1:5173/app/')
+        self.event(task, type='ready', url='http://127.0.0.1:5173/app/')
+        self.controller.open_browser.assert_called_once()
+
+    def test_old_inspection_cannot_replace_new_source_inspection(self):
+        self.view.form_values.return_value = {'profile': 'dev', 'source_root': '/old'}
+        self.controller.inspect_selected()
+        old = self.controller.inspection_ids['dev']
+        self.view.form_values.return_value = {'profile': 'dev', 'source_root': '/new'}
+        self.controller.inspect_selected()
+        new = self.controller.inspection_ids['dev']
+        self.view.handle_event.reset_mock()
+        self.event(old, type='profile', profile='dev', status='stopped')
+        self.view.handle_event.assert_not_called()
+        self.event(new, type='profile', profile='dev', status='not_installed')
+        self.assertEqual(self.view.handle_event.call_args.args[0]['status'], 'not_installed')
+
+    def test_known_recoverable_inspection_errors_keep_startup_available(self):
+        self.view.form_values.return_value = {'profile': 'prod', 'source_root': '/source'}
+        self.controller.inspect_selected()
+        task = self.controller.inspection_ids['prod']
+        states = ManagerTaskStates()
+        self.view.handle_event.side_effect = states.handle_event
+        for code in ('tls_file_missing', 'tls_file_absolute', 'tls_file_unavailable', 'tls_file_internal',
+                     'storage_acl_inheritance'):
+            with self.subTest(code=code):
+                self.event(task, type='error', code=code, message='Preparation required.',
+                           remedy='Retry startup with the selected settings.')
+                event = self.view.handle_event.call_args.args[0]
+                self.assertEqual(event['status'], 'incomplete')
+                self.assertEqual(states.profile_presentation('prod')['action'], 'ensure')
+                self.assertIn('Retry startup with the selected settings.', event['detail'])
+
+    def test_unknown_and_integrity_inspection_errors_remain_blocked(self):
+        self.view.form_values.return_value = {'profile': 'prod', 'source_root': '/source'}
+        self.controller.inspect_selected()
+        task = self.controller.inspection_ids['prod']
+        states = ManagerTaskStates()
+        self.view.handle_event.side_effect = states.handle_event
+        for code in ('integrity_failed', 'tls_failed', 'tls_file_unknown', 'unknown_failure',
+                     'storage_owner_mismatch', 'storage_acl_entries', 'storage_acl_apply',
+                     'storage_path_reparse', None):
+            with self.subTest(code=code):
+                self.event(task, type='error', code=code, message='Profile validation failed.')
+                event = self.view.handle_event.call_args.args[0]
+                self.assertEqual(event['status'], 'blocked')
+                self.assertEqual(states.profile_presentation('prod')['action'], 'doctor')

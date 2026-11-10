@@ -1,0 +1,208 @@
+<template>
+  <n-card class="dashboard-card" :bordered="false">
+    <template #header>
+      <n-flex align="center" justify="space-between">
+        <div>
+          <div class="card-title">{{ title }}</div>
+          <n-text depth="3" class="card-subtitle">{{ subtitle }}</n-text>
+        </div>
+        <n-tag v-if="selectedPanel" closable size="small" @close="$emit('clear-panel')">
+          {{ selectedPanel }}
+        </n-tag>
+      </n-flex>
+    </template>
+    <div class="status-layout">
+      <div class="chart-surface">
+        <Doughnut
+          v-if="total"
+          :data="chartData"
+          :options="chartOptions"
+          :plugins="[centerTextPlugin]"
+        />
+        <n-empty v-else :description="emptyDescription" size="small" />
+      </div>
+      <div class="status-list">
+        <section
+          v-for="group in displayGroups"
+          :key="group.label"
+          :class="{ 'publication-group': Boolean(groups) }"
+        >
+          <h3 v-if="groups" class="group-heading">
+            <span>{{ group.label }}</span
+            ><strong>{{ group.total }}</strong>
+          </h3>
+          <div v-for="item in group.rows" :key="item.value" class="status-row">
+            <span class="status-dot" :style="{ background: item.color }" />
+            <span class="status-label">{{ item.label }}</span>
+            <strong>{{ item.count }}</strong>
+            <n-text depth="3">{{ item.percentage }}%</n-text>
+            <span class="status-rail">
+              <span
+                class="status-fill"
+                :style="{ width: `${item.percentage}%`, background: item.color }"
+              />
+            </span>
+          </div>
+          <n-text v-if="groups && !group.rows.length" depth="3">No documents</n-text>
+        </section>
+        <slot name="distribution-extra" />
+      </div>
+    </div>
+  </n-card>
+</template>
+
+<script setup lang="ts">
+import { useThemeVars } from 'naive-ui'
+import type { CompdocOption } from '@/features/compliance/api/compdocCatalog'
+import { computed } from 'vue'
+import { Doughnut } from 'vue-chartjs'
+import { useSessionStore } from '@/features/session/stores/session'
+import { resolvePreferredTheme } from '@/app/services/theme'
+import {
+  createStatusChartData,
+  createStatusChartRows,
+  type StatusChartRow
+} from '@/features/compliance/api/compdocChartData'
+import {
+  centerTextPlugin,
+  createStatusChartOptions,
+  ensureCompdocChartsRegistered
+} from '@/features/compliance/api/compdocChartTheme'
+
+const props = withDefaults(
+  defineProps<{
+    counts: Record<string, number>
+    statuses?: CompdocOption[]
+    selectedPanel?: string
+    rows?: StatusChartRow[]
+    groups?: Array<{ label: string; total: number; rows: StatusChartRow[] }>
+    title?: string
+    subtitle?: string
+    emptyDescription?: string
+  }>(),
+  {
+    title: 'Document status',
+    subtitle: 'Current workflow distribution',
+    emptyDescription: 'No status data'
+  }
+)
+defineEmits<{ 'clear-panel': [] }>()
+
+ensureCompdocChartsRegistered()
+const userStore = useSessionStore()
+const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
+const themeVars = useThemeVars()
+const displayGroups = computed(() => {
+  const groups = props.groups ?? [
+    {
+      label: '',
+      total: 0,
+      rows:
+        props.rows ??
+        createStatusChartRows(props.counts, props.statuses, themeVars.value.textColor3)
+    }
+  ]
+  return groups.map((group) => ({ ...group, rows: group.rows.filter((row) => row.count > 0) }))
+})
+const statusRows = computed(() =>
+  displayGroups.value.flatMap((group) =>
+    group.rows.map((row) =>
+      props.groups ? { ...row, label: `${group.label}: ${row.label}` } : row
+    )
+  )
+)
+const total = computed(() => statusRows.value.reduce((sum, row) => sum + row.count, 0))
+const chartData = computed(() => createStatusChartData(statusRows.value))
+const chartOptions = computed(() => createStatusChartOptions(theme.value))
+</script>
+
+<style scoped>
+.dashboard-card {
+  width: 100%;
+  min-width: 0;
+  background: linear-gradient(145deg, rgba(59, 130, 246, 0.045), transparent 45%);
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.card-subtitle {
+  font-size: 12px;
+}
+
+.status-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+  align-items: center;
+}
+
+.chart-surface {
+  position: relative;
+  height: 310px;
+  min-width: 0;
+}
+
+.status-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.group-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: v-bind('themeVars.textColor1');
+}
+
+.status-row + .status-row {
+  margin-top: 10px;
+}
+
+.status-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) 34px 42px;
+  gap: 8px;
+  align-items: center;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
+}
+
+.status-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-rail {
+  grid-column: 2 / 5;
+  height: 3px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.16);
+  border-radius: 999px;
+}
+
+.status-fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  transition: width 300ms ease;
+}
+
+@media (max-width: 720px) {
+  .status-layout {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

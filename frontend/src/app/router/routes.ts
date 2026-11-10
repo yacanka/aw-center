@@ -1,0 +1,206 @@
+import type { RouteComponent, RouteRecordRaw } from 'vue-router'
+import LoginView from '@/features/session/pages/Login.vue'
+import { navigationAccessPolicy } from '@/features/session/services/accessPolicy'
+
+/** Return a Vue Router-native lazy component loader. */
+function lazyRoute(loader: () => Promise<RouteComponent>) {
+  return loader
+}
+
+export const routes: RouteRecordRaw[] = [
+  {
+    path: '/management-reports',
+    name: 'managementReports',
+    meta: { access: navigationAccessPolicy('/management-reports') },
+    component: lazyRoute(() => import('@/features/management-reports/pages/ManagementReports.vue'))
+  },
+  { path: '/', redirect: '/login' },
+  { path: '/welcome', redirect: '/login' },
+  { path: '/home', name: 'home', component: lazyRoute(() => import('@/app/pages/Home.vue')) },
+  {
+    path: '/integrations',
+    name: 'integrations',
+    component: lazyRoute(() => import('@/features/integrations/pages/IntegrationHub.vue'))
+  },
+  {
+    path: '/jobs',
+    name: 'jobs',
+    component: lazyRoute(() => import('@/features/jobs/pages/JobCenter.vue'))
+  },
+  {
+    path: '/accelerator',
+    name: 'workflowAccelerator',
+    meta: { access: navigationAccessPolicy('/accelerator') },
+    component: lazyRoute(() => import('@/features/jobs/pages/WorkflowAccelerator.vue'))
+  },
+  {
+    path: '/accelerator/outlook',
+    name: 'acceleratorOutlook',
+    meta: { access: navigationAccessPolicy('/accelerator/outlook') },
+    component: lazyRoute(() => import('@/features/jobs/pages/WorkflowAccelerator.vue'))
+  },
+  { path: '/outlook', redirect: '/accelerator/outlook' },
+  {
+    path: '/task/ecr',
+    name: 'ecrTask',
+    meta: { access: navigationAccessPolicy('/accelerator/outlook') },
+    component: lazyRoute(() => import('@/features/integrations/jira/components/EcrTask.vue'))
+  },
+  {
+    path: '/doors/scripter',
+    name: 'doorsScripter',
+    component: lazyRoute(() => import('@/features/tools/pages/doors/DoorsScripter.vue'))
+  },
+  {
+    path: '/doors/agent',
+    name: 'doorsAgent',
+    component: lazyRoute(() => import('@/features/tools/pages/doors/DoorsAgent.vue'))
+  },
+  {
+    path: '/developer/test-data',
+    name: 'developerTestData',
+    meta: { access: navigationAccessPolicy('/developer/test-data') },
+    component: lazyRoute(() => import('@/features/tools/pages/DeveloperTestData.vue'))
+  },
+  {
+    path: '/developer/doors',
+    name: 'developerDoors',
+    meta: { access: navigationAccessPolicy('/developer/doors') },
+    component: lazyRoute(() => import('@/features/tools/pages/doors/DoorsDeveloper.vue'))
+  },
+  {
+    path: '/teamcenter/agent',
+    name: 'teamcenterAgent',
+    component: lazyRoute(() => import('@/features/tools/pages/teamcenter/TeamcenterAgent.vue'))
+  },
+  {
+    path: '/doors/poclinker',
+    name: 'pocLinker',
+    component: lazyRoute(() => import('@/features/tools/pages/doors/PocLinker.vue'))
+  },
+  ...comparisonRoutes(),
+  {
+    path: '/media-converter',
+    name: 'mediaConverter',
+    component: lazyRoute(() => import('@/features/tools/pages/MediaConverter.vue'))
+  },
+  {
+    path: '/mermaid',
+    name: 'mermaid',
+    component: lazyRoute(() => import('@/features/mermaid/pages/MermaidWorkshop.vue'))
+  },
+  {
+    path: '/translator',
+    name: 'translator',
+    component: lazyRoute(() => import('@/features/tools/pages/Translator.vue'))
+  },
+  {
+    path: '/pdf/split',
+    name: 'pdfSplit',
+    component: lazyRoute(() => import('@/features/tools/pages/PdfSplit.vue'))
+  },
+  {
+    path: '/pptxGallery',
+    name: 'pptxGallery',
+    component: lazyRoute(() => import('@/features/tools/pages/Presentations.vue'))
+  },
+  {
+    path: '/organization',
+    name: 'organization',
+    component: lazyRoute(() => import('@/features/organization/pages/Organization.vue'))
+  },
+  { path: '/login', name: 'login', meta: { public: true }, component: LoginView },
+  {
+    path: '/invite',
+    name: 'invitation',
+    meta: { public: true },
+    component: lazyRoute(() => import('@/features/session/pages/InviteRegistration.vue'))
+  },
+  {
+    path: '/users',
+    name: 'users',
+    meta: { access: navigationAccessPolicy('/users') },
+    component: lazyRoute(() => import('@/features/session/pages/Users.vue'))
+  },
+  {
+    path: '/jira',
+    name: 'jira',
+    component: lazyRoute(() => import('@/features/integrations/jira/pages/Jira.vue'))
+  },
+  {
+    path: '/ddfAssistant',
+    name: 'ddfAssistant',
+    meta: { access: navigationAccessPolicy('/ddfAssistant') },
+    component: lazyRoute(() => import('@/features/tools/pages/DDFAssistant.vue'))
+  },
+  {
+    path: '/compdocs',
+    children: [
+      {
+        name: 'compdocsHome',
+        path: 'home',
+        component: lazyRoute(() => import('@/features/compliance/pages/Home.vue'))
+      },
+      {
+        name: 'compdocsSettings',
+        path: 'settings',
+        component: lazyRoute(() => import('@/features/compliance/pages/CompDocSettings.vue'))
+      },
+      {
+        name: 'compdocs',
+        path: ':project',
+        component: lazyRoute(() => import('@/features/compliance/pages/CompDocTable.vue'))
+      }
+    ]
+  },
+  {
+    path: '/compdocs/coverpagecreator',
+    name: 'coverpagecreator',
+    component: lazyRoute(() => import('@/features/compliance/pages/CoverPageCreator.vue'))
+  },
+  {
+    path: '/compdocs/docAnalyzer',
+    name: 'docAnalyzer',
+    component: lazyRoute(() => import('@/features/compliance/pages/DocAnalyzer.vue'))
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: lazyRoute(() => import('@/features/session/pages/Settings.vue'))
+  },
+  {
+    path: '/unauthorized',
+    name: 'unauthorized',
+    component: lazyRoute(() => import('@/features/session/pages/Unauthorized.vue'))
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: lazyRoute(() => import('@/app/pages/NotFound.vue'))
+  }
+]
+
+function comparisonRoutes(): RouteRecordRaw[] {
+  return [
+    {
+      path: '/compare',
+      name: 'compare',
+      component: lazyRoute(() => import('@/features/tools/pages/compare/Compare.vue'))
+    },
+    {
+      path: '/compare/excel',
+      name: 'excelCompare',
+      redirect: '/compare'
+    },
+    {
+      path: '/compare/word',
+      name: 'wordCompare',
+      redirect: '/compare'
+    },
+    {
+      path: '/compare/pdf',
+      name: 'pdfCompare',
+      redirect: '/compare'
+    }
+  ]
+}
