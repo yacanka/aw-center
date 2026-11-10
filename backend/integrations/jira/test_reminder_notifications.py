@@ -18,7 +18,7 @@ from .reminder_notifications import (
 )
 
 
-@override_settings(JIRA_ENABLED=True)
+@override_settings(JIRA_ENABLED=True, JIRA_URL="https://jira.example.invalid")
 class DccReminderTests(TestCase):
     def setUp(self):
         from django.contrib.auth import get_user_model

@@ -273,6 +273,7 @@ class SystemPythonTests(unittest.TestCase):
         with patch.dict(sys.modules, {'winreg': registry}), patch.dict(os.environ, {'LOCALAPPDATA': '/operator/local'}):
             self.assertIn([str(Path('/operator/local/Programs/Python/Python311/python.exe'))], list(_windows_candidates()))
 
+    @patch.dict(os.environ, {}, clear=True)
     def test_provision_and_later_start_keep_system_selection_without_managed_python(self):
         from scripts.launcher import installation
         from scripts.launcher.installation_profiles import provision_profile, load_profile
@@ -378,6 +379,7 @@ class SystemPythonTests(unittest.TestCase):
             env.assert_not_called()
             prepare.assert_called_once()
 
+    @patch.dict(os.environ, {}, clear=True)
     def test_runtime_selection_is_profile_scoped_and_preserves_keys(self):
         from scripts.launcher.installation_profiles import provision_profile, load_profile, update_python_runtime
         from scripts.launcher_test_support import create_project

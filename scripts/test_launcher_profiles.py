@@ -1,6 +1,7 @@
 """Private installation profiles must preserve keys, state and OS boundaries."""
 
 import base64
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -329,7 +330,7 @@ class ReadOnlyProbeTests(unittest.TestCase):
         from scripts.launcher.installation_probe import inspect_sqlite
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary).resolve() / 'db.sqlite3'
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute('CREATE TABLE django_migrations (app text, name text)')
                 connection.execute("INSERT INTO django_migrations VALUES ('auth','0001_initial')")
                 connection.execute('CREATE TABLE auth_user (is_superuser bool, is_active bool)')

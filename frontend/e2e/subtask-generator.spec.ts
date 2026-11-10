@@ -142,7 +142,7 @@ for (const listKind of ['saved', 'new'] as const) {
     await page.getByPlaceholder('Enter Url').click()
     await expect(page.getByPlaceholder('Description')).toHaveCount(2)
     await page.getByPlaceholder('Description').nth(1).fill('Dynamic details')
-    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await saveLists(page)
     await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
     const saved = state.content.lists[listKind === 'new' ? 2 : 0]
     expect(saved.fields?.map((field) => field.id)).toEqual(['description'])
@@ -255,7 +255,7 @@ test('custom field values survive bulk editing, Save, reload and Generate', asyn
     .filter({ hasText: /^Review$/ })
     .click()
   await page.getByRole('button', { name: 'Set Values', exact: true }).click()
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   const expected = {
     description: 'Details one',
@@ -342,7 +342,7 @@ test('live metadata can replace a saved editor type before adding another column
   await page.getByPlaceholder('Enter Url').click()
   await expect(page.getByPlaceholder('Notes')).toHaveCount(2)
   await page.getByPlaceholder('Notes').nth(1).fill('Updated notes')
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   expect(state.content.lists[0].list[0].fields?.customfield_10002).toBe('Updated notes')
   expect(errors).toEqual([])
@@ -357,7 +357,7 @@ test('dynamic fields can change while a saved-content error is visible', async (
   await page.getByText('Subtask Generator (List)', { exact: true }).click()
   await page.getByPlaceholder('Summary').nth(1).fill('Unsaved review')
   await page.getByPlaceholder('Enter Url').fill('CHN-42')
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('alert')).toContainText('Saved lists could not be saved.')
   await page.getByRole('button', { name: 'Load Fields', exact: true }).click()
   await expect(page.getByText('Fields Loaded', { exact: true })).toBeVisible()
@@ -369,7 +369,7 @@ test('dynamic fields can change while a saved-content error is visible', async (
   await page.getByPlaceholder('Enter Url').click()
   await expect(page.getByPlaceholder('Due Date')).toHaveCount(3)
   state.failSave = false
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('alert')).toHaveCount(0)
   expect(state.content.lists[0].fields?.map((field) => field.id)).toEqual([
     'description',
@@ -434,7 +434,7 @@ test('original named lists retain rename, bulk values, dynamic columns, Save and
     page.locator('.subtask-bulk-fields').getByText('Priority', { exact: true })
   ).toBeVisible()
 
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   expect(state.content.lists[0].title).toBe('Renamed checklist')
   expect(state.content.lists[0].fields?.map((field) => field.id)).toEqual([
@@ -486,12 +486,12 @@ test('failed content saves retain unsaved edits and can be retried', async ({ pa
   await page.getByText('Subtask Generator (List)', { exact: true }).click()
   await page.getByPlaceholder('Summary').nth(1).fill('Unsaved review')
   await page.getByPlaceholder('Enter Url').click()
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('alert')).toContainText('Saved lists could not be saved.')
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
   expect(state.content.lists[0].list[0].summary).toBe('Review one')
   state.failSave = false
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   expect(state.content.lists[0].list[0].summary).toBe('Unsaved review')
 })
@@ -512,7 +512,7 @@ test('saved list tabs and subtask rows can be added and removed without changing
   await page.locator('.n-dynamic-input-item__action').first().getByRole('button').first().click()
   await expect(page.getByPlaceholder('Summary')).toHaveCount(2)
   await expect(page.getByPlaceholder('Summary').nth(1)).toHaveValue('Second review')
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   expect(state.content.lists).toHaveLength(3)
   expect(state.content.lists[2].list).toEqual([{ summary: 'Second review', fields: {} }])
@@ -522,7 +522,7 @@ test('saved list tabs and subtask rows can be added and removed without changing
     .getByRole('button', { name: 'close' })
     .click()
   await expect(page.getByText('New List', { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await saveLists(page)
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   expect(state.content.lists.map((list) => list.title)).toEqual([
     'Review checklist',
@@ -697,4 +697,16 @@ function subtaskJob(status: string) {
 
 async function json(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+}
+
+async function saveLists(page: Page) {
+  // A disabled Save button also means an in-flight write, so await persistence
+  // before inspecting the saved fixture rather than relying on rendering speed.
+  const response = page.waitForResponse(
+    (result) =>
+      result.request().method() === 'PUT' &&
+      new URL(result.url()).pathname === '/api/integrations/jira/subtasks/saved-lists/'
+  )
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await response
 }

@@ -61,4 +61,44 @@ Europe/Istanbul and dd.MM.yyyy while persisted/API values stay ISO.
   passed. No other actionable integration findings were reported.
 - Security gates remain blocked by preexisting dependency advisories: npm audit
   initially reported 9 high findings; pip-audit reported 108 findings in 13 packages.
-  Additional dependency upgrades require the scope decision requested in chat.
+  The user subsequently authorized security dependency upgrades, keeping Django
+  on 5.2 LTS and all approved NLP pins unchanged.
+
+## Approved security follow-up
+
+- [x] Resolve only vulnerable Python packages and necessary transitives with
+  Django `<5.3`, universal Windows/Linux markers and unchanged approved NLP pins.
+- [x] Resolve frontend advisories with compatible package updates; use explicit
+  manifest changes where a transitive override or older toolchain blocks a fix.
+- [ ] Install from regenerated locks; rerun audits, full tests, browser tests,
+  type/format/build/static gates and inspect any CI failures at their root cause.
+- [ ] Review the security diff independently, push the candidate and wait for all
+  CI workflows to pass before merging main. Verify remote/local main afterwards.
+
+## Security and CI corrections
+
+- Python audit now reports no known vulnerabilities. Django is 5.2.19; the eleven
+  approved NLP pins are unchanged from 93dfd69. Universal lock generation retains
+  platform markers. pypdf stays on 6.x and soupsieve on 2.x to avoid unnecessary
+  major upgrades while removing their advisories.
+- Frontend audit now reports zero vulnerabilities. Vue stays on 3.5, Vitest on 4;
+  vue-tsc is upgraded to its supported 3.x line. Glob/minimatch overrides fix the
+  existing development dependency chain. Independent review caught the older
+  global brace-expansion override; it was removed so minimatch uses its compatible
+  named-export API. Source glob and EditorConfig regressions failed before the
+  dependency correction and pass after it.
+- PostgreSQL numbering had attempted FOR UPDATE across nullable joins. Locking
+  only the allocation retains execution fencing; existing document and cover-page
+  locks are still acquired when binding. Existing numbering regressions failed
+  on PostgreSQL first, then all 42 numbering/reminder tests passed.
+- CI fixtures now explicitly set the synthetic JIRA URL and isolate installation
+  environment values; the Windows SQLite probe fixture closes its connection.
+  The inherited-environment reproducer failed first and all 16 targeted tests
+  passed after correction. Production environment validation is unchanged.
+- Spawned worker tests now export the actual PostgreSQL test database name and
+  private scratch root, as they already did for SQLite. They never reconnect to
+  the source database. All 21 isolated-worker tests pass on PostgreSQL.
+- The new typechecker uses an explicit form instance binding. Browser chart tests
+  discover the public Chart registry in loaded modules without assuming chunk
+  filenames. Saved-list tests await PUT completion before reading stored content;
+  the deliberately delayed-save assertions and every expected value remain intact.

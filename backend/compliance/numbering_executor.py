@@ -173,7 +173,9 @@ def _client_for(allocation):
 def _lock(job, allocation_id):
     lease = current_execution_lease(job.id)
     lock_active_execution(lease, allow_cancel_requested=True)
-    allocation = CoverPageNumberAllocation.objects.select_for_update().select_related(
+    # Nullable document/cover joins cannot be locked on PostgreSQL. Binding locks
+    # those records explicitly; the allocation and active execution stay fenced here.
+    allocation = CoverPageNumberAllocation.objects.select_for_update(of=("self",)).select_related(
         "project", "actor", "document", "cover_page"
     ).get(pk=allocation_id)
     if allocation.current_job_id != job.id:

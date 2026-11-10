@@ -151,25 +151,25 @@ for (const theme of ['light', 'dark'] as const) {
       await timeline.scrollIntoViewIfNeeded()
       // Use the loaded Chart.js module's public registry in the production artifact.
       const chartHandle = await timeline.evaluateHandle(async (canvas) => {
-        const chartUrl = performance
+        const moduleUrls = performance
           .getEntriesByType('resource')
           .map((resource) => new URL(resource.name))
-          .find(
+          .filter(
             (url) =>
-              url.origin === location.origin &&
-              /^\/core\/assets\/chart-[^/]+\.js$/.test(url.pathname)
+              url.origin === location.origin && /^\/core\/assets\/[^/]+\.js$/.test(url.pathname)
           )
-        if (!chartUrl) throw new Error('The compiled Chart.js module was not loaded')
-        const chartModule: Record<string, unknown> = await import(chartUrl.href)
-        const ChartJS = Object.values(chartModule).find(
-          (value): value is typeof import('chart.js').Chart =>
-            typeof value === 'function' &&
-            'getChart' in value &&
-            typeof value.getChart === 'function'
-        )
-        const chart = ChartJS?.getChart(canvas as HTMLCanvasElement)
-        if (!chart) throw new Error('The timeline chart was not registered')
-        return chart
+        for (const url of moduleUrls) {
+          const chartModule: Record<string, unknown> = await import(url.href)
+          const ChartJS = Object.values(chartModule).find(
+            (value): value is typeof import('chart.js').Chart =>
+              typeof value === 'function' &&
+              'getChart' in value &&
+              typeof value.getChart === 'function'
+          )
+          const chart = ChartJS?.getChart(canvas as HTMLCanvasElement)
+          if (chart) return chart
+        }
+        throw new Error('The timeline chart was not registered in any loaded module')
       })
       const hoverPoint = await chartHandle.evaluate((chart) => {
         const x = chart.scales.x.getPixelForValue(new Date(2026, 6, 5).getTime())

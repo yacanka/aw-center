@@ -11,6 +11,7 @@ from textwrap import dedent
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import uuid4
+from urllib.parse import quote, urlsplit
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -124,6 +125,7 @@ class IsolatedWorkerTests(TransactionTestCase):
         self.private_root = Path(tempfile.mkdtemp())
         self.settings_override = override_settings(PRIVATE_MEDIA_ROOT=self.private_root)
         self.settings_override.enable()
+        environment_values = {"PRIVATE_MEDIA_ROOT": str(self.private_root)}
         if connection.vendor == "sqlite":
             # Spawn reloads settings instead of inheriting the parent's test DB.
             # Export the actual test database path, never the source DB.
@@ -133,12 +135,17 @@ class IsolatedWorkerTests(TransactionTestCase):
                 "Spawn regressions require a file-backed SQLite test database.",
             )
             database_path = Path(database_name).resolve()
-            environment = patch.dict(os.environ, {
-                "DATABASE_URL": f"sqlite:///{database_path.as_posix()}",
-                "PRIVATE_MEDIA_ROOT": str(self.private_root),
-            })
-            environment.start()
-            self.addCleanup(environment.stop)
+            environment_values["DATABASE_URL"] = f"sqlite:///{database_path.as_posix()}"
+        elif connection.vendor == "postgresql":
+            # A spawned interpreter otherwise reconnects to the source database,
+            # not Django's disposable test database. Preserve connection options.
+            source_url = urlsplit(os.environ["DATABASE_URL"])
+            environment_values["DATABASE_URL"] = source_url._replace(
+                path="/" + quote(str(connection.settings_dict["NAME"]), safe=""),
+            ).geturl()
+        environment = patch.dict(os.environ, environment_values)
+        environment.start()
+        self.addCleanup(environment.stop)
         self.user = get_user_model().objects.create_user("isolated-worker-owner")
 
     def tearDown(self):

@@ -1,9 +1,11 @@
 """Explicit env selection imports configuration without rotating existing state."""
 import base64
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from scripts.launcher.installation_profiles import provision_profile, read_profile_environment
 from scripts.launcher.model import LauncherError
@@ -15,6 +17,9 @@ from scripts.manager.view_model import normalize_values
 
 class EnvironmentSelectionTests(unittest.TestCase):
     def setUp(self):
+        self.environment = patch.dict(os.environ, {}, clear=True)
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
