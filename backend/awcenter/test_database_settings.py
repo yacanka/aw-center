@@ -2,6 +2,7 @@
 
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from threading import Event, Thread
 
@@ -84,7 +85,7 @@ class SQLiteConcurrencySettingsTests(SimpleTestCase):
 
     @staticmethod
     def _create_job_table(path):
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute(
                 "CREATE TABLE job (id INTEGER PRIMARY KEY, status TEXT, worker_id TEXT)"
             )

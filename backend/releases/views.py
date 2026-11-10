@@ -14,7 +14,7 @@ class UnseenReleaseNotesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = ReleaseNote.objects.filter(is_active=True).order_by("-published_at")
+        qs = ReleaseNote.objects.filter(is_active=True).order_by("-published_at", "-id")
 
         seen = dict(
             ReleaseNoteSeen.objects.filter(user=request.user)

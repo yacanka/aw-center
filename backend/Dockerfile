@@ -43,6 +43,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH \
     DJANGO_SETTINGS_MODULE=awcenter.settings \
+    AWCENTER_DEPLOYMENT_MODE=container \
     FRONTEND_DIST_DIR=/app/frontend-dist \
     STATIC_ROOT=/app/static
 
@@ -65,6 +66,7 @@ COPY --from=frontend-build /frontend/dist /app/frontend-dist
 
 RUN mkdir -p /app/ai-models /app/document-templates /app/private_media /app/static \
     && export DEBUG=True \
+        SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(64))')" \
         IPV4_ADDRESS=127.0.0.1 \
         PORT=8000 \
         DOCPROOF_URL=http://localhost/docproof \

@@ -215,6 +215,11 @@ class DccReminderTests(TestCase):
 
         first = self.create_delivery("timeout-first")
         second = self.create_delivery("timeout-second")
+        # Establish queue order explicitly: equal Windows clock ticks fall back
+        # to random UUID ordering and do not imply insertion order.
+        JiraReminderDelivery.objects.filter(pk=first.pk).update(
+            created_at=second.created_at - timedelta(seconds=1),
+        )
 
         def smtp_send(subject, body, recipients, **kwargs):
             if kwargs["message_id"] == first.message_id:

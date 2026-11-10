@@ -1,6 +1,7 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.db import connection, connections
@@ -44,10 +45,12 @@ class RequiredAcknowledgementTests(TestCase):
         self.assertEqual(self.client.get(UNSEEN_URL).status_code, 204)
 
     def test_required_notes_are_presented_before_ordinary_notes_and_acknowledged_in_order(self):
-        first = ReleaseNote.objects.create(version="1.0", title="First", requires_ack=True)
-        second = ReleaseNote.objects.create(version="1.1", title="Second", requires_ack=True)
-        ordinary = ReleaseNote.objects.create(version="1.2", title="Ordinary")
-        latest = ReleaseNote.objects.create(version="1.3", title="Latest ordinary")
+        # Windows can publish several notes within one clock tick.
+        with patch("django.utils.timezone.now", return_value=timezone.now()):
+            first = ReleaseNote.objects.create(version="1.0", title="First", requires_ack=True)
+            second = ReleaseNote.objects.create(version="1.1", title="Second", requires_ack=True)
+            ordinary = ReleaseNote.objects.create(version="1.2", title="Ordinary")
+            latest = ReleaseNote.objects.create(version="1.3", title="Latest ordinary")
 
         for note in (second, first):
             response = self.client.get(UNSEEN_URL)

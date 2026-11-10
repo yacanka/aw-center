@@ -112,6 +112,8 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("COPY --from=frontend-build /frontend/dist /app/frontend-dist", dockerfile)
         self.assertIn("python manage.py collectstatic --clear --noinput", dockerfile)
         self.assertIn("python manage.py verify_frontend_artifact", dockerfile)
+        self.assertIn("AWCENTER_DEPLOYMENT_MODE=container", dockerfile)
+        self.assertIn("SECRET_KEY=\"$(python -c 'import secrets; print(secrets.token_urlsafe(64))')\"", dockerfile)
         self.assertIn("/app/ai-models", dockerfile)
         self.assertIn("/app/document-templates", dockerfile)
         self.assertIn("chmod -R a-w /app", dockerfile)
