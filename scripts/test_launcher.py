@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import io
 import ipaddress
 import subprocess
@@ -173,6 +174,16 @@ class DependencyTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("usage:", result.stdout)
+
+    def test_cli_help_survives_a_windows_ansi_output_encoding(self):
+        root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            [sys.executable, "-S", str(root / "launcher.py"), "--help"],
+            cwd=root, capture_output=True, text=True, encoding="cp1252", timeout=10,
+            env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("usage:", result.stdout)
 
     def test_tls_gate_uses_project_python_when_launcher_has_no_site_packages(self):
         root = Path(__file__).resolve().parent.parent

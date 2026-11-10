@@ -17,6 +17,11 @@ from .runtime import check, dev, prod, test
 
 def main(arguments: list[str] | None = None) -> int:
     """Parse arguments, discover the project, and execute one workflow."""
+    # Redirected Windows output can use an ANSI code page without Turkish glyphs.
+    # Preserve the selected encoding while keeping help and errors printable.
+    for output in (sys.stdout, sys.stderr):
+        if callable(getattr(output, "reconfigure", None)):
+            output.reconfigure(errors="backslashreplace")
     try:
         args = build_parser().parse_args(arguments)
         project = discover_project(args.root)

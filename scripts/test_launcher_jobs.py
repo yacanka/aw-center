@@ -262,6 +262,10 @@ if sys.argv[4] != 'exit':
                             os.kill(leaf_pid, 9 if os.name != 'nt' else 15)
                         except ProcessLookupError:
                             pass
+                        except OSError as error:
+                            # Windows reports an already terminated PID as ERROR_INVALID_PARAMETER.
+                            if os.name != 'nt' or error.winerror != 87:
+                                raise
 
     def test_unreaped_exited_child_does_not_prevent_sibling_cleanup(self):
         from scripts.launcher.process import start, terminate

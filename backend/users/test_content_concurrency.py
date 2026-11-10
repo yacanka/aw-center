@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 from django.contrib.auth import get_user_model
-from django.db import close_old_connections
+from django.db import close_old_connections, connections
 from django.test import TransactionTestCase
 
 from awcenter.database_errors import ContentConflict
@@ -30,7 +30,9 @@ class UserContentConcurrencyTests(TransactionTestCase):
                 except ContentConflict as error:
                     return error
             finally:
-                close_old_connections()
+                # A finished thread owns no reusable request connection. Age-based
+                # cleanup can leave PostgreSQL sessions alive until cyclic GC.
+                connections.close_all()
         with ThreadPoolExecutor(max_workers=len(operations)) as pool:
             return list(pool.map(run, operations))
 
