@@ -8,7 +8,7 @@ setuptools
 
 # Core web framework
 # Django 6.x requires Python >=3.12; stay on Django 5.2 LTS for Python 3.11.
-Django
+Django>=5.2.17,<5.3
 djangorestframework
 django-cors-headers
 django-simple-history
@@ -37,10 +37,13 @@ openpyxl
 pandas
 pdfplumber
 Pillow
-pypdf
+pypdf>=6.21.4,<7
 reportlab
 python-dateutil
 python-docx
+
+# Security floors for existing transitive parsers, without unnecessary major upgrades.
+soupsieve>=2.9,<3
 
 # Approved NLP set for CPython 3.11 and the corporate package repository.
 sentence-transformers==5.6.0

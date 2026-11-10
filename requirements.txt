@@ -2,7 +2,7 @@
 #    uv pip compile --python-version 3.11 --universal requirements.in -o requirements.txt
 annotated-doc==0.0.4
     # via typer
-anyio==4.14.1 ; sys_platform != 'emscripten'
+anyio==4.16.0 ; sys_platform != 'emscripten'
     # via httpx2
 asgiref==3.11.1
     # via
@@ -14,7 +14,7 @@ beautifulsoup4==4.13.5
     # via
     #   -r requirements.in
     #   extract-msg
-certifi==2026.6.17
+certifi==2026.10.23
     # via requests
 cffi==2.0.0 ; platform_python_implementation != 'PyPy'
     # via cryptography
@@ -36,7 +36,7 @@ colorclass==2.2.2
     # via oletools
 compressed-rtf==1.0.7
     # via extract-msg
-cryptography==49.0.0
+cryptography==50.0.2
     # via
     #   -r requirements.in
     #   msoffcrypto-tool
@@ -49,7 +49,7 @@ cuda-toolkit==13.0.3.0 ; sys_platform == 'linux'
     # via torch
 defusedxml==0.7.1
     # via jira
-django==5.2.15
+django==5.2.19
     # via
     #   -r requirements.in
     #   django-cors-headers
@@ -64,7 +64,7 @@ django-extensions==4.1
     # via -r requirements.in
 django-simple-history==3.12.0
     # via -r requirements.in
-djangorestframework==3.17.1
+djangorestframework==3.18.3
     # via -r requirements.in
 docx2txt==0.9
     # via -r requirements.in
@@ -78,7 +78,7 @@ et-xmlfile==2.0.0
     # via openpyxl
 extract-msg==0.55.0
     # via -r requirements.in
-filelock==3.29.4
+filelock==4.2.10
     # via
     #   huggingface-hub
     #   torch
@@ -194,7 +194,7 @@ nvidia-nvshmem-cu13==3.4.5 ; sys_platform == 'linux'
     # via torch
 nvidia-nvtx==13.0.85 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
     # via cuda-toolkit
-oauthlib==3.3.1
+oauthlib==4.0.1
     # via requests-oauthlib
 olefile==0.47
     # via
@@ -221,7 +221,7 @@ pdfminer-six==20260107
     # via pdfplumber
 pdfplumber==0.11.10
     # via -r requirements.in
-pillow==12.3.0
+pillow==13.0.0
     # via
     #   -r requirements.in
     #   pdfplumber
@@ -240,7 +240,7 @@ pygments==2.20.0
     # via rich
 pyparsing==3.3.2
     # via oletools
-pypdf==6.14.2
+pypdf==6.21.4
     # via -r requirements.in
 pypdfium2==5.11.0
     # via pdfplumber
@@ -296,7 +296,7 @@ sentencepiece==0.2.2
     # via
     #   -r requirements.in
     #   transformers
-setuptools==84.0.0
+setuptools==84.2.1
     # via
     #   -r requirements.in
     #   torch
@@ -304,9 +304,11 @@ shellingham==1.5.4
     # via typer
 six==1.17.0
     # via python-dateutil
-soupsieve==2.8.4
-    # via beautifulsoup4
-sqlparse==0.5.5
+soupsieve==2.10
+    # via
+    #   -r requirements.in
+    #   beautifulsoup4
+sqlparse==0.6.1
     # via django
 sympy==1.14.0
     # via torch
@@ -357,7 +359,7 @@ tzdata==2026.3 ; sys_platform == 'emscripten' or sys_platform == 'win32'
     #   tzlocal
 tzlocal==5.4.4
     # via extract-msg
-urllib3==2.7.0
+urllib3==2.8.0
     # via requests
 uvicorn==0.52.4 ; sys_platform == 'win32'
     # via -r requirements.in

@@ -20,7 +20,7 @@
         <template #icon><Edit24Regular /></template>
       </n-button>
     </template>
-    <n-form ref="formRef" :model="compdoc" :rules="rules">
+    <n-form :ref="bindFormRef" :model="compdoc" :rules="rules">
       <n-flex vertical :size="12">
         <CompDocIdentityFields
           :compdoc="compdoc"
@@ -114,6 +114,7 @@
 
 <script setup lang="ts">
 import { toRef } from 'vue'
+import type { FormInst } from 'naive-ui'
 import { Edit24Regular } from '@vicons/fluent'
 import NumberingContextFields from './NumberingContextFields.vue'
 import CompDocHistory from '@/features/compliance/components/CompDocHistory.vue'
@@ -149,6 +150,10 @@ const {
   setUpdateMode,
   showModal
 } = useCompDocEditor(toRef(props, 'canEdit'))
+
+function bindFormRef(instance: unknown) {
+  formRef.value = instance as FormInst | null
+}
 
 defineExpose<{ openModal: (value: ICompDoc, mode: string) => void }>({ openModal })
 </script>
