@@ -214,7 +214,7 @@ def run_core_smoke(*, operator_username: str, project_slug: str) -> dict:
         _expect(output.startswith(b"PK"), "DCC artifact is not a DOCX archive.")
         outsider_client = APIClient(HTTP_HOST=smoke_host)
         outsider_client.force_authenticate(outsider)
-        denied_download = outsider_client.get(f"/api/jobs/{job.pk}/download/")
+        denied_download = outsider_client.get(f"/api/jobs/{job.pk}/download/", secure=True)
         _expect(denied_download.status_code == 404, "Private artifact leaked to another user.")
 
         logout = client.delete(

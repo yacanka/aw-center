@@ -37,6 +37,7 @@ class ReleaseSmokeTests(TestCase):
         validate_username_format(username)
         self.assertEqual(username, "S12346")
 
+    @override_settings(SECURE_SSL_REDIRECT=True)
     def test_core_stage_exercises_contracts_and_removes_ephemeral_state(self):
         initial_statuses = set(DocumentStatus.objects.values_list("pk", flat=True))
         with tempfile.TemporaryDirectory() as directory:
