@@ -13,7 +13,7 @@ state'i oluşturur. `doctor` bunları oluşturmaz veya düzeltmez.
 
 ## Sözleşme
 
-- CPython 3.11+ ister ve `.venv` sürümünü doğrular.
+- CPython 3.11.x ister ve `.venv` minor sürümünü doğrular; 3.11 yama sürümleri kabul edilir.
 - Launcher giriş noktası yalnız standart kütüphane kullanır; ilk `setup` için
   uygulama paketlerinin global Python'a kurulması gerekmez. Production TLS
   doğrulaması proje `.venv` interpreter'ında çalışır.

@@ -98,9 +98,10 @@ mevcut biçim sorununu bildiriyor. İlgisiz dosya yeniden formatlanmadı.
 uygulanmamış olduğundan o dosyada `migrate --check` çıkış kodu 1 verdi; dosya
 migrate edilmedi. Yukarıdaki olumlu migration sonucu ayrı geçici veritabanına aittir.
 
-Bu makinenin mevcut venv'i CPython 3.14.6 kullanıyor. Production sözleşmesindeki
-CPython 3.11, PostgreSQL ve Windows-native canlı süreçleri bu ortamda
-doğrulanmadı. Gerçek JIRA/DocProof/Teamcenter sertifika bağlantıları ve gerçek
+Bu aktarımın o tarihteki doğrulama ortamı CPython 3.14.6 kullanıyordu. Bu tarihsel
+koşu CPython 3.11, PostgreSQL ve Windows-native canlı süreçlerini kapsamıyordu;
+güncel geliştirme, CI ve production hedefi CPython 3.11.x'tir.
+Gerçek JIRA/DocProof/Teamcenter sertifika bağlantıları ve gerçek
 kurumsal DOCX şablonlarıyla son kontrol ayrıca gerekir.
 
 Mimari fitness suite'inde 14 testin 12'si geçti. İki cycle testi,

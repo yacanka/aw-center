@@ -45,8 +45,8 @@ endpoints remain retired by the current architecture.
 
 Tests use controlled Jira/AI responses and a local SMTP test server, not live
 external services. Verify production credentials and connectivity in the normal
-release environment. The local test virtualenv is Python 3.14; production's
-CPython 3.11 environment should run the same checks before deployment.
+release environment. Development, CI and production use CPython 3.11.x;
+run the same checks in that environment before deployment.
 
 Restoration validation (2026-10-05): 339 backend tests passed; frontend `test:ci`
 passed (232 source unit tests, 28 import tests and the script suites); all four

@@ -63,7 +63,7 @@ Dar backend örnekleri:
 ../.venv/bin/python manage.py test awcenter.test_architecture awcenter.test_deployment_contract
 ```
 
-PDF dizini namespace package olduğu için varsayılan test keşfine dahil olmaz. CI, Python 3.11 backend ve Python 3.14 compatibility kapılarında `pdf.tests` etiketini ayrıca çalıştırır.
+PDF dizini namespace package olduğu için varsayılan test keşfine dahil olmaz. CI, CPython 3.11 backend kapısında `pdf.tests` etiketini ayrıca çalıştırır.
 
 Frontend, repository kökünden:
 
@@ -233,9 +233,8 @@ GitHub Actions jobs:
 
 - Backend: Python 3.11, PostgreSQL/Redis, fresh migration, checks/tests, dependency audit, integrated frontend/static smoke.
 - Frontend: Node 22, `npm ci`, format/type/unit-contract test, Playwright Chromium E2E, build, npm audit ve immutable artifact upload.
-- Compatibility: Python 3.14 üzerinde backend check/test.
 - Windows native: Python 3.11 üzerinde launcher/DOORS, gerçek izole worker process'leri, SQLite eşzamanlılık, mimari ve compliance Excel/DOORS import regresyonları; repository dışındaki geçici dizinlerde production SQLite migration, file cache ve `check --deploy` sözleşmesi.
-- Future container: digest-pinned base/infra image'lar, commit-SHA-pinned actions, combined image, resolved digest/frontend tree verification, release manifest/CycloneDX SBOM, fresh-schema migration, `run_release_smoke` core+notification kapıları, deploy checks, readiness, worker heartbeat ve source read-only assertion.
+- Future container: CPython 3.11 üzerinde release doğrulaması, digest-pinned base/infra image'lar, commit-SHA-pinned actions, combined image, resolved digest/frontend tree verification, release manifest/CycloneDX SBOM, fresh-schema migration, `run_release_smoke` core+notification kapıları, deploy checks, readiness, worker heartbeat ve source read-only assertion.
 
 `verify_release_image.py`, BuildKit digest'i ve image frontend ağacını schema-2 release manifestine bağlar. `deployment_preflight.py` environment/runtime-path sözleşmesinin yanında manifest ve verification kaydındaki release, commit, manifest SHA-256, frontend tree/count ve `AWCENTER_IMAGE` digest eşliğini yeniden doğrular. Testler hem image-verification üretimindeki değiştirilmiş dist/manifest reddini hem deploy-time değiştirilmiş evidence/env reddini ayrı kapsamalıdır.
 

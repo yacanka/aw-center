@@ -15,7 +15,7 @@ AW Center, kullanıcı erişimini ve doküman işlemlerini uygulama sunucusunda 
 
 ## Gereksinimler
 
-- Python 3.11
+- CPython 3.11.x (geliştirme, CI ve production)
 - Node.js 22 ve npm
 - Kullanılacak doküman araçlarının sistem bağımlılıkları
 

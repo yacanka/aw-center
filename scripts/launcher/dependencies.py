@@ -12,13 +12,13 @@ from .model import LauncherError, Project, Scope
 from .offline_manifest import ensure_wheels_only, verify_offline_manifest, write_offline_manifest
 from .process import required_tool, run
 
-MINIMUM_PYTHON = (3, 11)
+REQUIRED_PYTHON = (3, 11)
 
 
 def ensure_launcher_python() -> None:
     """Require a supported interpreter before creating a virtual environment."""
-    if sys.version_info[:2] < MINIMUM_PYTHON:
-        raise LauncherError("Python 3.11 or newer is required")
+    if sys.version_info[:2] != REQUIRED_PYTHON:
+        raise LauncherError("CPython 3.11 is required")
 
 
 def ensure_virtual_environment(project: Project, *, create: bool) -> None:
@@ -40,9 +40,9 @@ def check_virtual_environment_version(project: Project) -> None:
     script = "import sys; print('.'.join(map(str, sys.version_info[:3])))"
     completed = run([project.python, "-c", script], project.root, capture=True)
     version = tuple(int(part) for part in completed.stdout.strip().split("."))
-    if version[:2] < MINIMUM_PYTHON:
+    if version[:2] != REQUIRED_PYTHON:
         rendered = ".".join(str(part) for part in version)
-        raise LauncherError(f".venv uses unsupported Python {rendered}; recreate it with Python 3.11+")
+        raise LauncherError(f".venv uses unsupported Python {rendered}; recreate it with Python 3.11")
 
 
 def install(project: Project, scope: Scope, mode: str, offline_dir: Path) -> None:
@@ -89,6 +89,7 @@ def prepare_offline(project: Project, scope: Scope, offline_dir: Path) -> None:
     """Build Python wheels and populate an npm cache for offline setup."""
     scope.require_any()
     if scope.backend:
+        ensure_launcher_python()
         if not project.requirements:
             raise LauncherError("requirements.txt was not found")
         wheels = offline_dir / "wheels"

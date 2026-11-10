@@ -248,7 +248,16 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("docker build", workflow)
         self.assertIn("docker run --rm", workflow)
         self.assertIn('python-version: "3.11"', workflow)
-        self.assertIn('python-version: "3.14"', workflow)
+        self.assertEqual(self.read(".python-version").strip(), "3.11")
+        for workflow_path in (".github/workflows/ci.yml", ".github/workflows/manager-windows.yml"):
+            parsed = yaml.safe_load(self.read(workflow_path))
+            versions = [
+                str(step["with"]["python-version"])
+                for job in parsed["jobs"].values() for step in job.get("steps", [])
+                if "python-version" in step.get("with", {})
+            ]
+            self.assertTrue(versions, workflow_path)
+            self.assertTrue(all(version == "3.11" or version.startswith("3.11.") for version in versions), versions)
         self.assertIn("runs-on: windows-latest", workflow)
         self.assertIn('AWCENTER_DEPLOYMENT_MODE = "windows-native"', workflow)
         self.assertIn('DATABASE_URL = "sqlite:///$databasePath"', workflow)

@@ -22,7 +22,10 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 from scripts.launcher.cli import build_parser, external_path, prod_command, project_path
-from scripts.launcher.dependencies import install, install_backend, prepare_offline
+from scripts.launcher.dependencies import (
+    check_virtual_environment_version, ensure_launcher_python,
+    install, install_backend, prepare_offline,
+)
 from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError, Project, Scope
 from scripts.launcher.offline_manifest import (
@@ -106,6 +109,38 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(actual.package_json.parent.name, "frontend")
 
 class DependencyTests(unittest.TestCase):
+    def test_launcher_requires_python_311_minor_and_accepts_patch_releases(self):
+        for version in ((3, 11, 0), (3, 11, 3), (3, 11, 15)):
+            with self.subTest(version=version), mock.patch("sys.version_info", version):
+                ensure_launcher_python()
+        for version in ((3, 10, 9), (3, 12, 0), (3, 14, 0)):
+            with self.subTest(version=version), mock.patch("sys.version_info", version):
+                with self.assertRaisesRegex(LauncherError, "3.11"):
+                    ensure_launcher_python()
+
+    def test_project_virtual_environment_requires_python_311_minor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            for version in ("3.10.9", "3.12.0", "3.14.0"):
+                with self.subTest(version=version), mock.patch(
+                    "scripts.launcher.dependencies.run", return_value=mock.Mock(stdout=version),
+                ):
+                    with self.assertRaisesRegex(LauncherError, "3.11"):
+                        check_virtual_environment_version(project)
+            with mock.patch("scripts.launcher.dependencies.run", return_value=mock.Mock(stdout="3.11.3")):
+                check_virtual_environment_version(project)
+
+    def test_offline_wheels_reject_another_minor_before_creating_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = create_project(Path(temporary))
+            output = project.root / "offline"
+            with mock.patch("sys.version_info", (3, 14, 0)), \
+                 mock.patch("scripts.launcher.dependencies.run") as run:
+                with self.assertRaisesRegex(LauncherError, "3.11"):
+                    prepare_offline(project, Scope(frontend=False), output)
+            run.assert_not_called()
+            self.assertFalse(output.exists())
+
     def test_tls_probe_cannot_write_managed_runtime_bytecode(self):
         from scripts.launcher import runtime
 
