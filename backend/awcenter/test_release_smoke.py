@@ -45,9 +45,8 @@ class ReleaseSmokeTests(TestCase):
             document.add_paragraph("{{ Design_Change_Title }}")
             document.save(template)
             output = StringIO()
-            with patch(
-                "integrations.jira.document_job.resolve_dcc_template_path",
-                return_value=template,
+            with override_settings(CUSTOM_TEMPLATE_DIR=directory), patch(
+                "integrations.jira.services.template_resolver.TEMPLATE_DIR", directory,
             ):
                 call_command(
                     "run_release_smoke",

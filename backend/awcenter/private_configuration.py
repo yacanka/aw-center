@@ -38,7 +38,11 @@ def _read_bytes(configured):
     if not configured or not path.is_absolute():
         raise ValueError
     path = path.resolve(strict=True)
-    if path.is_relative_to(REPOSITORY_ROOT) or not path.is_file():
+    if (
+        _is_source_path(path)
+        or path.is_relative_to(Path(settings.PRIVATE_MEDIA_ROOT).resolve())
+        or not path.is_file()
+    ):
         raise ValueError
     with path.open("rb") as stream:
         metadata = os.fstat(stream.fileno())
@@ -52,6 +56,18 @@ def _read_bytes(configured):
     if len(raw) > MAX_CONFIGURATION_BYTES:
         raise ValueError
     return raw
+
+
+def _is_source_path(path):
+    if settings.AWCENTER_DEPLOYMENT_MODE != "container":
+        return path.is_relative_to(REPOSITORY_ROOT)
+    # Images flatten backend/ into BASE_DIR. Only the documented read-only asset
+    # mount may sit beneath that source root; arbitrary template overrides cannot.
+    source_root = Path(settings.BASE_DIR).resolve()
+    asset_root = source_root / "document-templates"
+    if Path(settings.CUSTOM_TEMPLATE_DIR).resolve() == asset_root and path.is_relative_to(asset_root):
+        return False
+    return path.is_relative_to(source_root)
 
 
 def _unique_object(pairs):

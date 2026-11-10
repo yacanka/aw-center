@@ -25,6 +25,11 @@ Use mode 0600 on files and 0700 on the dedicated directory; review extended ACLs
 Windows operators must restrict and verify file **and directory** NTFS ACLs.
 The development Mac does not establish Windows ACL correctness.
 
+In the future container profile, these files may use the canonical read-only
+`/app/document-templates` asset mount when `CUSTOM_TEMPLATE_DIR` selects that
+directory. They must belong to runtime UID 10001 with mode 0600. Other paths
+inside the image source or writable private-artifact storage remain rejected.
+
 The selected local mappings and the full DDF prompt prefix were exported directly
 before removing their source defaults. Actual values were not printed or added
 to fixtures. Copy the approved files to other machines through the institution's

@@ -583,13 +583,37 @@ jobs:
           docker volume create awcenter-ci-ai-models
           docker volume create awcenter-ci-document-templates
           trap 'docker rm -f awcenter-web awcenter-worker awcenter-ci-auth-redis >/dev/null 2>&1 || true; docker volume rm awcenter-ci-private awcenter-ci-ai-models awcenter-ci-document-templates >/dev/null 2>&1 || true' EXIT
-          docker run --rm --user 0:0 -v awcenter-ci-document-templates:/app/document-templates awcenter:ci python -c "from pathlib import Path; from docx import Document; root=Path('/app/document-templates'); document=Document(); document.add_paragraph('{{ Design_Change_Title }}'); document.save(root/'hys_dcc_template.docx')"
+          docker run --rm -i --user 0:0 -v awcenter-ci-document-templates:/app/document-templates awcenter:ci python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from docx import Document
+          from projects.registry import PROJECT_DEFINITIONS
+          root = Path('/app/document-templates')
+          document = Document()
+          document.add_paragraph('{{ Design_Change_Title }}')
+          document.save(root / 'hys_dcc_template.docx')
+          projects = {
+              slug: {
+                  'jira_component': slug.upper(), 'aliases': [], 'dcc_label': f'CI {slug}',
+                  'dcc_template_name': f'{slug}_dcc_template.docx', 'mail_template_name': f'ci_{slug}',
+              }
+              for slug, definition in PROJECT_DEFINITIONS.items() if 'jira' in definition.capabilities
+          }
+          configuration = root / 'project-configuration.json'
+          configuration.write_text(json.dumps({
+              'schema_version': 1, 'projects': projects,
+              'cover_pages': {'match_text': 'CI', 'match_label': 'CI Work Package', 'default_label': 'CI Project'},
+          }), encoding='utf-8')
+          configuration.chmod(0o600)
+          os.chown(configuration, 10001, 10001)
+          PY
           runtime_volumes=(-v awcenter-ci-private:/app/private_media -v awcenter-ci-ai-models:/app/ai-models:ro -v awcenter-ci-document-templates:/app/document-templates:ro)
           ci_operator_password="$(openssl rand -base64 32)"
           docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci python manage.py migrate --noinput
           docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci python manage.py check --deploy --fail-level WARNING
           docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" -e DJANGO_SUPERUSER_USERNAME=ci-release-operator -e DJANGO_SUPERUSER_EMAIL=ci-release-operator@example.invalid -e DJANGO_SUPERUSER_PASSWORD="$ci_operator_password" awcenter:ci python manage.py createsuperuser --noinput
-          docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci python manage.py run_release_smoke --stage core --project hys --operator-username ci-release-operator --confirm-fresh-install
+          docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" -e PROJECT_CONFIGURATION_FILE=/app/document-templates/project-configuration.json awcenter:ci python manage.py run_release_smoke --stage core --project hys --operator-username ci-release-operator --confirm-fresh-install
           docker run --rm --network host "${runtime_env[@]}" "${runtime_volumes[@]}" -e AWCENTER_MAIL_TRANSPORT=django -e EMAIL_BACKEND=django.core.mail.backends.locmem.EmailBackend -e DEFAULT_FROM_EMAIL=no-reply@example.invalid awcenter:ci python manage.py run_release_smoke --stage notification --operator-username ci-release-operator --notification-recipient ci-release-canary@example.invalid --confirm-fresh-install
           docker run -d --name awcenter-web --network host "${runtime_env[@]}" "${runtime_volumes[@]}" awcenter:ci
           for attempt in {1..30}; do
