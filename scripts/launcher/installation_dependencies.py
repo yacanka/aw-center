@@ -101,8 +101,14 @@ def _package_source_failure(output: str) -> tuple[str, str, str]:
             detail = f'Proxy kimlik doğrulaması gerekli (HTTP {code}).' if code == 407 else f'Paket kaynağı HTTP {code} yanıtı verdi.'
             return 'package_source_http_rejected', detail, remedy
     if any(value in text for value in ('readtimeouterror', 'connecttimeouterror', 'err_socket_timeout', 'etimedout')):
-        return ('package_source_timeout', 'Paket kaynağı bağlantısında zaman aşımı oluştu.',
-                'Paket indeksi ve paket dosyası sunucusunun ağ/proxy erişimini kontrol edip yeniden deneyin.')
+        detail = 'Paket kaynağı bağlantısında zaman aşımı oluştu.'
+        if 'readtimeouterror' in text:
+            detail = 'Paket kaynağından yanıt veya veri beklenirken zaman aşımı oluştu.'
+        elif 'connecttimeouterror' in text:
+            detail = 'Paket kaynağına bağlantı kurulurken zaman aşımı oluştu.'
+        return ('package_source_timeout', detail,
+                'Manager’ın seçili Python deposu ile konsoldaki pip depo/proxy ayarlarını karşılaştırın. '
+                'Paket indeksi ve dosya sunucusunun erişimini kontrol edip yeniden deneyin.')
     if any(value in text for value in ('nameresolutionerror', 'enotfound', 'eai_again')):
         return ('package_source_dns_failed', 'Paket kaynağının DNS adresi çözümlenemedi.',
                 'Depo adresini, DNS ve kurumsal ağ/VPN erişimini kontrol edin.')
@@ -283,6 +289,50 @@ def python_package_progress(line: str) -> str | None:
     return None
 
 
+class PackageProxyConfigError(LauncherError):
+    """A private proxy lookup failed; never expose configuration or credentials."""
+
+    code = 'package_proxy_config_failed'
+    remedy = ('Seçili Python ortamının pip proxy yapılandırmasını kontrol edin. '
+              'Proxy adresini veya kimlik bilgilerini rapora eklemeyin.')
+
+    def __init__(self):
+        super().__init__('Python paket edinimi için pip proxy ayarı güvenli biçimde okunamadı.')
+
+
+def _pip_proxy_environment(python, project, overrides):
+    # Ask the target pip to apply its own file/environment precedence. Export
+    # only the proxy: indexes and trusted-host must not bypass source/TLS policy.
+    script = '''import json
+from pip._internal.configuration import Configuration
+from pip._internal.exceptions import ConfigurationError
+config = Configuration(isolated=False)
+config.load()
+proxy = ''
+for key in (':env:.proxy', 'wheel.proxy', 'global.proxy'):
+    try:
+        proxy = config.get_value(key).strip()
+    except ConfigurationError:
+        continue
+    if proxy:
+        break
+print(json.dumps(proxy, ensure_ascii=True))
+'''
+    try:
+        result = controlled_run([str(python), '-I', '-B', '-c', script], cwd=project.root,
+                                env=environment(overrides), capture_output=True, text=True,
+                                encoding='utf-8', errors='backslashreplace', timeout=15, check=False)
+        if result.returncode or len(result.stdout or '') > 16 * 1024:
+            raise PackageProxyConfigError()
+        proxy = json.loads(result.stdout)
+        if (not isinstance(proxy, str) or len(proxy) > 8192 or
+                any(ord(character) <= 32 or ord(character) == 127 for character in proxy)):
+            raise PackageProxyConfigError()
+    except (OSError, subprocess.TimeoutExpired, ValueError, UnicodeError):
+        raise PackageProxyConfigError() from None
+    return {'PIP_PROXY': proxy} if proxy else {}
+
+
 def capture(command: list, project: Project, overrides: dict | None = None, *, timeout=1800, progress=None):
     """Capture diagnostics privately while isolating inherited package settings."""
     values = environment(overrides)
@@ -290,7 +340,7 @@ def capture(command: list, project: Project, overrides: dict | None = None, *, t
               if not key.upper().startswith(("PIP_", "NPM_CONFIG_"))}
     values.update({"PIP_CONFIG_FILE": os.devnull, "PIP_NO_INPUT": "1",
                    "PIP_NO_CACHE_DIR": "1",
-                   "PIP_DEFAULT_TIMEOUT": "10", "PIP_RETRIES": "1",
+                   "PIP_DEFAULT_TIMEOUT": "60", "PIP_RETRIES": "3",
                    "NODE_TLS_REJECT_UNAUTHORIZED": "1", "NPM_CONFIG_STRICT_SSL": "true",
                    "NPM_CONFIG_FETCH_RETRIES": "1", "NPM_CONFIG_FETCH_TIMEOUT": "15000"})
     with tempfile.TemporaryDirectory(prefix="awcenter-package-config-") as temporary:
@@ -302,6 +352,8 @@ def capture(command: list, project: Project, overrides: dict | None = None, *, t
             values["NPM_CONFIG_" + kind.upper() + "CONFIG"] = str(path)
         if overrides:
             values.update(overrides)
+        if command[1:4] == ['-m', 'pip', 'wheel'] and '--no-index' not in command:
+            values.update(_pip_proxy_environment(command[0], project, overrides))
         # Package tools emit UTF-8, independently of the windowed Manager's
         # Windows ANSI code page. Native build-tool diagnostics may still use a
         # legacy encoding: retain their bytes as escapes, not a decoding crash.

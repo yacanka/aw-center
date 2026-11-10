@@ -101,7 +101,7 @@ def _errors_with_remedy():
     from scripts.launcher.certificates import PackageTrustError
     from scripts.launcher.installation_bundle import BundleHostRuntimeError
     from scripts.launcher.installation_dependencies import (
-        DependencyIntegrityError, PackageCommandError, PackageTimeoutError,
+        DependencyIntegrityError, PackageCommandError, PackageProxyConfigError, PackageTimeoutError,
         VirtualEnvironmentError, VirtualEnvironmentRepairError,
     )
     from scripts.launcher.installation_permissions import PermissionCheckError
@@ -118,7 +118,7 @@ def _errors_with_remedy():
 
     from .bundle_preparation import BundleInputsError
     return (BundleInputsError, ArtifactDownloadError, BundleHostRuntimeError, DependencyIntegrityError, FrontendBuildError,
-            ManagerBuildError, PackageCacheError, PackageCommandError, PackageTimeoutError, PackageTrustError,
+            ManagerBuildError, PackageCacheError, PackageCommandError, PackageProxyConfigError, PackageTimeoutError, PackageTrustError,
             PermissionCheckError, ProductionSourceNotPrepared, ResourceLockError, RuntimeValidationError,
             StartupReadinessError, SystemNodeError, SystemPythonError, TLSFileError, VirtualEnvironmentError,
             VirtualEnvironmentRepairError)

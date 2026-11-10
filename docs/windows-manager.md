@@ -246,6 +246,28 @@ Kaynak modu her işlemde açıkça seçilir:
 
 Python index adresi, npm registry adresi ve runtime arşiv deposu ayrı alanlardır. Kurumun CA dosyasını gerektiğinde seçin; TLS kontrolü kapatılmaz. URL'ye kullanıcı adı, parola veya token koymayın. Kurumsal proxy yapılandırması işlemin ortamından gelebilir; ham paket yöneticisi çıktıları arayüze veya rapora aktarılmaz.
 
+Python paket ediniminde hedef Python'un pip yapılandırmasından yalnız proxy
+ayarı okunur: `PIP_PROXY`, ardından `wheel.proxy`, ardından `global.proxy`
+önceliklidir. Böylece kullanıcı/sistem `pip.ini` dosyasındaki kurumsal proxy
+kullanılabilir; `HTTPS_PROXY`, `HTTP_PROXY` ve bypass ortam ayarları korunur.
+Proxy kimlik bilgileri yalnız işlem belleğinde tutulur; komut argümanlarına,
+rapora, profil dosyasına veya pakete yazılmaz. Diğer pip yapılandırmaları
+devralınmaz: seçili depo, CA/TLS ve kurumsal modun kaynak sınırları korunur.
+Proxy ayarı okunamazsa `package_proxy_config_failed` ile edinimden önce durulur;
+çevrimdışı kurulum bu yapılandırmayı okumaz.
+
+Pip bağlantı/okuma bekleme sınırı 60 saniye ve tekrar deneme sayısı 3'tür;
+paket komutunun toplam 30 dakikalık sınırı ve iptal desteği korunur. Konsolda
+başarılı olan bir `pip install`, farklı Python, depo veya önbellek kullanabilir.
+`package_source_timeout` durumunda rapor, pip ayırt edebiliyorsa bağlantı
+kurulurken mi yanıt/veri beklerken mi zaman aşımı olduğunu belirtir. Son
+“paket çözülüyor” satırı başarısız isteğin hangi pakete ait olduğunu garanti etmez.
+
+Bu davranışı paketli kullanımda almak için güncel kaynaklardan yeni Manager
+EXE'si üretilmelidir. Windows'ta CPython 3.11 ve Tk mevcutsa güncel repository
+kökünden `py -3.11 -m scripts.manager.main` ile EXE derlemeden de çalıştırılabilir.
+Mevcut profil ve kurumsal kaynak seçimi korunarak **AW Center’ı aç** yeniden denenir.
+
 Kur ve başlat ve Çevrimdışı paket hazırla, EXE yanındaki doğrulanmış arşiv ve
 bağımlılık paketlerini otomatik değerlendirir. Çevrimdışı modda dizin alanını boş
 bırakabilirsiniz; gerekli içerik otomatik bulunan yerel pakette yoksa eksik bildirilir.

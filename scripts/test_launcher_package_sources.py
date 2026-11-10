@@ -78,6 +78,8 @@ class PythonSourceFailureTests(unittest.TestCase):
 
     def test_transport_failures_are_distinguished_without_raw_diagnostics(self):
         cases = (
+            ('ReadTimeoutError: private-detail', 'package_source_timeout', 'yanıt veya veri'),
+            ('ConnectTimeoutError: private-detail', 'package_source_timeout', 'bağlantı kurulurken'),
             ('NameResolutionError: private-detail', 'package_source_dns_failed', 'DNS'),
             ('NewConnectionError: connection refused private-detail',
              'package_source_connection_failed', 'bağlantı'),
@@ -118,6 +120,16 @@ class PythonSourceFailureTests(unittest.TestCase):
         self.assertIn('HTTP 403', error['message'])
         self.assertIn('erişim', error['remedy'])
         self.assertNotIn('private-detail', json.dumps(events))
+        self.assertEqual(events[-1], {'type': 'done', 'ok': False})
+
+    def test_manager_preserves_private_proxy_lookup_failure_and_remedy(self):
+        events = []
+        error = dependencies.PackageProxyConfigError()
+        with patch('scripts.manager.operations._dispatch', side_effect=error):
+            worker.execute({'action': 'provision'}, events.append, lambda: None, threading.Event())
+        event = next(event for event in events if event['type'] == 'error')
+        self.assertEqual(event['code'], 'package_proxy_config_failed')
+        self.assertEqual(event['remedy'], error.remedy)
         self.assertEqual(events[-1], {'type': 'done', 'ok': False})
 
 
