@@ -491,7 +491,8 @@ jobs:
           container_id="$(docker create awcenter:ci)"
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
           mkdir image-frontend-dist
-          docker cp "$container_id:/app/frontend-dist/." image-frontend-dist
+          docker cp "$container_id:/app/frontend-dist/." - \
+            | tar --extract --no-same-owner --delay-directory-restore --directory image-frontend-dist
           docker rm "$container_id"
           trap - EXIT
           python scripts/verify_release_image.py \

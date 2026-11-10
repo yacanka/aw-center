@@ -258,6 +258,8 @@ class DeploymentContractTests(SimpleTestCase):
         self.assertIn("redis:7-alpine", workflow)
         self.assertIn("build_release_metadata.py", workflow)
         self.assertIn("verify_release_image.py", workflow)
+        self.assertIn('docker cp "$container_id:/app/frontend-dist/." -', workflow)
+        self.assertIn("--no-same-owner --delay-directory-restore", workflow)
         self.assertIn("deployment_preflight.py", workflow)
         self.assertIn("--release-manifest", workflow)
         self.assertIn("--image-verification", workflow)
