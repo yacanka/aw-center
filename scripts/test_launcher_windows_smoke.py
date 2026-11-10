@@ -42,6 +42,7 @@ class WindowsCommandSmokeTests(unittest.TestCase):
         self.local = Path(self.temporary.name).resolve()
         self.home = self.local / 'AWCenter'
         system = Path(os.environ['SystemRoot'])
+        self.system = system
         self.environment = {
             key: value for key, value in os.environ.items()
             if not key.startswith(('AWCENTER_', 'DJANGO_', 'PYTHON', 'DATABASE_', 'CACHE_', 'JIRA_', 'DOORS_', 'DOCPROOF_', 'TEAMCENTER_', 'NUMARATOR_', 'AI_API_', 'EMAIL_'))
@@ -145,7 +146,7 @@ class WindowsCommandSmokeTests(unittest.TestCase):
         from scripts.launcher.installation_state import prepare_installation_storage, private_directory
         home = private_directory(self.home)
         config = private_directory(home / 'config')
-        icacls = str(Path(self.environment['SystemRoot']) / 'System32/icacls.exe')
+        icacls = str(self.system / 'System32/icacls.exe')
         for path in (home, config):
             result = subprocess.run([icacls, str(path), '/inheritance:e'],
                                     capture_output=True, check=False, timeout=30)
@@ -178,7 +179,7 @@ class WindowsCommandSmokeTests(unittest.TestCase):
         leaf.mkdir()
         redirected.mkdir()
         secure_path(redirected)
-        icacls = str(Path(self.environment['SystemRoot']) / 'System32/icacls.exe')
+        icacls = str(self.system / 'System32/icacls.exe')
         subprocess.run([icacls, str(redirected), '/inheritance:e'],
                        capture_output=True, check=True, timeout=30)
         before = subprocess.run([icacls, str(redirected)], capture_output=True, check=True, timeout=30).stdout
