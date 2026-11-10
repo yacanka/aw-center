@@ -165,7 +165,7 @@ with patch.object(worker.os, 'read', side_effect=observe_read), \
         with patch('scripts.launcher.installation.source_settings', return_value=settings), \
              patch('urllib.request.build_opener') as factory:
             worker.execute({'action': 'test-sources'}, events.append, lambda: None, threading.Event())
-        urls = [call.args[0] for call in factory.return_value.open.call_args_list]
+        urls = [call.args[0].full_url for call in factory.return_value.open.call_args_list]
         self.assertEqual(len(urls), 2)
         for url, base in zip(urls, (settings.python_index_url, settings.npm_registry_url)):
             self.assertTrue(url.startswith(base))

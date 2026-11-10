@@ -1,133 +1,122 @@
-"""Read-only source diagnostics, independent of provisioning and runtime startup."""
+"""Trace repository access through disposable downloads without provisioning."""
 from pathlib import Path
-import json
-import re
-import socket
 import ssl
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import quote
 
 from scripts.launcher.discovery import discover_project
-from scripts.launcher.model import LauncherError
-from scripts.launcher.installation_sources import _https_url
 from scripts.launcher.process import OperationCancelled, check_cancelled
+from .source_packages import npm_file, npm_sample, python_file, python_sample
+from .source_probe import ProbeClient, ProbeFailure, ProbeRedirect, verify_digest
 
 
-def _http_failure(code, *, proxy=False):
-    if code == 407:
-        return 'Proxy kimlik doğrulaması gerekli (HTTP 407). Kurumsal proxy oturumunu ve erişim ayarlarını kontrol edin.'
-    if proxy:
-        return f'Proxy HTTPS tüneli kurulamadı (HTTP {code}). Proxy erişim izinlerini ve hedef depo adresini kontrol edin.'
-    remedies = {
-        401: 'Depo kimlik doğrulaması istiyor; kurumsal depo erişim ayarlarını kontrol edin.',
-        403: 'Depoya erişim reddedildi; kullanıcı ve ağ erişim izinlerini kontrol edin.',
-        404: 'Depo adresi bulunamadı; paket kaynağının tam adresini kontrol edin.',
-    }
-    remedy = remedies.get(code, 'Depo adresini ve HTTP erişim ayarlarını kontrol edin.')
-    if isinstance(code, int) and 500 <= code <= 599:
-        remedy = 'Depo veya ağ geçidi sunucu hatası döndürdü; servis durumunu kontrol edip yeniden deneyin.'
-    return f'HTTP {code}: {remedy}'
-
-
-def _connection_failure(error, *, using_proxy):
-    """Classify transport failures without returning exception/proxy payloads."""
-    reason = error.reason if isinstance(error, URLError) else error
-    if isinstance(reason, ssl.SSLCertVerificationError):
-        return 'CA / sertifika doğrulaması başarısız. Güvenilen CA zincirini, sertifikanın geçerlilik süresini ve depo adresiyle uyumunu kontrol edin.'
-    if isinstance(reason, ssl.SSLError):
-        return 'TLS bağlantısı kurulamadı. Sunucunun veya kurumsal proxy\'nin TLS yapılandırmasını kontrol edin.'
-    # CPython exposes HTTPS CONNECT status only inside this OSError message.
-    tunnel = re.match(r'^Tunnel connection failed: ([0-9]{3})\b', str(reason)) if isinstance(reason, OSError) else None
-    if tunnel:
-        return _http_failure(int(tunnel[1]), proxy=True)
-    if using_proxy:
-        return 'Proxy üzerinden bağlantı kurulamadı. Proxy adresini, ağ erişimini ve zaman aşımı ayarlarını kontrol edin.'
-    if isinstance(reason, TimeoutError):
-        return 'Bağlantıda zaman aşımı oluştu. Ağ erişimini ve depo servisinin durumunu kontrol edin.'
-    if isinstance(reason, socket.gaierror):
-        return 'DNS çözümlemesi başarısız. Depo adresini, kurumsal ağ/VPN bağlantısını ve DNS ayarlarını kontrol edin.'
-    return 'Bağlantı kurulamadı. Ağ/VPN bağlantısını, güvenlik duvarını ve depo servisinin erişilebilirliğini kontrol edin.'
-
-
-def _probe(url, opener, proxies):
-    from urllib.request import proxy_bypass
-    using_proxy = False
+def _stage(checks, settings, label, operation, success):
+    check_cancelled()
+    settings.report(label + ' başlıyor')
     try:
-        _https_url(url)
-        using_proxy = bool(proxies.get('https') and not proxy_bypass(urlsplit(url).netloc))
-        with opener.open(url, timeout=10) as response:
-            if response.status == 200:
-                return 'available', 'HTTPS bağlantısı ve sertifika doğrulaması başarılı; paket kapsamı kurulumda doğrulanır.'
-            return 'missing', _http_failure(response.status)
+        result = operation()
+        detail, status = success(result), 'ready'
     except OperationCancelled:
         raise
-    except HTTPError as error:
-        try:
-            return 'missing', _http_failure(error.code)
-        finally:
-            error.close()
-    except (URLError, OSError) as error:
-        return 'missing', _connection_failure(error, using_proxy=using_proxy)
-    except LauncherError:
-        return 'missing', 'Kaynak adresi geçersiz. Kullanıcı bilgisi veya token içermeyen bir HTTPS depo adresi kullanın.'
+    except ProbeFailure as error:
+        result = None
+        detail = f'[{error.code}] {error}'
+        status = 'unverified' if error.code == 'source_hash_missing' else 'blocked'
     except Exception:
-        return 'missing', 'Kaynak kontrolü tamamlanamadı. Depo yapılandırmasını kontrol edip yeniden deneyin.'
+        result, status = None, 'blocked'
+        detail = '[source_probe_failed] Kaynak kontrolü tamamlanamadı. Depo yapılandırmasını kontrol edip yeniden deneyin.'
+    checks.append({'name': label, 'status': status, 'detail': detail})
+    settings.report(f'{label}: {detail}')
+    return result
 
 
-def _remote_checks(settings, project=None):
-    from scripts.launcher.installation_sources import _SecureRedirect
+def _package_check(checks, settings, client, project, kind, base, label):
+    try:
+        sample = python_sample(project) if kind == 'Python' else npm_sample(project)
+    except ProbeFailure as error:
+        _stage(checks, settings, label + ' — kilitli örnek', lambda: _raise(error), str)
+        return
+    settings.report(f'{label}: örnek paket {sample.name}=={sample.version}; tüm bağımlılıkların kapsamı sınanmaz.')
+    suffix = sample.name + '/' if kind == 'Python' else quote(sample.name, safe='@').replace('%2F', '%2f')
+    url = base.rstrip('/') + '/' + suffix
+    accept = ('application/vnd.pypi.simple.v1+json, application/vnd.pypi.simple.v1+html;q=0.9, text/html;q=0.8'
+              if kind == 'Python' else 'application/vnd.npm.install-v1+json, application/json;q=0.8')
+    metadata = _stage(checks, settings, label + ' — indeks / metadata erişimi',
+                      lambda: client.metadata(url, accept=accept),
+                      lambda value: f'HTTPS yanıtının tamamı okundu: {value.size} bayt. Örnek: {sample.name}=={sample.version}.')
+    if metadata is None:
+        return
+    resolve = python_file if kind == 'Python' else npm_file
+    selected = _stage(checks, settings, label + ' — kilitli sürüm çözümleme',
+                      lambda: resolve(metadata, sample),
+                      lambda _: f'Kilitli örnek sürümün gerçek dosya adresi bulundu: {sample.name}=={sample.version}.')
+    if selected is None:
+        return
+    transfer = _stage(checks, settings, label + ' — paket indirme', lambda: client.download(selected.url),
+                      lambda value: f'Örnek dosyanın tamamı geçici alana indirildi: {value.size} bayt; paket kurulmadı.')
+    if transfer is not None:
+        _stage(checks, settings, label + ' — dosya bütünlüğü', lambda: verify_digest(transfer, selected.expected),
+               lambda algorithm: f'{algorithm.upper()} doğrulandı. Yalnız kilitli örnek dosya doğrulandı; tüm paketlerin kapsamı kurulum veya offline paket hazırlığında sınanır.')
+
+
+def _raise(error):
+    raise error
+
+
+def _runtime_check(checks, settings, client, artifact, urls, label):
+    def download():
+        from scripts.launcher.installation_sources import MAX_ARTIFACT_BYTES
+        for number, url in enumerate(urls):
+            try:
+                return client.download(url, limit=MAX_ARTIFACT_BYTES)
+            except ProbeFailure as error:
+                if not error.code.startswith('source_http_') or number + 1 == len(urls):
+                    raise
+                settings.report(f'{label}: [{error.code}] {error} '
+                                'Aynı deponun runtimes dizinindeki izinli alternatif deneniyor.')
+    transfer = _stage(checks, settings, label + ' — arşiv indirme', download,
+                      lambda value: f'Runtime arşivinin tamamı geçici alana indirildi: {value.size} bayt; runtime kurulmadı.')
+    if transfer is not None:
+        _stage(checks, settings, label + ' — dosya bütünlüğü',
+               lambda: verify_digest(transfer, {'sha256': (artifact.sha256,)}),
+               lambda algorithm: f'{algorithm.upper()} değeri kaynakla gelen onaylı runtime kataloğuyla doğrulandı.')
+
+
+def _remote_checks(settings, project, *, checks=None):
     from urllib.request import HTTPSHandler, ProxyHandler, build_opener, getproxies
+    from scripts.launcher.installation_sources import acquisition_urls, load_catalog
+    checks = [] if checks is None else checks
     try:
         # On Windows this includes the OS CA/ROOT stores, plus OpenSSL defaults.
         context = ssl.create_default_context()
     except (OSError, ValueError):
-        return [{'name': 'Sistem CA', 'status': 'missing',
-                 'detail': 'İşletim sisteminin varsayılan güven deposu yüklenemedi. Sistem sertifikalarını ve TLS ortam ayarlarını kontrol edin.'}]
+        checks.append({'name': 'Sistem CA', 'status': 'blocked',
+                       'detail': 'İşletim sisteminin varsayılan güven deposu yüklenemedi. Sistem sertifikalarını ve TLS ortam ayarlarını kontrol edin.'})
+        return checks
     if settings.ca_file:
         try:
             context.load_verify_locations(cafile=str(settings.ca_file))
         except (OSError, ValueError):
-            return [{'name': 'CA dosyası', 'status': 'missing',
-                     'detail': 'Seçilen CA dosyası okunamadı veya geçerli bir PEM CA paketi değil. Dosyanın mevcut, okunabilir ve PEM biçiminde olduğunu kontrol edin.'}]
-    from scripts.launcher.installation_sources import acquisition_urls, load_catalog
-    from urllib.parse import quote
-    endpoints = []
-    python_package = 'django'
-    npm_package = 'vue'
-    if project is not None:
-        locks = json.loads((project.frontend / 'package-lock.json').read_text(encoding='utf-8'))
-        package = next(((name.removeprefix('node_modules/'), value['version'])
-                        for name, value in locks.get('packages', {}).items()
-                        if name.startswith('node_modules/') and value.get('version')), None)
-        if package:
-            npm_package = quote(package[0], safe='') + '/' + quote(package[1], safe='')
-        match = re.search(r'^([a-zA-Z0-9_.-]+)==', project.requirements.read_text(encoding='utf-8'), re.MULTILINE)
-        if match:
-            python_package = match[1].lower().replace('_', '-')
-    for base in acquisition_urls(settings, 'https://pypi.org/simple', settings.python_index_url):
-        endpoints.append(('Python wheel indeksi (örnek paket)', base.rstrip('/') + '/' + python_package + '/'))
-    for base in acquisition_urls(settings, 'https://registry.npmjs.org', settings.npm_registry_url):
-        endpoints.append(('npm kilitli paket (örnek)', base.rstrip('/') + '/' + npm_package))
+            checks.append({'name': 'CA dosyası', 'status': 'blocked',
+                           'detail': 'Seçilen CA dosyası okunamadı veya geçerli bir PEM CA paketi değil. Dosyanın mevcut, okunabilir ve PEM biçiminde olduğunu kontrol edin.'})
+            return checks
+    proxies = getproxies()
+    opener = build_opener(ProbeRedirect(settings.report, proxies), ProxyHandler(proxies), HTTPSHandler(context=context))
+    client = ProbeClient(opener, proxies, settings.report)
+    for kind, public, selected in (('Python', 'https://pypi.org/simple', settings.python_index_url),
+                                   ('npm', 'https://registry.npmjs.org', settings.npm_registry_url)):
+        urls = acquisition_urls(settings, public, selected)
+        for number, url in enumerate(urls):
+            _package_check(checks, settings, client, project, kind, url, f'{kind} kaynak {number + 1}/{len(urls)}')
     repository = str(settings.repository) if settings.repository and str(settings.repository).startswith('https://') else None
     for artifact in load_catalog().values():
         selected = repository.rstrip('/') + '/' + artifact.filename if repository else None
-        for url in acquisition_urls(settings, artifact.url, selected):
-            endpoints.append((artifact.name + ' runtime arşivi', url))
+        urls = acquisition_urls(settings, artifact.url, selected)
+        for number, url in enumerate(urls):
+            candidates = [url]
             if repository and url == selected:
-                endpoints.append((artifact.name + ' runtime arşivi (runtimes)', repository.rstrip('/') + '/runtimes/' + artifact.filename))
-    proxies = getproxies()
-    opener = build_opener(_SecureRedirect(), ProxyHandler(proxies), HTTPSHandler(context=context))
-    checks = []
-    for name, url in endpoints:
-        check_cancelled()
-        status, detail = _probe(url, opener, proxies)
-        if status == 'available':
-            status = 'unverified'
-            detail = ('Örnek paket adresine erişildi; bu kontrol paket dosyalarının indirme erişimini doğrulamaz. '
-                      'Tüm paketlerin kapsamı ve hash doğrulaması kurulum veya çevrimdışı paket hazırlığında yapılır.'
-                      if 'örnek' in name else
-                      'Runtime arşivi adresine erişildi; dosyanın tamamı ve SHA-256 değeri indirme sırasında doğrulanır.')
-        checks.append({'name': name, 'status': status, 'detail': detail})
+                candidates.append(repository.rstrip('/') + '/runtimes/' + artifact.filename)
+            _runtime_check(checks, settings, client, artifact, candidates,
+                           f'{artifact.name} runtime kaynak {number + 1}/{len(urls)}')
     return checks
 
 
@@ -158,7 +147,12 @@ def run(args, emit):
             checks.append({'name': artifact.name + ' yerel runtime', 'status': 'ready' if candidate else 'missing',
                            'detail': 'SHA-256 doğrulandı.' if candidate else 'Yerel arşiv yok; uyumlu sistem aracı varsa kullanılabilir.'})
     if settings.mode != 'offline':
-        checks.extend(_remote_checks(settings, project))
+        try:
+            _remote_checks(settings, project, checks=checks)
+        except OperationCancelled:
+            if checks:
+                emit({'type': 'checks', 'checks': checks})
+            raise
         if not checks:
             checks.append({'name': 'Kaynaklar', 'status': 'missing', 'detail': 'Kurumsal paket adreslerini veya yerel offline paketi seçin.'})
     emit({'type': 'checks', 'checks': checks})

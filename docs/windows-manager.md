@@ -311,10 +311,47 @@ Runtime arşivi indirme isteği yetki veya erişim nedeniyle reddedilirse Manage
 
 “Kaynakları dene” seçilen PEM CA dosyasını varsayılan güven deposuna ekler; Windows'un güvenilen CA ve ROOT depoları ile OpenSSL varsayılanları korunur. CA dosyası seçilmediğinde bu varsayılan depolar kullanılır. Dosya okunamıyorsa veya geçerli PEM değilse ağ isteği yapılmadan CA dosyası hatası gösterilir. Her kaynak için sertifika doğrulaması, diğer TLS hataları, proxy bağlantısı/kimlik doğrulaması, HTTP durum kodları, DNS ve zaman aşımı ayrı açıklanır. Proxy bypass ayarları korunur; hata yanıtlarının gövdeleri, ham exception metinleri ve proxy kimlik bilgileri rapora yazılmaz.
 
-Bu kontrol Python/npm için yalnız örnek paket adresine erişimi sınar. İndeksin
-yanıt vermesi, paket dosyasının indirildiği sunucunun erişilebilir olduğunu veya
-tüm kilitli paketlerin depoda bulunduğunu göstermez. Tam kapsam ve dosya
-doğrulaması kurulum veya çevrimdışı paket hazırlığında yapılır. Python paket
+“Kaynakları dene” her izinli Python/npm deposu için kilit dosyasından bir örnek
+paketin tam sürümünü seçer. Python örneği koşulsuz sabitlenmiş ilk pakettir;
+platformdan bağımsız `py3`/`py311` wheel'i aranır. npm örneğinde kilitteki paket
+adı, tam sürüm ve varsa SHA-256/SHA-512 integrity değeri kullanılır. Scoped npm
+paketlerinin metadata adresi npm istemcisiyle aynı `@scope%2fpaket` biçimindedir.
+
+Rapor dört aşamayı ayrı gösterir: indeks/metadata yanıtının tamamen okunması,
+kilitli sürümün gerçek dosya adresinin çözülmesi, dosyanın tamamının geçici alana
+indirilmesi ve beklenen güçlü hash ile bütünlük doğrulaması. HTTP 200 dönen bir
+giriş/proxy sayfası geçerli paket metadata'sı sayılmaz. Python hash'i Simple API
+metadata'sından; npm hash'i öncelikle kilitten, yoksa depo metadata'sından alınır.
+Güçlü hash yoksa indirme tamamlanabilir ancak bütünlük **doğrulanamadı** olarak
+kalır. Runtime arşivleri tamamen indirilir ve kaynakla gelen onaylı katalogdaki
+SHA-256 pin'iyle karşılaştırılır. Arşivler açılmaz, hiçbir paket/runtime kurulmaz
+veya çalıştırılmaz; geçici dosyalar başarı, hata ve iptalde temizlenir.
+
+Canlı ilerleme HTTPS sunucu adını, doğrudan/proxy bağlantısını, yönlendirme
+hedeflerini ve aktarılan boyutu gösterir. URL yolları, imzalı query/token değerleri,
+header'lar ve ham sunucu yanıtları rapora alınmaz. DNS, TLS/CA, HTTP 400/401/403/
+404/407, proxy tüneli, zaman aşımı, eksik sürüm, eksik aktarım ve hash uyuşmazlığı
+oluştukları aşamada açık neden ve çözümle gösterilir. Bir deponun hatası diğer
+depoların sonuçlarını gizlemez; iptal tamamlanan aşamaları korur. Başarısız veya
+eksik denetim “kullanılabilir” ya da “başarılı” olarak özetlenmez.
+
+Runtime arşivinin kök adresi HTTP hatası döndürürse aynı deponun izinli
+`runtimes/` alternatifi de denenir; önceki HTTP nedeni ilerleme raporunda korunur.
+TLS veya hash hatasında alternatif denenmez; doğrulama başarısız olarak kalır.
+
+Bağlantı/tek soket okuması sınırı 10 saniye, her aktarımın toplam süre bütçesi
+120 saniyedir; bütçe okumalar arasında ve her yönlendirmede denetlenir. Bu bütçe
+işbirlikçidir: standart kütüphanenin DNS ve HTTP yanıt başlığı bekleyişi için kesin
+bir duvar saati garantisi vermez; soket bekleyişinde işletim sistemi süreleri de
+geçerlidir. Metadata 8 MiB, örnek paket
+128 MiB, runtime arşivi 1 GiB ile sınırlıdır. HTTPS yönlendirmeleri en fazla beş
+adımlıdır; ara yönlendirme gövdeleri okunmadan kapatılır, proxy/oturum credential
+header'ları sonraki hedefe taşınmaz. HTTP'ye düşüş ve URL credential'ı reddedilir.
+Seçilen deponun verdiği HTTPS dosya adresi/yönlendirmeleri izlenir; bunlar genel bir registry fallback'i
+eklemez. Kurumsal ve çevrimdışı modların kaynak sınırları korunur.
+
+Başarılı örnek indirme bütün kilitli bağımlılıkların depoda bulunduğunu göstermez;
+tam kapsam kurulum veya çevrimdışı paket hazırlığında doğrulanır. Python paket
 ediniminde her başarısız kaynak denemesinin güvenli nedeni raporda korunur;
 tüm izinli kaynaklar ve yerel paket denendikten sonra son neden gösterilir:
 `package_source_http_rejected` (sayısal HTTP koduyla), `package_source_timeout`,

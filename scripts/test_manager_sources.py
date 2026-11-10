@@ -1,6 +1,8 @@
 """Source diagnostics keep system trust and expose only safe failure categories."""
 
 import io
+import hashlib
+import base64
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -16,8 +18,11 @@ from urllib.request import HTTPSHandler
 from scripts.launcher import installation_sources
 from scripts.launcher.installation_sources import Artifact, SourceSettings
 from scripts.launcher.process import OperationCancelled
+from scripts.launcher_test_support import create_project
 from scripts.manager import worker
+from scripts.manager.source_checks import _remote_checks
 from scripts.manager.view_model import ManagerState
+from scripts.test_manager_source_probe import Response
 
 
 class SourceCheckTests(unittest.TestCase):
@@ -25,6 +30,11 @@ class SourceCheckTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        self.project = create_project(self.root)
+        self.npm_name, self.npm_version = 'vue', '3.5.13'
+        (self.project.frontend / 'package-lock.json').write_text(json.dumps({'packages': {
+            'node_modules/vue': {'version': self.npm_version},
+        }}))
         self.url = 'https://packages.invalid/simple/'
         self.settings = SourceSettings(mode='corporate', python_index_url=self.url)
         self.response = Mock()
@@ -32,9 +42,27 @@ class SourceCheckTests(unittest.TestCase):
         self.response.__exit__ = Mock(return_value=False)
         self.response.status = 200
         self.opener = Mock()
-        self.opener.open.return_value = self.response
+        self.opener.open.side_effect = self.open_response
         self.proxies = {}
         self.bypass = False
+
+    def open_response(self, request, **kwargs):
+        url = request.full_url
+        body = b'fixture-package'
+        digest = hashlib.sha256(body).hexdigest()
+        if url.endswith('/django/'):
+            data = {'name': 'django', 'files': [{'filename': 'django-5.2-py3-none-any.whl',
+                    'url': 'https://files.invalid/sample.whl', 'hashes': {'sha256': digest}}]}
+        elif url.endswith('sample.whl') or url.endswith('sample.tgz'):
+            return Response(body, url=url, status=self.response.status)
+        else:
+            data = {'name': self.npm_name, 'versions': {self.npm_version: {
+                'name': self.npm_name, 'version': self.npm_version,
+                'dist': {'tarball': 'https://files.invalid/sample.tgz',
+                         'integrity': 'sha256-' + base64.b64encode(hashlib.sha256(body).digest()).decode('ascii')},
+            }}}
+        return Response(json.dumps(data).encode(), url=url, status=self.response.status,
+                        headers={'Content-Type': 'application/json'})
 
     def probe(self):
         events = []
@@ -42,7 +70,7 @@ class SourceCheckTests(unittest.TestCase):
              patch('urllib.request.build_opener', return_value=self.opener) as factory, \
              patch('urllib.request.getproxies', return_value=self.proxies), \
              patch('urllib.request.proxy_bypass', return_value=self.bypass):
-            worker.execute({'action': 'test-sources', 'source_root': str(Path.cwd())},
+            worker.execute({'action': 'test-sources', 'source_root': str(self.root)},
                            events.append, lambda: None, threading.Event())
         self.assertTrue(events[-1]['ok'], events)
         checks = next(event['checks'] for event in events if event['type'] == 'checks')
@@ -86,14 +114,38 @@ class SourceCheckTests(unittest.TestCase):
         self.assertTrue(set(roots).issubset(context.get_ca_certs(binary_form=True)))
         self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
         self.assertTrue(context.check_hostname)
-        self.assertEqual(checks[0]['status'], 'unverified')
+        self.assertTrue(all(row['status'] == 'ready' for row in checks), checks)
 
-    def test_successful_probe_explains_that_package_download_is_not_verified(self):
+    def test_successful_probe_verifies_complete_sample_and_explains_scope(self):
         checks, _, _ = self.probe()
-        self.assertEqual(checks[0]['status'], 'unverified')
-        self.assertIn('örnek paket', checks[0]['detail'].casefold())
-        self.assertIn('indirme', checks[0]['detail'])
-        self.assertIn('kurulum', checks[0]['detail'])
+        self.assertEqual(len(checks), 4)
+        self.assertTrue(all(row['status'] == 'ready' for row in checks), checks)
+        self.assertIn('örnek', checks[-1]['detail'])
+        self.assertIn('SHA256', checks[-1]['detail'])
+        self.assertIn('tüm paketlerin kapsamı', checks[-1]['detail'])
+
+    def test_npm_probe_uses_client_metadata_path_for_locked_package(self):
+        project = self.project
+        settings = SourceSettings(mode='corporate',
+                                  npm_registry_url='https://npm.invalid/repository/npm-group/')
+        cases = (
+            ('vue', '3.5.13', 'https://npm.invalid/repository/npm-group/vue'),
+            ('@antfu/install-pkg', '2.1.0',
+             'https://npm.invalid/repository/npm-group/@antfu%2finstall-pkg'),
+        )
+        for name, version, expected_url in cases:
+            with self.subTest(package=name):
+                self.npm_name, self.npm_version = name, version
+                self.opener.reset_mock()
+                (project.frontend / 'package-lock.json').write_text(json.dumps({
+                    'packages': {'node_modules/' + name: {'version': version}},
+                }), encoding='utf-8')
+                with patch('urllib.request.build_opener', return_value=self.opener), \
+                     patch('urllib.request.getproxies', return_value={}):
+                    checks = _remote_checks(settings, project)
+                self.assertEqual(self.opener.open.call_args_list[0].args[0].full_url, expected_url)
+                self.assertEqual(len(checks), 4)
+                self.assertTrue(all(row['status'] == 'ready' for row in checks), checks)
 
     def test_without_selected_ca_uses_default_os_certificate_loader(self):
         # The native loader reads Windows CA/ROOT stores (OpenSSL defaults elsewhere).
@@ -122,7 +174,7 @@ class SourceCheckTests(unittest.TestCase):
             with self.subTest(ca_file=ca_file):
                 self.settings = replace(self.settings, ca_file=ca_file)
                 checks, events, _ = self.probe()
-                self.assertEqual(checks[0]['status'], 'missing')
+                self.assertEqual(checks[0]['status'], 'blocked')
                 self.assertIn('CA', checks[0]['detail'])
                 self.assertIn('PEM', checks[0]['detail'])
                 self.assertNotIn(str(ca_file), json.dumps(events))
@@ -145,7 +197,7 @@ class SourceCheckTests(unittest.TestCase):
             with self.subTest(error=type(error)):
                 self.opener.open.side_effect = error
                 checks, events, _ = self.probe()
-                self.assertEqual(checks[0]['status'], 'missing')
+                self.assertEqual(checks[0]['status'], 'blocked')
                 self.assertIn(expected, checks[0]['detail'])
                 self.assertNotIn('private-', json.dumps(events))
 
@@ -163,7 +215,7 @@ class SourceCheckTests(unittest.TestCase):
     def test_non_200_response_is_reported_as_http_failure(self):
         self.response.status = 204
         checks, _, _ = self.probe()
-        self.assertEqual(checks[0]['status'], 'missing')
+        self.assertEqual(checks[0]['status'], 'blocked')
         self.assertIn('HTTP 204', checks[0]['detail'])
 
     def test_proxy_authentication_handles_http_and_https_tunnel_failures(self):
@@ -218,20 +270,24 @@ class SourceCheckTests(unittest.TestCase):
 
     def test_failed_endpoint_does_not_hide_other_results_or_safe_ui_details(self):
         self.settings = replace(self.settings, npm_registry_url='https://npm.invalid/')
-        self.opener.open.side_effect = [HTTPError(self.url, 403, 'private-reason', {}, None), self.response]
+        def open_url(request, **kwargs):
+            if request.full_url.startswith(self.url):
+                raise HTTPError(self.url, 403, 'private-reason', {}, None)
+            return self.open_response(request, **kwargs)
+        self.opener.open.side_effect = open_url
         checks, events, _ = self.probe()
-        self.assertEqual([check['status'] for check in checks], ['missing', 'unverified'])
+        self.assertEqual([check['status'] for check in checks], ['blocked', 'ready', 'ready', 'ready', 'ready'])
         state = ManagerState()
         for event in events:
             state.handle_event(event)
         self.assertIn('HTTP 403', state.report())
-        self.assertIn('npm kilitli paket', state.report())
+        self.assertIn('npm kaynak', state.report())
         self.assertNotIn('private-reason', state.report())
 
     def test_unknown_errors_have_safe_fallback_without_exception_data(self):
         self.opener.open.side_effect = RuntimeError('private-unexpected-detail')
         checks, events, _ = self.probe()
-        self.assertEqual(checks[0]['status'], 'missing')
+        self.assertEqual(checks[0]['status'], 'blocked')
         self.assertNotIn('private-unexpected-detail', json.dumps(events))
 
     def test_cancellation_inside_request_is_not_converted_to_connection_failure(self):

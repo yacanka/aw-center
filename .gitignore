@@ -165,3 +165,4 @@ workspace/
 # Launcher isolated runtime profiles
 /.runtime/
 /private_media/
+/artifacts/aw-center-video/

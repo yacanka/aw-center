@@ -120,6 +120,20 @@ class FormTests(unittest.TestCase):
 
 
 class StateTests(unittest.TestCase):
+    def test_source_check_summary_distinguishes_failure_incomplete_and_verified(self):
+        for status, expected in (('blocked', 'Kaynak denetimi başarısız'),
+                                 ('unverified', 'Kaynak denetimi eksik'),
+                                 ('ready', 'Kaynak denetimi başarılı')):
+            with self.subTest(status=status):
+                state = ManagerState()
+                state.record_action('test-sources', {'source_mode': 'corporate'})
+                state.handle_event({'type': 'checks', 'checks': [
+                    {'name': 'Python kaynak — dosya bütünlüğü', 'status': status, 'detail': 'Denetim sonucu'},
+                ]})
+                state.handle_event({'type': 'done', 'ok': True})
+                self.assertIn(expected, state.status)
+                self.assertNotIn('Eksiklerle kullanılabilir', state.status)
+
     def test_error_and_remedy_survive_done_for_retry(self):
         state = ManagerState()
         state.record_action("doctor", {"profile": "prod"})

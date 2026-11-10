@@ -162,6 +162,16 @@ def _ready_url(value: object) -> str:
     return value if valid else ""
 
 
+def _source_check_status(checks):
+    blocked = sum(check['status'] == 'ENGEL' for check in checks)
+    incomplete = sum(check['status'] not in {'HAZIR', 'ENGEL'} for check in checks)
+    if blocked:
+        return f'Kaynak denetimi başarısız — {blocked} aşamada engel; rapordaki nedenleri inceleyin.'
+    if incomplete or not checks:
+        return 'Kaynak denetimi eksik — erişim veya dosya bütünlüğü tamamen doğrulanamadı.'
+    return 'Kaynak denetimi başarılı — denetlenen indirmeler ve dosya bütünlükleri doğrulandı.'
+
+
 class ManagerState:
     """Retain actionable errors and a bounded report without credentials or forms."""
 
@@ -242,7 +252,8 @@ class ManagerState:
             elif event.get("ok") is True:
                 blocked = sum(check['status'] == 'ENGEL' for check in self.checks)
                 missing = sum(check['status'] not in {'HAZIR', 'ENGEL'} for check in self.checks)
-                self.status = (f'Kurulum engellendi — {blocked} engel.' if blocked else
+                self.status = (_source_check_status(self.checks) if self.last_action == 'test-sources' else
+                               f'Kurulum engellendi — {blocked} engel.' if blocked else
                                f'Eksiklerle kullanılabilir — {missing} eksik / doğrulanmamış özellik.' if missing else
                                'Hazır — denetim tamamlandı.' if self.checks else 'İşlem tamamlandı.')
             elif not self.error_message:

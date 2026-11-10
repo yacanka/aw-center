@@ -98,6 +98,17 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(self.payload.verify_source_payload(target)['fingerprint'],
                          self.payload.verify_source_payload(regenerated)['fingerprint'])
 
+    def test_source_download_diagnostics_are_included_in_verified_portable_payload(self):
+        for name in ('source_probe', 'source_packages'):
+            path = self.source / 'scripts' / 'manager' / (name + '.py')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('# reviewed source diagnostic module\n', encoding='utf-8')
+        target = self.prepare()
+        for name in ('source_probe', 'source_packages'):
+            self.assertEqual((target / 'scripts' / 'manager' / (name + '.py')).read_text(),
+                             '# reviewed source diagnostic module\n')
+        self.payload.verify_source_payload(target)
+
     def test_staging_keeps_full_fingerprint_and_reuses_only_verified_identical_release(self):
         source = self.prepare()
         home = self.root / 'home'
