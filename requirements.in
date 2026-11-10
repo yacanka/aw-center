@@ -41,10 +41,19 @@ pypdf
 python-dateutil
 python-docx
 
-# NLP-assisted tooling
-sentence-transformers
-transformers
-torch
+# Approved NLP set for CPython 3.11 and the corporate package repository.
+sentence-transformers==5.6.0
+transformers[sentencepiece]==5.22.1
+torch==2.13.0
+huggingface-hub==2.2.0
+sentencepiece==0.2.2
+# Keep the validated transitive versions available in the corporate repository.
+tokenizers==0.23.3
+hf-xet==1.8.0
+httpx2==2.16.0
+httpcore2==2.16.0
+truststore==0.10.5
+protobuf==7.36.2
 
 # Windows-only automation used by DOORS, Outlook, and PowerPoint helpers
 pywin32; sys_platform == "win32"

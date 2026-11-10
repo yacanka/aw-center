@@ -2,8 +2,8 @@
 #    uv pip compile --python-version 3.11 --universal requirements.in -o requirements.txt
 annotated-doc==0.0.4
     # via typer
-anyio==4.14.1
-    # via httpx
+anyio==4.14.1 ; sys_platform != 'emscripten'
+    # via httpx2
 asgiref==3.11.1
     # via
     #   django
@@ -15,10 +15,7 @@ beautifulsoup4==4.13.5
     #   -r requirements.in
     #   extract-msg
 certifi==2026.6.17
-    # via
-    #   httpcore
-    #   httpx
-    #   requests
+    # via requests
 cffi==2.0.0 ; platform_python_implementation != 'PyPy'
     # via cryptography
 charset-normalizer==3.4.7
@@ -92,23 +89,32 @@ gunicorn==23.0.0
     # via -r requirements.in
 h11==0.16.0
     # via
-    #   httpcore
+    #   httpcore2
     #   uvicorn
-hf-xet==1.5.1 ; platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
-    # via huggingface-hub
-httpcore==1.0.9
-    # via httpx
-httpx==0.28.1
-    # via huggingface-hub
-huggingface-hub==1.21.0
+hf-xet==1.8.0
     # via
+    #   -r requirements.in
+    #   huggingface-hub
+httpcore2==2.16.0
+    # via
+    #   -r requirements.in
+    #   httpx2
+httpx2==2.16.0
+    # via
+    #   -r requirements.in
+    #   huggingface-hub
+httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscripten'
+    # via httpx2
+huggingface-hub==2.2.0
+    # via
+    #   -r requirements.in
     #   sentence-transformers
     #   tokenizers
     #   transformers
 idna==3.18
     # via
     #   anyio
-    #   httpx
+    #   httpx2
     #   requests
 jinja2==3.1.6
     # via
@@ -132,7 +138,7 @@ mdurl==0.1.2
     # via markdown-it-py
 mpmath==1.3.0
     # via sympy
-msoffcrypto-tool==6.0.0 ; (platform_python_implementation != 'PyPy' and sys_platform == 'darwin') or (platform_python_implementation != 'PyPy' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')
+msoffcrypto-tool==6.0.0 ; platform_python_implementation != 'PyPy' or (sys_platform != 'darwin' and sys_platform != 'win32')
     # via oletools
 narwhals==2.23.0
     # via scikit-learn
@@ -218,6 +224,10 @@ pillow==12.3.0
     # via
     #   -r requirements.in
     #   pdfplumber
+protobuf==7.36.2
+    # via
+    #   -r requirements.in
+    #   transformers
 psycopg==3.2.13
     # via -r requirements.in
 psycopg-binary==3.2.13 ; implementation_name != 'pypy'
@@ -278,6 +288,10 @@ scipy==1.17.1
     #   sentence-transformers
 sentence-transformers==5.6.0
     # via -r requirements.in
+sentencepiece==0.2.2
+    # via
+    #   -r requirements.in
+    #   transformers
 setuptools==84.0.0
     # via
     #   -r requirements.in
@@ -294,8 +308,10 @@ sympy==1.14.0
     # via torch
 threadpoolctl==3.6.0
     # via scikit-learn
-tokenizers==0.22.2
-    # via transformers
+tokenizers==0.23.3
+    # via
+    #   -r requirements.in
+    #   transformers
 torch==2.13.0
     # via
     #   -r requirements.in
@@ -305,20 +321,24 @@ tqdm==4.68.3
     #   huggingface-hub
     #   sentence-transformers
     #   transformers
-transformers==5.12.1
+transformers==5.22.1
     # via
     #   -r requirements.in
     #   sentence-transformers
 triton==3.7.1 ; python_full_version < '3.15' and sys_platform == 'linux'
     # via torch
-typer==0.25.1
+truststore==0.10.5
     # via
-    #   huggingface-hub
-    #   transformers
+    #   -r requirements.in
+    #   httpcore2
+    #   httpx2
+typer==0.25.1
+    # via transformers
 typing-extensions==4.16.0
     # via
     #   anyio
     #   beautifulsoup4
+    #   httpx2
     #   huggingface-hub
     #   jira
     #   psycopg
