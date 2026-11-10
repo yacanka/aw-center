@@ -24,6 +24,7 @@ FEATURE_PACKAGES = frozenset(
         "excel",
         "integrations",
         "media_tools",
+        "management_reports",
         "orgs",
         "outlook",
         "pdf",

@@ -47,8 +47,22 @@ apiClient.interceptors.response.use(
     cleanupAbortListeners(response.config)
     return response
   },
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     cleanupAbortListeners(error.config)
+    // Binary downloads wrap session errors in Blobs; inspect bounded JSON before auth dispatch.
+    const body = error.response?.data
+    if (
+      error.response?.status === 403 &&
+      body instanceof Blob &&
+      body.size <= 65536 &&
+      body.type.split(';', 1)[0] === 'application/json'
+    ) {
+      try {
+        error.response.data = JSON.parse(await body.text())
+      } catch {
+        // Preserve opaque gateway or malformed bodies for the shared safe error formatter.
+      }
+    }
     if (isAuthenticationFailure(error)) authenticationFailureHandler?.()
     return Promise.reject(error)
   }

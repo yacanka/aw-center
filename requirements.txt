@@ -21,6 +21,7 @@ cffi==2.0.0 ; platform_python_implementation != 'PyPy'
 charset-normalizer==3.4.7
     # via
     #   pdfminer-six
+    #   reportlab
     #   requests
 click==8.4.2
     # via
@@ -224,6 +225,7 @@ pillow==12.3.0
     # via
     #   -r requirements.in
     #   pdfplumber
+    #   reportlab
 protobuf==7.36.2
     # via
     #   -r requirements.in
@@ -264,6 +266,8 @@ redis==6.4.0
     # via -r requirements.in
 regex==2026.6.28
     # via transformers
+reportlab==5.1.0
+    # via -r requirements.in
 requests==2.34.2
     # via
     #   -r requirements.in

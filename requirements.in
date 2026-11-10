@@ -38,6 +38,7 @@ pandas
 pdfplumber
 Pillow
 pypdf
+reportlab
 python-dateutil
 python-docx
 

@@ -87,3 +87,12 @@ test('requires staff and explicit user authority', () => {
     'allow'
   )
 })
+
+test('management reporting requires login and remains available to authenticated project viewers', () => {
+  const policy = navigationAccessPolicy('/management-reports')
+  assert.equal(resolveRouteAccess(policy, null), 'login')
+  assert.equal(resolveRouteAccess(policy, { ...standardUser, is_active: false }), 'login')
+  assert.equal(resolveRouteAccess(policy, standardUser), 'allow')
+  assert.deepEqual(filterNavigationByAccess([{ key: '/management-reports' }], null), [])
+  assert.equal(filterNavigationByAccess([{ key: '/management-reports' }], standardUser).length, 1)
+})

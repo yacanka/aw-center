@@ -18,6 +18,7 @@ const MAX_QUERY_LENGTH = 80
 const MAX_RESULTS = 25
 
 const COMMAND_ALIASES: Record<string, string> = {
+  '/management-reports': 'yonetim ust rapor haftalik executive weekly portfolio pdf',
   '/compdocs/home':
     'uyumluluk belge dashboard panel risk oncelik takvim teslimat durum akis bekleyen gun',
   '/integrations': 'baglanti kopru servis durum health jira doors teamcenter docproof',

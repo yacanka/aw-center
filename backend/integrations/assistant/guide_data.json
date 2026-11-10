@@ -73,6 +73,38 @@
     ]
   },
   {
+    "id": "management-reports",
+    "title": "Management Reports",
+    "path": "/management-reports",
+    "purpose": "Review a private compliance portfolio, save weekly snapshots and download saved PDFs.",
+    "inputs": [
+      "Authorized project scope",
+      "Report title and optional management context"
+    ],
+    "outputs": [
+      "Portfolio metrics, compatible weekly comparisons and private saved PDFs"
+    ],
+    "steps": [
+      "Select projects you can currently view.",
+      "Review the live overview and save a report.",
+      "Open a saved report to choose an older compatible baseline or download its PDF."
+    ],
+    "limitations": [
+      "Snapshots are private to their owner and require current access to every project.",
+      "Comparisons show net changes in captured stocks, not event counts.",
+      "The assistant does not read, capture or download reports."
+    ],
+    "keywords": [
+      "management",
+      "portfolio",
+      "weekly",
+      "report",
+      "pdf",
+      "yönetim",
+      "rapor"
+    ]
+  },
+  {
     "id": "accelerator",
     "title": "Accelerator",
     "path": "/accelerator",

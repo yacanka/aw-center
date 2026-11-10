@@ -1,11 +1,64 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AxiosError, type AxiosAdapter } from 'axios'
-import { apiClient, cancelSessionScopedRequests } from './http'
+import {
+  apiClient,
+  cancelSessionScopedRequests,
+  registerAuthenticationFailureHandler
+} from './http'
 
 afterEach(() => {
   cancelSessionScopedRequests()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+describe('authentication errors in binary downloads', () => {
+  it.each(['NOT_AUTHENTICATED', 'PERMISSION_DENIED', 'malformed', 'html', 'oversized'])(
+    'invalidates the session only for a bounded JSON NOT_AUTHENTICATED response: %s',
+    async (kind) => {
+      const handler = vi.fn()
+      const unregister = registerAuthenticationFailureHandler(handler)
+      const payload = { detail: 'Session expired.', code: kind, request_id: 'download-test' }
+      const body = new Blob(
+        [
+          kind === 'malformed'
+            ? '{'
+            : kind === 'html'
+              ? '<html>gateway</html>'
+              : kind === 'oversized'
+                ? 'x'.repeat(65537)
+                : JSON.stringify(payload)
+        ],
+        { type: kind === 'html' ? 'text/html' : 'application/json' }
+      )
+      const adapter: AxiosAdapter = async (config) => {
+        throw new AxiosError('Forbidden', 'ERR_BAD_REQUEST', config, undefined, {
+          data: body,
+          status: 403,
+          statusText: 'Forbidden',
+          headers: {},
+          config
+        })
+      }
+      try {
+        const failure = await apiClient
+          .get('management-reports/reports/example/pdf/', {
+            responseType: 'blob',
+            adapter
+          })
+          .catch((error) => error)
+        expect(handler).toHaveBeenCalledTimes(kind === 'NOT_AUTHENTICATED' ? 1 : 0)
+        expect(failure.response.status).toBe(403)
+        if (kind === 'NOT_AUTHENTICATED' || kind === 'PERMISSION_DENIED') {
+          expect(failure.response.data).toEqual(payload)
+        } else {
+          expect(failure.response.data).toBe(body)
+        }
+      } finally {
+        unregister()
+      }
+    }
+  )
 })
 
 describe('request abort ownership', () => {

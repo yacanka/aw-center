@@ -75,6 +75,7 @@ capability'leri process başına daha dar biçimde ayrılmaya devam edecektir.
 | `orgs` | `Project`, organizasyon verisi ve project-scoped role assignment | Registry slug'ıyla hizalanır |
 | `jobs` | Durable job/workflow state, leases, fencing, private artifact lifecycle | Feature package import etmez |
 | `automations` | Executor metadata catalog ve workflow use-case'leri | Generic workflow/event framework değildir |
+| `management_reports` | Owner-private immutable portfolio snapshots, weekly comparisons and authenticated PDF output; canonical compliance reads and project-role checks | Does not own compliance models or bypass project scope |
 | `attention` | Kullanıcının action/decision görünümü | Domain aggregate'lerini sahiplenmez |
 | `integrations` | Vendor transport/session adapterları ile DOORS, Teamcenter ve DocProof HTTP/use-case yüzeyleri | Credential response/log üretmez; vendor başına kök Django app oluşturmaz |
 | `integrations.jira`, tools | Domain HTTP adapterı, validation ve executor | Kernel'e ters bağımlılık oluşturmaz |

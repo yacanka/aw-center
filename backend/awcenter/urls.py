@@ -17,6 +17,7 @@ urlpatterns = [
     path("health/ready/", health_ready, name="health-ready"),
     path("api/developer/compliance-organization-reset/", DeveloperResetView.as_view(), name="developer-compliance-organization-reset"),
     path("api/session/", SessionView.as_view(), name="session"),
+    path("api/management-reports/", include("management_reports.urls")),
     path("api/projects/", include("projects.urls")),
     path(
         "api/projects/<slug:project_slug>/organization/",

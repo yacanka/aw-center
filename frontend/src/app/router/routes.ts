@@ -8,6 +8,12 @@ function lazyRoute(loader: () => Promise<RouteComponent>) {
 }
 
 export const routes: RouteRecordRaw[] = [
+  {
+    path: '/management-reports',
+    name: 'managementReports',
+    meta: { access: navigationAccessPolicy('/management-reports') },
+    component: lazyRoute(() => import('@/features/management-reports/pages/ManagementReports.vue'))
+  },
   { path: '/', redirect: '/login' },
   { path: '/welcome', redirect: '/login' },
   { path: '/home', name: 'home', component: lazyRoute(() => import('@/app/pages/Home.vue')) },

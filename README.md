@@ -83,3 +83,5 @@ python launcher.py prod --help
 - [Launcher ve çevrimdışı kurulum](docs/launcher-runtime.md)
 - [Test stratejisi](docs/testing-strategy.md)
 - [Windows DOORS otomasyonu](docs/doors-worker.md)
+
+Yönetim raporları, haftalık snapshot karşılaştırması ve özel PDF indirme için [Management Reports](docs/management-reports.md) rehberini kullanın.

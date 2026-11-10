@@ -295,6 +295,7 @@ INSTALLED_APPS = [
     'integrations',
     'automations',
     'compliance',
+    'management_reports',
     'attention',
     'ddf',
     'orgs',
