@@ -86,6 +86,32 @@ python launcher.py package-offline --help
 
 ## Offline akış
 
+Yalnız repository kaynaklarını taşımak için (önceden `prepare-offline` gerekmez):
+
+```bash
+python launcher.py package-offline --ignore-packages --offline-zip project-source.zip
+```
+
+Bu komut varsayılan olarak backend, frontend, migration'lar, testler, dokümanlar,
+deploy/packaging/tools, launcher ve kök yapılandırma/lock dosyaları dahil tüm
+Git'te takip edilen güvenli kaynak dosyalarının mevcut çalışma kopyasını ZIP'e
+koyar. Yeni kaynak dosyasını önce `git add` ile takibe alın; commit zorunlu
+değildir. Takip edilmeyen veya silinmiş dosyalar eklenmez. `--skip-backend` veya
+`--skip-frontend` açıkça verilirse ilgili taraf hariç tutulur.
+
+`--ignore-packages`, wheel/npm cache dosyalarını ve offline manifest'i dışlar;
+paket indirme, doğrulama veya kurulum çalıştırmaz. Yanlışlıkla Git'e eklenmiş
+paket önbellekleri ve `--offline-dir` ile seçilen özel önbellek dizini de kaynak
+olarak arşive sızmaz. Requirements ve npm lock dosyaları bağımlılık **tanımları**
+olduğu için ZIP'te kalır. Çıktıda kaynak ve bağımlılık dosya sayısı gösterilir.
+
+Bu kaynak arşivi tek başına internetsiz bağımlılık kurulumu için yeterli değildir.
+`.git`, `.venv`, `node_modules`, build/test çıktıları, database/media, özel `.env`
+profilleri (takip edilen `.env.development`/`.env.production` dahil), registry
+kimlik bilgileri ve key/certificate dosyaları güvenlik gereği eklenmez. Güvenli
+`.env.example`/`.env.sample` şablonları korunur. Git metadata'sı olmayan çıkarılmış
+klasörler paketleme kaynağı olamaz; komutu Git checkout'unda çalıştırın.
+
 İnternet erişimli, hedefle aynı OS/architecture/Python ortamında:
 
 ```bash

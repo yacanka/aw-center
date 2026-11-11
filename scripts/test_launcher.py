@@ -686,6 +686,21 @@ class PackagingTests(unittest.TestCase):
                 source.write_text("# source")
                 self.assertTrue(packageable(source))
 
+    @mock.patch("scripts.launcher.packaging.git_paths")
+    def test_repository_parent_names_do_not_exclude_source(self, git_mock: mock.Mock) -> None:
+        """A checkout under a user's backup folder still packages its own source."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "backup" / "checkout"
+            root.mkdir(parents=True)
+            project = create_project(root)
+            git_mock.return_value = [Path("backend/manage.py"), Path("frontend/package.json")]
+            output = root / "bundle.zip"
+
+            package_offline(project, Scope(), root / "offline", output, include_packages=False)
+
+            with zipfile.ZipFile(output) as archive:
+                self.assertEqual(set(archive.namelist()), {"backend/manage.py", "frontend/package.json"})
+
     def test_zip_rejects_symlink_sources(self) -> None:
         """An untracked symlink cannot exfiltrate a file outside the repository."""
 
@@ -783,6 +798,99 @@ class GitPackagingTests(unittest.TestCase):
             self.assertEqual(set(archive.namelist()), {f"backend/{filename}", f"frontend/{filename}"})
             self.assertEqual(archive.read(f"backend/{filename}"), b"# changed source\n")
             self.assertEqual(archive.read(f"frontend/{filename}"), b"# untracked source\n")
+
+    def _write_files(self, names: tuple[str, ...]) -> None:
+        for name in names:
+            path = self.project.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"fixture: {name}\n".encode())
+
+    def test_source_only_package_contains_all_tracked_repository_sections(self) -> None:
+        names = (
+            "launcher.py", "scripts/launcher/new_module.py", "AWCenter.cmd", "AWCenterManager.pyw",
+            "AGENTS.md", ".github/workflows/ci.yml", ".gitignore", ".python-version",
+            ".env.example", "backend/.env.example", "backend/core/migrations/0001_initial.py",
+            "frontend/src/App.vue", "frontend/public/icon.svg", "frontend/package-lock.json",
+            "package.json", "package-lock.json", "requirements.in", "docs/setup.md",
+            "deploy/nginx/default.conf", "packaging/windows/manager.spec", "tools/build.sh",
+            "new-source-directory/source.txt",
+        )
+        self._write_files(names)
+        self._git("add", "--", ".")
+        # Include current working-tree edits, without requiring a commit first.
+        (self.project.root / "docs/setup.md").write_bytes(b"updated documentation\n")
+        output = self.project.root / "source.zip"
+
+        package_offline(self.project, Scope(), self.project.root / "offline", output, include_packages=False)
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(set(archive.namelist()), set(names) | {
+                "backend/manage.py", "frontend/package.json", "requirements.txt",
+            })
+            self.assertEqual(archive.read("docs/setup.md"), b"updated documentation\n")
+
+    def test_source_only_package_excludes_even_tracked_dependency_caches(self) -> None:
+        excluded = (
+            "offline/manifest.json", "offline/wheels/demo.whl", "offline/npm-cache/content",
+            "wheels/demo.whl", "npm-cache/content", "node_modules/demo/index.js",
+            ".venv/lib/python3.11/site-packages/demo.py", "vendor/demo.whl",
+            "custom-dependencies/wheels/demo.whl", "custom-dependencies/npm-cache/content",
+            "custom-dependencies/manifest.json",
+        )
+        self._write_files(excluded)
+        self._git("add", "--", ".")
+        output = self.project.root / "source.zip"
+
+        package_offline(
+            self.project, Scope(), self.project.root / "custom-dependencies", output,
+            include_packages=False,
+        )
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(set(archive.namelist()), {
+                "backend/manage.py", "frontend/package.json", "requirements.txt",
+            })
+
+    def test_source_only_package_excludes_private_and_generated_tracked_files(self) -> None:
+        excluded = (
+            "backend/.env.production", "backend/.env.development", ".npmrc", ".pypirc",
+            ".netrc", "server.crt", "server.cer", "server.der", "server.key",
+            "backend/private_media/document.txt", "backend/static/built.js",
+            "frontend/dist/built.js", "frontend/test-results/result.json",
+            "frontend/playwright-report/index.html", ".playwright-cli/page.yml",
+            "output/playwright/screenshot.png", ".aws/credentials", ".runtime/state.json",
+            "frontend/.cache/mermaid/renderer.mjs", "backups/data.sqlite3",
+        )
+        self._write_files(excluded)
+        self._git("add", "--", ".")
+        output = self.project.root / "source.zip"
+
+        package_offline(self.project, Scope(), self.project.root / "offline", output, include_packages=False)
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(set(archive.namelist()), {
+                "backend/manage.py", "frontend/package.json", "requirements.txt",
+            })
+
+    def test_source_only_package_does_not_add_untracked_launcher_files(self) -> None:
+        self._git("add", "--", ".")
+        self._write_files(("scripts/launcher/local_credentials.json", "local-note.txt"))
+        output = self.project.root / "source.zip"
+
+        package_offline(self.project, Scope(), self.project.root / "offline", output, include_packages=False)
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertNotIn("scripts/launcher/local_credentials.json", archive.namelist())
+            self.assertNotIn("local-note.txt", archive.namelist())
+
+    def test_source_only_package_keeps_explicit_scope_selection(self) -> None:
+        self._git("add", "--", ".")
+        output = self.project.root / "source.zip"
+
+        package_offline(self.project, Scope(frontend=False), self.project.root / "offline", output, include_packages=False)
+
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(set(archive.namelist()), {"backend/manage.py", "requirements.txt"})
 
     def test_offline_package_preserves_unicode_filename(self) -> None:
         self._assert_offline_preserves_filename("Türkçe.py")

@@ -13,16 +13,24 @@ from .model import LauncherError, Project, Scope
 from .offline_manifest import MANIFEST_NAME, verify_offline_manifest
 from .process import controlled_run
 
-EXCLUDED_NAMES = {".env", ".env.local", ".DS_Store", "db.sqlite3"}
+EXCLUDED_NAMES = {
+    ".env", ".env.local", ".DS_Store", "db.sqlite3",
+    ".npmrc", ".pypirc", ".netrc", "_netrc",
+}
 EXCLUDED_PARTS = {
     ".git",
+    ".aws",
     ".venv",
     ".runtime",
     "backup",
     "backups",
     "node_modules",
+    "offline",
+    "wheels",
+    "npm-cache",
     "dist",
     "media",
+    "private_media",
     "staticfiles",
     "__pycache__",
     "_certificates",
@@ -34,8 +42,12 @@ EXCLUDED_PARTS = {
 EXCLUDED_SUFFIXES = {
     ".7z",
     ".bak",
+    ".cer",
+    ".crt",
     ".db",
     ".dump",
+    ".der",
+    ".egg",
     ".gz",
     ".key",
     ".log",
@@ -50,8 +62,13 @@ EXCLUDED_SUFFIXES = {
     ".sqlite3",
     ".tar",
     ".tgz",
+    ".whl",
     ".zip",
 }
+EXCLUDED_SOURCE_PATHS = tuple(Path(name) for name in (
+    "backend/static", "frontend/test-results", "frontend/playwright-report",
+    "frontend/.cache/mermaid", ".playwright-cli", "output",
+))
 
 
 def package_offline(
@@ -64,13 +81,14 @@ def package_offline(
 ) -> None:
     """Package tracked source and prepared dependencies for offline transfer."""
     scope.require_any()
-    source_files = tracked_source_files(project, scope)
+    source_files = tracked_source_files(project, scope, offline_dir=offline_dir)
     if include_packages:
         verify_offline_manifest(project, scope, offline_dir)
     dependencies = offline_dependency_entries(scope, offline_dir, include_packages)
     entries = [(path, path.relative_to(project.root)) for path in source_files]
     write_zip(output, entries + dependencies, allowed_roots=(project.root, offline_dir))
     print(f"[ok] offline package created: {output}")
+    print(f"[ok] packaged {len(source_files)} source files and {len(dependencies)} dependency files")
 
 
 def offline_dependency_entries(
@@ -97,7 +115,7 @@ def package_changes(project: Project, output: Path | None) -> Path | None:
     changed = git_paths(project, ["diff", "--name-only", "--diff-filter=ACMRTUXB", "HEAD"])
     untracked = git_paths(project, ["ls-files", "--others", "--exclude-standard"])
     paths = sorted(set(changed + untracked))
-    files = [project.root / path for path in paths if packageable(project.root / path)]
+    files = [project.root / path for path in paths if packageable(project.root / path, root=project.root)]
     if not files:
         print("[ok] no packageable Git changes found")
         return None
@@ -111,17 +129,23 @@ def package_changes(project: Project, output: Path | None) -> Path | None:
     return target
 
 
-def tracked_source_files(project: Project, scope: Scope) -> list[Path]:
-    """Return packageable Git-tracked source files."""
+def tracked_source_files(
+    project: Project, scope: Scope, *, offline_dir: Path | None = None
+) -> list[Path]:
+    """Return all safe tracked working-tree files, never dependency caches.
+
+    Source selection must not depend on the caller's parent directory names or
+    add untracked files from any special-cased application directory.
+    """
     relative_paths = git_paths(project, ["ls-files"])
     files = [project.root / relative for relative in relative_paths]
-    launcher_files = [project.root / "launcher.py", project.root / "scripts/launcher"]
-    for path in launcher_files:
-        if path.is_file():
-            files.append(path)
-        elif path.is_dir():
-            files.extend(item for item in path.rglob("*") if item.is_file())
-    return sorted(set(path for path in files if packageable(path) and in_scope(project, scope, path)))
+    dependency_root = (offline_dir or project.root / "offline").absolute()
+    return sorted(set(
+        path for path in files
+        if not path.absolute().is_relative_to(dependency_root)
+        and packageable(path, root=project.root)
+        and in_scope(project, scope, path)
+    ))
 
 
 def in_scope(project: Project, scope: Scope, path: Path) -> bool:
@@ -147,14 +171,17 @@ def git_paths(project: Project, arguments: list[str]) -> list[Path]:
     return [Path(os.fsdecode(name)) for name in completed.stdout.split(b"\0") if name]
 
 
-def packageable(path: Path) -> bool:
+def packageable(path: Path, *, root: Path | None = None) -> bool:
     """Reject generated artifacts and common secret-bearing file types."""
     if not path.is_file():
         return False
     unsafe_env = path.name.startswith(".env") and not path.name.endswith((".example", ".sample"))
     if unsafe_env or path.name in EXCLUDED_NAMES or path.suffix.lower() in EXCLUDED_SUFFIXES:
         return False
-    return not set(path.parts).intersection(EXCLUDED_PARTS)
+    relative = path.relative_to(root) if root is not None else path
+    if set(relative.parts).intersection(EXCLUDED_PARTS):
+        return False
+    return root is None or not any(relative.is_relative_to(part) for part in EXCLUDED_SOURCE_PATHS)
 
 
 def mapped_tree(source: Path, destination: Path) -> list[tuple[Path, Path]]:

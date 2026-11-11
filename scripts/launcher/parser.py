@@ -105,7 +105,10 @@ def add_offline_commands(commands: Subparsers) -> None:
     add_scope(package)
     add_offline_dir(package)
     package.add_argument("--offline-zip", default="project-offline.zip")
-    package.add_argument("--ignore-packages", action="store_true")
+    package.add_argument(
+        "--ignore-packages", action="store_true",
+        help="ZIP all safe Git-tracked source files without dependency caches or their manifest; no downloads.",
+    )
     changes = commands.add_parser("package-changes", help="ZIP current Git changes.")
     changes.add_argument("--changes-zip")
 
