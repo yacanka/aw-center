@@ -401,10 +401,10 @@ def _capture(command: list, project: Project, overrides: dict, *, progress=None)
         raise LauncherError('package tool could not run; verify the managed toolchain') from None
 
 
-def _require_success(result, stage: str) -> None:
+def _require_success(result, stage: str, *, requirements: Path | None = None) -> None:
     if result.returncode:
         from .installation_dependencies import PackageCommandError
-        raise PackageCommandError(result)
+        raise PackageCommandError(result, stage, requirements=requirements)
 
 
 def _offline_source(project: Project, settings) -> Path | None:
@@ -495,8 +495,8 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
                 selected = attempt
                 break
             if not availability_failure((result.stdout or '') + (result.stderr or ''), restricted=True):
-                _require_success(result, 'Python wheel acquisition')
-            source_error = PackageSourceError(result, 'Python paket edinimi')
+                _require_success(result, 'Python paket edinimi', requirements=project.requirements)
+            source_error = PackageSourceError(result, 'Python paket edinimi', requirements=project.requirements)
             settings.report(f'Python paketleri: kaynak {index + 1}/{len(indexes)} başarısız. {source_error}')
             if index + 1 < len(indexes):
                 settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
@@ -510,7 +510,7 @@ def _acquire_wheels(project: Project, destination: Path, settings, overrides: di
         ensure_wheels_only(selected)
         _require_success(_capture([python, '-m', 'pip', 'install', '--dry-run', '--ignore-installed',
                                    '--no-index', '--find-links', selected, '-r', requirements],
-                                  project, overrides), 'Offline Python wheel resolution')
+                                  project, overrides), 'Python bağımlılık doğrulaması', requirements=project.requirements)
         shutil.copytree(selected, destination)
 
 

@@ -72,9 +72,13 @@ def _package_failure(output: str) -> tuple[str, str, str]:
 class PackageCommandError(LauncherError):
     """Expose only reviewed package failure details, never tool diagnostics."""
 
-    def __init__(self, result, stage=None):
+    def __init__(self, result, stage=None, *, requirements: Path | None = None):
+        from .package_diagnostics import locked_failure_packages
         output = (result.stdout or '') + '\n' + (result.stderr or '')
-        self.code, message, self.remedy = _package_failure(output)
+        self.code, message, self.remedy = self._failure_details(output)
+        packages = locked_failure_packages(output, requirements)
+        if packages:
+            message += ' Kilitli paket: ' + ', '.join(packages) + '.'
         if stage in _PACKAGE_STAGES:
             message = stage + ': ' + message
         system_error = _WINDOWS_ERROR.search(output)
@@ -83,6 +87,14 @@ class PackageCommandError(LauncherError):
         if type(result.returncode) is int and result.returncode > 0:
             message += f' Süreç çıkış kodu: {result.returncode}.'
         super().__init__(message)
+
+    @staticmethod
+    def _failure_details(output):
+        from .package_diagnostics import pip_failure
+        failure = _package_failure(output)
+        if failure[0] == 'package_command_failed':
+            return pip_failure(output) or failure
+        return failure
 
 
 def _package_source_failure(output: str) -> tuple[str, str, str]:
@@ -120,11 +132,12 @@ def _package_source_failure(output: str) -> tuple[str, str, str]:
 class PackageSourceError(PackageCommandError):
     """Retain a failed source's reviewed reason after all allowed fallbacks."""
 
-    def __init__(self, result, stage):
-        super().__init__(result, stage)
-        if self.code == 'package_command_failed':
-            self.code, detail, self.remedy = _package_source_failure((result.stdout or '') + '\n' + (result.stderr or ''))
-            self.args = (str(self) + ' ' + detail,)
+    @staticmethod
+    def _failure_details(output):
+        # A terminal resolver line often follows transport errors. Preserve
+        # the source cause after permitted fallback, not that secondary symptom.
+        failure = _package_failure(output)
+        return _package_source_failure(output) if failure[0] == 'package_command_failed' else failure
 
 
 class PackageTimeoutError(LauncherError):
@@ -251,9 +264,15 @@ def availability_failure(output: str, *, restricted: bool = False) -> bool:
     Only their explicit transport/not-found signatures permit source fallback.
     Unknown failures are installation failures, even if that requires a manual retry.
     """
+    from .package_diagnostics import pip_failure
     text = output.casefold()
     fatal = ("failed building wheel", "subprocess-exited-with-error", "eresolve")
     if _package_failure(text)[0] != 'package_command_failed' or any(value in text for value in fatal):
+        return False
+    diagnostic = pip_failure(output)
+    # A missing distribution can be a secondary symptom of an unreachable
+    # index. Other reviewed pip failures are terminal, not source availability.
+    if diagnostic and diagnostic[0] != 'package_distribution_not_found':
         return False
     codes = (408, 429, 500, 502, 503, 504) + ((401, 403, 407) if restricted else ())
     if any(re.search(rf'\b(?:e{code}|(?:http error|error|tunnel connection failed:)\s+{code}|{code}\s+client error)\b', text)
@@ -375,9 +394,9 @@ def capture(command: list, project: Project, overrides: dict | None = None, *, t
             raise PackageTimeoutError() from None
 
 
-def _succeeded(result, stage: str) -> None:
+def _succeeded(result, stage: str, *, requirements: Path | None = None) -> None:
     if result.returncode:
-        raise PackageCommandError(result, stage)
+        raise PackageCommandError(result, stage, requirements=requirements)
 
 
 def _offline_candidates(settings: SourceSettings):
@@ -601,8 +620,8 @@ def _python_packages(project: Project, settings: SourceSettings, tool_env: dict,
             if not result.returncode:
                 return True
             if not availability_failure(result.stdout + result.stderr, restricted=True):
-                _succeeded(result, "Python paket edinimi")
-            source_error = PackageSourceError(result, 'Python paket edinimi')
+                _succeeded(result, "Python paket edinimi", requirements=project.requirements)
+            source_error = PackageSourceError(result, 'Python paket edinimi', requirements=project.requirements)
             settings.report(f'Python paketleri: kaynak {number + 1}/{len(indexes)} başarısız. {source_error}')
             if number + 1 < len(indexes):
                 settings.report('Python paket kaynağı erişilemiyor; sıradaki izinli kaynak deneniyor')
@@ -621,8 +640,8 @@ def _python_packages(project: Project, settings: SourceSettings, tool_env: dict,
         wheelhouse = offline / "wheels"
     settings.report('Python paketleri yerel wheel dosyalarından kuruluyor')
     _succeeded(capture([project.python, "-m", "pip", "install", "--no-index", "--find-links", wheelhouse,
-                       "-r", project.requirements], project, tool_env, progress=settings.progress), "Python paket kurulumu")
-    _succeeded(capture([project.python, "-m", "pip", "check"], project, tool_env), "Python bağımlılık doğrulaması")
+                       "-r", project.requirements], project, tool_env, progress=settings.progress), "Python paket kurulumu", requirements=project.requirements)
+    _succeeded(capture([project.python, "-m", "pip", "check"], project, tool_env), "Python bağımlılık doğrulaması", requirements=project.requirements)
 
 
 def _npm_command(tool_env: dict) -> list[str]:
