@@ -48,7 +48,7 @@ def update_document(*, project, document_id, expected_version, serializer, user)
         _require_active(document)
         _require_version(document, expected_version)
         panel = serializer.validated_data.get("panel", document.panel)
-        if getattr(panel, "pk", None) != document.panel_id:
+        if (panel is not None and panel.pk is None) or getattr(panel, "pk", None) != document.panel_id:
             require_tracking_panel_compatibility(document, panel)
         if not _serializer_changes_document(document, serializer.validated_data):
             return document
@@ -70,7 +70,7 @@ def require_tracking_panel_compatibility(document, panel):
             .exclude(email="")
             .values_list("pk", flat=True)
         )
-        if panel is not None
+        if panel is not None and panel.pk is not None
         else set()
     )
     selected_ids = set(profile.responsible_people.values_list("pk", flat=True))
@@ -105,7 +105,7 @@ def _serializer_changes_document(document, values):
                 return True
             continue
         if hasattr(value, "pk"):
-            if getattr(document, f"{field}_id") != value.pk:
+            if value.pk is None or getattr(document, f"{field}_id") != value.pk:
                 return True
         elif getattr(document, field) != value:
             return True

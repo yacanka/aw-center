@@ -306,6 +306,8 @@ def _json_snapshot(validated_data):
     for field, value in validated_data.items():
         if field == "panel":
             snapshot[field] = value.pk if value is not None else None
+            if value is not None and value.pk is None:
+                snapshot["panel_name"] = value.name
         elif field == "cover_page":
             snapshot[field] = {
                 **({"issue": value["issue"]} if "issue" in value else {}),

@@ -144,6 +144,32 @@ describe('cover page numbering in the document editor', () => {
     expect(window.$message.error).toHaveBeenCalledWith('Select a cover page number format.')
   })
 
+  it.each([null, 4])('saves a named panel without ATA with catalog ID %s', async (panel) => {
+    const state = await editor('new', 'CP-1')
+    state.compdoc.value.panel_name = 'Systems'
+    state.compdoc.value.panel = panel
+    state.compdoc.value.ata = null
+    const form = ref<FormInst | null>(null)
+    wrappers.push(
+      mount(
+        defineComponent({
+          setup: () => () =>
+            h(
+              NForm,
+              { ref: form, model: state.compdoc.value, rules: state.rules.value },
+              {
+                default: () => [h(NFormItem, { path: 'ata' })]
+              }
+            )
+        })
+      )
+    )
+    state.formRef.value = form.value
+    await expect(form.value!.validate()).resolves.toBeDefined()
+    await state.save()
+    expect(state.showModal.value).toBe(false)
+  })
+
   it('restores an unfinished allocation when the existing document is reopened', async () => {
     mocks.existing.mockResolvedValue({
       id: 'pending',

@@ -113,7 +113,7 @@ function openModal(value: IResponsible, mode: string) {
     return { label: project.name, value: project.slug }
   })
   panelOptions.value = orgsStore.getPanels.map((panel: IPanel) => {
-    return { label: `${panel.ata} (${panel.name})`, value: panel.id || 0 }
+    return { label: `${panel.ata || 'ATA not specified'} (${panel.name})`, value: panel.id || 0 }
   })
 }
 

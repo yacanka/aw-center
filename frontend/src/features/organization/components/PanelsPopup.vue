@@ -89,12 +89,6 @@ const rules = ref<FormRules>({
       required: true,
       trigger: 'blur'
     }
-  ],
-  ata: [
-    {
-      required: true,
-      trigger: 'blur'
-    }
   ]
 })
 

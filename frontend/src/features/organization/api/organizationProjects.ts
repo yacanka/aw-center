@@ -110,21 +110,21 @@ export async function deletePanel(state: OrganizationState, id: number): Promise
 }
 
 /** Load responsibles for one panel. */
-export async function fetchResponsibles(state: OrganizationState, panel: string): Promise<void> {
+export async function fetchResponsibles(state: OrganizationState, panelId: string): Promise<void> {
   if (!state.project) {
     state.responsibles = []
     return
   }
   const requestedProject = state.project
   const requestId = ++state.responsiblesRequestId
-  await runOrganizationRequest<unknown>(
+  await runOrganizationRequest<IResponsible[]>(
     state,
     axios.get(organizationPath(state.project, 'responsible-assignments'), {
-      params: { panel, page_size: 200 }
+      params: { panel_id: panelId || undefined, page_size: 200 }
     }),
     (data) => {
       if (state.project === requestedProject && state.responsiblesRequestId === requestId) {
-        state.responsibles = getPaginatedResults<IResponsible>(data)
+        state.responsibles = data
       }
     }
   )

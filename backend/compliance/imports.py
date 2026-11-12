@@ -15,6 +15,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import OuterRef, Subquery
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+from orgs.models import normalize_panel_name
 
 from awcenter.spreadsheet_security import SpreadsheetLimitError, validate_worksheet_bounds
 
@@ -428,6 +429,17 @@ def prepare_tabular_plan(
             payload["cover_page"]["version"] = cover_page.version
 
         reference = normalized_row["panel_reference"]
+        if target is not None and target.panel is not None and normalized_row["clear_ata_only"]:
+            reference = panels.resolve({"panel": target.panel.name, "ata": ""})
+            payload["panel"] = reference.panel.pk
+        if (
+            target is not None and target.panel is not None
+            and normalized_row["preserve_panel_ata"]
+            and reference.panel is not None
+            and normalize_panel_name(reference.panel.name) == normalize_panel_name(target.panel.name)
+        ):
+            reference = PanelReference(target.panel)
+            payload["panel"] = target.panel_id
         serializer_payload = dict(payload)
         if "panel" in payload:
             serializer_payload["panel"] = reference.panel
@@ -535,6 +547,8 @@ def _normalize_row(source, panels):
     )
     return {
         "panel_reference": reference,
+        "preserve_panel_ata": "ata" not in values,
+        "clear_ata_only": "ata" in values and values["ata"] in (None, "") and "panel" not in values,
         "id": _document_id(values.get("id")),
         "payload": payload,
         "status": status,
@@ -674,7 +688,7 @@ def plan_fingerprint(plan: ImportPlan) -> str:
             "payload": row.payload,
             "status_value": row.status_value,
             "status_label": row.status_label,
-            "panel_ata": row.panel_reference.panel.ata if row.panel_reference.panel else None,
+            "panel_key": row.panel_reference.key,
             "workflow_events": row.workflow_events,
             "target_cover": (
                 {
@@ -844,8 +858,8 @@ def _apply_plan(plan, project, request, audit):
             continue
         payload = dict(row.payload)
         panel = row.panel_reference.panel
-        if panel is not None and panel.ata in panels:
-            payload["panel"] = panels[panel.ata].pk
+        if panel is not None and row.panel_reference.key in panels:
+            payload["panel"] = panels[row.panel_reference.key].pk
         serializer = ComplianceDocumentSerializer(
             row.target,
             data=payload,

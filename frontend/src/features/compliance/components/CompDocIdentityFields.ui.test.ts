@@ -12,7 +12,8 @@ vi.mock('@/features/compliance/composables/compdocController', () => ({
     getPanels: [
       { id: 1, name: 'Systems', ata: '27-00' },
       { id: 2, name: 'Systems', ata: '28-00' },
-      { id: 3, name: 'Structures', ata: '53-00' }
+      { id: 3, name: 'Structures', ata: '53-00' },
+      { id: 4, name: 'Systems', ata: '' }
     ],
     getPanelOptions: [],
     getSignaturePanelOptions: []
@@ -56,6 +57,11 @@ it('edits Panel and ATA separately, limits ATA choices and clears incompatible s
     await wrapper.vm.$nextTick()
     expect(compdoc.panel).toBe(2)
     expect(compdoc.ata).toBe('28-00')
+    ata.vm.$emit('update:value', null)
+    await wrapper.vm.$nextTick()
+    expect(compdoc.panel).toBe(4)
+    expect(compdoc.panel_name).toBe('Systems')
+    expect(compdoc.ata).toBeNull()
     panel.vm.$emit('update:value', 'Structures')
     await wrapper.vm.$nextTick()
     expect(compdoc.ata).toBeNull()

@@ -4,7 +4,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers
 
-from .models import Panel, Person, ResponsibleAssignment
+from .models import Panel, Person, ResponsibleAssignment, normalize_panel_name
 from .ata import normalize_ata_chapter
 
 
@@ -22,13 +22,30 @@ class OrganizationModelSerializer(serializers.ModelSerializer):
 
 
 class PanelSerializer(OrganizationModelSerializer):
-    ata = serializers.CharField(max_length=128)
+    ata = serializers.CharField(max_length=128, allow_blank=True, required=False, default="")
 
     def validate_ata(self, value):
+        if not value:
+            return ""
         try:
             return normalize_ata_chapter(value)
         except ValueError as error:
             raise serializers.ValidationError("Use an ATA chapter such as 27-00 or digit-free text.") from error
+
+    def validate(self, attributes):
+        project = self.context.get("project") or (self.instance.project if self.instance else None)
+        ata = attributes.get("ata", self.instance.ata if self.instance else "")
+        name = attributes.get("name", self.instance.name if self.instance else "")
+        if project is not None:
+            duplicate = Panel.objects.filter(project=project, ata=ata)
+            if not ata:
+                duplicate = duplicate.filter(name_key=normalize_panel_name(name))
+            if self.instance is not None:
+                duplicate = duplicate.exclude(pk=self.instance.pk)
+            if duplicate.exists():
+                field = "ata" if ata else "name"
+                raise serializers.ValidationError({field: "This panel already exists in the project."})
+        return attributes
 
     project_slug = serializers.CharField(source="project.slug", read_only=True)
 

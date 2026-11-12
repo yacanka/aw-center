@@ -486,7 +486,7 @@ class ReferenceOptionCollectionView(ProjectComplianceMixin, APIView):
         if kind == "panel":
             return {
                 "id": subject.pk,
-                "label": f"{subject.ata} · {subject.name}",
+                "label": f"{subject.ata or 'ATA not specified'} · {subject.name}",
                 "name": subject.name,
                 "ata": subject.ata,
             }
@@ -1122,7 +1122,8 @@ def _export_document_row(document):
     return {
         "id": str(document.pk),
         "name": document.name,
-        "panel": document.panel.ata if document.panel else "",
+        "panel": document.panel.name if document.panel else "",
+        "ata": document.panel.ata if document.panel else "",
         "signature_panel": "; ".join(document.signature_panel or ()),
         "cover_page_no": document.cover_page.number,
         "cover_page_issue": document.cover_page.issue,

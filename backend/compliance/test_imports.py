@@ -819,7 +819,7 @@ class ComplianceImportTests(TestCase):
                     self.panel,
                 )
 
-    def test_existing_panel_column_also_accepts_short_ata_format(self):
+    def test_numeric_panel_column_without_ata_creates_an_ata_less_panel(self):
         content = self.workbook(panel=27)
 
         preview = self.preview(content)
@@ -827,7 +827,9 @@ class ComplianceImportTests(TestCase):
 
         self.assertEqual(preview.status_code, 200)
         self.assertEqual(confirmed.status_code, 201)
-        self.assertEqual(ComplianceDocument.objects.get().panel, self.panel)
+        document = ComplianceDocument.objects.get()
+        self.assertEqual(document.panel.name, "27")
+        self.assertEqual(document.panel.ata, "")
 
     def test_ata_disambiguates_a_panel_name_with_multiple_chapters(self):
         Panel.objects.create(
@@ -911,8 +913,8 @@ class ComplianceImportTests(TestCase):
         self.panel.refresh_from_db()
         self.assertEqual(self.panel.name, "Changed concurrently")
 
-    def test_new_panels_require_both_fields_and_valid_values(self):
-        for panel, ata in [("New", None), (None, 29), ("New", "invalid 27"), ("x" * 256, 29)]:
+    def test_new_panels_require_a_name_and_valid_values(self):
+        for panel, ata in [(None, 29), ("New", "invalid 27"), ("x" * 256, 29)]:
             with self.subTest(panel=panel, ata=ata):
                 content = self.workbook(panel=panel, ata=ata)
                 preview = self.preview(content)

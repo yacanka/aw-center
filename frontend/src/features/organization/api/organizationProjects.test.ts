@@ -3,11 +3,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const http = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('@/shared/api/http', () => ({ apiClient: http }))
 
-import { fetchPanels } from '@/features/organization/api/organizationProjects'
+import { fetchPanels, fetchResponsibles } from '@/features/organization/api/organizationProjects'
 import { createOrganizationState } from '@/features/organization/composables/organizationState'
 
 describe('organization project API', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('filters responsible assignments by panel ID when chapters can be empty', async () => {
+    http.get.mockResolvedValueOnce({
+      status: 200,
+      data: { count: 1, next: null, previous: null, results: [{ id: 3, panel: 11 }] }
+    })
+    const state = createOrganizationState()
+    state.project = 'demo'
+    await fetchResponsibles(state, '11')
+    expect(http.get).toHaveBeenCalledWith('projects/demo/organization/responsible-assignments/', {
+      params: { panel_id: '11', page_size: 200 }
+    })
+    expect(state.responsibles).toEqual([{ id: 3, panel: 11 }])
+  })
 
   it('stores panel rows returned across paginated responses', async () => {
     http.get

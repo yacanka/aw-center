@@ -114,7 +114,7 @@ const panelOptions = computed(() => {
 })
 const ataOptions = computed(() =>
   store.getPanels
-    .filter((panel) => panel.name === selectedPanelName.value)
+    .filter((panel) => panel.name === selectedPanelName.value && panel.ata)
     .sort((left, right) => left.ata.localeCompare(right.ata))
     .map((panel) => ({ label: panel.ata, value: panel.ata }))
 )
@@ -127,11 +127,16 @@ function changed(field: keyof ICompDoc): '' | 'warning' {
 
 function selectPanel(name: string | null): void {
   props.compdoc.panel_name = name || ''
-  props.compdoc.panel = null
+  props.compdoc.panel =
+    store.getPanels.find((panel) => panel.name === name && !panel.ata)?.id ?? null
   props.compdoc.ata = null
 }
 
 function selectAta(ata: string | null): void {
+  if (!ata) {
+    selectPanel(selectedPanelName.value)
+    return
+  }
   const selected = store.getPanels.find(
     (panel) => panel.name === selectedPanelName.value && panel.ata === ata
   )

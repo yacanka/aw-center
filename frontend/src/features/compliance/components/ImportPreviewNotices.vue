@@ -37,8 +37,9 @@ defineProps<{ preview: ImportPreview }>()
       <n-alert type="info" :bordered="false">
         These changes also apply to other documents using the same ATA chapter.
         <ul>
-          <li v-for="change in preview.panel_changes" :key="change.ata">
-            {{ change.action === 'create' ? 'Create' : 'Update' }} {{ change.ata }}:
+          <li v-for="change in preview.panel_changes" :key="`${change.ata}:${change.new_name}`">
+            {{ change.action === 'create' ? 'Create' : 'Update' }}
+            {{ change.ata || 'ATA not specified' }}:
             {{ change.old_name ? `${change.old_name} → ` : '' }}{{ change.new_name }}
           </li>
         </ul>

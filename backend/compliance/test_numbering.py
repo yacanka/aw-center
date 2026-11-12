@@ -128,6 +128,28 @@ class CoverPageNumberingTests(TestCase):
         self.assertEqual(Job.objects.count(), 1)
 
     @patch("compliance.numbering_executor.NumaratorClient")
+    def test_named_empty_panel_survives_numbering_preview_and_worker(self, client_class):
+        client = client_class.return_value
+        client.generate_number.return_value = GeneratedNumber(
+            43, "CP-2026-0043", "COVER_PAGE", "active", "num-request-1",
+        )
+        client.mark_used.return_value = GeneratedNumber(
+            43, "CP-2026-0043", "COVER_PAGE", "used", "num-request-2",
+        )
+        payload = self.payload()
+        payload["document"].update(panel=None, panel_name="New panel", ata=None)
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 202, response.data)
+        allocation = CoverPageNumberAllocation.objects.get(pk=response.data["id"])
+        self.assertEqual(allocation.document_snapshot["panel_name"], "New panel")
+        self.assertFalse(Panel.objects.filter(project=self.project, ata="").exists())
+        execute_claimed_job(claim_next_job("numbering-worker"), resolve_job_executor)
+        allocation.refresh_from_db()
+        self.assertEqual(allocation.status, CoverPageNumberAllocation.Status.COMPLETED)
+        self.assertEqual(allocation.document.panel.name, "New panel")
+        self.assertEqual(allocation.document.panel.ata, "")
+
+    @patch("compliance.numbering_executor.NumaratorClient")
     def test_worker_creates_document_and_marks_number_used(self, client_class):
         client = client_class.return_value
         client.generate_number.return_value = GeneratedNumber(

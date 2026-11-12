@@ -287,7 +287,7 @@ function panelOptions(panels: CompdocPanelReference[]) {
   return [...panels]
     .sort((left, right) => left.name.localeCompare(right.name, 'tr', { sensitivity: 'base' }))
     .map((panel) => ({
-      label: `${toTitleCase(panel.name)} · ATA ${panel.ata}`,
+      label: `${toTitleCase(panel.name)} · ${panel.ata ? `ATA ${panel.ata}` : 'ATA not specified'}`,
       value: panel.id
     }))
 }
@@ -299,7 +299,7 @@ function signaturePanelOptions(panels: CompdocPanelReference[]) {
 }
 
 function ataOptions(panels: CompdocPanelReference[]) {
-  return [...new Set(panels.map((panel) => panel.ata))]
+  return [...new Set(panels.map((panel) => panel.ata).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, 'tr', { sensitivity: 'base' }))
     .map((ata) => ({ label: ata, value: ata }))
 }

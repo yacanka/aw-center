@@ -9,10 +9,12 @@ for (const theme of ['light', 'dark'] as const) {
       const browserErrors: string[] = []
       page.on('pageerror', (error) => browserErrors.push(error.message))
       const queries: URLSearchParams[] = []
+      const writes: Record<string, unknown>[] = []
       const panels = [
         { id: 1, name: 'Systems', ata: '27-00', label: 'Systems · ATA 27-00' },
         { id: 2, name: 'Systems', ata: '28-00', label: 'Systems · ATA 28-00' },
-        { id: 3, name: 'Structures', ata: '53-00', label: 'Structures · ATA 53-00' }
+        { id: 3, name: 'Structures', ata: '53-00', label: 'Structures · ATA 53-00' },
+        { id: 4, name: 'Systems', ata: '', label: 'Systems · ATA not specified' }
       ]
       await page.route('**/api/**', async (route) => {
         const url = new URL(route.request().url())
@@ -63,8 +65,17 @@ for (const theme of ['light', 'dark'] as const) {
         else if (path.endsWith('/compliance-documents/statuses/')) body = []
         else if (path.endsWith('/compliance-documents/numbering-options/'))
           body = { provider: 'numarator', available: false, supports: [], formats: [] }
-        else if (path.endsWith('/compliance-documents/')) queries.push(url.searchParams)
-        else if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
+        else if (path.endsWith('/compliance-documents/')) {
+          if (route.request().method() === 'POST') {
+            const payload = route.request().postDataJSON() as Record<string, unknown>
+            writes.push(payload)
+            return route.fulfill({
+              status: 201,
+              json: { ...payload, id: 'document-created', version: 1, panel_name: 'Systems' }
+            })
+          }
+          queries.push(url.searchParams)
+        } else if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
         return route.fulfill({ json: body })
       })
       await page.goto('/app/compdocs/ozgur')
@@ -156,6 +167,37 @@ for (const theme of ['light', 'dark'] as const) {
         animations: 'disabled',
         fullPage: true
       })
+      const identity = dialog.locator('.n-card').filter({
+        has: page.getByText('Identity', { exact: true })
+      })
+      const field = (label: string) =>
+        identity.locator('.n-form-item').filter({
+          has: page.getByText(label, { exact: true })
+        })
+      await field('Name').locator('input').fill('ATA-less document')
+      await field('Cover Page No').locator('input').fill('CP-EMPTY')
+      await field('Panel').locator('.n-base-selection').click()
+      await page
+        .locator('.n-base-select-menu:visible')
+        .getByText('Systems', { exact: true })
+        .click()
+      const ata = field('ATA').locator('.n-base-selection')
+      await ata.click()
+      await page.locator('.n-base-select-menu:visible').getByText('27-00', { exact: true }).click()
+      await ata.hover()
+      await ata.locator('.n-base-clear').click()
+      await expect(field('Panel')).toContainText('Systems')
+      await expect(field('ATA')).toContainText('Select ATA')
+      await field('Panel').scrollIntoViewIfNeeded()
+      await page.screenshot({
+        path: `test-results/compdoc-ata-empty-${theme}-${width}.png`,
+        animations: 'disabled'
+      })
+      await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+      await expect(dialog).not.toBeVisible()
+      expect(writes).toHaveLength(1)
+      expect(writes[0]).toMatchObject({ panel: 4, ata: null, name: 'ATA-less document' })
+      expect(browserErrors).toEqual([])
     })
   }
 }

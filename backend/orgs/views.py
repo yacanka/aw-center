@@ -5,7 +5,7 @@ from django.db.models.deletion import ProtectedError
 from django.forms import FileField, Form
 from django.shortcuts import get_object_or_404
 
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -148,6 +148,10 @@ class ResponsibleAssignmentViewSet(ProjectOrganizationMixin, ModelViewSet):
         panel = self.request.query_params.get("panel")
         if panel:
             queryset = queryset.filter(panel__ata__iexact=panel)
+        panel_id = self.request.query_params.get("panel_id")
+        if panel_id:
+            panel_id = serializers.IntegerField(min_value=1).run_validation(panel_id)
+            queryset = queryset.filter(panel_id=panel_id)
         return queryset
 
 

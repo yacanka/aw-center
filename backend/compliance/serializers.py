@@ -8,7 +8,7 @@ from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
 
 from orgs.access_policy import has_project_role
-from orgs.models import Panel, Person, ProjectRoleAssignment
+from orgs.models import Panel, Person, ProjectRoleAssignment, normalize_panel_name
 from integrations.docproof import normalize_document_number
 
 from .notifications import SUPPORTED_EVENTS
@@ -114,8 +114,12 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         return label
 
     project_slug = serializers.CharField(source="project.slug", read_only=True)
-    panel_name = serializers.CharField(source="panel.name", read_only=True, allow_null=True)
-    ata = serializers.CharField(source="selected_ata", required=False, allow_null=True, max_length=128)
+    panel_name = serializers.CharField(
+        source="selected_panel_name", required=False, allow_null=True, allow_blank=True, max_length=255,
+    )
+    ata = serializers.CharField(
+        source="selected_ata", required=False, allow_null=True, allow_blank=True, max_length=128,
+    )
     cover_page = CoverPageSerializer()
     panel = serializers.PrimaryKeyRelatedField(
         queryset=Panel.objects.none(),
@@ -188,7 +192,8 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data["ata"] = instance.panel.ata if instance.panel else None
+        data["panel_name"] = instance.panel.name if instance.panel else None
+        data["ata"] = (instance.panel.ata or None) if instance.panel else None
         return data
 
     def validate_panel(self, panel):
@@ -197,15 +202,38 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Panel must belong to the URL project.")
         return panel
 
+    def validate_panel_name(self, name):
+        if name and (CONTROL_CHARACTERS.search(name) or LINE_BREAKS.search(name)):
+            raise serializers.ValidationError("Control characters are not allowed.")
+        return name
+
+    def _resolve_selected_panel(self, attributes, project):
+        name = attributes.pop("selected_panel_name", None)
+        panel = attributes.get("panel", self.instance.panel if self.instance else None)
+        if name and panel is None:
+            panel = Panel.objects.filter(
+                project=project, ata="", name_key=normalize_panel_name(name),
+            ).first() or Panel(project=project, name=name, ata="")
+            attributes["panel"] = panel
+        # ATA asserts the selected catalog entry; it is never independent storage.
+        if "selected_ata" in attributes:
+            if (attributes.pop("selected_ata") or None) != ((panel.ata or None) if panel else None):
+                raise serializers.ValidationError({"ata": "Select an ATA assigned to the selected panel."})
+
+    def _materialize_panel(self, validated_data):
+        panel = validated_data.get("panel")
+        if panel is not None and panel.pk is None:
+            # Validation and numbering previews must never create catalog rows.
+            validated_data["panel"], _ = Panel.objects.get_or_create(
+                project=self.context["project"], ata="", name_key=normalize_panel_name(panel.name),
+                defaults={"name": panel.name},
+            )
+
     def validate(self, attributes):
         project = self.context.get("project")
         if project is None:
             raise serializers.ValidationError("Project context is required.")
-        # ATA asserts the selected catalog entry; it is never independent storage.
-        if "selected_ata" in attributes:
-            panel = attributes.get("panel", self.instance.panel if self.instance else None)
-            if attributes.pop("selected_ata") != (panel.ata if panel else None):
-                raise serializers.ValidationError({"ata": "Select an ATA assigned to the selected panel."})
+        self._resolve_selected_panel(attributes, project)
         cover_page = attributes.get("cover_page")
         if cover_page is not None and "number" not in cover_page:
             raise serializers.ValidationError(
@@ -328,6 +356,7 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
         from .status_catalog import ensure_status, lock_status_project
         with lock_status_project(self.context["project"]):
             ensure_status(self.context["project"], "unknown", "Unknown")
+            self._materialize_panel(validated_data)
             cover_page = self._resolve_cover_page(validated_data.pop("cover_page"))
             document = ComplianceDocument(
                 **validated_data,
@@ -343,6 +372,7 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         previous_number, previous_issue = instance.number, instance.issue
+        self._materialize_panel(validated_data)
         cover_page_data = validated_data.pop("cover_page", None)
         if cover_page_data is not None:
             instance.cover_page = self._resolve_cover_page(cover_page_data)

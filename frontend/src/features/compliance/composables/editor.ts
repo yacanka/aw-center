@@ -84,8 +84,7 @@ export function useCompDocEditor(canEdit: Ref<boolean>) {
   const rules = computed<FormRules>(() => ({
     ata: [
       {
-        validator: () =>
-          !compdoc.value.panel_name || Boolean(compdoc.value.panel && compdoc.value.ata),
+        validator: () => !compdoc.value.ata || Boolean(compdoc.value.panel),
         message: 'Select an ATA assigned to the selected panel.',
         trigger: ['change', 'blur']
       }

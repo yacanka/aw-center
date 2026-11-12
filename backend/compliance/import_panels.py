@@ -6,7 +6,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 from orgs.ata import normalize_ata_chapter
-from orgs.models import Panel
+from orgs.models import Panel, normalize_panel_name
 from orgs.serializers import PanelSerializer
 
 
@@ -14,6 +14,16 @@ from orgs.serializers import PanelSerializer
 class PanelReference:
     panel: Panel | None
     requested_name: str | None = None
+
+    @property
+    def key(self):
+        if self.panel is None:
+            return None
+        return panel_key(self.panel.ata, self.panel.name)
+
+
+def panel_key(ata, name):
+    return ("ata", ata) if ata else ("name", normalize_panel_name(name))
 
 
 class PlannedPanelField(serializers.Field):
@@ -35,14 +45,12 @@ class ImportPanels:
         queryset = Panel.objects.filter(project=project).order_by("pk")
         if lock_existing:
             queryset = queryset.select_for_update()
-        self.existing = {panel.ata: panel for panel in queryset}
-        self.lookup = {}
-        for panel in self.existing.values():
-            for key in {panel.name.casefold(), panel.ata.casefold()}:
-                self.lookup.setdefault(key, []).append(panel)
+        catalog = list(queryset)
+        self.existing = {panel.ata: panel for panel in catalog if panel.ata}
+        self.empty = {normalize_panel_name(panel.name): panel for panel in catalog if not panel.ata}
         self.snapshot = [
             {"id": panel.pk, "ata": panel.ata, "name": panel.name}
-            for panel in self.existing.values()
+            for panel in catalog
         ]
 
     def resolve(self, values):
@@ -52,19 +60,13 @@ class ImportPanels:
             return self._resolve_ata(ata_value, name)
         if name in (None, ""):
             return PanelReference(None)
-        text = str(name).strip().casefold()
-        matches = self.lookup.get(text, [])
-        if not matches:
-            try:
-                panel = self.existing.get(normalize_ata_chapter(name))
-            except ValueError:
-                panel = None
-            matches = [panel] if panel else []
-        if len(matches) != 1:
-            raise ValidationError({
-                "ata": "Provide an ATA chapter and panel name for a new or ambiguous panel."
-            })
-        return PanelReference(matches[0])
+        target = self.empty.get(normalize_panel_name(str(name)))
+        if target is not None:
+            return PanelReference(target)
+        serializer = PanelSerializer(data={"name": str(name), "ata": ""})
+        serializer.is_valid(raise_exception=True)
+        name = serializer.validated_data["name"]
+        return PanelReference(Panel(project=self.project, name=name, ata=""), name)
 
     def _resolve_ata(self, value, name):
         try:
@@ -91,10 +93,11 @@ class ImportPanels:
         for row in rows:
             reference = row.panel_reference
             if reference.requested_name is not None:
-                names[reference.panel.ata] = reference.requested_name
+                names[reference.key] = (reference.panel, reference.requested_name)
         changes = []
-        for ata, name in sorted(names.items()):
-            target = self.existing.get(ata)
+        for _key, (panel, name) in sorted(names.items()):
+            ata = panel.ata
+            target = self.existing.get(ata) if ata else self.empty.get(normalize_panel_name(name))
             if target is not None and target.name == name:
                 continue
             changes.append({
@@ -119,5 +122,5 @@ def apply_panel_changes(changes, project):
             partial=target is not None,
         )
         serializer.is_valid(raise_exception=True)
-        resolved[change["ata"]] = serializer.save(project=project)
+        resolved[panel_key(change["ata"], change["new_name"])] = serializer.save(project=project)
     return resolved

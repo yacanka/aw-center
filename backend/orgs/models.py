@@ -10,6 +10,11 @@ from django.db.models import Q
 from .ata import validate_ata_chapter
 
 
+def normalize_panel_name(name: str) -> str:
+    """Match panel names consistently across SQLite, PostgreSQL and imports."""
+    return name.strip().casefold()
+
+
 class Project(models.Model):
     """Business-owned project record keyed to the technical capability catalog."""
 
@@ -38,12 +43,14 @@ class ResponsibilityRole(models.TextChoices):
 
 
 class Panel(models.Model):
-    """One project-scoped certification panel and ATA chapter."""
+    """One project-scoped certification panel with an optional ATA chapter."""
 
     name = models.CharField(max_length=255)
     discipline = models.CharField(max_length=255, blank=True)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="panels")
-    ata = models.CharField(max_length=128, validators=[validate_ata_chapter])
+    ata = models.CharField(max_length=128, blank=True, default="", validators=[validate_ata_chapter])
+    # Python casefold handles Unicode identically on both supported databases.
+    name_key = models.CharField(max_length=765, editable=False, blank=True, default="")
 
     class Meta:
         ordering = ["project__name", "ata", "name", "id"]
@@ -51,8 +58,24 @@ class Panel(models.Model):
             models.UniqueConstraint(
                 fields=["project", "ata"],
                 name="orgs_unique_project_panel_ata",
+                condition=~Q(ata=""),
+            ),
+            models.UniqueConstraint(
+                fields=["project", "name_key"],
+                condition=Q(ata=""),
+                name="orgs_unique_project_empty_ata_name",
             )
         ]
+
+    def clean(self):
+        super().clean()
+        self.name_key = normalize_panel_name(self.name)
+
+    def save(self, *args, **kwargs):
+        self.name_key = normalize_panel_name(self.name)
+        if kwargs.get("update_fields") is not None and "name" in kwargs["update_fields"]:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"name_key"}
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.project.slug}: {self.name}"

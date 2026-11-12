@@ -73,8 +73,8 @@ const canManage = computed(() =>
 const pagination = { pageSize: 8 }
 const panelOptions = computed(() =>
   store.getPanels.map((panel) => ({
-    label: `${panel.ata} – ${panel.name}`,
-    value: panel.ata
+    label: `${panel.ata || 'ATA not specified'} – ${panel.name}`,
+    value: String(panel.id)
   }))
 )
 
@@ -119,7 +119,7 @@ function openNewResponsible(): void {
   responsiblePopup.value?.openModal(
     {
       project: activeProject.value,
-      panel: store.getPanels.find((panel) => panel.ata === activePanel.value)?.id ?? null,
+      panel: store.getPanels.find((panel) => String(panel.id) === activePanel.value)?.id ?? null,
       person_id: '',
       name: '',
       email: '',
@@ -155,11 +155,11 @@ async function selectProject(projectSlug: string): Promise<void> {
   await store.fetchResponsibles('')
 }
 
-async function selectPanel(panelAta: string | null): Promise<void> {
-  activePanel.value = panelAta
-  if (panelAta) localStorage.setItem(ACTIVE_PANEL_KEY, panelAta)
+async function selectPanel(panelId: string | null): Promise<void> {
+  activePanel.value = panelId
+  if (panelId) localStorage.setItem(ACTIVE_PANEL_KEY, panelId)
   else localStorage.removeItem(ACTIVE_PANEL_KEY)
-  await store.fetchResponsibles(panelAta ?? '')
+  await store.fetchResponsibles(panelId ?? '')
 }
 
 onMounted(async () => {
@@ -172,6 +172,7 @@ onMounted(async () => {
     : projects[0]?.slug
   if (!projectSlug) return
   await selectProject(projectSlug)
-  if (store.getPanels.some((panel) => panel.ata === savedPanel)) await selectPanel(savedPanel)
+  if (store.getPanels.some((panel) => String(panel.id) === savedPanel))
+    await selectPanel(savedPanel)
 })
 </script>

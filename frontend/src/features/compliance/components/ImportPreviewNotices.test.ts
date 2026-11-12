@@ -39,3 +39,23 @@ it('keeps long import notices closed until requested and lists each entry separa
   expect(wrapper.findAll('li').at(-1)?.text()).toContain('Create 29-00: Hydraulics')
   wrapper.unmount()
 })
+
+it('lists different ATA-less panels with an explicit missing ATA label', async () => {
+  const wrapper = mount(ImportPreviewNotices, {
+    props: {
+      preview: {
+        panel_changes: [
+          { ata: '', old_name: null, new_name: 'Systems', action: 'create' },
+          { ata: '', old_name: null, new_name: 'Structures', action: 'create' }
+        ]
+      } as ImportPreview
+    }
+  })
+  await wrapper.find('.n-collapse-item__header-main').trigger('click')
+  await flushPromises()
+  expect(wrapper.findAll('li').map((row) => row.text())).toEqual([
+    'Create ATA not specified: Systems',
+    'Create ATA not specified: Structures'
+  ])
+  wrapper.unmount()
+})
