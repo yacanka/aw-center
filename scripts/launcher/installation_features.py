@@ -306,7 +306,7 @@ def import_asset_set(source: Path, home: Path) -> Path:
     return destination
 
 
-def _installed_tool(home: Path, name: str, artifact) -> Path | None:
+def _installed_tool(home: Path, name: str, artifact, *, verify: bool = True) -> Path | None:
     destination = home / 'tools' / f'{name}-{artifact.version}'
     if not destination.is_dir():
         return None
@@ -315,7 +315,10 @@ def _installed_tool(home: Path, name: str, artifact) -> Path | None:
         manifest = _json_object(destination / 'tool-manifest.json')
         if manifest.get('artifact_sha256') != artifact.sha256:
             return None
-        _verify_inventory(destination, manifest.get('artifacts'), exclude=('tool-manifest.json',))
+        if verify:
+            from .startup_metrics import count_startup_work
+            count_startup_work('optional_tool_inventory')
+            _verify_inventory(destination, manifest.get('artifacts'), exclude=('tool-manifest.json',))
         path = destination / _relative_path(artifact.executable)
         _safe_path(destination, path)
         return path if path.is_file() else None
@@ -323,17 +326,18 @@ def _installed_tool(home: Path, name: str, artifact) -> Path | None:
         return None
 
 
-def feature_environment(project, profile) -> dict[str, str]:
-    """Return process-local paths to verified managed optional tools, never global PATH."""
+def feature_environment(project, profile, *, verify: bool = True) -> dict[str, str]:
+    """Return local tool paths; full installed inventories remain the default."""
     home = _home(profile)
     if not (home / 'tools').exists():
         return {}
     catalog = _catalog_for_home(home)
     paths = []
     overrides = {}
+    options = {'verify': False} if not verify else {}
     for name in OPTIONAL_ARTIFACTS:
         artifact = catalog.get(name)
-        path = _installed_tool(home, name, artifact) if artifact else None
+        path = _installed_tool(home, name, artifact, **options) if artifact else None
         if path:
             paths.append(str(path.parent))
             if name == 'ffmpeg':

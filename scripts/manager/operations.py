@@ -37,6 +37,14 @@ def arguments(request):
     values['bundle_host_node'] = request.get('bundle_host_node') is True
     values['install_node'] = request.get('install_node') is True
     values['source_selection'] = request.get('source_selection', 'explicit' if request.get('source_root') else 'automatic')
+    from scripts.launcher.validation_policy import require_validation_policy
+    values['validation_policy'] = require_validation_policy(
+        request.get('validation_policy', 'managed'), profile=profile,
+        source_selection=values['source_selection'])
+    if values['validation_policy'] == 'developer':
+        source = request.get('source_root')
+        if not isinstance(source, str) or not source.strip() or len(source) > 8192 or any(c in source for c in '\0\r\n'):
+            raise LauncherError('Geliştirici modu için açık kaynak dizini seçilmeli.')
     values['migration_policy'] = request.get('migration_policy', 'automatic')
     if values['source_selection'] not in {'automatic', 'explicit'} or values['migration_policy'] not in {'automatic', 'confirm'}:
         raise LauncherError('Geçersiz otomasyon seçimi.')
@@ -208,7 +216,12 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
         args.progress = progress
         with operation_control(stop):
             check_cancelled()
-            _dispatch(request['action'], args, emit)
+            if request['action'] in {'ensure', 'start', 'provision'}:
+                from scripts.launcher.startup_metrics import startup_work
+                with startup_work(emit, args.validation_policy):
+                    _dispatch(request['action'], args, emit)
+            else:
+                _dispatch(request['action'], args, emit)
         emit({'type': 'done', 'ok': True})
     except OperationCancelled:
         emit({'type': 'status', 'message': 'İşlem durduruldu. Tamamlanan adımlar korunuyor.'})
@@ -248,9 +261,16 @@ def _project_for(action, args):
     from scripts.launcher.discovery import discover_project
     from scripts.launcher.installation import require_windows
     from scripts.launcher.installation_profiles import installation_home
-    args.progress('Proje kaynağı ve paket bütünlüğü doğrulanıyor')
+    from scripts.launcher.validation_policy import require_validation_policy
+    policy = require_validation_policy(getattr(args, 'validation_policy', 'managed'),
+                                       profile=args.profile, source_selection=args.source_selection)
+    editable = policy == 'developer' and action != 'bundle'
+    args.progress('Geliştirici kaynağının yerleşimi denetleniyor' if editable else
+                  'Proje kaynağı ve paket bütünlüğü doğrulanıyor')
     require_windows()
     source = Path(args.source_root)
+    if editable:
+        return _editable_project(source)
     if args.profile == 'prod' and action != 'bundle':
         from .payload import resolve_production_source, stage_production_source
         args.progress('Production kaynakları doğrulanıyor')
@@ -260,6 +280,24 @@ def _project_for(action, args):
         from .payload import verify_source_payload
         verify_source_payload(source)
     return discover_project(source)
+
+
+def _editable_project(source):
+    """Admit the conventional editable layout without a recursive source walk."""
+    from scripts.launcher.discovery import manifest_uses_vue
+    from scripts.launcher.installation_permissions import require_unlinked
+    from scripts.launcher.model import Project
+    require_unlinked(source)
+    source = source.resolve()
+    manage, package, requirements = (source / 'backend/manage.py', source / 'frontend/package.json',
+                                     source / 'requirements.txt')
+    for path in (manage, package, requirements):
+        require_unlinked(path)
+        if not path.is_file():
+            raise LauncherError('Geliştirici kaynak yerleşimi backend/manage.py, frontend/package.json ve requirements.txt gerektirir.')
+    if package.stat().st_size > 1024 * 1024 or not manifest_uses_vue(package):
+        raise LauncherError('Vue package.json doğrulanamadı.')
+    return Project(source, manage, package, requirements)
 
 
 def _manager_distribution(source, args):
@@ -401,6 +439,8 @@ def _run_lifecycle(project, action, args, emit, *, ensured=False):
     args.progress('Uygulama ve worker süreçleri başlatılıyor')
     def ready(profile):
         check_cancelled()
+        from scripts.launcher.startup_metrics import emit_startup_work
+        emit_startup_work()
         url = (f"https://{profile['host']}:{profile['backend_port']}/app/" if profile['name'] == 'prod' else
                f"http://{profile['host']}:{profile['frontend_port']}/app/")
         emit({'type': 'ready', 'url': url})
@@ -409,4 +449,5 @@ def _run_lifecycle(project, action, args, emit, *, ensured=False):
             args.progress(event['message'])
         else:
             emit(event)
-    start_profile(project, args.profile, on_ready=ready, on_health=lifecycle_event)
+    options = {'validation_policy': 'developer'} if getattr(args, 'validation_policy', 'managed') == 'developer' else {}
+    start_profile(project, args.profile, on_ready=ready, on_health=lifecycle_event, **options)

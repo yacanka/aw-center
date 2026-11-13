@@ -13,7 +13,7 @@ from pathlib import Path
 from .installation_sources import Artifact, SourceSettings, _digest, _no_symlink, _safe_member, _verify as verify_artifact, fetch_artifact, load_catalog, safe_extract
 from .installation_state import private_directory
 from .model import LauncherError
-from .process import controlled_run
+from .process import OperationCancelled, controlled_run
 
 RECEIPT = ".awcenter-tool.json"
 # Archive SHA-256 -> SHA-256 of its canonical path/content inventory. Reproduce
@@ -63,6 +63,8 @@ def _directory(home: Path, artifact: Artifact) -> Path:
 
 
 def _inventory(directory: Path) -> dict[str, str]:
+    from .startup_metrics import count_startup_work
+    count_startup_work('runtime_inventory')
     result = {}
     receipt = directory / RECEIPT
     for path in sorted(directory.rglob("*")):
@@ -332,8 +334,8 @@ def _has_receipt(target: Path, artifact: Artifact) -> bool:
 
 
 def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
-                      node_executable: Path | None = None) -> list[dict]:
-    """Inspect managed files and optionally probe system Python/Node without writes."""
+                      node_executable: Path | None = None, verify: bool = True) -> list[dict]:
+    """Inspect full managed bytes by default, or only runtime identity/version."""
     checks = []
     catalog = load_catalog()
     verified_node = None
@@ -344,7 +346,6 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
                 validate_python(python_executable)
                 checks.append({'name': 'python', 'status': 'ready', 'detail': 'Sistem CPython 3.11 x64 doğrulandı; yönetilen arşiv gerekmez.'})
             except LauncherError as error:
-                from .process import OperationCancelled
                 if isinstance(error, OperationCancelled):
                     raise
                 checks.append({'name': 'python', 'status': 'invalid', 'detail': 'Kayıtlı sistem Python 3.11 x64 kullanılamıyor; otomatik kurulum yapılmadı.'})
@@ -357,7 +358,7 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
             except SystemNodeError:
                 checks.append({'name': 'node', 'status': 'invalid', 'detail': 'Kayıtlı sistem Node kullanılamıyor; otomatik kurulum yapılmadı.'})
             continue
-        if name == 'npm' and verified_node is not None:
+        if name == 'npm' and node_executable is not None and verified_node is not None:
             from .system_node import find_npm_cli
             if find_npm_cli(verified_node, artifact.version, compatible=True) is not None:
                 checks.append({'name': 'npm', 'status': 'ready', 'detail': 'Uyumlu sistem npm doğrulandı; yönetilen arşiv gerekmez.'})
@@ -370,14 +371,32 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
         try:
             _no_symlink(target)
             has_receipt = _has_receipt(target, artifact)
-            inventory_options = {'node': Path(node_executable)} if name == 'npm' and node_executable is not None else {}
-            current = _inventory(target)
-            if current != _trusted_inventory(Path(home), artifact, catalog, current, **inventory_options):
-                raise ValueError("modified runtime")
+            if verify:
+                inventory_options = {'node': Path(node_executable)} if name == 'npm' and node_executable is not None else {}
+                current = _inventory(target)
+                if current != _trusted_inventory(Path(home), artifact, catalog, current, **inventory_options):
+                    raise ValueError("modified runtime")
+            elif has_receipt:
+                executable = target / _safe_member(artifact.executable)
+                _no_symlink(executable)
+                if not executable.is_file():
+                    raise ValueError('runtime executable missing')
+                if name == 'npm' and verified_node is None:
+                    raise ValueError('validated Node executable missing')
+                _check_version(executable, artifact.version,
+                               **({'node': verified_node} if name == 'npm' else {}))
+                if name == 'node':
+                    verified_node = executable
             if has_receipt:
-                check.update(status="ready", detail=f"managed {name} {artifact.version} verified")
+                detail = (f"managed {name} {artifact.version} verified" if verify else
+                          f"{name} {artifact.version}: geliştirici hızlı kontrolü; tam dosya bütünlüğü doğrulanmadı.")
+                check.update(status="ready", detail=detail)
             else:
-                check.update(status="missing", detail=f"{name} dosyaları doğrulandı. Sürüm doğrulama kaydı eksik.")
+                detail = (f"{name} dosyaları doğrulandı. Sürüm doğrulama kaydı eksik." if verify else
+                          f"{name}: tamamlanmış runtime doğrulama kaydı eksik; hazırlama gerekli.")
+                check.update(status="missing", detail=detail)
+        except OperationCancelled:
+            raise
         except (OSError, ValueError, KeyError, TypeError, LauncherError, tarfile.TarError, zipfile.BadZipFile):
             check.update(status="invalid", detail=f"managed {name} integrity check failed; provision requires reviewed files")
         checks.append(check)
@@ -385,8 +404,8 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
 
 
 def toolchain_environment(home: Path, *, python_executable: Path | None = None,
-                          node_executable: Path | None = None) -> dict[str, str]:
-    """Return existing verified runtimes without retrieval, extraction or writes."""
+                          node_executable: Path | None = None, verify: bool = True) -> dict[str, str]:
+    """Return existing runtimes after the requested checks, without installation."""
     options = {}
     if python_executable is not None:
         # Older profiles can retain the Manager's windowed interpreter. Keep
@@ -397,6 +416,7 @@ def toolchain_environment(home: Path, *, python_executable: Path | None = None,
         options['python_executable'] = python_executable
     if node_executable is not None:
         options['node_executable'] = node_executable
-    if any(check["status"] != "ready" for check in inspect_toolchain(home, **options)):
+    inspection_options = {**options, **({'verify': False} if not verify else {})}
+    if any(check["status"] != "ready" for check in inspect_toolchain(home, **inspection_options)):
         raise LauncherError("managed toolchain is incomplete or invalid; run provision")
     return _environment(Path(home), load_catalog(), **options)
