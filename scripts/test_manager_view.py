@@ -393,6 +393,29 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
                 self.assertIs(window.advanced_var.get(), False)
         self.window.advanced_frame.grid.assert_not_called()
 
+    def test_policy_change_requires_restart_and_retains_running_choice(self):
+        window = self.window
+        for key, value in window.state.last_values.items():
+            window.variables[key].set(value)
+        window.variables['source_selection'].set('explicit')
+        window.state.last_values['source_selection'] = 'explicit'
+        window.handle_event({'type': 'ready', 'task_id': 'dev', 'url': 'http://127.0.0.1:5173/app/'})
+        self.assertEqual(window._profile_presentation()['action'], 'open')
+        window.variables['validation_policy'].set('developer')
+        self.assertEqual(window._profile_presentation()['action'], 'ensure')
+        self.assertEqual(window.state.last_values['validation_policy'], 'managed')
+        window._update_summary()
+        self.assertIn('Yönetilen mod', window.summary_context_var.get())
+
+    def test_source_and_profile_changes_reset_developer_choice(self):
+        window = self.window
+        window._update_controls = Mock()
+        window._schedule_inspection = Mock()
+        for callback in (window._source_changed, window._profile_changed):
+            window.variables['validation_policy'].set('developer')
+            callback()
+            self.assertEqual(window.variables['validation_policy'].get(), 'managed')
+
     def test_live_asset_change_offers_stop_apply_and_open(self):
         window = self.window
         for key, value in window.state.last_values.items():
@@ -498,6 +521,22 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.actions = []
         self.stops = []
         self.window = ManagerWindow(root, lambda action, values: self.actions.append((action, values)), lambda: self.stops.append(self.window.selected_task_id()), lambda: None, source_root="C:/source")
+
+    def test_developer_selector_requires_explicit_source_and_resets_on_context_change(self):
+        window = self.window
+        self.assertEqual(str(window.validation_selector['state']), 'disabled')
+        self.assertEqual(window.action_buttons['doctor'].cget('text'), 'Tam doğrula')
+        window.variables['source_root'].set('C:/editable')
+        self.assertEqual(str(window.validation_selector['state']), 'normal')
+        window.validation_selector.invoke()
+        self.assertEqual(window.form_values()['validation_policy'], 'developer')
+        self.assertIn('Geliştirici modu — hızlı kontrol', window.summary_context_var.get())
+        window.variables['source_root'].set('C:/other')
+        self.assertEqual(window.form_values()['validation_policy'], 'managed')
+        window.validation_selector.invoke()
+        window.variables['profile'].set('prod')
+        self.assertEqual(window.form_values()['validation_policy'], 'managed')
+        self.assertEqual(str(window.validation_selector['state']), 'disabled')
 
     def test_simple_mockup_uses_horizontal_basic_fields_and_custom_tabs(self):
         window = self.window

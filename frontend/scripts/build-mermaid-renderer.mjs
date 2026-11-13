@@ -1,20 +1,13 @@
-import { build } from 'vite'
 import { fileURLToPath } from 'node:url'
-import { mkdir, rename, writeFile } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
 import { join, resolve } from 'node:path'
+import { prepareCachedRenderer } from './mermaid-renderer-cache.mjs'
 
-const outputDirectory = fileURLToPath(new URL('../.cache/mermaid/', import.meta.url))
-/** Concurrent dev/test/build readers always observe a complete old or new bundle. */
-export async function publishRenderer(source, directory) {
-  await mkdir(directory, { recursive: true })
-  const temporary = join(directory, `renderer-${randomUUID()}.tmp`)
-  await writeFile(temporary, source, { flag: 'wx' })
-  await rename(temporary, join(directory, 'renderer.js'))
-}
+export { publishRenderer } from './mermaid-renderer-cache.mjs'
 
-async function buildRenderer() {
-  const result = await build({
+const frontendDirectory = fileURLToPath(new URL('../', import.meta.url))
+
+function rendererBuildOptions(entry) {
+  return {
     configFile: false,
     publicDir: false,
     logLevel: 'warn',
@@ -22,20 +15,60 @@ async function buildRenderer() {
       write: false,
       target: 'es2024',
       lib: {
-        entry: fileURLToPath(new URL('../src/features/mermaid/renderer/entry.ts', import.meta.url)),
+        entry,
         name: 'AWMermaidRenderer',
         formats: ['iife'],
         fileName: () => 'renderer.js'
       },
       rolldownOptions: { output: { codeSplitting: false } }
     }
-  })
-  const output = (Array.isArray(result) ? result : [result]).flatMap((bundle) => bundle.output)
-  if (output.length !== 1 || output[0].type !== 'chunk' || /\bimport\s*\(/.test(output[0].code))
-    throw new Error('Mermaid renderer must be a single self-contained classic script.')
-  await publishRenderer(output[0].code, outputDirectory)
-  console.log('Isolated Mermaid renderer built with no runtime imports.')
+  }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-  await buildRenderer()
+async function generateRenderer(options) {
+  // A cache hit does not load Vite or traverse installed dependency sources.
+  const { build } = await import('vite')
+  const result = await build(options)
+  const output = (Array.isArray(result) ? result : [result]).flatMap((bundle) => bundle.output)
+  if (output.length !== 1 || output[0].type !== 'chunk')
+    throw new Error('Mermaid renderer must be a single self-contained classic script.')
+  return output[0].code
+}
+
+export async function prepareRenderer({
+  rootDirectory = frontendDirectory,
+  outputDirectory = join(rootDirectory, '.cache/mermaid'),
+  entry = join(rootDirectory, 'src/features/mermaid/renderer/entry.ts'),
+  scriptFiles = [
+    fileURLToPath(import.meta.url),
+    fileURLToPath(new URL('./mermaid-renderer-cache.mjs', import.meta.url))
+  ],
+  buildOptions = rendererBuildOptions(entry),
+  nodeVersion = process.version,
+  buildOperation = generateRenderer,
+  dev = false,
+  force = false,
+  signal,
+  log = console.log
+} = {}) {
+  return prepareCachedRenderer({
+    rootDirectory,
+    outputDirectory,
+    entry,
+    scriptFiles,
+    buildOptions,
+    nodeVersion,
+    buildOperation,
+    dev,
+    force,
+    signal,
+    log
+  })
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const args = process.argv.slice(2)
+  if (args.some((arg) => !['--dev', '--force'].includes(arg)))
+    throw new Error('Usage: build-mermaid-renderer.mjs [--dev] [--force]')
+  await prepareRenderer({ dev: args.includes('--dev'), force: args.includes('--force') })
+}

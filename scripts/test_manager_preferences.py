@@ -19,6 +19,17 @@ class PreferencesTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.home = Path(self.temporary.name).resolve() / 'AWCenterManager'
 
+    def test_developer_selection_round_trips_only_for_explicit_dev_source(self):
+        base = {'profile': 'dev', 'source_root': '/editable', 'source_selection': 'explicit',
+                'validation_policy': 'developer'}
+        self.preferences.save_preferences(self.home, base)
+        self.assertEqual(self.preferences.load_preferences(self.home)['validation_policy'], 'developer')
+        for changes in ({'profile': 'prod'}, {'source_selection': 'automatic'}, {'source_root': ''},
+                        {'validation_policy': 'unknown'}):
+            with self.subTest(changes=changes):
+                self.preferences.save_preferences(self.home, {**base, **changes})
+                self.assertEqual(self.preferences.load_preferences(self.home).get('validation_policy', 'managed'), 'managed')
+
     def test_restart_restores_inputs_without_credentials_or_migration_consent(self):
         values = {'profile': 'prod', 'source_mode': 'corporate', 'source_root': 'C:/AW/source',
                   'python_command': 'C:/Python 311/python.exe', 'node_command': 'C:/Node 24/node.exe',

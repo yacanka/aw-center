@@ -50,10 +50,11 @@ def prepared_outputs(source, profile):
     return [(hashlib.sha256(path.read_bytes()).digest(), path.stat().st_mtime_ns) for path in outputs]
 
 
-def click_and_stop(source, environment, profile, *, password=None, executable=None, when_ready=None):
+def click_and_stop(source, environment, profile, *, password=None, executable=None, when_ready=None,
+                   validation_policy='managed'):
     """Drive real Tk buttons, private IPC and contained worker; intercept the browser handoff."""
     from scripts.manager.controller import ManagerController
-    evidence = StartupEvidence()
+    evidence = StartupEvidence(validation_policy=validation_policy)
     errors = []
     warm = password is None
 
@@ -62,6 +63,8 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
             super().__init__(*args, **kwargs, browser_opener=evidence.open_browser)
             if self.view.variables['profile'].get() != profile:
                 self.view.variables['profile'].set(profile)
+            self.view.variables['source_selection'].set('explicit')
+            self.view.variables['validation_policy'].set(validation_policy)
             self.view.request_admin = lambda _id, send: send(
                 {'username': 'U12345', 'password': password} if password else None)
             self.view.request_migration = lambda _id, send: send(False)
@@ -129,6 +132,32 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
 
 
 class ContainmentTests(unittest.TestCase):
+    def test_developer_warm_evidence_requires_zero_actual_inventory_counts(self):
+        from scripts.launcher.startup_metrics import startup_work
+        sample = StartupEvidence(validation_policy='developer')
+        sample.observe({'type': 'resources', 'action': 'start'})
+        with startup_work(sample.observe, 'developer'):
+            pass
+        sample.observe({'type': 'ready', 'url': 'http://127.0.0.1/app/'})
+        sample.open_browser('http://127.0.0.1/app/')
+        sample.check(warm=True)
+        self.assertEqual(sample.summary()['validation_policy'], 'developer')
+        self.assertFalse(any(sample.summary()['work_counts'].values()))
+        for operation in sample.summary()['work_counts']:
+            with self.subTest(operation=operation):
+                sample.work_counts[operation] = 1
+                with self.assertRaises(AssertionError):
+                    sample.check(warm=True)
+                sample.work_counts[operation] = 0
+
+    def test_developer_evidence_does_not_invent_zero_counts_without_a_worker_sample(self):
+        sample = StartupEvidence(validation_policy='developer')
+        sample.observe({'type': 'resources', 'action': 'start'})
+        sample.observe({'type': 'ready', 'url': 'http://127.0.0.1/app/'})
+        sample.open_browser('http://127.0.0.1/app/')
+        with self.assertRaises(AssertionError):
+            sample.check(warm=True)
+
     def test_startup_evidence_rejects_warm_preparation_even_after_successful_readiness(self):
         sample = StartupEvidence()
         sample.observe({'type': 'resources', 'action': 'provision', 'source_root': '/private/location'})
@@ -266,10 +295,20 @@ class NativeSourceAcceptance(unittest.TestCase):
             programs = acceptance_programs(None, directory, source, python, node)
             with deny_external_network(host, programs):
                 NativeOfflineAcceptance.assert_runtime_network_denied(self, saved, source, home)
-                warm = click_and_stop(source, environment, 'dev', when_ready=lambda url: LiveAcceptance(
-                    f"http://127.0.0.1:{saved['backend_port']}", frontend_origin=url.removesuffix('/app/')).exercise(password))
-                record_sample(warm, 'source', 'dev', 'automatic', 1)
-                self.assertEqual(prepared_outputs(source, 'dev'), before)
+                for attempt in range(1, 4):
+                    warm = click_and_stop(source, environment, 'dev', when_ready=(lambda url: LiveAcceptance(
+                        f"http://127.0.0.1:{saved['backend_port']}", frontend_origin=url.removesuffix('/app/')).exercise(password))
+                        if attempt == 1 else None)
+                    record_sample(warm, 'source', 'dev', 'automatic', attempt)
+                    self.assertEqual(prepared_outputs(source, 'dev'), before)
+                renderer = source / 'frontend/.cache/mermaid/renderer.js'
+                renderer_before = (hashlib.sha256(renderer.read_bytes()).digest(), renderer.stat().st_mtime_ns)
+                for attempt in range(1, 4):
+                    warm = click_and_stop(source, environment, 'dev', validation_policy='developer')
+                    record_sample(warm, 'source-developer', 'dev', 'automatic', attempt)
+                    self.assertEqual(prepared_outputs(source, 'dev'), before)
+                    self.assertEqual((hashlib.sha256(renderer.read_bytes()).digest(), renderer.stat().st_mtime_ns),
+                                     renderer_before, 'Ready developer startup rebuilt the renderer')
 
 
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE') == '1',
@@ -529,3 +568,15 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                                 with socket.socket() as probe:
                                     probe.settimeout(1)
                                     self.assertNotEqual(probe.connect_ex((bind, port)), 0)
+                        if profile == 'dev':
+                            renderer = actual_source / 'frontend/.cache/mermaid/renderer.js'
+                            renderer_before = (hashlib.sha256(renderer.read_bytes()).digest(), renderer.stat().st_mtime_ns)
+                            for attempt in range(1, 4):
+                                result = click_and_stop(source, self.environment(directory, network=True), profile,
+                                    executable=self.executable, validation_policy='developer')
+                                record_sample(result, 'packaged-developer', profile,
+                                              'system' if system else 'managed', attempt)
+                                self.assertEqual(prepared_outputs(actual_source, profile), before)
+                                self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
+                                self.assertEqual((hashlib.sha256(renderer.read_bytes()).digest(), renderer.stat().st_mtime_ns),
+                                                 renderer_before, 'Ready developer startup rebuilt the renderer')

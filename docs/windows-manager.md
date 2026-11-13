@@ -15,6 +15,41 @@ akışta ele alınır. İlk aktif yönetici yoksa kullanıcı adı ve parola sor
 Hazır ortam yeniden kurulmadan açılır. Pencerenin açılması tek başına kurulum,
 migration veya sunucu başlatmaz.
 
+## Kaynak kod geliştirirken hızlı açılış
+
+Gelişmiş ayarlarda düzenlediğiniz kaynak dizinini seçin ve **Geliştirici modu —
+hızlı kontrol** seçimini açın. Bu seçenek yalnız `dev` profili ve açıkça seçilen
+kaynak için geçerlidir. Ana **AW Center’ı aç**, durdurma ve tarayıcıda açma
+eylemleri aynı kalır. Etkin çalışma biçimi ana durum bilgisinde görünür;
+çalışan ortamın seçimini değiştirmek mevcut durdur/uygula/aç akışını kullanır.
+
+Geliştirici modunda pencere açılışı yalnız profil kayıtlarını okur. Günlük
+başlatmada Python/Node kimliği, bağımlılık lock bilgileri, şema durumu, portlar
+ve gerçek web/worker hazırlığı denetlenir. `.venv`, `node_modules`, runtime ve
+isteğe bağlı araçların bütün dosyaları her açılışta tekrar taranmaz. Kaynak kod
+ve aynı lock altında yerel bağımlılık değişiklikleri geliştirme sırasında
+beklenen davranıştır. Hızlı kontrol tam dosya bütünlüğü kanıtı üretmez.
+
+**Tam doğrula**, geliştirici modu seçiliyken de mevcut kapsamlı runtime ve
+bağımlılık denetimlerini çalıştırır; ayrı kaynak bağlantısı sınaması veya tam
+test paketi çalıştırmaz. İlk kurulum ve bağımlılık güncellemesi mevcut edinim
+ve bütünlük kontrollerini korur. Manager kurulum kaydı olmayan elle hazırlanmış
+bir ortam ilk kullanımda bir defalık hazırlık isteyebilir. Lock değiştiğinde
+ilgili bağımlılık aşaması güncellenir.
+
+Tercih aynı kaynak için hatırlanır; kaynak, profil veya paket bağlamı değişince
+sıfırlanır. Yeni ve eski ayarların varsayılanı yönetilen kullanımdır. Production
+geliştirici modunu kabul etmez. Yönetilen kullanıma dönmek kapsamlı dosya
+kontrollerini yeniden çalıştırır; mevcut hesaplar, anahtarlar ve veritabanı
+değişmez.
+
+Frontend geliştirme başlangıcında Mermaid renderer girdileri aynıysa doğrulanmış
+yerel çıktı yeniden kullanılır. Renderer kaynakları/yerel importları, lock veya
+build araçları değişirse ya da çıktı eksik/bozuksa yeniden derlenir. Lock/sürüm
+bilgisini değiştirmeden doğrudan `node_modules` içeriğini düzenlediyseniz
+`frontend/` içinden `node scripts/build-mermaid-renderer.mjs --dev --force`
+çalıştırın. Production build ve test hazırlığı her zaman renderer'ı derler.
+
 Profil, kaynak, bağlantı, araç ve `.env` alanları **Gelişmiş ayarları göster**
 altındadır; kayıtlı değerler olsa da bu panel başlangıçta kapalıdır. Kaynaklar ve
 Rapor görünümleri isteğe bağlıdır. Ana eylem, gelişmiş değişiklikleri uygular veya

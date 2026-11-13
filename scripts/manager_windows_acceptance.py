@@ -28,7 +28,12 @@ class StartupEvidence:
         'Uygulama ve worker süreçleri başlatılıyor': 'startup',
     }
 
-    def __init__(self):
+    def __init__(self, *, validation_policy='managed'):
+        if validation_policy not in {'managed', 'developer'}:
+            raise ValueError('Invalid evidence validation policy')
+        self.validation_policy = validation_policy
+        self.work_counts = None
+        self.work_received_before_ready = False
         self.begin()
         self.ready_url = None
         self.ready_count = self.prompts = self.browser_calls = 0
@@ -54,6 +59,13 @@ class StartupEvidence:
         kind = event.get('type')
         if kind == 'resources' and event.get('action') in {'start', 'provision'}:
             self.locked_branches.append(event['action'])
+        elif kind == 'startup-work':
+            from scripts.launcher.startup_metrics import STARTUP_WORK
+            counts = event.get('counts')
+            if (event.get('policy') == self.validation_policy and isinstance(counts, dict)
+                    and set(counts) == set(STARTUP_WORK)
+                    and all(type(value) is int and 0 <= value <= 1000000 for value in counts.values())):
+                self.work_counts = dict(counts)
         elif kind == 'phase':
             phase = self._phases.get(event.get('message'))
             if self.phase and phase:
@@ -67,6 +79,7 @@ class StartupEvidence:
         elif kind == 'input':
             self.prompts += 1
         elif kind == 'ready':
+            self.work_received_before_ready = self.work_counts is not None
             self._finish_phase(now)
             self.ready_url = event.get('url')
             self.ready_count += 1
@@ -82,7 +95,8 @@ class StartupEvidence:
         return True
 
     def summary(self):
-        return dict(locked_branches=self.locked_branches, source_attempts=self.source_attempts, phase_ms=self.phase_ms,
+        return dict(validation_policy=self.validation_policy, work_counts=self.work_counts,
+                    locked_branches=self.locked_branches, source_attempts=self.source_attempts, phase_ms=self.phase_ms,
                     prompts=self.prompts, ready_events=self.ready_count, browser_calls=self.browser_calls,
                     browser_after_ready=self.browser_order_ok, click_to_browser_ms=self.browser_ms)
 
@@ -93,6 +107,9 @@ class StartupEvidence:
         assert self.prompts == (0 if warm else 1), self.summary()
         if warm:
             assert not any(self.source_attempts.values()), self.summary()
+            if self.validation_policy == 'developer':
+                assert self.work_received_before_ready and self.work_counts is not None, self.summary()
+                assert not any(self.work_counts.values()), self.summary()
 
 
 @contextmanager

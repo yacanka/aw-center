@@ -151,6 +151,8 @@ class PackageTimeoutError(LauncherError):
 
 
 def _package_inventory(target):
+    from .startup_metrics import count_startup_work
+    count_startup_work('dependency_inventory')
     from .installation_permissions import require_unlinked
     from .offline_manifest import file_sha256
     result = {}
@@ -212,15 +214,29 @@ def _stage_current(target, lock, *, verify=True):
     return saved['lock'] == file_sha256(lock)
 
 
-def dependency_checks(project, *, verify=True, fail_invalid=False):
+def dependency_checks(project, *, verify=True, fail_invalid=False, developer=False):
     rows = []
     for name, target, lock, label in (
             ('python-packages', project.venv, project.requirements, 'Python'),
             ('frontend-packages', project.frontend / 'node_modules', project.frontend / 'package-lock.json', 'Frontend')):
         try:
-            current = _stage_current(target, lock, verify=verify)
+            if developer:
+                from .developer_readiness import stage_current
+                required = ((project.python,) if name == 'python-packages' else
+                            (target / 'vite' / 'bin' / 'vite.js',))
+                try:
+                    current = stage_current(project, name, target, lock, target / _STAGE_RECEIPT,
+                                            required=required)
+                except OperationCancelled:
+                    raise
+                except (OSError, ValueError, LauncherError):
+                    raise DependencyIntegrityError(target) from None
+            else:
+                current = _stage_current(target, lock, verify=verify)
             status = 'ready' if current else 'missing'
             detail = f'{label} bağımlılıkları doğrulandı.' if current else f'{label} bağımlılıkları için kurulum gerekli.'
+            if developer and current:
+                detail = f'{label} bağımlılıkları: geliştirici hızlı kontrolü; tam dosya bütünlüğü doğrulanmadı.'
         except DependencyIntegrityError as error:
             if fail_invalid:
                 raise

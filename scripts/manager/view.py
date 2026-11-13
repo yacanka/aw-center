@@ -13,7 +13,7 @@ from .view_model import DEFAULT_VALUES, FormError, ManagerTaskStates, normalize_
 from .view_theme import apply_control_styles, icon_image
 
 
-_ACTION_LABELS = {"provision": "Kur ve başlat", "start": "Başlat", "doctor": "Durumu denetle",
+_ACTION_LABELS = {"provision": "Kur ve başlat", "start": "Başlat", "doctor": "Tam doğrula",
                   "test-sources": "Kaynakları dene", "bundle": "Çevrimdışı paket hazırla"}
 _TASK_STATUSES = {"running": "Çalışıyor", "ready": "Hazır / çalışıyor", "stopping": "Durduruluyor",
                   "degraded": "Sağlık sorunu",
@@ -121,7 +121,7 @@ class ManagerWindow:
     """
 
     _advanced_fields = frozenset({"profile", "source_root", "host", "backend_port", "tls_cert_file", "tls_key_file",
-                                  "frontend_port", "install_node", "migration_policy",
+                                  "frontend_port", "install_node", "migration_policy", "validation_policy",
                                   "migrate", "install_python", "python_command", "node_command", "env_file"})
 
     def __init__(self, root, on_action: Callable, on_stop: Callable,
@@ -167,6 +167,7 @@ class ManagerWindow:
         self._build()
         self.variables["profile"].trace_add("write", lambda *_: self._profile_changed())
         self.variables['source_root'].trace_add('write', lambda *_: self._source_changed())
+        self.variables['validation_policy'].trace_add('write', lambda *_: self._policy_changed())
         self.variables["source_mode"].trace_add("write", lambda *_: self._update_controls())
         self.variables["install_python"].trace_add("write", lambda *_: self._update_controls())
         self.variables["install_node"].trace_add("write", lambda *_: self._update_controls())
@@ -174,7 +175,7 @@ class ManagerWindow:
         root.bind("<Control-r>", lambda _event: self._retry())
         for number, tab in enumerate((self.run_tab, self.source_tab, self.report_tab), start=1):
             root.bind(f"<Control-Key-{number}>", lambda _event, selected=tab: self.tabs.select(selected))
-        for key in (self._advanced_fields | {'assets', 'feature_catalog'}) - {'profile', 'source_root'}:
+        for key in (self._advanced_fields | {'assets', 'feature_catalog'}) - {'profile', 'source_root', 'validation_policy'}:
             self.variables[key].trace_add('write', lambda *_: self._update_controls())
         self._update_controls()
         self.root.after(1000, self._tick_progress)
@@ -189,7 +190,13 @@ class ManagerWindow:
         self._inspection_job = self.root.after(250, inspect)
 
     def _source_changed(self):
+        self.variables['validation_policy'].set('managed')
         self.variables['source_selection'].set('explicit' if self.variables['source_root'].get().strip() else 'automatic')
+        self._update_controls()
+        self._schedule_inspection()
+
+    def _policy_changed(self):
+        self._update_controls()
         self._schedule_inspection()
 
     def _tick_progress(self):
@@ -538,6 +545,15 @@ class ManagerWindow:
         paths.grid_remove()
 
     def _build_advanced(self, parent):
+        self.validation_selector = ttk.Checkbutton(
+            parent, text='Geliştirici modu — hızlı kontrol (yalnız seçilen dev kaynağı)',
+            variable=self.variables['validation_policy'], onvalue='developer', offvalue='managed',
+            style='Manager.TCheckbutton')
+        self.validation_selector.grid(row=16, column=0, columnspan=3, sticky='w', pady=(8, 0))
+        self._controls.append(self.validation_selector)
+        self._fields['validation_policy'] = self.validation_selector
+        self._field_tabs['validation_policy'] = self.run_tab
+        self._label(parent, 'Günlük açılışta sınırlı metadata kontrolü yapılır. Dosya bütünlüğünü kapsamlı incelemek için Tam doğrula kullanın. Kaynak veya profil değişirse bu seçim sıfırlanır.').grid(row=17, column=0, columnspan=3, sticky='ew', pady=(4, 0))
         self._entry(parent, 0, "frontend_port", "Frontend portu (dev)", tab=self.run_tab)
         self._label(parent, "Yeni prod profili için makineye atanmış sabit IPv4 ve kaynak dizini dışındaki TLS dosyaları gerekir.").grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 12))
         migrate = ttk.Checkbutton(parent, text="Mevcut veritabanının migration işlemlerini uygula",
@@ -576,6 +592,7 @@ class ManagerWindow:
         self._set_advanced(not self.advanced_var.get())
 
     def _profile_changed(self):
+        self.variables['validation_policy'].set('managed')
         self._update_controls()
         self._schedule_inspection()
 
@@ -801,6 +818,7 @@ class ManagerWindow:
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
         profile_state = self._profile_presentation()
         presentation = (self.variables["profile"].get(), self.variables["source_mode"].get(),
+                        self.variables["validation_policy"].get(), self.variables["source_selection"].get(),
                         self.variables['install_python'].get(), selected.get("status"),
                         self.variables['install_node'].get(),
                         bool(self.state.last_action), tuple(profile_state.items()))
@@ -814,6 +832,8 @@ class ManagerWindow:
         profile = self.variables["profile"].get()
         self.profile_badge_var.set("DEV profili" if profile == "dev" else "PROD profili")
         self.tls_frame.grid() if profile == 'prod' else self.tls_frame.grid_remove()
+        self.validation_selector.configure(state='normal' if profile == 'dev' and
+            self.variables['source_selection'].get() == 'explicit' else 'disabled')
         mode = self.variables["source_mode"].get()
         disabled = {"frontend_port"} if profile == "prod" else {"tls_cert_file", "tls_key_file"}
         if self.variables['install_python'].get():
@@ -888,6 +908,14 @@ class ManagerWindow:
             endpoint = urlsplit(current['url'])
             self.summary_title_var.set(f"{name} ortamı çalışıyor")
             self.summary_context_var.set(f"{endpoint.scheme}://{safe_text(endpoint.netloc, limit=120)} · #{safe_text(current['task_id'], limit=8)}")
+
+        policy = self.variables['validation_policy'].get()
+        active = self.task_states.states.get(current['task_id'])
+        active_policy = active.last_values.get('validation_policy', 'managed') if active else policy
+        label = 'Geliştirici modu — hızlı kontrol' if active_policy == 'developer' else 'Yönetilen mod — tam doğrulama'
+        if active_policy != policy:
+            label += ' · Seçim: ' + ('Geliştirici modu' if policy == 'developer' else 'Yönetilen mod')
+        self.summary_context_var.set(' · '.join(filter(None, (label, self.summary_context_var.get()))))
 
     def set_busy(self, busy: bool):
         """Compatibility hook; input controls remain usable during operations."""

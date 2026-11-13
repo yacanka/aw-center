@@ -55,6 +55,20 @@ class ControllerTests(unittest.TestCase):
         self.controller.events.put({**event, 'task_id': task_id})
         self.controller.poll()
 
+    def test_running_task_retains_original_policy_when_form_is_edited(self):
+        values = {'profile': 'dev', 'source_root': '/source', 'source_selection': 'explicit',
+                  'validation_policy': 'developer'}
+        task_id = self.controller.action('start', values)
+        self.assertTrue(self.sessions[-1].started.wait(1))
+        values['validation_policy'] = 'managed'
+        self.assertEqual(self.sessions[-1].request['validation_policy'], 'developer')
+        self.assertEqual(self.controller.tasks[task_id].snapshot()['values']['validation_policy'], 'developer')
+
+    def test_missing_policy_is_explicit_in_worker_snapshot(self):
+        task_id = self.start('start')
+        self.assertEqual(self.sessions[-1].request['validation_policy'], 'managed')
+        self.assertEqual(self.controller.tasks[task_id].snapshot()['values']['validation_policy'], 'managed')
+
     def test_running_app_does_not_block_source_probe_or_doctor(self):
         run_id = self.start('start')
         source_id = self.start('test-sources')

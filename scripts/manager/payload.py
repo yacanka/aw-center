@@ -91,6 +91,8 @@ def _generated(relative: Path) -> bool:
 
 def _source_inventory(source: Path) -> list[dict]:
     """Hash exact source while allowing only declared generated runtime state."""
+    from scripts.launcher.startup_metrics import count_startup_work
+    count_startup_work('source_inventory')
     require_unlinked(source)
     if not source.is_dir():
         raise LauncherError('Manager source directory is unavailable')

@@ -65,6 +65,18 @@ class _PrivateInput:
 
 
 class WorkerTransportTests(unittest.TestCase):
+    def test_startup_work_counts_cross_the_real_private_pipe(self):
+        from scripts.launcher.startup_metrics import STARTUP_WORK
+        event = {'type': 'startup-work', 'policy': 'developer', 'counts': dict.fromkeys(STARTUP_WORK, 0)}
+        program = ('import json,sys\n'
+                   'sys.stdin.buffer.readline(); sys.stdin.buffer.readline()\n'
+                   f'print({json.dumps(event)!r}, flush=True)\n'
+                   'print(\'{"type":"done","ok":true}\', flush=True)\n')
+        events = []
+        with patch.object(transport.subprocess, 'Popen', side_effect=self._spawn_worker(program=program)):
+            transport.WorkerSession(events.append).run({'action': 'ensure', 'validation_policy': 'developer'})
+        self.assertEqual(events, [event, {'type': 'done', 'ok': True}])
+
     def setUp(self):
         self.children = []
         self.threads = []

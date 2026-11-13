@@ -99,6 +99,10 @@ def _optional_changes(profile, args):
 
 def needs_preparation(project, args, *, before_lock=False):
     """Read-only decision; an error is not permission to repair unknown state."""
+    from scripts.launcher.validation_policy import require_validation_policy
+    policy = require_validation_policy(getattr(args, 'validation_policy', 'managed'),
+                                       profile=args.profile, source_selection=args.source_selection)
+    developer = policy == 'developer'
     path = _profile_path(args)
     for candidate in (path, path.with_name(args.profile + '.pending.json')):
         require_unlinked(candidate)
@@ -114,16 +118,19 @@ def needs_preparation(project, args, *, before_lock=False):
         return True
     from scripts.launcher.installation import _core_checks, _runtime_options
     from scripts.launcher.toolchain import inspect_toolchain
-    checks = [] if before_lock else inspect_toolchain(profiles.installation_home(), **_runtime_options(profile))
+    options = {'verify': False} if developer else {}
+    checks = [] if before_lock else inspect_toolchain(profiles.installation_home(), **_runtime_options(profile), **options)
     if any(row['status'] == 'invalid' for row in checks):
         raise LauncherError('Runtime bütünlüğü doğrulanamadı; kurulum otomatik değiştirilmedi.')
     if any(row['status'] != 'ready' for row in checks):
         return True
     if not before_lock:
-        args.progress('Kurulu Python ve frontend bağımlılıklarının dosyaları doğrulanıyor')
+        args.progress('Geliştirici modu — bağımlılık kayıtları ve güncel şema denetleniyor' if developer else
+                      'Kurulu Python ve frontend bağımlılıklarının dosyaları doğrulanıyor')
     state = {}
+    options = {'validation_policy': 'developer'} if developer else {}
     checks.extend(_core_checks(project, profile, before_lock=before_lock, observed_backend=state,
-                               fail_invalid=True, managed_build=True))
+                               fail_invalid=True, managed_build=True, **options))
     if state.get('schema') in {'ready', 'pending'} and state.get('auto_migrate_safe') is False:
         raise LauncherError('Veritabanı migration geçmişi otomatik hazırlık için doğrulanamadı.')
     return any(row['status'] not in {'ready', 'available'} for row in checks)
@@ -212,7 +219,8 @@ def claimed(project, action, args, emit):
     required = 'provision' if needs_preparation(project, args) else 'start'
     if action != required:
         raise Replan(required)
-    emit({'type': 'resources', 'action': action, 'source_root': str(project.root)})
+    emit({'type': 'resources', 'action': action, 'source_root': str(project.root),
+          'validation_policy': getattr(args, 'validation_policy', 'managed')})
     if action == 'provision':
         updated = prepare_connection(project, args)
         if updated and not needs_preparation(project, args):

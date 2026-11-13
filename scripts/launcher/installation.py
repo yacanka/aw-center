@@ -26,6 +26,7 @@ from .installation_state import (installation_lock, load_sources, private_direct
 from .model import LauncherError, Project, Scope
 from .process import controlled_run, environment, non_notification_environment
 from .toolchain import ensure_toolchain, inspect_toolchain
+from .validation_policy import require_validation_policy
 
 
 def require_windows() -> None:
@@ -81,15 +82,17 @@ def backend_inspection(project: Project, profile: dict) -> dict:
 
 
 def _core_checks(project: Project, profile: dict, *, observed_backend=None, before_lock=False,
-                 fail_invalid=False, managed_build=False) -> list[dict]:
-    """Record one Django snapshot only after verifying the Python it would run."""
+                 fail_invalid=False, managed_build=False, validation_policy='managed') -> list[dict]:
+    """Record one Django snapshot after the policy's package readiness checks."""
+    developer = require_validation_policy(validation_policy, profile=profile['name']) == 'developer'
     checks = inspect_profile(project, profile)
     for check in checks:
         if check["status"] not in {"ready", "available"}:
             check["status"] = "blocked"
     if any(check["status"] == "blocked" for check in checks):
         return checks
-    packages = dependency_checks(project, verify=not before_lock, fail_invalid=fail_invalid)
+    options = {'developer': True} if developer else {}
+    packages = dependency_checks(project, verify=not before_lock, fail_invalid=fail_invalid, **options)
     checks.extend(packages)
     if before_lock or packages[0]['status'] != 'ready':
         return checks
@@ -397,7 +400,9 @@ def _worker_ready(project: Project, directory: Path) -> bool:
         return False
 
 
-def start_profile(project: Project, name: str, *, on_ready=None, on_health=None) -> None:
+def start_profile(project: Project, name: str, *, on_ready=None, on_health=None,
+                  validation_policy='managed') -> None:
+    require_validation_policy(validation_policy, profile=name)
     require_windows()
     from .resource_locks import lifecycle_locks
     profile = load_profile(project, name)
@@ -406,25 +411,29 @@ def start_profile(project: Project, name: str, *, on_ready=None, on_health=None)
     require_local_ntfs(project.root)
     require_local_ntfs(home)
     with lifecycle_locks(home, project, name):
-        _start_profile(project, name, on_ready=on_ready, on_health=on_health)
+        options = {'validation_policy': validation_policy} if validation_policy != 'managed' else {}
+        _start_profile(project, name, on_ready=on_ready, on_health=on_health, **options)
 
 
-def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None) -> None:
+def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None,
+                   validation_policy='managed') -> None:
+    developer = require_validation_policy(validation_policy, profile=name) == 'developer'
     require_windows()
     profile = load_profile(project, name)
     home = Path(profile.get("installation_home", Path(profile["env_file"]).parent.parent))
     def progress(message):
         if on_health is not None:
             on_health({'type': 'phase', 'message': message})
-    progress('Başlatma: Python ve Node bütünlüğü doğrulanıyor')
+    progress('Başlatma: geliştirici hızlı runtime kontrolü' if developer else 'Başlatma: Python ve Node bütünlüğü doğrulanıyor')
     from .toolchain import toolchain_environment
     from .installation_features import feature_environment
-    tools = toolchain_environment(home, **_runtime_options(profile))
+    options = {'verify': False} if developer else {}
+    tools = toolchain_environment(home, **_runtime_options(profile), **options)
     progress('Başlatma: profil ve ek araç ayarları okunuyor')
     with process_environment(tools):
         selected = profile_environment(profile)
         pointers = {key: selected[key] for key in ("AWCENTER_ENV_FILE", "DJANGO_SETTINGS_MODULE") if key in selected}
-        values = {**tools, **pointers, **feature_environment(project, profile)}
+        values = {**tools, **pointers, **feature_environment(project, profile, **options)}
     with process_environment(values), runtime_session(profile) as directory:
         if name == "dev":
             # runtime.prod performs this check with its validated production environment.

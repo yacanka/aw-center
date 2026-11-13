@@ -7,13 +7,45 @@ from scripts.launcher.installation_permissions import require_unlinked
 from scripts.launcher.toolchain import inspect_toolchain
 
 
+def _metadata_inspection(args, home, path, emit):
+    """Bounded metadata observation; startup performs its own fresh checks."""
+    from scripts.launcher.model import LauncherError
+    # load_profile also checks the other profile's state separation. Bound every
+    # file it may read before entering that shared, strict validation routine.
+    for name in ('dev', 'prod'):
+        for suffix in ('.profile.json', '.env', '.pending.json'):
+            candidate = home / 'config' / (name + suffix)
+            require_unlinked(candidate)
+            if candidate.exists() and (not candidate.is_file() or candidate.stat().st_size > 64 * 1024):
+                raise LauncherError('Profil metadata boyutu veya dosya türü doğrulanamadı.')
+    pending = path.with_name(args.profile + '.pending.json')
+    if not path.exists():
+        env = path.with_name(args.profile + '.env')
+        status = 'incomplete' if pending.exists() else 'blocked' if env.exists() else 'not_installed'
+        tools = ''
+    else:
+        from .operations import _project_for
+        profile = load_profile(_project_for('inspect', args), args.profile, home)
+        status = 'incomplete' if pending.exists() else 'stopped'
+        tools = ' · '.join(f"{label}: {'sistem kurulumu' if profile.get(field) else 'yönetilen kurulum'}"
+                          for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))
+    emit({'type': 'profile', 'profile': args.profile, 'status': status, 'tools': tools,
+          'validation_policy': 'developer', 'checks': [],
+          'detail': 'Geliştirici modu — hızlı kontrol. Yalnız profil kayıtları okundu; bağımlılıklar ve şema açılışta denetlenir.'})
+
+
 def inspect_profile(args, emit):
+    from scripts.launcher.validation_policy import require_validation_policy
+    policy = require_validation_policy(getattr(args, 'validation_policy', 'managed'),
+                                       profile=args.profile, source_selection=args.source_selection)
     require_windows()
     home = installation_home()
+    path = home / 'config' / (args.profile + '.profile.json')
+    if policy == 'developer':
+        return _metadata_inspection(args, home, path, emit)
     if getattr(args, 'source_selection', None) == 'automatic':
         from .ensure import resolve_source
         resolve_source(args, home)
-    path = home / 'config' / (args.profile + '.profile.json')
     require_unlinked(path)
     if not path.exists():
         pending = path.with_name(args.profile + '.pending.json')

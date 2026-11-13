@@ -57,12 +57,20 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
                                           repository=repository if mode == 'corporate' and repository.startswith('https://') else '')
                             if mode != 'corporate':
                                 values.update(python_index_url='', npm_registry_url='')
+                    if previous != context:
+                        values['validation_policy'] = 'managed'
                     values.update(_media_context=context, _contexts=history)
         except (OSError, ValueError, AttributeError):
             pass  # No claim of verified readiness until worker inspection.
     if explicit_root is not None:
+        if str(explicit_root) != values.get('source_root'):
+            values['validation_policy'] = 'managed'
         values['source_root'] = str(explicit_root)
         values['source_selection'] = 'explicit'
+    if (values.get('validation_policy', 'managed') not in ('managed', 'developer') or
+            (values.get('validation_policy') == 'developer' and (values.get('profile', 'dev') != 'dev' or
+             values.get('source_selection') != 'explicit' or not values.get('source_root')))):
+        values['validation_policy'] = 'managed'
     return values
 
 
