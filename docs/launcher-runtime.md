@@ -74,6 +74,21 @@ frontend ile session-cookie kullanan API'nin hostlarını hizalar.
 
 `check` backend için Django system check, isolated in-memory migration drift/plan; frontend için format ve typecheck çalıştırır. `test` full Django, launcher/release metadata unittest'leri ve frontend `test:ci` çalıştırır.
 
+Manager'daki **Geliştirici modu — hızlı kontrol**, `dev`/`prod` profilinden ayrı,
+açıkça seçilen kaynak dizinine bağlı bir doğrulama tercihidir. Yalnız dev
+başlatmasında tam kurulu dosya envanterleri yerine sınırlı araç/lock kontrolü
+kullanır. Profil/state ayrılığı, süreç kilitleri, `migrate --check` ve gerçek
+HTTP/worker hazırlığı korunur. İlk hazırlık, indirme/kurulum, **Tam doğrula**
+(`doctor`) ve production kapsamlı kontrollerini sürdürür. Bu tercih genel bir
+CLI kontrol-atlama bayrağı değildir. Ayrıntılar [Windows Manager](windows-manager.md)
+rehberindedir.
+
+`npm --prefix frontend run predev` Mermaid renderer için geliştirme önbelleğini
+kullanır. Yeniden kullanım yalnız girdi kimliği ve çıktı özeti eşleştiğinde
+yapılır; `prebuild` ve `pretest:unit` her zaman derler. Zorla yeniden oluşturmak
+için `frontend/` içinde `node scripts/build-mermaid-renderer.mjs --dev --force`
+çalıştırın.
+
 Playwright browser cache'i launcher tarafından örtülü kurulmaz. İlk kullanımda `frontend/` içinde `npx playwright install chromium`, ardından repository kökünde `npm --prefix frontend run test:e2e` çalıştırın; release gate bu browser smoke'u ayrıca ister.
 
 Her komutun parametreleri için:
