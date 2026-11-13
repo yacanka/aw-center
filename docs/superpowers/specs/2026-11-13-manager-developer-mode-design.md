@@ -2,7 +2,7 @@
 
 Tarih: 13.11.2026
 
-Durum: İnceleme taslağı. Kullanıcı Manager içindeki geliştirici akışını seçti; aşağıdaki teknik sınırlar bu tercihi somutlaştıran önerilerdir. Bu çalışma uygulama kodunu değiştirmez.
+Durum: Kullanıcı tarafından uygulama için onaylandı; uygulama ve doğrulama kaydı ilgili plandadır. Gerçek Windows kabulü ve toplam açılış süresi ölçümü Linux ortamında çalıştırılmadı.
 
 ## Amaç ve kapsam
 
