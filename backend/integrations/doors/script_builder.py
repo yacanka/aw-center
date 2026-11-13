@@ -3,6 +3,8 @@
 from .escape import dxl_quote
 
 
+# DXL if/else is overloaded by branch type. Statement blocks keep typed
+# assignments (especially Date versus string) out of expression overloads.
 HELPERS = r'''
 void awc_stop(string message) {
     print "ERROR: " message "\nChanges have not been saved automatically. Review the module before saving.\n"
@@ -14,41 +16,59 @@ void awc_warn(int excelRow, string message) {
 }
 
 void awc_require_attribute(Module source, string attributeName) {
-    if (attributeName == "Object Number") return
+    if (attributeName == "Object Number") {
+        return
+    }
     noError
     AttrDef definition = find(source, attributeName)
     string awc_definition_error = lastError
     if (!null awc_definition_error || null definition) {
         awc_stop("Attribute not found: " attributeName)
     }
-    if (!definition.object) awc_stop("Not an object attribute: " attributeName)
+    if (!definition.object) {
+        awc_stop("Not an object attribute: " attributeName)
+    }
 }
 
 bool awc_is_date(Module source, string attributeName) {
-    if (attributeName == "Object Number") return false
+    if (attributeName == "Object Number") {
+        return false
+    }
     noError
     AttrDef definition = find(source, attributeName)
     AttrType attributeType = definition.type
     bool result = false
-    if (!null attributeType) result = attributeType.type == attrDate
+    if (!null attributeType) {
+        result = attributeType.type == attrDate
+    }
     string typeError = lastError
-    if (!null typeError) awc_stop("Cannot read attribute type: " attributeName)
+    if (!null typeError) {
+        awc_stop("Cannot read attribute type: " attributeName)
+    }
     return result
 }
 
 Date awc_parse_date(string canonical, string context) {
-    if (canonical == "") awc_stop(context ": Invalid date; use dd.MM.yyyy or yyyy-MM-dd")
+    if (canonical == "") {
+        awc_stop(context ": Invalid date; use dd.MM.yyyy or yyyy-MM-dd")
+    }
     noError
     Date parsed = date(canonical, "yyyy-MM-dd")
     string parseError = lastError
-    if (!null parseError || null parsed) awc_stop(context ": Date conversion failed")
-    if (stringOf(parsed, "yyyy-MM-dd") != canonical) awc_stop(context ": Invalid calendar date")
+    if (!null parseError || null parsed) {
+        awc_stop(context ": Date conversion failed")
+    }
+    if (stringOf(parsed, "yyyy-MM-dd") != canonical) {
+        awc_stop(context ": Invalid calendar date")
+    }
     return parsed
 }
 
 // Validate all date inputs before any row can modify the module.
 void awc_validate_value(Module source, string attributeName, string value, string canonical, int excelRow) {
-    if (value == "" || !awc_is_date(source, attributeName)) return
+    if (value == "" || !awc_is_date(source, attributeName)) {
+        return
+    }
     string context = "Excel row " excelRow " attribute " attributeName
     Date parsed = awc_parse_date(canonical, context)
     noError
@@ -67,8 +87,12 @@ void awc_validate_value(Module source, string attributeName, string value, strin
         aboveMaximum = parsed > maximum
     }
     string rangeError = lastError
-    if (!null rangeError) awc_stop(context ": Cannot read date range")
-    if (belowMinimum || aboveMaximum) awc_stop(context ": Date is outside the attribute's allowed range")
+    if (!null rangeError) {
+        awc_stop(context ": Cannot read date range")
+    }
+    if (belowMinimum || aboveMaximum) {
+        awc_stop(context ": Date is outside the attribute's allowed range")
+    }
 }
 
 // Every read failure stops processing: it must never be treated as no match.
@@ -78,13 +102,19 @@ bool awc_attribute_matches(Object candidate, string attributeName, string expect
         noError
         bool readable = canRead(candidate)
         string accessError = lastError
-        if (!null accessError || !readable) awc_stop("Cannot read Object Number")
+        if (!null accessError || !readable) {
+            awc_stop("Cannot read Object Number")
+        }
         noError
         actual = number(candidate)
         string numberError = lastError
-        if (!null numberError) awc_stop("Cannot read Object Number")
+        if (!null numberError) {
+            awc_stop("Cannot read Object Number")
+        }
         int offset, length
-        if (contains) return findPlainText(actual, expected, offset, length, true)
+        if (contains) {
+            return findPlainText(actual, expected, offset, length, true)
+        }
         return actual == expected
     }
     noError
@@ -96,19 +126,27 @@ bool awc_attribute_matches(Object candidate, string attributeName, string expect
     noError
     actual = candidate.attributeName ""
     string awc_read_error = lastError
-    if (!null awc_read_error) awc_stop("Cannot read Unique Attribute: " attributeName)
+    if (!null awc_read_error) {
+        awc_stop("Cannot read Unique Attribute: " attributeName)
+    }
     if (awc_is_date(module(candidate), attributeName)) {
         if (actual != "") {
             noError
             Date actualDate = candidate.attributeName
             string dateError = lastError
-            if (!null dateError || null actualDate) awc_stop("Cannot read date attribute: " attributeName)
+            if (!null dateError || null actualDate) {
+                awc_stop("Cannot read date attribute: " attributeName)
+            }
             actual = stringOf(actualDate, "yyyy-MM-dd")
         }
-        if (!contains || canonical != "") expected = canonical
+        if (!contains || canonical != "") {
+            expected = canonical
+        }
     }
     int offset, length
-    if (contains) return findPlainText(actual, expected, offset, length, true)
+    if (contains) {
+        return findPlainText(actual, expected, offset, length, true)
+    }
     return actual == expected
 }
 
@@ -138,10 +176,15 @@ bool SetObjectAttribute(Object target, string attributeName, string value, strin
     }
     bool isDate = awc_is_date(module(target), attributeName)
     Date parsed = null
-    if (isDate && value != "") parsed = awc_parse_date(canonical, attributeName)
+    if (isDate && value != "") {
+        parsed = awc_parse_date(canonical, attributeName)
+    }
     noError
-    if (isDate && value != "") target.attributeName = parsed
-    else target.attributeName = value
+    if (isDate && value != "") {
+        target.attributeName = parsed
+    } else {
+        target.attributeName = value
+    }
     string awc_write_error = lastError
     if (!null awc_write_error) {
         print "WARNING: Attribute write failed: " attributeName "\n"
@@ -157,15 +200,24 @@ Object awc_append_object(Module source) {
     Object awc_tail = null
     Object awc_candidate
     for awc_candidate in entire(source) do {
-        if (isDeleted(awc_candidate)) continue
-        if (level(awc_candidate) == 1) awc_tail = awc_candidate
+        if (isDeleted(awc_candidate)) {
+            continue
+        }
+        if (level(awc_candidate) == 1) {
+            awc_tail = awc_candidate
+        }
     }
     noError
     Object o = null
-    if (null awc_tail) o = create(source)
-    else o = create after awc_tail
+    if (null awc_tail) {
+        o = create(source)
+    } else {
+        o = create after awc_tail
+    }
     string awc_create_error = lastError
-    if (!null awc_create_error || null o) awc_stop("Object creation failed")
+    if (!null awc_create_error || null o) {
+        awc_stop("Object creation failed")
+    }
     return o
 }
 '''.strip()
@@ -202,8 +254,12 @@ def build_script(mappings, rows, excel_row_numbers, mode, date_rows):
 {HELPERS}
 
 Module refModule = current
-if (null refModule) awc_stop("Module not found")
-if (!isEdit(refModule)) awc_stop("Open the module for edit before running this script")
+if (null refModule) {{
+    awc_stop("Module not found")
+}}
+if (!isEdit(refModule)) {{
+    awc_stop("Open the module for edit before running this script")
+}}
 {preflight}
 
 {build_arrays(mappings, rows, date_rows)}
@@ -211,7 +267,9 @@ int awc_excel_rows[] = {{{row_numbers}}}
 
 int awc_row
 for (awc_row = 0; awc_row < {len(rows)}; awc_row++) {{
-    if ({validation_empty_keys}) continue
+    if ({validation_empty_keys}) {{
+        continue
+    }}
 {validations}
 }}
 
@@ -269,15 +327,23 @@ def build_operation(assignments, mode):
     if mode == "update":
         return f'''    bool awc_found = false
     for o in entire(refModule) do {{
-        if (isDeleted(o)) continue
-        if (!awc_matches(o, i)) continue
+        if (isDeleted(o)) {{
+            continue
+        }}
+        if (!awc_matches(o, i)) {{
+            continue
+        }}
         awc_found = true
 {assignments}
     }}
-    if (!awc_found) awc_warn(awc_excel_rows[i], "Object not found; row skipped")'''
+    if (!awc_found) {{
+        awc_warn(awc_excel_rows[i], "Object not found; row skipped")
+    }}'''
     return f'''    bool awc_found = false
     for o in entire(refModule) do {{
-        if (isDeleted(o)) continue
+        if (isDeleted(o)) {{
+            continue
+        }}
         if (awc_matches(o, i)) {{
             awc_found = true
             break

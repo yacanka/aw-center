@@ -1,5 +1,6 @@
 """Contract tests for standalone Excel-to-DXL generation (no DOORS runtime)."""
 
+import re
 from datetime import date, datetime
 from io import BytesIO
 
@@ -45,7 +46,7 @@ class DoorsScriptGenerationTests(SimpleTestCase):
     def test_update_visits_all_matches_and_keeps_keys_read_only(self):
         script = self.generate()["script"]
         self.assertIn("for o in entire(refModule) do", script)
-        self.assertIn("if (!awc_matches(o, i)) continue", script)
+        self.assertRegex(script, r"if \(!awc_matches\(o, i\)\)\s*\{\s*continue\s*\}")
         self.assertNotIn("break", script)
         self.assertIn('SetObjectAttribute(o, "Object Text", awc_arr_3[i], awc_dates_3[i])', script)
         self.assertNotIn('SetObjectAttribute(o, "Identifier",', script)
@@ -60,9 +61,9 @@ class DoorsScriptGenerationTests(SimpleTestCase):
             operation.index("if (awc_found)"),
             operation.index("o = awc_append_object(refModule)"),
         )
-        self.assertIn("if (null awc_tail) o = create(source)", script)
-        self.assertIn("else o = create after awc_tail", script)
-        self.assertIn("if (level(awc_candidate) == 1) awc_tail = awc_candidate", script)
+        self.assertRegex(script, r"if \(null awc_tail\)\s*\{\s*o = create\(source\)\s*\}")
+        self.assertRegex(script, r"else\s*\{\s*o = create after awc_tail\s*\}")
+        self.assertRegex(script, r"if \(level\(awc_candidate\) == 1\)\s*\{\s*awc_tail = awc_candidate\s*\}")
         self.assertIn('SetObjectAttribute(o, "Identifier", awc_arr_1[i], awc_dates_1[i])', script)
         self.assertIn('SetObjectAttribute(o, "Group", awc_arr_2[i], awc_dates_2[i])', script)
         self.assertIn('SetObjectAttribute(o, "Object Text", awc_arr_3[i], awc_dates_3[i])', script)
@@ -95,6 +96,39 @@ class DoorsScriptGenerationTests(SimpleTestCase):
         self.assertIn("Changes have not been saved automatically", script)
         self.assertNotIn("#include", script)
         self.assertNotIn("save(", script)
+
+    def test_conditionals_use_statement_blocks_to_avoid_dxl_if_type_overloads(self):
+        """Date/string assignments must not become typed if/else expressions."""
+
+        for mode in ("update", "create"):
+            with self.subTest(mode=mode):
+                script = self.generate(mode, rows=[
+                    ["REQ-1", "A", "16.10.2026"],
+                    ["REQ-2", "B", None],
+                    ["if", "else", '"if (true) {\\\nelse"'],
+                ])["script"]
+                # Inspect emitted control flow, ignoring workbook literals and comments.
+                code = re.sub(
+                    r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"',
+                    '""', script, flags=re.DOTALL,
+                )
+                tokens = re.findall(r"[A-Za-z_]\w*|[^\s]", code)
+                for index, token in enumerate(tokens):
+                    if token not in {"if", "else"}:
+                        continue
+                    body = index + 1
+                    if token == "if":
+                        self.assertEqual(tokens[body], "(")
+                        depth = 1
+                        body += 1
+                        while depth and body < len(tokens):
+                            depth += (tokens[body] == "(") - (tokens[body] == ")")
+                            body += 1
+                        self.assertEqual(depth, 0, "Unbalanced DXL if condition")
+                    self.assertEqual(
+                        tokens[body], "{",
+                        f"DXL {token} body must be a statement block: {tokens[index:body + 5]}",
+                    )
 
     def test_preflight_validates_each_attribute_before_the_row_loop(self):
         script = self.generate()["script"]

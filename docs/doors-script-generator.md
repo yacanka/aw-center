@@ -120,6 +120,13 @@ DXL navigation, object creation ve attribute erişimi için kaynak:
 Yerel contract testleri DXL metnini doğrular; gerçek DXL derleme ve çalışma
 doğrulaması Windows + IBM DOORS üzerinde yapılmalıdır.
 
+Üretilen bütün `if/else` gövdeleri süslü parantezli statement bloklarıdır.
+DXL'de bloksuz koşullu atamalar, dallar farklı türler döndürdüğünde
+`incorrect arguments for (if)` hatasına yol açabilir; özellikle `Date` ve
+`string` attribute atamaları ayrı bloklarda tutulur. Regresyon testi update ve
+create çıktılarındaki bütün koşulları, string literal ve yorumları ayırarak
+bu kurala göre denetler. Bu kontrol tam bir DXL derleyicisi değildir.
+
 Windows kabul kontrolünde disposable formal modülde üç sistem alanının keşfini,
 Object Number ile aramayı, karma Exact/Contains anahtarlarını ve create
 mükerrerliğini kontrol edin. Yazılabilir Date alanına gerçek Excel tarihi,
@@ -127,3 +134,6 @@ TR/ISO metin, artık yıl ve boş hücre yazın; `29.02.2025` gibi geçersiz bir
 tarihin herhangi bir değişiklik yapılmadan satır/alan bilgisiyle durduğunu
 doğrulayın. Farklı DOORS locale ayarlarında günün aynı kaldığını ve scriptin
 otomatik kaydetmediğini kontrol edin.
+Hem update hem create çıktısını Date ve metin alanları birlikte eşleştirilmişken
+çalıştırın; dolu tarih, boş tarih ve metin yazma dallarının derlendiğini ve
+beklenen değeri yazdığını doğrulayın.
