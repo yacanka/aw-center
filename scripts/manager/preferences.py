@@ -125,7 +125,13 @@ def _safe_values(values: dict) -> dict:
             continue
         if key == 'source_selection' and value not in {'automatic', 'explicit'}:
             continue
+        if key == 'validation_policy' and value not in {'managed', 'developer'}:
+            continue
         result[key] = value
+    if result.get('validation_policy') == 'developer' and (
+            result.get('profile', 'dev') != 'dev' or result.get('source_selection') != 'explicit' or
+            not result.get('source_root')):
+        result['validation_policy'] = 'managed'
     return result
 
 

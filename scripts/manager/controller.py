@@ -90,6 +90,7 @@ class ManagerController:
             return None
         snapshot = {key: value for key, value in values.items() if key in DEFAULT_VALUES}
         snapshot.setdefault('profile', 'dev')
+        snapshot.setdefault('validation_policy', 'managed')
         # The UI compares the submitted controls; leases and workers use resolved paths.
         form_values = dict(snapshot) if action in {'ensure', 'start', 'provision'} else None
         snapshot['source_root'] = snapshot.get('source_root') or self.source_root

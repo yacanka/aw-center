@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import os
 
 
-ACTION_LABELS = {'ensure': 'AW Center’ı aç', 'provision': 'Kur ve başlat', 'start': 'Başlat', 'doctor': 'Kontrol et',
+ACTION_LABELS = {'ensure': 'AW Center’ı aç', 'provision': 'Kur ve başlat', 'start': 'Başlat', 'doctor': 'Tam doğrula',
                  'test-sources': 'Kaynak testi', 'bundle': 'Offline paket hazırla', 'inspect': 'Ortam denetimi'}
 
 

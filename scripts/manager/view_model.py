@@ -7,6 +7,9 @@ import re
 import time
 from urllib.parse import urlsplit, urlunsplit
 
+from scripts.launcher.model import LauncherError
+from scripts.launcher.validation_policy import require_validation_policy
+
 
 DEFAULT_VALUES = {
     "profile": "dev", "source_root": "", "source_mode": "restricted",
@@ -18,6 +21,7 @@ DEFAULT_VALUES = {
     "bundle_host_python": False, "bundle_host_node": False, "bundle_import": "",
     "output": "", "env_file": "", "manager_distribution": "",
     "source_selection": "automatic", "migration_policy": "automatic",
+    "validation_policy": "managed",
 }
 SOURCE_ACTIONS = {"provision", "ensure", "test-sources", "bundle"}
 CHECK_LABELS = {
@@ -99,6 +103,11 @@ def normalize_values(action: str, values: dict) -> dict[str, str | bool]:
         raise FormError('migration_policy', 'Geçerli bir migration politikası seçin.')
     if result['source_selection'] not in {'automatic', 'explicit'}:
         raise FormError('source_root', 'Geçerli bir kaynak seçimi kullanın.')
+    try:
+        result["validation_policy"] = require_validation_policy(
+            result["validation_policy"], profile=result["profile"], source_selection=result["source_selection"])
+    except LauncherError as error:
+        raise FormError(error.field, str(error)) from None
     if result["source_mode"] == "offline":
         for field in ("repository", "python_index_url", "npm_registry_url"):
             result[field] = ""
@@ -204,7 +213,7 @@ class ManagerState:
         self.error_message = self.error_remedy = self.error_code = self.ready_url = ""
         self.checks = []
         self.status = "İşlem başlatılıyor."
-        self._append(f"İşlem: {action}; profil: {self.last_values['profile']}; kaynak: {self.last_values['source_mode']}")
+        self._append(f"İşlem: {action}; profil: {self.last_values['profile']}; kaynak: {self.last_values['source_mode']}; doğrulama: {self.last_values['validation_policy']}")
 
     def _append(self, message: str) -> None:
         if message:
@@ -311,7 +320,7 @@ class ManagerTaskStates:
         status = snapshot.get('status', 'inspecting')
         actions = {'inspecting': ('ensure', 'AW Center’ı aç'), 'not_installed': ('ensure', 'AW Center’ı aç'),
                    'stopped': ('ensure', 'AW Center’ı aç'),
-                   'incomplete': ('ensure', 'Tamamla ve aç'), 'blocked': ('doctor', 'Eksikleri göster')}
+                   'incomplete': ('ensure', 'Tamamla ve aç'), 'blocked': ('doctor', 'Tam doğrula')}
         action, label = actions.get(status, (None, 'Denetleniyor…'))
         return {'status': status, 'action': action, 'label': label, 'task_id': None, 'url': '',
                 'detail': snapshot.get('detail', ''), 'tools': snapshot.get('tools', '')}
