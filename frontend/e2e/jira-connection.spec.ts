@@ -131,13 +131,45 @@ for (const theme of ['light', 'dark']) {
       await expect(account).toBeVisible()
       await page.getByRole('button', { name: 'Disconnect from JIRA' }).click()
       await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible()
-      await patTab.click()
+      await expect(patTab).toHaveAttribute('aria-selected', 'true')
       await expect(
         page.getByLabel('Personal Access Token', { exact: true }).and(page.locator('input'))
       ).toHaveValue('')
     })
   }
 }
+
+test('remembers the last connection tab across reloads and visits without retaining credentials', async ({
+  page
+}) => {
+  await shell(page)
+  await page.route('**/api/integrations/jira/session/', (route) =>
+    route.fulfill({ json: { state: 'disconnected', user: null, expires_at: null } })
+  )
+  await page.goto('/app/jira')
+  const sessionTab = page.getByRole('tab', { name: 'Session ID', exact: true })
+  const patTab = page.getByRole('tab', { name: 'Personal Access Token', exact: true })
+  await expect(sessionTab).toHaveAttribute('aria-selected', 'true')
+  await patTab.click()
+  const token = page.getByLabel('Personal Access Token', { exact: true }).and(page.locator('input'))
+  await token.fill('unsaved-token')
+  await page.reload()
+  await expect(patTab).toHaveAttribute('aria-selected', 'true')
+  await expect(token).toHaveValue('')
+  await page.goto('/app/')
+  await page.goto('/app/jira')
+  await expect(patTab).toHaveAttribute('aria-selected', 'true')
+  await patTab.press('Home')
+  await expect(sessionTab).toHaveAttribute('aria-selected', 'true')
+  const session = page.getByLabel('Session ID', { exact: true }).and(page.locator('input'))
+  await session.fill('unsaved-session')
+  await page.reload()
+  await expect(sessionTab).toHaveAttribute('aria-selected', 'true')
+  await expect(session).toHaveValue('')
+  const storage = await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))
+  expect(storage).not.toContain('unsaved-token')
+  expect(storage).not.toContain('unsaved-session')
+})
 
 test('Session ID login displays its real account and failed PAT attempts clear the field', async ({
   page

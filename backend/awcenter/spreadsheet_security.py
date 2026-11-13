@@ -15,23 +15,35 @@ class SpreadsheetLimitError(ValueError):
         self.limit_kind = limit_kind
 
 
-def validate_worksheet_bounds(workbook, *, max_columns, max_rows=None,
-                              max_characters=None, max_cells=None, header_rows=1):
-    """Validate the first sheet before pandas allocates a rectangular frame.
+def validate_worksheet_bounds(workbook, *, max_columns, max_rows=None, sheet_name=0,
+                              max_characters=None, max_cells=None, header_rows=1, scan_rows=None):
+    """Validate the selected sheet before pandas allocates a rectangular frame.
 
     ``workbook`` is an open pandas ExcelFile. OOXML dimension hints cannot be
     trusted: pandas resets them, so actual cell coordinates must be checked.
     The helper never materializes worksheet rows and leaves resource ownership
     with the caller. Row limits include headers; cell limits exclude them.
+    ``scan_rows`` restricts header discovery checks to the first physical rows;
+    callers must validate the selected sheet fully before reading its data.
     """
 
     if workbook.engine == "xlrd":
-        sheet = workbook.book.sheet_by_index(0)
-        _check_dimensions(sheet.nrows, sheet.ncols, max_rows, max_columns, max_cells, header_rows)
+        sheet = (
+            workbook.book.sheet_by_name(sheet_name) if isinstance(sheet_name, str)
+            else workbook.book.sheet_by_index(sheet_name)
+        )
+        rows = sheet.nrows if scan_rows is None else min(sheet.nrows, scan_rows)
+        columns = sheet.ncols if scan_rows is None else max(
+            (sheet.row_len(index) for index in range(rows)), default=0,
+        )
+        _check_dimensions(rows, columns, max_rows, max_columns, max_cells, header_rows)
         return
     if workbook.engine != "openpyxl":
         raise ValueError("Unsupported spreadsheet reader.")
-    sheet = workbook.book.worksheets[0]
+    sheet = (
+        workbook.book[sheet_name] if isinstance(sheet_name, str)
+        else workbook.book.worksheets[sheet_name]
+    )
     namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
     rows = current_row = current_column = last_row = width = characters = 0
     parents = []
@@ -46,6 +58,8 @@ def validate_worksheet_bounds(workbook, *, max_columns, max_rows=None,
                 current_row = int(element.attrib.get("r", rows))
                 current_column = 0
                 last_row = max(last_row, rows, current_row)
+                if scan_rows is not None and last_row > scan_rows:
+                    break
                 _check_dimensions(last_row, width, max_rows, max_columns, max_cells, header_rows)
             elif event == "start" and element.tag == namespace + "c":
                 coordinate = element.attrib.get("r")

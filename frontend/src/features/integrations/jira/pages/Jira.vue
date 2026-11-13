@@ -15,6 +15,7 @@ import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalo
 import { hasProjectJiraRole } from '@/features/projects/models/projectRegistry'
 
 const DEFAULT_TAB = 'watcher'
+const AUTH_METHOD_STORAGE_KEY = 'jira>auth-method'
 const AUTH_METHODS = [
   { name: 'session_id', label: 'Session ID' },
   { name: 'personal_access_token', label: 'Personal Access Token' }
@@ -28,7 +29,7 @@ const projectCatalog = useProjectCatalogStore()
 const activeTab = ref(DEFAULT_TAB)
 const initializing = ref(true)
 const sessionId = ref('')
-const authMethod = ref<JiraAuthMethod>('session_id')
+const authMethod = ref<JiraAuthMethod>(restoreAuthMethod())
 const connecting = ref(false)
 const sessionField = ref({ visible: false, title: 'Connect to JIRA' })
 const credentialLabel = computed(() =>
@@ -64,10 +65,26 @@ async function connectJiraAccount(): Promise<void> {
   }
 }
 
+/** Remember only the selected method, never the credential entered for it. */
+function restoreAuthMethod(): JiraAuthMethod {
+  try {
+    const saved = window.localStorage.getItem(AUTH_METHOD_STORAGE_KEY)
+    if (saved === 'session_id' || saved === 'personal_access_token') return saved
+  } catch {
+    // Storage may be unavailable; the connection form must remain usable.
+  }
+  return 'session_id'
+}
+
 function changeAuthMethod(method: JiraAuthMethod): void {
   if (connecting.value || authMethod.value === method) return
   sessionId.value = ''
   authMethod.value = method
+  try {
+    window.localStorage.setItem(AUTH_METHOD_STORAGE_KEY, method)
+  } catch {
+    // A storage failure must not prevent switching authentication methods.
+  }
 }
 
 function handleAuthTabKeydown(event: KeyboardEvent): void {

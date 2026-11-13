@@ -48,7 +48,7 @@ class ExecutorProcessTree:
             self.kill()
 
     def wait_for_exit(self, timeout=5):
-        """Bound publication waiting until the owned tree has no processes."""
+        """Bound publication waiting until the owned tree has no live processes."""
 
         deadline = monotonic() + timeout
         while self._has_processes():
@@ -64,7 +64,34 @@ class ExecutorProcessTree:
             os.killpg(self.pid, 0)
         except ProcessLookupError:
             return False
+        if sys.platform == "linux":
+            return self._linux_group_has_live_processes()
         return True
+
+    def _linux_group_has_live_processes(self):
+        # Container init may leave exited descendants unreaped indefinitely.
+        # Zombie tasks cannot execute or hold open files, but a zombie leader
+        # may still have live threads, so inspect its task directory as well.
+        found_group = False
+        try:
+            with os.scandir("/proc") as processes:
+                for process in processes:
+                    if not process.name.isdecimal():
+                        continue
+                    try:
+                        state, group = _linux_process_status(process.path)
+                    except (FileNotFoundError, ProcessLookupError):
+                        continue
+                    if group != self.pid:
+                        continue
+                    found_group = True
+                    if state not in {"Z", "X"} or _linux_process_has_live_tasks(process.path):
+                        return True
+        except (OSError, ValueError, IndexError):
+            # Unavailable or unreadable procfs cannot prove containment stopped.
+            return True
+        # A group visible to killpg but absent from procfs is also unverified.
+        return not found_group
 
     def _signal_group(self, value):
         try:
@@ -73,6 +100,28 @@ class ExecutorProcessTree:
             # Bootstrap may not have established its group yet, or it is empty.
             return False
         return True
+
+
+def _linux_process_status(path):
+    with open(os.path.join(path, "stat"), encoding="utf-8", errors="replace") as status:
+        fields = status.read().rpartition(")")[2].split()
+    return fields[0], int(fields[2])
+
+
+def _linux_process_has_live_tasks(path):
+    found_task = False
+    with os.scandir(os.path.join(path, "task")) as tasks:
+        for task in tasks:
+            if not task.name.isdecimal():
+                continue
+            try:
+                state, _group = _linux_process_status(task.path)
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            found_task = True
+            if state not in {"Z", "X"}:
+                return True
+    return not found_task
 
 
 class _WindowsJob:

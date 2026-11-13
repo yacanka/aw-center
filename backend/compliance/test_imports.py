@@ -10,12 +10,12 @@ from unittest.mock import patch
 from zipfile import ZipFile
 
 import pandas as pd
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.db.models.signals import post_init
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -24,7 +24,141 @@ from rest_framework.exceptions import ValidationError
 from orgs.models import Panel, Person, Project, ProjectRoleAssignment, ResponsibleAssignment
 
 from .models import ComplianceDocument, CoverPage, ImportAudit, ReviewTask, TrackingProfile, WorkflowEvent
-from .imports import execute_plan, plan_fingerprint, prepare_plan, prepare_tabular_plan
+from .imports import execute_plan, plan_fingerprint, prepare_plan, prepare_tabular_plan, read_workbook
+
+
+def workbook_bytes(sheets):
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+    for name, rows in sheets:
+        sheet = workbook.create_sheet(name)
+        for row in rows:
+            sheet.append(row)
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
+class ComplianceWorkbookSearchTests(SimpleTestCase):
+    def test_reads_first_matching_sheet_with_header_in_each_of_first_five_rows(self):
+        for header_row in range(1, 6):
+            with self.subTest(header_row=header_row):
+                content = workbook_bytes([
+                    ("Empty", []),
+                    ("Summary", [["Document Name"], ["Overview"]]),
+                    ("References", [["Cover Page Number"], ["CP-SUMMARY"]]),
+                    ("Documents", [[]] * (header_row - 1) + [
+                        ["Documnt Name", "Cover Page Numbr"],
+                        ["Selected document", "CP-SELECTED"],
+                    ]),
+                    ("Other documents", [
+                        ["name", "cover_page_no"], ["Wrong document", "CP-WRONG"],
+                    ]),
+                ])
+                rows, mapping = read_workbook(BytesIO(content))
+                self.assertEqual(rows, ((header_row + 1, {
+                    "name": "Selected document", "cover_page_no": "CP-SELECTED",
+                }),))
+                self.assertEqual(mapping["header_row"], header_row)
+                self.assertEqual(mapping["missing_columns"], [])
+
+    def test_skips_headers_after_fifth_row_and_continues_to_next_sheet(self):
+        content = workbook_bytes([
+            ("Too late", [[]] * 5 + [
+                ["name", "cover_page_no"], ["Wrong document", "CP-WRONG"],
+            ]),
+            ("Documents", [["Export overview"], [],
+                           ["name", "cover_page_no"], ["Selected document", "CP-SELECTED"]]),
+        ])
+        rows, mapping = read_workbook(BytesIO(content))
+        self.assertEqual(rows, ((4, {
+            "name": "Selected document", "cover_page_no": "CP-SELECTED",
+        }),))
+        self.assertEqual(mapping["header_row"], 3)
+
+    def test_missing_columns_use_best_partial_header_without_combining_sheets(self):
+        content = workbook_bytes([
+            ("Summary", [["Document Name"], ["Overview"]]),
+            ("Documents", [["Export overview"], [], ["Name", "Owner", "Panel"],
+                           ["Document", "Person", "Flight Controls"]]),
+            ("References", [["Cover Page Number"], ["CP-1"]]),
+        ])
+        rows, mapping = read_workbook(BytesIO(content))
+        self.assertEqual(rows, ())
+        self.assertEqual(mapping["header_row"], 3)
+        self.assertEqual(mapping["source_columns"], ["Name", "Owner", "Panel"])
+        self.assertEqual(mapping["missing_columns"], ["cover_page_no"])
+
+    @override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=2)
+    def test_stops_at_first_match_before_reading_oversized_later_sheet(self):
+        content = workbook_bytes([
+            ("Documents", [["name", "cover_page_no"], ["Selected document", "CP-SELECTED"]]),
+            ("Other data", [["Unrelated data"]] * 20),
+        ])
+        rows, mapping = read_workbook(BytesIO(content))
+        self.assertEqual(rows, ((2, {
+            "name": "Selected document", "cover_page_no": "CP-SELECTED",
+        }),))
+        self.assertEqual(mapping["missing_columns"], [])
+
+    @override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=2)
+    def test_skips_oversized_unrelated_sheet_before_matching_documents(self):
+        for coordinate in ("A24", "XFD6", "CW1"):
+            with self.subTest(coordinate=coordinate):
+                content = workbook_bytes([
+                    ("Summary", [["Overview"]]),
+                    ("Documents", [["name", "cover_page_no"], ["Selected document", "CP-SELECTED"]]),
+                ])
+                workbook = load_workbook(BytesIO(content))
+                workbook["Summary"][coordinate] = "Unrelated data"
+                output = BytesIO()
+                workbook.save(output)
+                workbook.close()
+                rows, mapping = read_workbook(BytesIO(output.getvalue()))
+                self.assertEqual(rows, ((2, {
+                    "name": "Selected document", "cover_page_no": "CP-SELECTED",
+                }),))
+                self.assertEqual(mapping["missing_columns"], [])
+
+    @override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=2)
+    def test_later_sheets_keep_row_and_column_limits_before_data_reads(self):
+        for coordinate, code in (("XFD2", "IMPORT_COLUMN_LIMIT"), ("XFD6", "IMPORT_COLUMN_LIMIT"),
+                                 ("A24", "IMPORT_ROW_LIMIT")):
+            for forged_dimension in (False, True):
+                with self.subTest(coordinate=coordinate, forged_dimension=forged_dimension):
+                    content = workbook_bytes([
+                        ("Summary", [["Overview"]]),
+                        ("Documents", [["name", "cover_page_no"], ["Document", "CP-1"]]),
+                    ])
+                    workbook = load_workbook(BytesIO(content))
+                    workbook["Documents"][coordinate] = "Distant value"
+                    output = BytesIO()
+                    workbook.save(output)
+                    workbook.close()
+                    content = output.getvalue()
+                    if forged_dimension:
+                        rewritten = BytesIO()
+                        with ZipFile(BytesIO(content)) as source, ZipFile(rewritten, "w") as target:
+                            for entry in source.infolist():
+                                data = source.read(entry.filename)
+                                if entry.filename == "xl/worksheets/sheet2.xml":
+                                    data = re.sub(rb'<dimension ref="[^"]+"', b'<dimension ref="A1:B2"', data)
+                                target.writestr(entry, data)
+                        content = rewritten.getvalue()
+                    original_read = pd.read_excel
+                    body_reads = []
+
+                    def record_data_reads(*args, **kwargs):
+                        if kwargs.get("nrows") != 0:
+                            body_reads.append(True)
+                        return original_read(*args, **kwargs)
+
+                    with patch.object(pd, "read_excel", record_data_reads):
+                        with self.assertRaises(ValidationError) as raised:
+                            read_workbook(BytesIO(content))
+                    self.assertEqual(raised.exception.get_codes()["file"], code)
+                    self.assertEqual(body_reads, [])
 
 
 class ComplianceImportTests(TestCase):
@@ -117,6 +251,30 @@ class ComplianceImportTests(TestCase):
             data,
             format="multipart",
         )
+
+    def test_preview_and_confirmation_read_later_sheet_with_manual_mapping(self):
+        content = workbook_bytes([
+            ("Summary", [["Overview"]]),
+            ("Documents", [["Export overview"], [], [], [],
+                           ["Document Name", "Cover Page Number", "Custom Note"],
+                           ["Selected document", "CP-SELECTED", "Imported note"]]),
+        ])
+        automatic = self.preview(content)
+        self.assertEqual(automatic.status_code, 200)
+        self.assertEqual(automatic.data["created_count"], 1)
+        self.assertEqual(automatic.data["header_row"], 5)
+        mapping = {"Document Name": "name", "Cover Page Number": "cover_page_no", "Custom Note": "notes"}
+        preview = self.manual_request(content, mapping)
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data["created_count"], 1)
+        self.assertFalse(ComplianceDocument.objects.exists())
+        confirmed = self.manual_request(content, mapping, preview.data["confirmation_token"])
+        self.assertEqual(confirmed.status_code, 201)
+        document = ComplianceDocument.objects.get()
+        self.assertEqual(document.name, "Selected document")
+        self.assertEqual(document.cover_page.number, "CP-SELECTED")
+        self.assertEqual(document.notes, "Imported note")
+        self.assertEqual(ImportAudit.objects.get().header_row, 5)
 
     def test_terminal_audit_save_failure_rolls_back_all_import_mutations(self):
         for partial in (False, True):
@@ -260,12 +418,12 @@ class ComplianceImportTests(TestCase):
                 self.assertEqual(body_reads, [])
 
     @override_settings(AWCENTER_MAX_COMPDOC_IMPORT_ROWS=2)
-    def test_row_limit_accepts_full_boundary_with_both_supported_header_offsets(self):
-        for preamble in (False, True):
-            with self.subTest(preamble=preamble):
+    def test_row_limit_accepts_full_boundary_with_each_supported_header_offset(self):
+        for header_row in range(1, 6):
+            with self.subTest(header_row=header_row):
                 workbook = Workbook()
                 sheet = workbook.active
-                if preamble:
+                for _ in range(header_row - 1):
                     sheet.append(["AW Center export"])
                 sheet.append(["name", "cover_page_no"])
                 sheet.append(["First", "CP-1"])
@@ -277,7 +435,7 @@ class ComplianceImportTests(TestCase):
                                     SimpleNamespace(user=self.user))
                 self.assertEqual(plan.counts["created_count"], 2)
                 self.assertEqual(plan.errors, ())
-                self.assertEqual(plan.mapping["header_row"], 2 if preamble else 1)
+                self.assertEqual(plan.mapping["header_row"], header_row)
 
     def test_preview_identity_validation_queries_do_not_grow_per_row(self):
         request = SimpleNamespace(user=self.user)
