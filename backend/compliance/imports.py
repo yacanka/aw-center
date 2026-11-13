@@ -159,9 +159,29 @@ def read_workbook(uploaded_file, *, column_mapping=None):
     uploaded_file.seek(0)
     row_limit = max(int(settings.AWCENTER_MAX_COMPDOC_IMPORT_ROWS), 1)
     with pd.ExcelFile(uploaded_file) as workbook:
+        header = HeaderMappingResult(0, {}, list(REQUIRED_IMPORT_FIELDS))
+        header_limit_error = None
         try:
+            for sheet_name in workbook.sheet_names:
+                try:
+                    validate_worksheet_bounds(
+                        workbook, sheet_name=sheet_name, max_columns=MAX_IMPORT_COLUMNS,
+                        scan_rows=HEADER_SCAN_ROWS,
+                    )
+                except SpreadsheetLimitError as error:
+                    # An overwide header area must not block a usable later sheet.
+                    header_limit_error = header_limit_error or error
+                    continue
+                candidate = choose_header_row(workbook, pd, IMPORT_FIELDS, sheet_name=sheet_name)
+                if candidate.match_score > header.match_score:
+                    header = candidate
+                if not header.missing_fields:
+                    break
+            if header.missing_fields and header_limit_error is not None:
+                raise header_limit_error
             validate_worksheet_bounds(
-                workbook, max_columns=MAX_IMPORT_COLUMNS, max_rows=row_limit + HEADER_SCAN_ROWS,
+                workbook, sheet_name=header.sheet_name, max_columns=MAX_IMPORT_COLUMNS,
+                max_rows=row_limit + HEADER_SCAN_ROWS,
             )
         except SpreadsheetLimitError as error:
             if error.limit_kind == "rows":
@@ -173,9 +193,8 @@ def read_workbook(uploaded_file, *, column_mapping=None):
                 {"file": f"Workbook exceeds the {MAX_IMPORT_COLUMNS}-column import limit."},
                 code="IMPORT_COLUMN_LIMIT",
             ) from error
-        header = choose_header_row(workbook, pd, IMPORT_FIELDS)
         preview_frame = pd.read_excel(
-            workbook, header=header.header_row_index, nrows=row_limit + 1,
+            workbook, sheet_name=header.sheet_name, header=header.header_row_index, nrows=row_limit + 1,
         )
     if len(preview_frame) > row_limit:
         raise ValidationError(
@@ -190,6 +209,7 @@ def read_workbook(uploaded_file, *, column_mapping=None):
             header.header_row_index,
             {columns[source]: target for source, target in column_mapping.items()},
             get_missing_required_fields(column_mapping.values(), IMPORT_FIELDS),
+            header.sheet_name,
         )
     mapping = build_mapping_preview(preview_frame.columns, header)
     mapping["source_columns"] = [str(column) for column in preview_frame.columns]

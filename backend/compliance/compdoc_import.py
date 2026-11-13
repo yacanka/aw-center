@@ -7,7 +7,7 @@ import re
 REQUIRED_IMPORT_FIELDS = ("name", "cover_page_no")
 
 LIST_IMPORT_FIELDS = ("signature_panel", "requirements")
-HEADER_SCAN_ROWS = 2
+HEADER_SCAN_ROWS = 5
 FUZZY_MATCH_THRESHOLD = 0.84
 
 FIELD_ALIASES = {
@@ -61,6 +61,13 @@ class HeaderMappingResult:
     header_row_index: int
     column_mapping: dict[str, str]
     missing_fields: list[str]
+    sheet_name: str | int = 0
+
+    @property
+    def match_score(self) -> tuple[int, int]:
+        """Prefer required matches; optional-only values must not displace headers."""
+        has_required_match = any(field in REQUIRED_IMPORT_FIELDS for field in self.column_mapping.values())
+        return -len(self.missing_fields), len(self.column_mapping) if has_required_match else 0
 
 
 def normalize_header(value) -> str:
@@ -128,29 +135,33 @@ def map_headers(columns, model_fields: set[str]) -> dict[str, str]:
     return mapping
 
 
-def choose_header_row(excel_file, pandas_module, model_fields: set[str]) -> HeaderMappingResult:
-    """Choose the best header row from the first supported Excel rows."""
+def choose_header_row(excel_file, pandas_module, model_fields: set[str], *, sheet_name=0) -> HeaderMappingResult:
+    """Find required headers in the first five rows of the requested sheet."""
 
     best_result = None
     for header_index in range(HEADER_SCAN_ROWS):
-        dataframe = try_read_excel_header(excel_file, pandas_module, header_index)
+        dataframe = try_read_excel_header(excel_file, pandas_module, header_index, sheet_name=sheet_name)
         if dataframe is None:
             continue
         mapping = map_headers(dataframe.columns, model_fields)
         missing = get_missing_required_fields(mapping.values(), model_fields)
-        result = HeaderMappingResult(header_index, mapping, missing)
-        if best_result is None or len(result.missing_fields) < len(best_result.missing_fields):
+        result = HeaderMappingResult(header_index, mapping, missing, sheet_name)
+        if best_result is None or result.match_score > best_result.match_score:
             best_result = result
         if hasattr(excel_file, "seek"):
             excel_file.seek(0)
-    return best_result or HeaderMappingResult(0, {}, list(REQUIRED_IMPORT_FIELDS))
+        if not missing:
+            break
+    return best_result or HeaderMappingResult(
+        0, {}, get_missing_required_fields((), model_fields), sheet_name,
+    )
 
 
-def try_read_excel_header(excel_file, pandas_module, header_index: int):
+def try_read_excel_header(excel_file, pandas_module, header_index: int, *, sheet_name=0):
     """Read one candidate Excel header row and tolerate missing rows."""
 
     try:
-        return pandas_module.read_excel(excel_file, header=header_index, nrows=0)
+        return pandas_module.read_excel(excel_file, sheet_name=sheet_name, header=header_index, nrows=0)
     except ValueError:
         if hasattr(excel_file, "seek"):
             excel_file.seek(0)
@@ -189,7 +200,9 @@ def build_mapping_preview(columns, header_result: HeaderMappingResult) -> dict:
 def read_mapped_excel(excel_file, pandas_module, header_result: HeaderMappingResult):
     """Read Excel data using the selected header row and normalized field names."""
 
-    dataframe = pandas_module.read_excel(excel_file, header=header_result.header_row_index)
+    dataframe = pandas_module.read_excel(
+        excel_file, sheet_name=header_result.sheet_name, header=header_result.header_row_index,
+    )
     return dataframe.loc[:, list(header_result.column_mapping)].rename(
         columns=header_result.column_mapping
     )
