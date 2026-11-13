@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { watch, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import fsPromises, {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -377,14 +385,25 @@ test('a source change while output is staged cannot publish a success receipt', 
   const f = await fixture(t)
   await mkdir(f.options.outputDirectory, { recursive: true })
   let changed = false
-  const watcher = watch(f.options.outputDirectory, (_event, filename) => {
-    if (!changed && filename?.startsWith('renderer-')) {
+  const originalWriteFile = fsPromises.writeFile
+  // Edit after the real staging write; directory notifications can arrive after publication.
+  t.mock.method(fsPromises, 'writeFile', async (path, ...args) => {
+    const result = await originalWriteFile(path, ...args)
+    if (!changed && dirname(path) === f.options.outputDirectory && /renderer-.*\.tmp$/.test(path)) {
       changed = true
-      writeFileSync(join(f.root, 'src/features/mermaid/models/value.ts'), 'export const value = 99')
+      await originalWriteFile(
+        join(f.root, 'src/features/mermaid/models/value.ts'),
+        'export const value = 99'
+      )
     }
+    return result
   })
-  t.after(() => watcher.close())
-  const source = '/*' + 'x'.repeat(16 * 1024 * 1024) + '*/' + classic('staged')
+  syncBuiltinESMExports()
+  t.after(() => {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  })
+  const source = classic('staged')
   await assert.rejects(f.run({ buildOperation: async () => source }), /inputs changed/)
   assert.equal(changed, true, 'the source edit must occur during temporary output staging')
   await assert.rejects(f.receipt(), { code: 'ENOENT' })
