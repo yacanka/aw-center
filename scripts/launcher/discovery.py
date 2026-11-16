@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from .model import LauncherError, Project
@@ -60,9 +61,14 @@ def choose_file(root: Path, name: str, *, preferred: tuple[str, ...]) -> Path:
 def choose_vue_manifest(root: Path) -> Path:
     """Select the nearest package manifest that declares Vue."""
     preferred = (root / "frontend/package.json", root / "package.json")
-    candidates = [*preferred, *bounded_matches(root, "package.json")]
-    unique = list(dict.fromkeys(path for path in candidates if path.is_file()))
-    vue_manifests = [path for path in unique if manifest_uses_vue(path)]
+    for path in preferred:
+        if path.is_file() and manifest_uses_vue(path):
+            return path
+    candidates = [
+        path for path in bounded_matches(root, "package.json")
+        if path not in preferred and path.is_file()
+    ]
+    vue_manifests = [path for path in candidates if manifest_uses_vue(path)]
     if not vue_manifests:
         raise LauncherError(f"Vue package.json was not found under {root}")
     return vue_manifests[0]
@@ -87,11 +93,14 @@ def choose_requirements(root: Path, backend: Path) -> Path | None:
 def bounded_matches(root: Path, name: str) -> list[Path]:
     """Find matching files at a small depth while ignoring generated trees."""
     matches = []
-    for path in root.glob(f"**/{name}"):
-        relative = path.relative_to(root)
-        if len(relative.parts) > 4:
-            continue
-        if set(relative.parts).intersection(IGNORED_DIRECTORIES):
-            continue
-        matches.append(path)
+    for directory, directories, _ in os.walk(root):
+        parent = Path(directory)
+        # A matching path may contain at most three directories and its name.
+        if len(parent.relative_to(root).parts) >= 3:
+            directories.clear()
+        else:
+            directories[:] = [child for child in directories if child not in IGNORED_DIRECTORIES]
+        candidate = parent / name
+        if name not in IGNORED_DIRECTORIES and candidate.exists():
+            matches.append(candidate)
     return sorted(matches)
