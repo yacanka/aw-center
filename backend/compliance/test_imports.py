@@ -546,9 +546,75 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(foreign_id_plan.rows, ())
         self.assertEqual(foreign_id_plan.errors[0]["code"], "IMPORT_DOCUMENT_NOT_FOUND")
 
+    def test_import_normalizes_integral_numeric_issues(self):
+        for value, expected in ((1.0, "1"), (0.0, "0"), (-2.0, "-2")):
+            with self.subTest(issue=value):
+                plan = prepare_tabular_plan(
+                    ((2, {"name": "Issue document", "cover_page_no": "CP-ISSUE",
+                          "issue": value, "cover_page_issue": value}),),
+                    self.project, SimpleNamespace(user=self.user), mapping={},
+                )
+                self.assertEqual(plan.errors, ())
+                self.assertEqual(plan.rows[0].payload["issue"], expected)
+                self.assertEqual(plan.rows[0].payload["cover_page"]["issue"], expected)
+
+    def test_excel_sparse_numeric_issues_preview_confirm_and_reimport(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Document Name", "Cover Page Number", "Technical Document Issue", "Cover Page Issue"])
+        for index, value in enumerate((1.0, 0.0, -2.0, 1.5, None)):
+            sheet.append([f"Issue document {index}", f"CP-ISSUE-{index}", value, value])
+        output = BytesIO()
+        workbook.save(output)
+        workbook.close()
+        content = output.getvalue()
+
+        preview = self.preview(content)
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertEqual(preview.data["created_count"], 5, preview.data)
+        self.assertEqual(preview.data["rejected_count"], 0, preview.data)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(confirmed.status_code, 201, confirmed.data)
+        for index, expected in enumerate(("1", "0", "-2", "1.5", None)):
+            with self.subTest(issue=expected):
+                document = ComplianceDocument.objects.select_related("cover_page").get(
+                    name=f"Issue document {index}",
+                )
+                self.assertEqual(document.issue, expected)
+                self.assertEqual(document.cover_page.issue, expected)
+
+        repeated = self.preview(content)
+        self.assertEqual(repeated.data["unchanged_count"], 5, repeated.data)
+
+    def test_excel_issue_text_is_preserved_with_manual_mapping(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Custom name", "Custom cover", "Custom issue", "Custom cover issue"])
+        for index, value in enumerate(("A", "1A", "Rev 1.0", "001", "1.2")):
+            sheet.append([f"Text issue {index}", f"CP-TEXT-{index}", value, value])
+        output = BytesIO()
+        workbook.save(output)
+        workbook.close()
+        content = output.getvalue()
+        mapping = {"Custom name": "name", "Custom cover": "cover_page_no",
+                   "Custom issue": "issue", "Custom cover issue": "cover_page_issue"}
+
+        preview = self.manual_request(content, mapping)
+        self.assertEqual(preview.data["rejected_count"], 0, preview.data)
+        confirmed = self.manual_request(content, mapping, preview.data["confirmation_token"])
+        self.assertEqual(confirmed.status_code, 201, confirmed.data)
+        for index, expected in enumerate(("A", "1A", "Rev 1.0", "001", "1.2")):
+            with self.subTest(issue=expected):
+                document = ComplianceDocument.objects.select_related("cover_page").get(
+                    name=f"Text issue {index}",
+                )
+                self.assertEqual(document.issue, expected)
+                self.assertEqual(document.cover_page.issue, expected)
+
     def test_import_normalizes_single_and_multiple_mocs(self):
         cases = [
             ("0", "0"), ("9", "9"), (" M ", "M"), (0, "0"), (9, "9"),
+            ("m", "M"), (" m ", "M"),
             (2.0, "2"), (" 2 ", "2"),
             ("1,2", "M"), ("1;2", "M"), ("1 2", "M"),
             ("1\t2", "M"), ("1\n2", "M"), ("1\r\n2", "M"),
@@ -565,7 +631,7 @@ class ComplianceImportTests(TestCase):
                 self.assertEqual(plan.rows[0].payload["moc"], expected)
 
     def test_import_rejects_invalid_mocs_with_field_errors(self):
-        for value in ("12", "1.2", "2.0", "A", "1,A", "m", "1,", ",1", "1:M", "1:2", "M,1", 12, 1.2, True):
+        for value in ("12", "1.2", "2.0", "A", "1,A", "1,", ",1", "1:M", "1:2", "M,1", 12, 1.2, True):
             with self.subTest(moc=value):
                 plan = prepare_tabular_plan(
                     ((2, {"name": "Invalid MOC", "cover_page_no": "CP-M", "moc": value}),),
@@ -592,7 +658,7 @@ class ComplianceImportTests(TestCase):
         version = document.version
         history_count = document.history.count()
 
-        for content in (multiple, self.workbook(moc=""), self.workbook()):
+        for content in (multiple, self.workbook(moc="m"), self.workbook(moc=""), self.workbook()):
             with self.subTest(content_size=len(content)):
                 preview = self.preview(content)
                 self.assertEqual(preview.data["unchanged_count"], 1, preview.data)
@@ -601,6 +667,15 @@ class ComplianceImportTests(TestCase):
                 self.assertEqual(document.moc, "M")
                 self.assertEqual(document.version, version)
                 self.assertEqual(document.history.count(), history_count)
+
+    def test_excel_lowercase_moc_is_saved_as_uppercase(self):
+        content = self.workbook(moc=" m ")
+        preview = self.preview(content)
+        self.assertEqual(preview.data["created_count"], 1, preview.data)
+        self.assertEqual(preview.data["rejected_count"], 0, preview.data)
+        confirmed = self.confirm(content, preview.data["confirmation_token"])
+        self.assertEqual(confirmed.status_code, 201, confirmed.data)
+        self.assertEqual(ComplianceDocument.objects.get().moc, "M")
 
     def test_excel_multiple_mocs_are_saved_on_creation(self):
         content = self.workbook(moc="0 / 9")

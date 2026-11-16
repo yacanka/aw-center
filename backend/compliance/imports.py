@@ -534,6 +534,11 @@ def prepare_tabular_plan(
 
 def _normalize_row(source, panels):
     values = {key: _scalar(value) for key, value in source.items()}
+    # Sparse numeric Excel columns can turn whole-number issues into floats.
+    for field in ("issue", "cover_page_issue"):
+        value = values.get(field)
+        if isinstance(value, float) and value.is_integer():
+            values[field] = str(int(value))
     if values.get("moc") not in (None, ""):
         values["moc"] = _normalize_import_moc(values["moc"])
     name = str(values["name"]) if values.get("name") is not None else ""
@@ -588,8 +593,8 @@ def _normalize_import_moc(value):
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     text = str(value).strip()
-    if text == "M":
-        return text
+    if text.upper() == "M":
+        return "M"
     if re.fullmatch(r"[0-9](?:[\s,;/|\-]+[0-9])*", text):
         return text if len(text) == 1 else "M"
     raise ValidationError({
