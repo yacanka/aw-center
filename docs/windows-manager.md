@@ -53,7 +53,9 @@ bağımlılık denetimlerini çalıştırır; ayrı kaynak bağlantısı sınama
 test paketi çalıştırmaz. İlk kurulum ve bağımlılık güncellemesi mevcut edinim
 ve bütünlük kontrollerini korur. Manager kurulum kaydı olmayan elle hazırlanmış
 bir ortam ilk kullanımda bir defalık hazırlık isteyebilir. Lock değiştiğinde
-ilgili bağımlılık aşaması güncellenir.
+ilgili bağımlılık aşaması güncellenir. Geliştirici modunda hazırlığın sonunda aynı
+bağımlılık ağaçları rapor üretmek için tekrar taranmaz; tamamlanan kurulumun
+güncellik kayıtları ve güncel veritabanı durumu kullanılır.
 
 Tercih aynı kaynak için hatırlanır; kaynak, profil veya paket bağlamı değişince
 sıfırlanır. Yeni ve eski ayarların varsayılanı yönetilen kullanımdır. Production

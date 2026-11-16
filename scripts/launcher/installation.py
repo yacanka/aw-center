@@ -325,9 +325,10 @@ def _provision(project: Project, args) -> list[dict]:
             runtime_options['node_probe_deadline'] = args.node_probe_deadline
         tool_env = ensure_toolchain(home, settings, **runtime_options)
         phase("kilitli bağımlılıklar")
-        package_options = {'repair_packages': True} if (
+        developer = (
             args.profile == 'dev' and getattr(args, 'manager_ensure', False) and
-            getattr(args, 'validation_policy', 'managed') == 'developer') else {}
+            getattr(args, 'validation_policy', 'managed') == 'developer')
+        package_options = {'repair_packages': True} if developer else {}
         install_dependencies(project, settings, tool_env,
                              expected_python=Path(tool_env['AWCENTER_MANAGED_PYTHON']),
                              cache_root=home / 'cache' / 'packages',
@@ -387,7 +388,8 @@ def _provision(project: Project, args) -> list[dict]:
             else:
                 build()
                 deploy()
-        checks = _core_checks(project, profile) + features
+        check_options = {'validation_policy': 'developer'} if developer else {}
+        checks = _core_checks(project, profile, **check_options) + features
         save_report(home, profile["name"], checks)
         return checks
 
