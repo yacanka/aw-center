@@ -486,22 +486,22 @@ class RuntimeTests(unittest.TestCase):
                         prod(project, **arguments)
                     if build_frontend:
                         npm.assert_called_once_with("npm")
-                        build.assert_called_once_with(["npm", "run", "build"], project.frontend)
+                        build.assert_called_once_with(["npm", "run", "build"], project.frontend, timeout=1800)
                     else:
                         npm.assert_not_called()
                         build.assert_not_called()
 
                 env = production_env(arguments["env_file"], "192.0.2.10", 443)
                 expected = [
-                    mock.call.django(project, ["check", "--deploy"], env),
-                    mock.call.django(project, ["migrate", "--check"], env),
+                    mock.call.django(project, ["check", "--deploy"], env, timeout=180),
+                    mock.call.django(project, ["migrate", "--check"], env, timeout=180),
                 ]
                 if build_frontend:
-                    expected.append(mock.call.build(["npm", "run", "build"], project.frontend))
+                    expected.append(mock.call.build(["npm", "run", "build"], project.frontend, timeout=1800))
                 if not fails:
                     expected.extend([
-                        mock.call.django(project, ["collectstatic", "--clear", "--noinput"], env),
-                        mock.call.django(project, ["verify_frontend_artifact"], env),
+                        mock.call.django(project, ["collectstatic", "--clear", "--noinput"], env, timeout=180),
+                        mock.call.django(project, ["verify_frontend_artifact"], env, timeout=180),
                     ])
                     backend_start.assert_called_once()
                     worker_start.assert_called_once()

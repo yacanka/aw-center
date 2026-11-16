@@ -188,7 +188,7 @@ class DependencyIntegrityError(LauncherError):
         super().__init__(f'{name} paketlerinin kurulum kaydı veya dosya bütünlüğü doğrulanamadı.')
 
 
-def _stage_current(target, lock, *, verify=True):
+def _stage_current(target, lock, *, verify=True, reinstall_invalid=False):
     """A receipt is only a branch hint until the installed bytes have been checked."""
     from .installation_bundle import _json_object
     from .installation_permissions import require_unlinked
@@ -196,22 +196,26 @@ def _stage_current(target, lock, *, verify=True):
     receipt = target / _STAGE_RECEIPT
     require_unlinked(receipt)
     if not receipt.exists():
+        if reinstall_invalid and target.exists():
+            # An interrupted tree is replaceable only after its paths can be read safely.
+            _package_inventory(target)
         return False
     try:
         saved = _json_object(receipt, limit=64 * 1024 * 1024)
         if (saved.get('version') != 1 or not isinstance(saved.get('files'), dict)
                 or not isinstance(saved.get('lock'), str)):
             raise ValueError
-        if verify and saved['files'] != _package_inventory(target):
-            raise ValueError
+        files_match = not verify or saved['files'] == _package_inventory(target)
     except OperationCancelled:
         raise
     except (OSError, ValueError, LauncherError):
         raise DependencyIntegrityError(target) from None
+    if not files_match and not reinstall_invalid:
+        raise DependencyIntegrityError(target)
     if not lock or not lock.is_file():
         return False
     require_unlinked(lock)
-    return saved['lock'] == file_sha256(lock)
+    return files_match and saved['lock'] == file_sha256(lock)
 
 
 def dependency_checks(project, *, verify=True, fail_invalid=False, developer=False):
@@ -234,7 +238,9 @@ def dependency_checks(project, *, verify=True, fail_invalid=False, developer=Fal
             else:
                 current = _stage_current(target, lock, verify=verify)
             status = 'ready' if current else 'missing'
-            detail = f'{label} bağımlılıkları doğrulandı.' if current else f'{label} bağımlılıkları için kurulum gerekli.'
+            detail = f'{label} bağımlılıkları için kurulum gerekli.'
+            if current:
+                detail = f'{label} bağımlılıkları doğrulandı.' if verify else f'{label} paket kurulum kaydı güncel.'
             if developer and current:
                 detail = f'{label} bağımlılıkları: geliştirici hızlı kontrolü; tam dosya bütünlüğü doğrulanmadı.'
         except DependencyIntegrityError as error:
@@ -763,14 +769,21 @@ def _prepare_package_venv(project, tool_env, settings, expected_python, repair, 
 
 
 def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None,
-                         repair_venv: bool = False, cache_root: Path | None = None) -> None:
-    """Use one source per acquisition attempt; never fallback after installation fails."""
+                         repair_venv: bool = False, cache_root: Path | None = None,
+                         repair_packages: bool = False) -> None:
+    """Install locked packages; only local Manager opts into replacing invalid outputs.
+
+    Only a safely inspected receipt/tree mismatch permits reinstalling an invalid
+    stage. Storage, link and unknown receipt failures remain terminal; application
+    state is untouched. Acquisition still follows the selected source policy.
+    """
     frontend = project.frontend / 'node_modules'
     frontend_lock = project.frontend / 'package-lock.json'
     settings.report('Kurulu Python bağımlılıkları doğrulanıyor')
-    python_current = _stage_current(project.venv, project.requirements)
+    python_current = _stage_current(project.venv, project.requirements,
+                                    reinstall_invalid=repair_packages and expected_python is not None)
     settings.report('Kurulu frontend bağımlılıkları doğrulanıyor')
-    frontend_current = _stage_current(frontend, frontend_lock)
+    frontend_current = _stage_current(frontend, frontend_lock, reinstall_invalid=repair_packages)
     python_current = _prepare_package_venv(project, tool_env, settings, expected_python, repair_venv, python_current)
     if python_current:
         settings.report('Python bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')

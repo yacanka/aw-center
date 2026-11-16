@@ -11,7 +11,7 @@ import sys
 import subprocess
 import time
 import threading
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Sequence
 
@@ -40,6 +40,97 @@ def check_cancelled() -> None:
     stop = getattr(_control, "stop", None)
     if stop is not None and stop.is_set():
         raise OperationCancelled("İşlem durduruldu; tamamlanan adımlar korunuyor.")
+
+
+@contextmanager
+def server_console():
+    """Give one Windows server lifecycle visible output at its first child start.
+
+    Preparation and controlled helper commands keep their hidden execution
+    policy. The Manager's private stdin and saved JSON output channel remain
+    independent of the server console, and all children retain Job ownership.
+    """
+    if os.name != 'nt' or getattr(_control, 'server_console', None) is not None:
+        yield
+        return
+    previous_output = getattr(_control, 'server_output', None)
+    try:
+        with ExitStack() as scope:
+            _control.server_console = scope
+            _control.server_output = None
+            yield
+    finally:
+        _control.server_console = None
+        _control.server_output = previous_output
+
+
+def _server_console_output():
+    scope = getattr(_control, 'server_console', None)
+    if scope is None:
+        return None
+    if _control.server_output is None:
+        _control.server_output = scope.enter_context(_windows_server_console())
+    return _control.server_output
+
+
+@contextmanager
+def _windows_server_console():
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.GetConsoleWindow.restype = wintypes.HWND
+    kernel.GetStdHandle.argtypes = [wintypes.DWORD]
+    kernel.GetStdHandle.restype = wintypes.HANDLE
+    kernel.SetStdHandle.argtypes = [wintypes.DWORD, wintypes.HANDLE]
+    kernel.SetStdHandle.restype = wintypes.BOOL
+    kernel.AllocConsole.restype = wintypes.BOOL
+    kernel.FreeConsole.restype = wintypes.BOOL
+    kernel.GetConsoleOutputCP.restype = wintypes.UINT
+    kernel.SetConsoleOutputCP.argtypes = [wintypes.UINT]
+    kernel.SetConsoleOutputCP.restype = wintypes.BOOL
+    attached = bool(kernel.GetConsoleWindow())
+    if attached and getattr(_control, 'stop', None) is None:
+        yield (sys.stdout, sys.stderr)  # Preserve redirected output of CLI callers too.
+        return
+    handles = {number & 0xffffffff: kernel.GetStdHandle(number & 0xffffffff) for number in (-10, -11, -12)}
+    previous = (sys.stdout, sys.stderr)
+    stream, owned, code_page = None, False, None
+    try:
+        try:
+            if not attached:
+                if not kernel.AllocConsole():
+                    raise LauncherError('Sunucu terminali açılamadı.')
+                owned = True
+                # AllocConsole can replace standard input. Restore the original
+                # private control pipe before any child or further GUI input.
+                if not kernel.SetStdHandle(-10 & 0xffffffff, handles[-10 & 0xffffffff]):
+                    raise LauncherError('Sunucu terminalinin kontrol kanalı korunamadı.')
+            code_page = kernel.GetConsoleOutputCP()
+            if not code_page or not kernel.SetConsoleOutputCP(65001):
+                raise LauncherError('Sunucu terminalinin UTF-8 çıktısı ayarlanamadı.')
+            stream = open('CONOUT$', 'w', encoding='utf-8', buffering=1)
+            output = msvcrt.get_osfhandle(stream.fileno())
+            for number in (-11, -12):
+                if not kernel.SetStdHandle(number & 0xffffffff, output):
+                    raise LauncherError('Sunucu terminali çıktısı bağlanamadı.')
+        except OSError:
+            raise LauncherError('Sunucu terminali açılamadı veya çıktısı bağlanamadı.') from None
+        sys.stdout = sys.stderr = stream
+        yield (stream, stream)
+    finally:
+        sys.stdout, sys.stderr = previous
+        for number, handle in handles.items():
+            kernel.SetStdHandle(number, handle)
+        if code_page:
+            kernel.SetConsoleOutputCP(code_page)
+        try:
+            if stream is not None:
+                stream.close()
+        finally:
+            if owned:
+                kernel.FreeConsole()
 
 
 def controlled_run(command, *, safe_boundary=False, on_output=None, **kwargs):
@@ -262,6 +353,7 @@ def run(
     *,
     extra_env: dict[str, str] | None = None,
     capture: bool = False,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run one command and raise a concise error when it fails."""
     print(f"[run] {display(command)}\n      cwd: {cwd}", flush=True)
@@ -273,6 +365,7 @@ def run(
         capture_output=capture,
         text=True,
         safe_boundary=any(str(part) == "migrate" for part in command),
+        **({'timeout': timeout} if timeout is not None else {}),
     )
     if completed.returncode:
         raise command_error(command, completed, capture)
@@ -290,6 +383,8 @@ def command_error(
 
 def start(command: Command, cwd: Path, *, extra_env: dict[str, str] | None = None) -> subprocess.Popen:
     """Start one foreground child process with inherited output."""
+    if os.name == 'nt':
+        _server_console_output()
     print(f"[start] {display(command)}\n        cwd: {cwd}", flush=True)
     if os.name == "nt":
         return _start_windows(command, cwd, extra_env)
@@ -307,17 +402,21 @@ def start(command: Command, cwd: Path, *, extra_env: dict[str, str] | None = Non
 def _start_windows(command, cwd, extra_env):
     from .windows_job import WindowsJob
 
+    output = _server_console_output()
+    values = environment(extra_env)
     # The gate prevents the command spawning descendants before containment exists.
-    python = environment(extra_env).get("AWCENTER_MANAGED_PYTHON") if getattr(sys, "frozen", False) else sys.executable
+    python = (values.get("AWCENTER_MANAGED_PYTHON") if getattr(sys, "frozen", False) else
+              values.get("AWCENTER_MANAGED_PYTHON", sys.executable) if output is not None else sys.executable)
     if not python:
         raise LauncherError("Managed Python yolu eksik; kurulum kontrolünü çalıştırın.")
     process = subprocess.Popen(
         [python, str(Path(__file__).with_name("child_bootstrap.py")),
          *[str(part) for part in command]],
-        cwd=cwd, env=environment(extra_env), stdin=subprocess.PIPE,
+        cwd=cwd, env=values, stdin=subprocess.PIPE,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | (subprocess.CREATE_NO_WINDOW if
-            getattr(sys, "frozen", False) or getattr(_control, "stop", None) is not None else 0),
-        **({"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if getattr(_control, "stop", None) is not None else {}),
+            output is None and (getattr(sys, "frozen", False) or getattr(_control, "stop", None) is not None) else 0),
+        **({'stdout': output[0], 'stderr': output[1]} if output is not None else
+           {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if getattr(_control, "stop", None) is not None else {}),
     )
     try:
         process._launcher_job = WindowsJob(process._handle)

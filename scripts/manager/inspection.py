@@ -1,10 +1,10 @@
 """Read-only profile inspection; opening Manager never provisions a profile."""
 from pathlib import Path
 
-from scripts.launcher.installation import require_windows, _core_checks, _runtime_options
+from scripts.launcher.installation import require_windows
 from scripts.launcher.installation_profiles import installation_home, load_profile
-from scripts.launcher.installation_permissions import require_unlinked
-from scripts.launcher.toolchain import inspect_toolchain
+from scripts.launcher.installation_permissions import require_unlinked, require_private
+from scripts.launcher.model import Project
 
 
 def _metadata_inspection(args, home, path, emit):
@@ -35,6 +35,7 @@ def _metadata_inspection(args, home, path, emit):
 
 
 def inspect_profile(args, emit):
+    """Read profile metadata for the window; explicit diagnostics use doctor."""
     from scripts.launcher.validation_policy import require_validation_policy
     policy = require_validation_policy(getattr(args, 'validation_policy', 'managed'),
                                        profile=args.profile, source_selection=args.source_selection)
@@ -55,35 +56,34 @@ def inspect_profile(args, emit):
         require_unlinked(pending)
         require_unlinked(env)
         status = 'incomplete' if pending.is_file() else 'blocked' if env.exists() else 'not_installed'
-        from scripts.launcher.runtime_selection import tool_choices
-        tools = tool_choices(args)
-        summary = ' · '.join(f"{label} — {'sistem kurulumu' if field in tools else 'seçilen kaynaklardan hazırlanacak'}"
-                            for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))
         emit({'type': 'profile', 'profile': args.profile, 'status': status,
-              'tools': summary,
+              'tools': 'Python 3.11 ve Node.js kurulum sırasında denetlenecek.',
               'detail': 'İlk kurulum gerekli.' if status == 'not_installed' else 'Özel profil hazırlığı tamamlanmalı.'})
         return
-    from .operations import _project_for
-    project = _project_for('doctor', args)
+    _profile_summary(args, home, emit)
+
+
+def _profile_summary(args, home, emit):
+    """Keep automatic inspection independent of source and installed-code scans."""
+    source = Path(args.source_root).absolute()
+    require_unlinked(source)
+    # Manager packages use the repository's fixed layout. Discovery would walk
+    # the source tree; actual startup still selects and validates the release.
+    project = Project(source.resolve(), source / 'backend/manage.py',
+                      source / 'frontend/package.json', source / 'requirements.txt')
     profile = load_profile(project, args.profile, home)
-    runtime = inspect_toolchain(home, **_runtime_options(profile))
-    backend = {}
-    checks = list(runtime)
-    if all(row['status'] == 'ready' for row in runtime):
-        checks.extend(_core_checks(project, profile, observed_backend=backend, managed_build=True))
-    status = 'stopped'
-    if any(row['status'] not in {'ready', 'available'} for row in checks):
-        status = 'incomplete'
-    if backend:
-        schema = backend['schema']
-        if schema in {'pending', 'error', 'missing'}:
-            from scripts.launcher.installation_profiles import read_profile_environment
-            database = Path(read_profile_environment(profile)['DATABASE_URL'].removeprefix('sqlite:///'))
-            status = 'incomplete' if schema == 'pending' or not database.exists() else 'blocked'
-    if any(row['status'] == 'invalid' for row in checks):
-        status = 'blocked'
+    pending = home / 'config' / (args.profile + '.pending.json')
+    require_unlinked(pending)
+    if pending.exists():
+        require_private(pending)
+    required = (project.manage_py, project.package_json, project.python)
+    for path in required:
+        require_unlinked(path)
+    incomplete = pending.exists() or any(not path.is_file() for path in required)
     tools = ' · '.join(f"{label}: {'sistem kurulumu' if profile.get(field) else 'yönetilen kurulum'}"
                       for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))
-    emit({'type': 'profile', 'profile': args.profile, 'status': status, 'checks': checks,
-          'tools': tools, 'detail': 'Ortam başlatılmaya hazır.' if status == 'stopped' else
-          'Eksikleri inceleyin; mevcut veriler ve anahtarlar korunur.'})
+    emit({'type': 'profile', 'profile': args.profile,
+          'status': 'incomplete' if incomplete else 'unverified', 'tools': tools,
+          'detail': ('Kayıtlı hazırlık tamamlanmalı; AW Center’ı aç ile eksikler denetlenecek.' if incomplete else
+                     'Profil kayıtlı. Başlatma gereksinimleri uygulama açılırken doğrulanacak; '
+                     'ayrıntılı denetim için Durumu denetle kullanın.')})

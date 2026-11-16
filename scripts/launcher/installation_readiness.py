@@ -13,6 +13,7 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Requ
 from .model import LauncherError
 from .local_tls import local_server_context
 from .process import check_cancelled
+from .runtime import public_url
 
 
 class StartupReadinessError(LauncherError):
@@ -84,11 +85,11 @@ def probe_http(url: str, certificate: str | None = None, *, diagnostic=None) -> 
 def healthy(profile: dict, worker_check: Callable[[], bool]) -> bool:
     production = profile['name'] == 'prod'
     host, port = profile['host'], profile['backend_port']
-    origin = f'https://{host}:{port}' if production else f'http://{host}:{port}'
+    origin = f'https://{host}:{port}' if production else public_url(host, port)
     path = '/health/ready/' if production else '/health/live/'
     ready = probe_http(origin + path, profile.get('tls_cert_file') if production else None)
     if not production:
-        ready = probe_http(f"http://{host}:{profile['frontend_port']}/app/") and ready
+        ready = probe_http(public_url(host, profile['frontend_port']) + '/app/') and ready
     return worker_check() and ready
 
 
@@ -138,7 +139,7 @@ def wait_until_ready(
                 raise StartupReadinessError(f'Başlatılan süreç {index + 1} kapandı (çıkış kodu: {int(code)}); uygulama hazır değil.')
         production = profile["name"] == "prod"
         host, port = profile["host"], profile["backend_port"]
-        origin = f"https://{host}:{port}" if production else f"http://{host}:{port}"
+        origin = f"https://{host}:{port}" if production else public_url(host, port)
         path = "/health/ready/" if production else "/health/live/"
         pending = []
         details = []
@@ -146,7 +147,7 @@ def wait_until_ready(
                           diagnostic=details.append):
             label = 'backend HTTPS' if production else 'backend HTTP'
             pending.append(label + (': ' + details[-1] if details else ''))
-        if not production and not probe_http(f"http://{host}:{profile['frontend_port']}/app/"):
+        if not production and not probe_http(public_url(host, profile['frontend_port']) + '/app/'):
             pending.append('frontend HTTP')
         for name, label in (('job', 'iş worker kimliği'), ('notification', 'bildirim worker'),
                             ('cleanup', 'temizlik worker')):

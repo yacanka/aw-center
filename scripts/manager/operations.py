@@ -6,10 +6,12 @@ threads sharing an interpreter. Imports for an action stay in its own path.
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import errno
 import os
 from pathlib import Path
 import sys
+from subprocess import TimeoutExpired
 
 from scripts.launcher.model import LauncherError
 from scripts.launcher.process import OperationCancelled, check_cancelled, operation_control
@@ -113,7 +115,7 @@ def _errors_with_remedy():
         VirtualEnvironmentError, VirtualEnvironmentRepairError,
     )
     from scripts.launcher.installation_permissions import PermissionCheckError
-    from scripts.launcher.installation_profiles import TLSFileError
+    from scripts.launcher.installation_profiles import EnvironmentImportError, TLSFileError
     from scripts.launcher.installation_readiness import StartupReadinessError
     from scripts.launcher.installation_sources import ArtifactDownloadError
     from scripts.launcher.package_cache import PackageCacheError
@@ -125,7 +127,7 @@ def _errors_with_remedy():
     from .payload import ProductionSourceNotPrepared
 
     from .bundle_preparation import BundleInputsError
-    return (BundleInputsError, ArtifactDownloadError, BundleHostRuntimeError, DependencyIntegrityError, FrontendBuildError,
+    return (BundleInputsError, ArtifactDownloadError, BundleHostRuntimeError, DependencyIntegrityError, EnvironmentImportError, FrontendBuildError,
             ManagerBuildError, PackageCacheError, PackageCommandError, PackageProxyConfigError, PackageTimeoutError, PackageTrustError,
             PermissionCheckError, ProductionSourceNotPrepared, ResourceLockError, RuntimeValidationError,
             StartupReadinessError, SystemNodeError, SystemPythonError, TLSFileError, VirtualEnvironmentError,
@@ -135,6 +137,8 @@ def _errors_with_remedy():
 def _failure_reason(error):
     """Translate reviewed error categories, never interpolate exception payloads."""
     from scripts.launcher.installation_connection import ConnectionError, MissingProductionSettings
+    if isinstance(error, TimeoutExpired):
+        return 'operation_timeout', 'İşlem süre sınırında tamamlanamadı.'
     if isinstance(error, (ConnectionError, MissingProductionSettings)) or isinstance(error, _errors_with_remedy()):
         return error.code, str(error)
     if isinstance(error, UnicodeError):
@@ -257,7 +261,8 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
         emit({'type': 'done', 'ok': False})
 
 
-def _project_for(action, args):
+def _project_for(action, args, *, before_lock=False):
+    """Plan from bounded layout only; verify selected source after taking leases."""
     from scripts.launcher.discovery import discover_project
     from scripts.launcher.installation import require_windows
     from scripts.launcher.installation_profiles import installation_home
@@ -269,7 +274,15 @@ def _project_for(action, args):
                   'Proje kaynağı ve paket bütünlüğü doğrulanıyor')
     require_windows()
     source = Path(args.source_root)
-    if editable:
+    if before_lock and not editable:
+        from .ensure import resolve_source
+        # Preliminary decisions inspect the recorded profile, even when the
+        # operator selected different media. Keep that explicit selection for
+        # full identity and source checks after the real leases are acquired.
+        preliminary = argparse.Namespace(**{**vars(args), 'source_selection': 'automatic'})
+        resolve_source(preliminary)
+        source = Path(preliminary.source_root)
+    if before_lock or editable:
         return _editable_project(source)
     if args.profile == 'prod' and action != 'bundle':
         from .payload import resolve_production_source, stage_production_source
@@ -278,8 +291,47 @@ def _project_for(action, args):
         source = select(source, installation_home())
     elif getattr(sys, 'frozen', False) and not (source / '.git').exists():
         from .payload import verify_source_payload
-        verify_source_payload(source)
+        state = _local_source_state(source, args, action) if args.profile == 'dev' and action != 'bundle' else None
+        verify_source_payload(source, **({'local_state': state} if state is not None else {}))
     return discover_project(source)
+
+
+def _local_source_state(source, args, action):
+    """Read accepted output history before checking a packaged local workspace."""
+    from scripts.launcher.installation_profiles import installation_home, load_profile
+    from scripts.launcher.installation_permissions import require_unlinked
+    from scripts.launcher.installation_local_config import resolve_local_configuration
+    project = _editable_project(source)
+    path = installation_home() / 'config' / 'dev.profile.json'
+    require_unlinked(path)
+    pending = path.with_name('dev.pending.json')
+    require_unlinked(pending)
+    if pending.exists():
+        candidate = _pending_source_profile(project, installation_home(), pending)
+        return candidate.get('local_configuration', {}).get('state_paths', {'files': [], 'directories': []})
+    profile = load_profile(project, 'dev') if path.exists() else None
+    selected = _recorded_local_inputs(profile, args) if profile and action in {'start', 'doctor'} else args
+    candidate, _values = resolve_local_configuration(project, selected, profile)
+    return candidate['local_configuration']['state_paths']
+
+
+def _pending_source_profile(project, home, pending):
+    """Admit source exclusions only; replay under write leases validates all bytes."""
+    from scripts.launcher.installation_bundle import _json_object
+    from scripts.launcher.installation_permissions import require_private
+    from scripts.launcher.installation_profiles import PROFILE_VERSION, _validate_options
+    for path in (home, pending.parent, pending):
+        require_private(path)
+    document = _json_object(pending, limit=512 * 1024)
+    candidate = document.get('profile')
+    if (document.get('version') != 1 or document.get('operation') not in {'create', 'assets', 'connection', 'local'}
+            or not isinstance(candidate, dict) or candidate.get('version') != PROFILE_VERSION
+            or candidate.get('name') != 'dev' or candidate.get('source_root') != str(project.root.resolve())
+            or candidate.get('installation_home') != str(home)
+            or candidate.get('env_file') != str(pending.with_name('dev.env'))):
+        raise LauncherError('Pending local source metadata is invalid; configuration values have been withheld')
+    _validate_options(candidate)
+    return candidate
 
 
 def _editable_project(source):
@@ -381,8 +433,7 @@ def _dispatch_claimed(action, args, emit):
     project = _project_for(action, args)
     if args.env_file and action in {'start', 'doctor'}:
         from scripts.launcher.installation_profiles import load_profile
-        from scripts.launcher.installation_env import check_selected_environment
-        check_selected_environment(project, load_profile(project, args.profile), args.env_file)
+        _check_environment_source(project, load_profile(project, args.profile), args)
     if action == 'doctor':
         from scripts.launcher.installation import doctor
         emit({'type': 'checks', 'checks': doctor(project, args.profile)})
@@ -390,6 +441,31 @@ def _dispatch_claimed(action, args, emit):
         _bundle(project, args, emit)
     else:
         _lifecycle(project, action, args, emit)
+
+
+def _check_environment_source(project, profile, args):
+    """Read-only actions compare the source with its recorded explicit overrides."""
+    from scripts.launcher.installation_env import EnvironmentImportError, check_selected_environment
+    if profile['name'] != 'dev' or 'local_configuration' not in profile:
+        check_selected_environment(project, profile, args.env_file)
+        return
+    from scripts.launcher.installation_local_config import configuration_changed
+    selected = _recorded_local_inputs(profile, args)
+    if configuration_changed(project, selected, profile):
+        raise EnvironmentImportError('env_import_required')
+
+
+def _recorded_local_inputs(profile, args):
+    """Recover explicit inputs for legacy read-only actions, never resolved values."""
+    overrides = profile.get('local_configuration', {}).get('overrides', {})
+    selected = argparse.Namespace(**vars(args))
+    selected.host = overrides.get('host')
+    for field in ('backend_port', 'frontend_port'):
+        value = overrides.get(field)
+        setattr(selected, field, None if value == 'auto' else value)
+    selected.automatic_ports = tuple(field for field in ('backend_port', 'frontend_port')
+                                     if overrides.get(field) == 'auto')
+    return selected
 
 
 def _bundle(project, args, emit):
@@ -429,25 +505,31 @@ def _run_lifecycle(project, action, args, emit, *, ensured=False):
         from .ensure import claimed
         return claimed(project, action, args, emit)
     from scripts.launcher.installation import provision, start_profile
-    if action == 'provision':
-        if args.env_file:
-            from scripts.launcher.installation_env import read_selected_environment
-            read_selected_environment(project, args.profile, args.env_file)
-        if getattr(sys, 'frozen', False):
-            args.runtime_dirs = (Path(sys.executable).parent,)
-        emit({'type': 'checks', 'checks': provision(project, args)})
-    args.progress('Uygulama ve worker süreçleri başlatılıyor')
-    def ready(profile):
-        check_cancelled()
-        from scripts.launcher.startup_metrics import emit_startup_work
-        emit_startup_work()
-        url = (f"https://{profile['host']}:{profile['backend_port']}/app/" if profile['name'] == 'prod' else
-               f"http://{profile['host']}:{profile['frontend_port']}/app/")
-        emit({'type': 'ready', 'url': url})
-    def lifecycle_event(event):
-        if event.get('type') == 'phase':
-            args.progress(event['message'])
-        else:
-            emit(event)
-    options = {'validation_policy': 'developer'} if getattr(args, 'validation_policy', 'managed') == 'developer' else {}
-    start_profile(project, args.profile, on_ready=ready, on_health=lifecycle_event, **options)
+    scope = nullcontext()
+    if action == 'provision' and args.profile == 'prod':
+        from scripts.launcher.production_build import deployment_checks_scope
+        scope = deployment_checks_scope()
+    with scope:
+        if action == 'provision':
+            if args.env_file:
+                from scripts.launcher.installation_env import read_selected_environment
+                read_selected_environment(project, args.profile, args.env_file)
+            if getattr(sys, 'frozen', False):
+                args.runtime_dirs = (Path(sys.executable).parent,)
+            emit({'type': 'checks', 'checks': provision(project, args)})
+        args.progress('Uygulama ve worker süreçleri başlatılıyor')
+        def ready(profile):
+            check_cancelled()
+            from scripts.launcher.startup_metrics import emit_startup_work
+            from scripts.launcher.runtime import public_url
+            emit_startup_work()
+            url = (f"https://{profile['host']}:{profile['backend_port']}/app/" if profile['name'] == 'prod' else
+                   public_url(profile['host'], profile['frontend_port']) + '/app/')
+            emit({'type': 'ready', 'url': url})
+        def lifecycle_event(event):
+            if event.get('type') == 'phase':
+                args.progress(event['message'])
+            else:
+                emit(event)
+        options = {'validation_policy': 'developer'} if getattr(args, 'validation_policy', 'managed') == 'developer' else {}
+        start_profile(project, args.profile, on_ready=ready, on_health=lifecycle_event, **options)

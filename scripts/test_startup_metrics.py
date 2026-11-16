@@ -11,7 +11,7 @@ class StartupMetricsTests(unittest.TestCase):
         from scripts.manager.payload import _source_inventory
         events = []
         with tempfile.TemporaryDirectory() as directory, startup_work(events.append):
-            self.assertEqual(_source_inventory(Path(directory)), [])
+            self.assertEqual(_source_inventory(Path(directory).resolve()), [])
         self.assertEqual(events[-1]['counts']['source_inventory'], 1)
 
     def test_counts_are_scoped_and_published_before_readiness_without_paths(self):

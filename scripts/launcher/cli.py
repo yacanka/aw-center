@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from subprocess import TimeoutExpired
 from pathlib import Path
 
 from .dependencies import install, prepare_offline
@@ -30,6 +31,9 @@ def main(arguments: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nİşlem iptal edildi.", file=sys.stderr)
         return 130
+    except TimeoutExpired:
+        print('[error] İşlem süre sınırında tamamlanamadı; ilgili aşamayı kontrol edip yeniden deneyin.', file=sys.stderr)
+        return 1
     except (LauncherError, OSError, ValueError) as error:
         print(f"[error] {error}", file=sys.stderr)
         return 1

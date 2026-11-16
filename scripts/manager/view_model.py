@@ -74,8 +74,13 @@ def _validate_provision(values: dict) -> None:
         if value and (not value.isascii() or not value.isdigit() or not 1 <= int(value) <= 65535):
             raise FormError(field, "Port 1 ile 65535 arasında bir tam sayı olmalıdır.")
     if values["profile"] == "dev":
-        if values["host"] and values["host"] != "127.0.0.1":
-            raise FormError("host", "Geliştirme profili için 127.0.0.1 kullanın.")
+        if values["host"] and values["host"].lower() != "localhost":
+            try:
+                host = ipaddress.IPv4Address(values["host"])
+            except ValueError:
+                host = None
+            if host is None or host.is_multicast or host == ipaddress.IPv4Address('255.255.255.255'):
+                raise FormError("host", "Yerel sunucu için geçerli bir IPv4 adresi veya localhost girin.")
         if values["backend_port"] not in {'', 'auto'} and values["backend_port"] == values["frontend_port"]:
             raise FormError("frontend_port", "Frontend ve backend portları farklı olmalıdır.")
         return
@@ -319,6 +324,7 @@ class ManagerTaskStates:
         snapshot = self.profiles.get(profile, {})
         status = snapshot.get('status', 'inspecting')
         actions = {'inspecting': ('ensure', 'AW Center’ı aç'), 'not_installed': ('ensure', 'AW Center’ı aç'),
+                   'unverified': ('ensure', 'AW Center’ı aç'),
                    'stopped': ('ensure', 'AW Center’ı aç'),
                    'incomplete': ('ensure', 'Tamamla ve aç'), 'blocked': ('doctor', 'Tam doğrula')}
         action, label = actions.get(status, (None, 'Denetleniyor…'))

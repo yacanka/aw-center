@@ -33,6 +33,7 @@ MANAGER_SOURCE_FILES = (
     'backend/users/initial_admin.py',
     'scripts/launcher/system_python.py',
     'scripts/launcher/installation_env.py',
+    'scripts/launcher/installation_local_config.py',
     'scripts/launcher/probe_budget.py', 'scripts/launcher/runtime_selection.py',
     'scripts/launcher/resource_locks.py',
     'scripts/launcher/production_build.py',
@@ -89,7 +90,7 @@ def _generated(relative: Path) -> bool:
             any(relative.parts[:len(parts)] == parts for parts in GENERATED_DIRECTORIES))
 
 
-def _source_inventory(source: Path) -> list[dict]:
+def _source_inventory(source: Path, *, state_files=(), state_directories=()) -> list[dict]:
     """Hash exact source while allowing only declared generated runtime state."""
     from scripts.launcher.startup_metrics import count_startup_work
     count_startup_work('source_inventory')
@@ -98,15 +99,19 @@ def _source_inventory(source: Path) -> list[dict]:
         raise LauncherError('Manager source directory is unavailable')
     artifacts = []
     names = set()
+    def local_state(relative):
+        name = relative.as_posix().casefold()
+        return name in state_files or any(name == root or name.startswith(root + '/') for root in state_directories)
     for current, directories, files in os.walk(source, followlinks=False):
         base = Path(current)
-        directories[:] = [name for name in directories if not _generated((base / name).relative_to(source))]
+        directories[:] = [name for name in directories if not _generated((base / name).relative_to(source))
+                          and not local_state((base / name).relative_to(source))]
         for name in directories:
             require_unlinked(base / name)
         for name in files:
             path = base / name
             relative = path.relative_to(source)
-            if relative.as_posix() == SOURCE_MANIFEST or _generated(relative):
+            if relative.as_posix() == SOURCE_MANIFEST or _generated(relative) or local_state(relative):
                 continue
             require_unlinked(path)
             _relative_path(relative.as_posix())
@@ -149,13 +154,38 @@ def _validate_manifest(manifest: dict) -> list[dict]:
     return ordered
 
 
-def verify_source_payload(source: Path) -> dict:
+def _local_state_exclusions(source, expected, state):
+    """Admit local outputs without exempting any manifest-owned source file."""
+    from scripts.launcher.installation_profiles import EnvironmentImportError
+    if (not isinstance(state, dict) or set(state) != {'files', 'directories'}
+            or any(not isinstance(state[key], list) or len(state[key]) > 1024 for key in state)):
+        raise EnvironmentImportError('env_local_setting_invalid')
+    protected = {entry['path'].casefold() for entry in expected}
+    result = {}
+    for kind in ('files', 'directories'):
+        paths = set()
+        for value in state[kind]:
+            relative = _relative_path(value)
+            name = relative.as_posix().casefold()
+            if name in protected or (kind == 'directories' and any(path.startswith(name + '/') for path in protected)):
+                raise EnvironmentImportError('env_local_setting_invalid')
+            path = source / relative
+            require_unlinked(path)
+            if path.exists() and (path.is_dir() != (kind == 'directories')):
+                raise EnvironmentImportError('env_local_setting_invalid')
+            paths.add(name)
+        result[kind] = paths
+    return result['files'], result['directories']
+
+
+def verify_source_payload(source: Path, *, local_state=None) -> dict:
     """Verify a transferred or already staged source, without modifying it."""
     source = Path(source).absolute()
     require_unlinked(source / SOURCE_MANIFEST)
     manifest = _json_object(source / SOURCE_MANIFEST)
     expected = _validate_manifest(manifest)
-    if expected != _source_inventory(source):
+    files, directories = _local_state_exclusions(source, expected, local_state) if local_state is not None else ((), ())
+    if expected != _source_inventory(source, state_files=files, state_directories=directories):
         raise LauncherError('Manager source checksum verification failed; source was not changed')
     return manifest
 
@@ -214,8 +244,7 @@ def production_source_path(home: Path, fingerprint: str) -> Path:
     return home / 'r' / fingerprint[:12]
 
 
-def _stage_verified(source: Path, home: Path) -> Path:
-    manifest = verify_source_payload(source)  # Validate before creating home.
+def _stage_verified(source: Path, home: Path, manifest: dict) -> Path:
     with installation_lock(home):
         releases = private_directory(home / 'r', root=home)
         target = production_source_path(home, manifest['fingerprint'])
@@ -266,16 +295,16 @@ def _selected_paths(source: Path, home: Path) -> tuple[Path, Path, bool]:
 @contextmanager
 def _selected_source(source: Path):
     if (source / SOURCE_MANIFEST).exists():
-        verify_source_payload(source)
-        yield source
+        manifest = verify_source_payload(source)
+        yield source, manifest
         return
     if not (source / '.git').exists():
         raise LauncherError('Extracted manager source requires its checksum manifest')
     project = Project(source, source / 'backend/manage.py', source / 'frontend/package.json', source / 'requirements.txt')
     with tempfile.TemporaryDirectory(prefix='awcenter-manager-source-') as temporary:
         selected = Path(temporary).resolve() / 'source'
-        prepare_source_payload(project, selected)
-        yield selected
+        manifest = prepare_source_payload(project, selected)
+        yield selected, manifest
 
 
 def resolve_production_source(source: Path, home: Path) -> Path:
@@ -283,8 +312,7 @@ def resolve_production_source(source: Path, home: Path) -> Path:
     source, home, canonical = _selected_paths(source, home)
     if canonical:
         return source
-    with _selected_source(source) as selected:
-        manifest = verify_source_payload(selected)
+    with _selected_source(source) as (selected, manifest):
         target = production_source_path(home, manifest['fingerprint'])
         require_unlinked(target)
         if not target.exists():
@@ -307,5 +335,5 @@ def stage_production_source(source: Path, home: Path) -> Path:
     source, home, canonical = _selected_paths(source, home)
     if canonical:
         return source
-    with _selected_source(source) as selected:
-        return _stage_verified(selected, home)
+    with _selected_source(source) as (selected, manifest):
+        return _stage_verified(selected, home, manifest)

@@ -59,8 +59,8 @@ class DeveloperStartupTests(unittest.TestCase):
         events = []
         with patch.object(inspection, 'require_windows'), \
              patch.object(inspection, 'installation_home', return_value=self.home), \
-             patch.object(inspection, 'inspect_toolchain', side_effect=AssertionError('runtime probe')), \
-             patch.object(inspection, '_core_checks', side_effect=AssertionError('backend checks')), \
+             patch.object(installation, 'inspect_toolchain', side_effect=AssertionError('runtime probe')), \
+             patch.object(installation, '_core_checks', side_effect=AssertionError('backend checks')), \
              patch.object(packages, '_package_inventory', side_effect=AssertionError('inventory')), \
              patch('scripts.launcher.discovery.bounded_matches', side_effect=AssertionError('source inventory')), \
              patch('scripts.launcher.runtime_selection.tool_choices', side_effect=AssertionError('runtime selection')), \
@@ -105,7 +105,9 @@ class DeveloperStartupTests(unittest.TestCase):
              patch('scripts.manager.payload.verify_source_payload', side_effect=LauncherError('changed')) as verify:
             with self.assertRaises(LauncherError):
                 operations._project_for('start', self.args(validation_policy='managed'))
-        verify.assert_called_once_with(self.project.root)
+        verify.assert_called_once()
+        self.assertEqual(verify.call_args.args, (self.project.root,))
+        self.assertIn('local_state', verify.call_args.kwargs)
 
     def test_ready_ensure_uses_fresh_backend_without_inventory_or_install(self):
         self.prepared()
@@ -141,6 +143,47 @@ class DeveloperStartupTests(unittest.TestCase):
             checks = packages.dependency_checks(self.project, developer=True, verify=False)
         self.assertEqual([(row['name'], row['status']) for row in checks],
                          [('python-packages', 'ready'), ('frontend-packages', 'missing')])
+
+    def test_managed_start_rejects_missing_frontend_output_before_backend_probe(self):
+        self.prepared()
+        (self.project.frontend / 'node_modules/vite/bin/vite.js').unlink()
+        with patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]), \
+             patch.object(installation, 'backend_inspection') as backend:
+            with self.assertRaises(packages.DependencyIntegrityError):
+                ensure.needs_preparation(self.project, self.args(validation_policy='managed'))
+        backend.assert_not_called()
+
+    def test_developer_start_prepares_missing_frontend_output_without_inventory(self):
+        self.prepared()
+        (self.project.frontend / 'node_modules/vite/bin/vite.js').unlink()
+        with patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]), \
+             patch.object(packages, '_package_inventory', side_effect=AssertionError('inventory')), \
+             patch.object(installation, 'backend_inspection',
+                          return_value={'schema': 'ready', 'admin_exists': True}):
+            self.assertTrue(ensure.needs_preparation(self.project, self.args()))
+
+    def test_package_repair_requires_explicit_developer_manager_start(self):
+        profiles.provision_profile(self.project, 'dev', self.home)
+        tools = {'AWCENTER_MANAGED_PYTHON': str(self.root / 'managed-python.exe')}
+        class PackagesReached(Exception):
+            pass
+        for policy, manager_ensure, repair in ((None, True, False), ('managed', True, False),
+                                                ('developer', True, True), ('developer', False, False)):
+            with self.subTest(policy=policy, manager_ensure=manager_ensure):
+                args = self.args(install_python=True, install_node=True, source_mode='offline')
+                if policy is None:
+                    del args.validation_policy
+                else:
+                    args.validation_policy = policy
+                args.manager_ensure = manager_ensure
+                with patch.object(installation, 'require_windows'), \
+                     patch.object(installation, 'installation_home', return_value=self.home), \
+                     patch.object(installation, 'ensure_toolchain', return_value=tools), \
+                     patch.object(installation, 'install_dependencies', side_effect=PackagesReached) as install:
+                    with self.assertRaises(PackagesReached):
+                        installation._provision(self.project, args)
+                self.assertEqual(install.call_args.kwargs.get('repair_packages', False), repair)
+                self.assertEqual(install.call_args.kwargs['repair_venv'], manager_ensure)
 
     def test_under_lease_backend_changes_replan_and_do_not_start(self):
         self.prepared()

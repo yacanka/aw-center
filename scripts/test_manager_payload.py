@@ -120,6 +120,52 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(len(manifest['fingerprint']), 64)
         require_private(first)
 
+    def test_first_staging_hashes_selected_source_and_copied_target_once(self):
+        source = self.prepare()
+        with patch.object(self.payload, '_source_inventory', wraps=self.payload._source_inventory) as inventory:
+            target = self.payload.stage_production_source(source, self.root / 'home')
+        self.assertEqual(inventory.call_count, 2)
+        self.assertEqual(inventory.call_args_list[0].args, (source,))
+        self.assertNotEqual(inventory.call_args_list[1].args, (source,))
+        self.assertEqual((target / 'launcher.py').read_bytes(), (source / 'launcher.py').read_bytes())
+
+    def test_existing_release_selection_hashes_each_external_source_once_per_call(self):
+        source = self.prepare()
+        home = self.root / 'home'
+        target = self.payload.stage_production_source(source, home)
+        for select in (self.payload.stage_production_source, self.payload.resolve_production_source):
+            with self.subTest(select=select.__name__):
+                with patch.object(self.payload, '_source_inventory', wraps=self.payload._source_inventory) as inventory:
+                    self.assertEqual(select(source, home), target)
+                self.assertEqual([call.args for call in inventory.call_args_list], [(source,), (target,)])
+
+    def test_canonical_release_selection_hashes_source_once_per_call(self):
+        source = self.prepare()
+        home = self.root / 'home'
+        target = self.payload.stage_production_source(source, home)
+        for select in (self.payload.stage_production_source, self.payload.resolve_production_source):
+            with self.subTest(select=select.__name__):
+                with patch.object(self.payload, '_source_inventory', wraps=self.payload._source_inventory) as inventory:
+                    self.assertEqual(select(target, home), target)
+                self.assertEqual([call.args for call in inventory.call_args_list], [(target,)])
+
+    def test_successful_selection_never_reuses_proof_after_input_or_target_changes(self):
+        source = self.prepare()
+        home = self.root / 'home'
+        target = self.payload.stage_production_source(source, home)
+        original = (source / 'launcher.py').read_bytes()
+        for select in (self.payload.stage_production_source, self.payload.resolve_production_source):
+            for changed in (source, target):
+                with self.subTest(select=select.__name__, changed=changed.name):
+                    self.assertEqual(select(source, home), target)
+                    (changed / 'launcher.py').write_text('tampered\n', encoding='utf-8')
+                    try:
+                        with self.assertRaises(LauncherError):
+                            select(source, home)
+                        self.assertEqual((changed / 'launcher.py').read_text(encoding='utf-8'), 'tampered\n')
+                    finally:
+                        (changed / 'launcher.py').write_bytes(original)
+
     def test_production_package_paths_fit_without_machine_long_path_policy(self):
         from pathlib import PureWindowsPath
         source = self.prepare()

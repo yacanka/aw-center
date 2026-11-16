@@ -154,6 +154,7 @@ class ManagerWindow:
         self._wrapping: list[ttk.Label] = []
         self.status_var = tk.StringVar(root, value=self.state.status)
         self.error_var = tk.StringVar(root)
+        self.error_remedy_var = tk.StringVar(root)
         self.source_help_var = tk.StringVar(root)
         self.profile_help_var = tk.StringVar(root)
         self.advanced_var = tk.BooleanVar(root, value=False)
@@ -529,7 +530,7 @@ class ManagerWindow:
             entry.grid(row=1, column=0, sticky="ew")
             self._fields[key], self._field_titles[key], self._field_tabs[key] = entry, title, self.run_tab
             self._controls.append(entry)
-        self._label(paths, "Boş alanlar mevcut profili korur. Yerel portta auto yazılması otomatik seçimi etkinleştirir.", style="Manager.PanelMuted.TLabel").grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 12))
+        self._label(paths, "Dolu alanlar .env değerlerini geçersiz kılar; boş alanlarda önce .env, ardından varsayılanlar kullanılır. Yerel portta auto otomatik seçimi etkinleştirir.", style="Manager.PanelMuted.TLabel").grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 12))
         self.tls_frame = ttk.Frame(paths, style='Manager.Panel.TFrame')
         self.tls_frame.grid(row=4, column=0, columnspan=3, sticky='ew')
         self._entry(self.tls_frame, 0, 'tls_cert_file', 'TLS sertifikası (prod)', tab=self.run_tab, picker='certificate')
@@ -580,7 +581,7 @@ class ManagerWindow:
         self._controls.append(managed_node)
         self._label(parent, 'Boşsa önce uygun sistem Node.js aranır; bulunamazsa yönetilen Node.js kurulur. node, node.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Node.js seçimini kullanır.').grid(row=10, column=0, columnspan=3, sticky='ew', pady=(4, 12))
         self._entry(parent, 11, 'env_file', '.env dosyası (isteğe bağlı)', tab=self.run_tab, picker='environment')
-        self._label(parent, 'Kur ve başlat seçilen dosyayı özel profile aktarır; kaynak dosya değiştirilmez. Boşsa mevcut profil veya otomatik yapılandırma kullanılır. Değişmiş dosyayı önce Kur ve başlat ile uygulayın.').grid(row=12, column=0, columnspan=3, sticky='ew', pady=(4, 0))
+        self._label(parent, 'AW Center’ı aç seçilen dosyadaki uygulama ayarlarını her açılışta okur; kaynak dosyayı değiştirmez. Manager’a girdiğiniz değerler .env değişse de geçerlidir. Alanı temizlemek .env değerini, orada da yoksa varsayılanı kullanır.').grid(row=12, column=0, columnspan=3, sticky='ew', pady=(4, 0))
 
     def _set_advanced(self, expanded: bool):
         self.advanced_var.set(expanded)
@@ -674,8 +675,9 @@ class ManagerWindow:
         self.error_frame.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         self.error_frame.columnconfigure(0, weight=1)
         self._label(self.error_frame, textvariable=self.error_var, style="Manager.TLabel").grid(row=0, column=0, sticky="ew")
+        self._label(self.error_frame, textvariable=self.error_remedy_var, style="Manager.Muted.TLabel").grid(row=1, column=0, sticky="ew", pady=(4, 0))
         bar = ttk.Frame(self.error_frame)
-        bar.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        bar.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         self.retry_button = ttk.Button(bar, text="Tekrar denetle ve dene", command=self._retry)
         self.retry_button.grid(row=0, column=0, sticky="w")
         ttk.Button(bar, text="Kaynakları değiştir", command=self._show_sources).grid(row=0, column=1, sticky="w", padx=(8, 0))
@@ -795,6 +797,7 @@ class ManagerWindow:
             self._fit_layout()
             if self.state.error_message:
                 self.error_var.set(self._error_summary())
+                self.error_remedy_var.set(self._error_summary(self.state.error_remedy))
 
     def _fit_layout(self):
         # Reserve useful form/report space on smaller displays and at large
@@ -805,9 +808,9 @@ class ManagerWindow:
             self._compact_layout = compact
             self._set_task_details(not compact)
 
-    def _error_summary(self):
+    def _error_summary(self, message=None):
         """Keep recovery controls visible; the report retains the complete error."""
-        message = self.state.error_message
+        message = self.state.error_message if message is None else message
         summary = message.splitlines()[0][:100]
         width = max(240, self.root.winfo_width() - 100)
         while summary and self._section_font.measure(summary + "…") > width:
@@ -857,7 +860,7 @@ class ManagerWindow:
         self.action_buttons['start'].configure(text=profile_state['label'],
             state="normal" if profile_state['action'] else "disabled")
         self.action_buttons['start'].grid()
-        self.profile_help_var.set("Dev: yerel geliştirme sunucuları; host 127.0.0.1 ile sınırlıdır." if profile == "dev" else "Prod: HTTPS, sabit IPv4 ve ayrı özel veritabanı / artifact dizinleri.")
+        self.profile_help_var.set("Dev: yerel geliştirme sunucuları; varsayılan host 127.0.0.1, açıkça girilen IPv4 veya localhost kullanılabilir." if profile == "dev" else "Prod: HTTPS, sabit IPv4 ve ayrı özel veritabanı / artifact dizinleri.")
         self.source_help_var.set({
             "online": "Doğrulanmış yerel paketler kullanılır; eksikler için önce genel internet, ardından seçilen kurumsal kaynaklar denenir.",
             "restricted": "Önce doğrulanmış yerel paketler, sonra seçilen depolar ve genel internet kaynakları otomatik denenir. Geçici bağlantı hataları yeniden denenir; yalnız çözülemeyen ihtiyaçlar bildirilir.",
@@ -897,7 +900,7 @@ class ManagerWindow:
         self.task_count_var.set(f"{active} aktif · {len(tasks)} işlem" if tasks else "Henüz işlem yok")
         current = self._profile_presentation()
         name = 'Geliştirme' if self.variables['profile'].get() == 'dev' else 'Üretim'
-        descriptions = {'not_installed': 'kurulumu gerekli', 'stopped': 'ortamı hazır',
+        descriptions = {'not_installed': 'kurulumu gerekli', 'stopped': 'ortamı hazır', 'unverified': 'profili kayıtlı',
             'incomplete': 'kurulumu tamamlanmalı', 'blocked': 'kurulumu engellendi',
             'inspecting': 'ortamı denetleniyor', 'degraded': 'ortamında sağlık sorunu',
             'running': 'işlemi sürüyor', 'finishing': 'işlemi tamamlanıyor', 'stopping': 'ortamı durduruluyor'}
@@ -942,9 +945,11 @@ class ManagerWindow:
         if self.state.error_message:
             # Full sanitized error/remedy/code remain in the selectable report.
             self.error_var.set(self._error_summary())
+            self.error_remedy_var.set(self._error_summary(self.state.error_remedy))
             self.error_frame.grid()
         else:
             self.error_var.set("")
+            self.error_remedy_var.set("")
             self.error_frame.grid_remove()
         if self.tabs.select() == str(self.report_tab):
             self._render_report()

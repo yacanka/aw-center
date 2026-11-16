@@ -20,7 +20,7 @@ class DeveloperDependencyTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.project = create_project(self.root)
         self.frontend = self.project.frontend / 'node_modules'
         self.lock = self.project.frontend / 'package-lock.json'
@@ -120,7 +120,7 @@ class DeveloperRuntimeTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.artifacts = {}
         for name, version, executable in (('python', '3.11.18', 'python/python.exe'),
                                           ('node', '22.23.4', 'node/node.exe'),

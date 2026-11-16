@@ -46,7 +46,7 @@ class InspectionTests(unittest.TestCase):
             self.assertIn('Python 3.11', events[-1]['tools'])
             self.assertFalse(home.exists())
 
-    def test_existing_canonical_profile_is_detected_as_prepared(self):
+    def test_existing_canonical_profile_is_unverified_until_startup(self):
         from scripts.manager import inspection, operations
         from scripts.launcher.installation_profiles import provision_profile
         from scripts.launcher_test_support import create_project
@@ -56,14 +56,16 @@ class InspectionTests(unittest.TestCase):
             project = create_project(root / 'source')
             home = root / 'private'
             provision_profile(project, 'dev', home)
+            project.python.parent.mkdir(parents=True)
+            project.python.touch()
+            args = operations.arguments({'action': 'inspect', 'source_root': str(project.root)})
+            args.source_root = str(project.root)
             events = []
             with patch.object(inspection, 'installation_home', return_value=home), \
                  patch.object(inspection, 'require_windows'), \
-                 patch.object(operations, '_project_for', return_value=project), \
-                 patch.object(inspection, 'inspect_toolchain', return_value=[{'status': 'ready'}]), \
-                 patch.object(inspection, '_core_checks', return_value=[]):
-                inspection.inspect_profile(operations.arguments({'action': 'inspect'}), events.append)
-            self.assertEqual(events[-1]['status'], 'stopped')
+                 patch.object(operations, '_project_for', side_effect=AssertionError('source inspection used')):
+                inspection.inspect_profile(args, events.append)
+            self.assertEqual(events[-1]['status'], 'unverified')
 
 
 class AdaptiveStateTests(unittest.TestCase):

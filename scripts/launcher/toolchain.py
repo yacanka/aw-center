@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import tarfile
 import zipfile
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from .installation_sources import Artifact, SourceSettings, _digest, _no_symlink, _safe_member, _verify as verify_artifact, fetch_artifact, load_catalog, safe_extract
@@ -31,6 +33,38 @@ MANAGED_RUNTIME_ENVIRONMENT = {
     "PYTHONHOME": "", "PYTHONPATH": "", "PYTHONSTARTUP": "", "PYTHONUSERBASE": "",
     "NODE_OPTIONS": "", "NODE_PATH": "", "NODE_TLS_REJECT_UNAUTHORIZED": "1",
 }
+_verified_inspection = ContextVar('awcenter_verified_toolchain_inspection', default=None)
+
+
+def _inspection_identity(home, python_executable, node_executable, verify):
+    paths = (home, python_executable, node_executable)
+    if any(path is not None and not Path(path).is_absolute() for path in paths):
+        return None
+    return tuple(str(Path(path)) if path is not None else None for path in paths) + (verify,)
+
+
+@contextmanager
+def verified_toolchain_scope(home: Path, checks: list[dict], *, python_executable: Path | None = None,
+                             node_executable: Path | None = None, verify: bool = True,
+                             npm_cli: Path | None = None, validated_python: Path | None = None):
+    """Reuse ready checks for the same verification policy and start leases.
+
+    The caller must retain its resource/lifecycle leases from inspection until
+    this scope exits, and must not provision or otherwise mutate the runtimes.
+    No inspection proof survives the operation, including failed starts.
+    Developer identity/version checks never authorize full byte verification.
+    """
+    identity = _inspection_identity(home, python_executable, node_executable, verify)
+    complete = (tuple(row.get('name') for row in checks) == tuple(load_catalog()) and
+                all(row.get('status') == 'ready' for row in checks))
+    runtime_paths = {name: path for name, path in (('npm_cli', npm_cli), ('validated_python', validated_python))
+                     if path is not None}
+    snapshot = (identity, tuple(dict(row) for row in checks), runtime_paths) if identity is not None and complete else None
+    token = _verified_inspection.set(snapshot)
+    try:
+        yield
+    finally:
+        _verified_inspection.reset(token)
 
 
 class RuntimeValidationError(LauncherError):
@@ -334,8 +368,20 @@ def _has_receipt(target: Path, artifact: Artifact) -> bool:
 
 
 def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
-                      node_executable: Path | None = None, verify: bool = True) -> list[dict]:
-    """Inspect full managed bytes by default, or only runtime identity/version."""
+                      node_executable: Path | None = None, verify: bool = True,
+                      observed_runtime: dict | None = None) -> list[dict]:
+    """Inspect bytes or identity/version; optionally retain proven runtime paths.
+
+    The private path output is for environment construction under the same
+    leases; checklist rows contain only public diagnostic information.
+    """
+    if observed_runtime is not None:
+        observed_runtime.clear()
+    snapshot = _verified_inspection.get()
+    if snapshot is not None and snapshot[0] == _inspection_identity(home, python_executable, node_executable, verify):
+        if observed_runtime is not None:
+            observed_runtime.update(snapshot[2])
+        return [dict(row) for row in snapshot[1]]
     checks = []
     catalog = load_catalog()
     verified_node = None
@@ -343,7 +389,9 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
         if name == 'python' and python_executable is not None:
             from .system_python import validate_python
             try:
-                validate_python(python_executable)
+                validated_python = validate_python(python_executable)
+                if observed_runtime is not None and Path(python_executable).name.casefold() == 'pythonw.exe':
+                    observed_runtime['validated_python'] = validated_python
                 checks.append({'name': 'python', 'status': 'ready', 'detail': 'Sistem CPython 3.11 x64 doğrulandı; yönetilen arşiv gerekmez.'})
             except LauncherError as error:
                 if isinstance(error, OperationCancelled):
@@ -360,7 +408,10 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
             continue
         if name == 'npm' and node_executable is not None and verified_node is not None:
             from .system_node import find_npm_cli
-            if find_npm_cli(verified_node, artifact.version, compatible=True) is not None:
+            npm_cli = find_npm_cli(verified_node, artifact.version, compatible=True)
+            if npm_cli is not None:
+                if observed_runtime is not None:
+                    observed_runtime['npm_cli'] = npm_cli
                 checks.append({'name': 'npm', 'status': 'ready', 'detail': 'Uyumlu sistem npm doğrulandı; yönetilen arşiv gerekmez.'})
                 continue
         target = _directory(Path(home), artifact)
@@ -391,6 +442,8 @@ def inspect_toolchain(home: Path, *, python_executable: Path | None = None,
                 detail = (f"managed {name} {artifact.version} verified" if verify else
                           f"{name} {artifact.version}: geliştirici hızlı kontrolü; tam dosya bütünlüğü doğrulanmadı.")
                 check.update(status="ready", detail=detail)
+                if name == 'npm' and observed_runtime is not None:
+                    observed_runtime['npm_cli'] = target / artifact.executable
             else:
                 detail = (f"{name} dosyaları doğrulandı. Sürüm doğrulama kaydı eksik." if verify else
                           f"{name}: tamamlanmış runtime doğrulama kaydı eksik; hazırlama gerekli.")
@@ -408,15 +461,17 @@ def toolchain_environment(home: Path, *, python_executable: Path | None = None,
     """Return existing runtimes after the requested checks, without installation."""
     options = {}
     if python_executable is not None:
-        # Older profiles can retain the Manager's windowed interpreter. Keep
-        # the validated console base in the returned process environment too.
-        if Path(python_executable).name.casefold() == 'pythonw.exe':
-            from .system_python import validate_python
-            python_executable = validate_python(python_executable)
         options['python_executable'] = python_executable
     if node_executable is not None:
         options['node_executable'] = node_executable
     inspection_options = {**options, **({'verify': False} if not verify else {})}
-    if any(check["status"] != "ready" for check in inspect_toolchain(home, **inspection_options)):
+    observed_runtime = {}
+    if any(check["status"] != "ready" for check in inspect_toolchain(
+            home, **inspection_options, observed_runtime=observed_runtime)):
         raise LauncherError("managed toolchain is incomplete or invalid; run provision")
-    return _environment(Path(home), load_catalog(), **options)
+    # Match legacy pythonw profiles with their original selection above; only
+    # environment construction uses the already validated console base.
+    validated_python = observed_runtime.pop('validated_python', None)
+    if validated_python is not None:
+        options['python_executable'] = validated_python
+    return _environment(Path(home), load_catalog(), **options, **observed_runtime)

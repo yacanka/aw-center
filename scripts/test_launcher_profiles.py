@@ -311,6 +311,111 @@ class ProfileTests(unittest.TestCase):
             profiles.load_profile(self.project, 'dev', self.home)
 
 
+class ProfileStateSeparationTests(unittest.TestCase):
+    setUp = ProfileTests.setUp
+
+    def values(self, name):
+        state = self.root / 'state' / name
+        return {
+            'DATABASE_URL': 'sqlite:///' + (state / 'db.sqlite3').as_posix(),
+            'PRIVATE_MEDIA_ROOT': str(state / 'private'),
+            'CACHE_DIRECTORY': str(state / 'cache'),
+            'MEDIA_ROOT': str(state / 'media'),
+            'STATIC_ROOT': str(state / 'static'),
+            'MODEL_RUNTIME_DIR': str(self.home / 'assets/sets/default/ai-models'),
+            'CUSTOM_TEMPLATE_DIR': str(self.home / 'assets/sets/default/document-templates'),
+        }
+
+    def check_separation(self, name, values, other_values):
+        profiles._create_private_directory(self.home / 'config', root=self.home)
+        other = self.home / 'config' / ('prod.env' if name == 'dev' else 'dev.env')
+        content = profiles._environment_content(other_values)
+        if other.exists():
+            profiles._write_replace(other, content)
+        else:
+            profiles._write_new(other, content)
+        original = other.read_bytes()
+        try:
+            profiles._require_separate(self.home, name, values, str(self.project.root))
+        finally:
+            self.assertEqual(other.read_bytes(), original)
+
+    def test_nested_and_cross_key_writable_directories_are_rejected_in_both_profiles(self):
+        keys = ('PRIVATE_MEDIA_ROOT', 'CACHE_DIRECTORY', 'MEDIA_ROOT', 'STATIC_ROOT')
+        for name in ('dev', 'prod'):
+            for key, other_key in ((key, other_key) for key in keys for other_key in keys):
+                for parent_is_own in (True, False):
+                    with self.subTest(name=name, key=key, other_key=other_key, parent_is_own=parent_is_own):
+                        values, other_values = self.values('first'), self.values('second')
+                        parent = self.root / 'overlap'
+                        child = parent / 'nested'
+                        values[key] = str(parent if parent_is_own else child)
+                        other_values[other_key] = str(child if parent_is_own else parent)
+                        with self.assertRaises(LauncherError):
+                            self.check_separation(name, values, other_values)
+
+    def test_database_cannot_be_inside_another_profiles_writable_directory(self):
+        for name in ('dev', 'prod'):
+            for key in ('PRIVATE_MEDIA_ROOT', 'CACHE_DIRECTORY', 'MEDIA_ROOT', 'STATIC_ROOT'):
+                for own_database in (True, False):
+                    with self.subTest(name=name, key=key, own_database=own_database):
+                        values, other_values = self.values('first'), self.values('second')
+                        database_values, directory_values = ((values, other_values) if own_database
+                                                              else (other_values, values))
+                        directory = self.root / 'overlap'
+                        directory_values[key] = str(directory)
+                        database_values['DATABASE_URL'] = 'sqlite:///' + (directory / 'nested/db.sqlite3').as_posix()
+                        with self.assertRaises(LauncherError):
+                            self.check_separation(name, values, other_values)
+
+    def test_database_lexical_alias_is_rejected(self):
+        values, other_values = self.values('first'), self.values('second')
+        database = self.root / 'database.sqlite3'
+        values['DATABASE_URL'] = 'sqlite:///' + database.as_posix()
+        other_values['DATABASE_URL'] = 'sqlite:///' + (self.root / 'unused/../database.sqlite3').as_posix()
+        with self.assertRaises(LauncherError):
+            self.check_separation('dev', values, other_values)
+
+    def test_existing_database_file_identity_is_rejected(self):
+        values, other_values = self.values('first'), self.values('second')
+        database, alias = self.root / 'database.sqlite3', self.root / 'alias.sqlite3'
+        database.write_bytes(b'preserved database fixture')
+        os.link(database, alias)
+        values['DATABASE_URL'] = 'sqlite:///' + database.as_posix()
+        other_values['DATABASE_URL'] = 'sqlite:///' + alias.as_posix()
+        with self.assertRaises(LauncherError):
+            self.check_separation('prod', values, other_values)
+        self.assertEqual(database.read_bytes(), b'preserved database fixture')
+
+    def test_windows_case_normalization_rejects_database_alias_without_native_filesystem_claim(self):
+        import ntpath
+
+        values, other_values = self.values('first'), self.values('second')
+        values['DATABASE_URL'] = 'sqlite:///' + (self.root / 'DATABASE.sqlite3').as_posix()
+        other_values['DATABASE_URL'] = 'sqlite:///' + (self.root / 'database.sqlite3').as_posix()
+        with mock.patch.object(profiles.os.path, 'normcase', side_effect=ntpath.normcase):
+            with self.assertRaises(LauncherError):
+                self.check_separation('dev', values, other_values)
+
+    @unittest.skipIf(os.name == 'nt', 'symlink creation requires host privilege')
+    def test_linked_writable_directory_is_rejected_before_identity_comparison(self):
+        values, other_values = self.values('first'), self.values('second')
+        actual, link = self.root / 'actual', self.root / 'link'
+        actual.mkdir()
+        link.symlink_to(actual, target_is_directory=True)
+        values['PRIVATE_MEDIA_ROOT'] = str(link / 'nested')
+        with self.assertRaises(LauncherError):
+            self.check_separation('dev', values, other_values)
+        self.assertEqual(list(actual.iterdir()), [])
+
+    def test_disjoint_sibling_state_and_shared_readonly_assets_are_allowed(self):
+        for name in ('dev', 'prod'):
+            values, other_values = self.values('first'), self.values('second')
+            values['PRIVATE_MEDIA_ROOT'] = str(self.root / 'private')
+            other_values['PRIVATE_MEDIA_ROOT'] = str(self.root / 'private-other')
+            self.check_separation(name, values, other_values)
+
+
 if __name__ == '__main__':
     unittest.main()
 

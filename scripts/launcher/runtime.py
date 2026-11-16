@@ -18,6 +18,10 @@ from .process import (frontend_environment, non_notification_environment, npm_co
 from .quality import django, run_first_script, run_script, select_script
 
 
+PRODUCTION_CHECK_TIMEOUT = 180
+PRODUCTION_MIGRATION_TIMEOUT = 1800
+
+
 def check(project: Project, scope: Scope) -> None:
     """Run read-only backend and frontend quality checks."""
     scope.require_any()
@@ -146,14 +150,19 @@ def prod(
     gate_env = {**extra_env, **non_notification_environment()} if protect_credentials else extra_env
     # Validate the notification worker's real SMTP transport/TLS settings too.
     # Redaction is for non-notification runtime roles, not deployment policy.
-    django(project, ["check", "--deploy"], extra_env)
+    from .production_build import consume_deployment_checks
+    prepared = consume_deployment_checks(project, host, port, env_file)
+    prepared = prepared and not (migrate or build_frontend)
+    if not prepared:
+        django(project, ["check", "--deploy"], extra_env, timeout=PRODUCTION_CHECK_TIMEOUT)
     if migrate:
-        django(project, ["migrate", "--noinput"], gate_env)
-    django(project, ["migrate", "--check"], gate_env)
+        django(project, ["migrate", "--noinput"], gate_env, timeout=PRODUCTION_MIGRATION_TIMEOUT)
+    django(project, ["migrate", "--check"], gate_env, timeout=PRODUCTION_CHECK_TIMEOUT)
     if build_frontend:
-        run_script(project, "build")
-    django(project, ["collectstatic", "--clear", "--noinput"], gate_env)
-    django(project, ["verify_frontend_artifact"], gate_env)
+        run_script(project, "build", timeout=PRODUCTION_MIGRATION_TIMEOUT)
+    if not prepared:
+        django(project, ["collectstatic", "--clear", "--noinput"], gate_env, timeout=PRODUCTION_CHECK_TIMEOUT)
+        django(project, ["verify_frontend_artifact"], gate_env, timeout=PRODUCTION_CHECK_TIMEOUT)
 
     with starting_processes() as processes:
         processes.append(
@@ -311,6 +320,7 @@ def validate_tls_identity(
         [project.python, "-B", "-m", "scripts.launcher.tls", certificate_file, private_key_file, host],
         project.root,
         capture=True,
+        timeout=30,
     )
 
 

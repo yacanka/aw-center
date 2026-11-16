@@ -9,9 +9,11 @@ from .model import LauncherError, Project
 from .process import npm_command, required_tool, run
 
 
-def django(project: Project, arguments: list[str], extra_env: dict[str, str] | None = None) -> None:
+def django(project: Project, arguments: list[str], extra_env: dict[str, str] | None = None,
+           *, timeout: float | None = None) -> None:
     """Run one Django management command using the project virtual environment."""
-    run([project.python, "manage.py", *arguments], project.backend, extra_env=extra_env)
+    run([project.python, "manage.py", *arguments], project.backend, extra_env=extra_env,
+        **({'timeout': timeout} if timeout is not None else {}))
 
 
 def package_scripts(project: Project) -> dict[str, str]:
@@ -41,9 +43,10 @@ def run_first_script(project: Project, candidates: tuple[str, ...]) -> None:
         print(f"[skip] no npm script found for {', '.join(candidates)}")
 
 
-def run_script(project: Project, script: str) -> None:
+def run_script(project: Project, script: str, *, timeout: float | None = None) -> None:
     """Run one npm script from the discovered Vue directory."""
     if script not in package_scripts(project):
         raise LauncherError(f"npm script is missing: {script}")
     command = npm_command() if os.environ.get("AWCENTER_MANAGED_NPM_CLI") else [required_tool("npm")]
-    run([*command, "run", script], project.frontend)
+    run([*command, "run", script], project.frontend,
+        **({'timeout': timeout} if timeout is not None else {}))

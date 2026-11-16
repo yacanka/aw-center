@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from scripts.launcher import installation, installation_profiles as profiles
 from scripts.launcher import installation_dependencies as packages
-from scripts.manager import ensure, inspection, operations
+from scripts.manager import ensure, operations
 from scripts import test_manager_ensure as fixtures
 
 
@@ -22,6 +22,8 @@ class InspectionReuseTests(unittest.TestCase):
         modules.mkdir()
         (modules / '.package-lock.json').write_text('{}', encoding='utf-8')
         (modules / 'vite.cjs').write_bytes(b'installed frontend')
+        (modules / 'vite/bin').mkdir(parents=True)
+        (modules / 'vite/bin/vite.js').write_bytes(b'installed Vite executable')
         lock = self.project.frontend / 'package-lock.json'
         lock.write_text('{}', encoding='utf-8')
         packages.dependency_stage(self.project.venv, self.project.requirements, lambda: None)
@@ -32,8 +34,7 @@ class InspectionReuseTests(unittest.TestCase):
         self.prepared()
         (self.project.frontend / 'package-lock.json').write_text('{"new":true}')
         result = self.inspect({'schema': 'ready', 'admin_exists': True})
-        self.assertEqual(result['status'], 'incomplete')
-        checks = {row['name']: row['status'] for row in result['checks']}
+        checks = {row['name']: row['status'] for row in result}
         self.assertEqual(checks['frontend-packages'], 'missing')
         self.assertEqual(checks['python-packages'], 'ready')
         with patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]):
@@ -43,37 +44,38 @@ class InspectionReuseTests(unittest.TestCase):
         self.prepared()
         self.project.python.write_bytes(b'changed')
         result = self.inspect({'schema': 'ready', 'admin_exists': True}, probes=0)
-        self.assertEqual(result['status'], 'blocked')
-        self.assertEqual(next(row['status'] for row in result['checks']
+        self.assertEqual(next(row['status'] for row in result
                               if row['name'] == 'python-packages'), 'invalid')
 
     def test_removed_node_output_is_detected_even_with_hidden_npm_lock(self):
         self.prepared()
         (self.project.frontend / 'node_modules/vite.cjs').unlink()
         result = self.inspect({'schema': 'ready', 'admin_exists': True})
-        self.assertEqual(result['status'], 'blocked')
-        self.assertEqual(next(row['status'] for row in result['checks']
+        self.assertEqual(next(row['status'] for row in result
                               if row['name'] == 'frontend-packages'), 'invalid')
 
     def test_missing_python_receipt_never_runs_legacy_environment_to_inspect(self):
         self.prepared()
         (self.project.venv / '.awcenter-packages.json').unlink()
         result = self.inspect({'schema': 'ready', 'admin_exists': True}, probes=0)
-        self.assertEqual(result['status'], 'incomplete')
+        self.assertEqual(next(row['status'] for row in result
+                              if row['name'] == 'python-packages'), 'missing')
 
-    def test_damaged_frontend_reports_action_without_entering_provision(self):
+    def test_damaged_frontend_reports_action_in_explicit_diagnostics(self):
         self.prepared()
         (self.project.frontend / 'node_modules/vite.cjs').unlink()
         events = []
         with patch.object(operations, '_project_for', return_value=self.project), \
-             patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]), \
+             patch.object(installation, 'installation_home', return_value=self.home), \
+             patch.object(installation, 'inspect_toolchain', return_value=[]), \
              patch.object(installation, 'backend_inspection', return_value={'schema': 'ready', 'admin_exists': True}), \
              patch.object(installation, 'provision', side_effect=AssertionError('unexpected package preparation')):
-            operations.execute({'action': 'ensure', 'source_root': str(self.project.root)},
+            operations.execute({'action': 'doctor', 'source_root': str(self.project.root)},
                                events.append, lambda: None, threading.Event())
-        error = next(event for event in events if event['type'] == 'error')
-        self.assertEqual(error['code'], 'installed_packages_invalid', events)
-        self.assertIn('node_modules', error['remedy'])
+        checks = next(event['checks'] for event in events if event['type'] == 'checks')
+        failure = next(row for row in checks if row['name'] == 'frontend-packages')
+        self.assertEqual(failure['status'], 'invalid')
+        self.assertIn('node_modules', failure['detail'])
 
     def test_invalid_dependency_is_a_blocker_in_the_manager_check_report(self):
         from scripts.manager.view_model import ManagerState
@@ -81,7 +83,7 @@ class InspectionReuseTests(unittest.TestCase):
         (self.project.frontend / 'node_modules/vite.cjs').unlink()
         result = self.inspect({'schema': 'ready', 'admin_exists': True})
         state = ManagerState()
-        state.handle_event({'type': 'checks', 'checks': result['checks']})
+        state.handle_event({'type': 'checks', 'checks': result})
         self.assertEqual(next(row['status'] for row in state.checks
                               if row['name'] == 'frontend-packages'), 'ENGEL')
 
@@ -107,7 +109,7 @@ class InspectionReuseTests(unittest.TestCase):
         self.assertEqual(probe.call_count, 2)
         start.assert_not_called()
 
-    def test_ready_open_verifies_installed_bytes_and_probes_once_under_the_lease(self):
+    def test_developer_open_checks_lock_and_backend_without_a_package_inventory(self):
         self.prepared()
         state = {'schema': 'ready', 'admin_exists': True, 'auto_migrate_safe': True}
         events = []
@@ -117,40 +119,36 @@ class InspectionReuseTests(unittest.TestCase):
              patch.object(installation, 'backend_inspection', return_value=state) as probe, \
              patch.object(installation, 'provision') as provision, \
              patch.object(installation, 'start_profile') as start:
-            operations.execute({'action': 'ensure', 'source_root': str(self.project.root)},
+            operations.execute({'action': 'ensure', 'source_root': str(self.project.root),
+                                'source_selection': 'explicit', 'validation_policy': 'developer'},
                                events.append, lambda: None, threading.Event())
         self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
         self.assertEqual(probe.call_count, 1)
-        self.assertEqual([call.args[0] for call in inventories.call_args_list],
-                         [self.project.venv, self.project.frontend / 'node_modules'])
+        self.assertEqual(inventories.call_count, 0)
         provision.assert_not_called()
         start.assert_called_once()
 
     def inspect(self, state, *, probes=1):
-        events = []
         probe = Mock(return_value=state)
-        with patch.object(inspection, 'installation_home', return_value=self.home), \
-             patch.object(inspection, 'require_windows'), \
-             patch.object(operations, '_project_for', return_value=self.project), \
-             patch.object(inspection, 'inspect_toolchain', return_value=[]), \
+        with patch.object(installation, 'installation_home', return_value=self.home), \
+             patch.object(installation, 'inspect_toolchain', return_value=[]), \
+             patch('scripts.launcher.installation_features.inspect_features', return_value=[]), \
              patch.object(installation, 'backend_inspection', probe):
-            inspection.inspect_profile(self.args(), events.append)
+            checks = installation.doctor(self.project, 'dev')
         self.assertEqual(probe.call_count, probes)
-        return events[-1]
+        return checks
 
-    def test_profile_inspection_uses_one_consistent_backend_result(self):
+    def test_doctor_uses_one_consistent_backend_result(self):
         self.prepared()
-        event = self.inspect({'schema': 'ready', 'admin_exists': True})
-        self.assertEqual(event['status'], 'stopped')
-        self.assertTrue(all(row['status'] == 'ready' for row in event['checks']))
+        checks = self.inspect({'schema': 'ready', 'admin_exists': True})
+        self.assertTrue(all(row['status'] == 'ready' for row in checks))
 
     def test_failed_backend_inspection_still_blocks_existing_database(self):
         profile = self.prepared()
         database = Path(profiles.read_profile_environment(profile)['DATABASE_URL'].removeprefix('sqlite:///'))
         database.touch()
-        event = self.inspect({'schema': 'error', 'admin_exists': None})
-        self.assertEqual(event['status'], 'blocked')
-        database_check = next(row for row in event['checks'] if row['name'] == 'database')
+        checks = self.inspect({'schema': 'error', 'admin_exists': None})
+        database_check = next(row for row in checks if row['name'] == 'database')
         self.assertEqual(database_check['status'], 'blocked')
 
     def test_core_checks_without_snapshot_still_inspect_backend(self):

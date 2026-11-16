@@ -6,10 +6,10 @@ import stat
 
 from .installation_permissions import require_unlinked
 from .installation_profiles import (
-    _check_inherited, _environment_content, _require_separate, _validate_environment,
+    EnvironmentImportError, _check_inherited, _environment_content, _require_separate, _validate_environment,
     _write_replace, parse_environment, read_profile_environment,
 )
-from .model import LauncherError
+
 
 MAX_ENV_BYTES = 128 * 1024
 _CONTROL_KEYS = {'PATH', 'PATHEXT', 'HOME', 'LOCALAPPDATA', 'TEMP', 'TMP', 'COMSPEC',
@@ -31,27 +31,28 @@ def read_selected_environment(project, name: str, source: Path) -> dict[str, str
         require_unlinked(source)
         info = source.stat()
         if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_ENV_BYTES:
-            raise LauncherError('Seçilen .env normal ve boyut sınırı içinde bir dosya olmalıdır.')
+            raise EnvironmentImportError('env_file_invalid')
         if name == 'prod' and source.resolve().is_relative_to(project.root.resolve()):
-            raise LauncherError('Production için seçilen .env kaynak ağacının dışında olmalıdır.')
+            raise EnvironmentImportError('env_source_location_invalid')
         with source.open(encoding='utf-8-sig') as stream:
             content = stream.read(MAX_ENV_BYTES + 1)
         if len(content) > MAX_ENV_BYTES:
-            raise LauncherError('Seçilen .env boyut sınırını aşıyor.')
+            raise EnvironmentImportError('env_file_invalid')
         values = parse_environment(content)
-        if any(any(ord(char) < 32 or ord(char) == 127 for char in value) for value in values.values()):
-            raise LauncherError('Seçilen .env değerleri kontrol karakteri içeremez; değerler gizlendi.')
-        if any(key in _CONTROL_KEYS or key.startswith(_CONTROL_PREFIXES) for key in values):
-            raise LauncherError('Seçilen .env süreç başlatma veya başka env dosyasına yönlendirme ayarları içeremez.')
+        forbidden = [key for key in values if key in _CONTROL_KEYS or key.startswith(_CONTROL_PREFIXES)]
+        if forbidden:
+            raise EnvironmentImportError('env_process_setting_forbidden', keys=forbidden)
         return values
     except (OSError, UnicodeError, ValueError):
-        raise LauncherError('Seçilen .env okunamadı veya biçimi geçersiz; değerler gizlendi.') from None
+        raise EnvironmentImportError('env_file_invalid') from None
 
 
 def merge_selected_environment(profile, current: dict, selected: dict, *, existing: bool) -> dict:
-    if existing and any(key in selected and selected[key] != current[key]
-                        for key in ('SECRET_KEY', 'JIRA_SESSION_ENCRYPTION_KEY')):
-        raise LauncherError('Seçilen .env mevcut profilin anahtarlarını değiştiremez; değerler gizlendi.')
+    identity_keys = ('SECRET_KEY', 'JIRA_SESSION_ENCRYPTION_KEY')
+    selected = {key: value for key, value in selected.items() if key not in identity_keys or value.strip()}
+    conflicts = [key for key in identity_keys if existing and key in selected and selected[key] != current[key]]
+    if conflicts:
+        raise EnvironmentImportError('env_identity_conflict', keys=conflicts)
     merged = {**current, **selected}
     _validate_environment(profile, merged)
     _require_separate(Path(profile['installation_home']), profile['name'], merged, profile['source_root'])
@@ -73,4 +74,4 @@ def check_selected_environment(project, profile, source: Path) -> None:
     current = read_profile_environment(profile)
     merged = merge_selected_environment(profile, current, selected, existing=True)
     if merged != current:
-        raise LauncherError('Seçilen .env profil ayarlarından farklı; uygulamak için Kur ve başlat kullanın.')
+        raise EnvironmentImportError('env_import_required')

@@ -8,6 +8,9 @@ import uuid
 import hashlib
 
 
+_GLOBAL_CONNECTION_FIELDS = frozenset({'host', 'backend_port', 'frontend_port'})
+
+
 def new_bundle_output(parent: Path | None = None) -> Path:
     """Choose a new destination without filesystem I/O on the Tk thread."""
     if parent is None:
@@ -38,14 +41,15 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
                         history[previous] = {key: value for key, value in saved.items() if not key.startswith('_')}
                     if previous != context:
                         if context in history:
-                            values.update(history[context])
+                            # Connection inputs are global, including an explicit clear.
+                            values.update({key: value for key, value in history[context].items()
+                                           if key not in _GLOBAL_CONNECTION_FIELDS})
                         else:
                             if saved and not previous:
                                 legacy = hashlib.sha256(('legacy:' + str(saved.get('source_root', ''))).encode()).hexdigest()
                                 history[legacy] = {key: value for key, value in saved.items() if not key.startswith('_')}
                             for field in ('python_command', 'node_command', 'assets', 'feature_catalog', 'ca_file',
-                                          'output', 'env_file', 'tls_cert_file', 'tls_key_file', 'manager_distribution',
-                                          'host', 'backend_port', 'frontend_port'):
+                                          'output', 'env_file', 'tls_cert_file', 'tls_key_file', 'manager_distribution'):
                                 values[field] = ''
                             values.update(bundle_import='', bundle_host_node=False, bundle_host_python=False,
                                           install_python=False, install_node=False)

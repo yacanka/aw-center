@@ -87,17 +87,27 @@ class OneClickStartTests(unittest.TestCase):
             start.assert_called_once()
 
     def test_new_lease_rechecks_the_branch_found_by_the_previous_lease(self):
+        from scripts.launcher import resource_locks
+
         profiles.provision_profile(self.project, 'dev', self.home)
+        decisions = []
         def incomplete_under_lease(project, args, **options):
-            return not options.get('before_lock', False)
+            before_lock = options.get('before_lock', False)
+            lease = next((lease for (_, name), lease in (resource_locks._held.get() or {}).items()
+                          if name == 'runtime'), None)
+            decisions.append((before_lock, None if lease is None else lease.write))
+            return not before_lock
         with patch.object(operations, '_project_for', return_value=self.project), \
-             patch.object(ensure, 'needs_preparation', side_effect=incomplete_under_lease) as decision, \
+             patch.object(ensure, 'needs_preparation', side_effect=incomplete_under_lease), \
              patch.object(installation, 'provision') as provision, patch.object(installation, 'start_profile'):
             events = self.execute()
         self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
         self.assertEqual(provision.call_count, 1)
-        self.assertEqual([call.kwargs.get('before_lock', False) for call in decision.call_args_list],
-                         [True, False, False])
+        # Rechecking settings after publication may repeat the write-lease
+        # decision; every newly acquired lease still needs its own fresh check.
+        transitions = [state for index, state in enumerate(decisions)
+                       if index == 0 or state != decisions[index - 1]]
+        self.assertEqual(transitions, [(True, None), (False, False), (False, True)])
 
     def test_incomplete_production_build_remains_preparable_after_admin_was_created(self):
         state = {'schema': 'ready', 'admin_exists': True, 'frontend_build_ready': False}

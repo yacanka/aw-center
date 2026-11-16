@@ -38,6 +38,66 @@ class TLSFileError(LauncherError):
         super().__init__(f'{label}: {detail}.')
 
 
+class EnvironmentImportError(LauncherError):
+    """Operator-safe dotenv failure; only setting names and line numbers escape."""
+
+    field = 'env_file'
+    _DETAILS = {
+        'env_local_path_unsafe': (
+            'Seçilen .env veya uygulama dosya yolu paket hazırlığının değiştirebileceği bir dizinde.',
+            'Kaynak .env, SQLite, özel dosya, model ve template yollarını .venv, node_modules, '
+            'dist ve paket yedek dizinlerinin dışında tutun. Mevcut dosyalar değiştirilmedi.'),
+        'env_runtime_source_invalid': (
+            'Üretilmiş çalışma yapılandırması kaynak .env dosyası olarak seçilemez.',
+            'Manager’ın çalışma kopyası veya özel anahtar kaydı yerine ayrı bir uygulama '
+            '.env dosyası seçin. Seçilen kaynak dosyanın içeriği değiştirilmez.'),
+        'env_local_setting_invalid': (
+            'Yerel yapılandırmadaki ayar doğrulanamadı.',
+            'Belirtilen ayarın biçimini, dosya veya klasör erişimini kontrol edin. '
+            'Yerel akış için SQLite kullanın; kaynak .env dosyası değiştirilmez.'),
+        'env_local_identity_required': (
+            'Mevcut SQLite veritabanı için gerekli anahtarlar bulunamadı.',
+            'Bu veritabanının mevcut SECRET_KEY ve JIRA_SESSION_ENCRYPTION_KEY değerlerini '
+            'içeren .env dosyasını seçin. Yeni anahtar oluşturulmadı; veritabanı değiştirilmedi.'),
+        'env_file_invalid': (
+            'Seçilen .env okunamadı veya biçimi geçersiz.',
+            'Belirtilen satır ve ayar adlarını kontrol edin. KEY=value biçimini kullanın; '
+            'yinelenen ayarları ve kontrol karakterlerini kaldırın. Değerler rapora yazılmaz.'),
+        'env_source_location_invalid': (
+            'Production için seçilen .env kaynak klasörünün dışında olmalıdır.',
+            'Mevcut .env dosyasının kaynak klasörü dışındaki kopyasını seçip AW Center’ı aç düğmesine basın.'),
+        'env_process_setting_forbidden': (
+            'Seçilen .env süreç başlatma veya başka env dosyasına yönlendirme ayarları içeriyor.',
+            'Belirtilen süreç ayarlarını uygulama .env dosyasından çıkarın; çalışma zamanı seçimini '
+            'Manager’ın gelişmiş ayarlarından yapın.'),
+        'env_identity_conflict': (
+            'Seçilen .env mevcut profilin anahtarlarını değiştiremez.',
+            'Mevcut anahtarları koruyun. Uygulama ayarlarını aktarırken belirtilen anahtarları '
+            'dosyadan çıkarın veya mevcut profille aynı anahtarları kullanın.'),
+        'env_managed_setting_conflict': (
+            'Seçilen .env Manager profilinin yönettiği ayarlarla çelişiyor.',
+            'Belirtilen ayarları kayıtlı profille hizalayın; bağlantı değişikliklerini gelişmiş '
+            'ayarlardan yapın. Farklı veritabanı, özel dosya veya asset yolları için önce mevcut '
+            'verilerin taşınmasını planlayın; dosyaları silmeyin.'),
+        'env_import_required': (
+            'Seçilen .env profilin kayıtlı ayarlarından farklı.',
+            'İlgili çalışan görevi durdurup AW Center’ı aç düğmesiyle seçilen dosyayı uygulayın. '
+            'Mevcut anahtarlar ve veri yolları korunur.'),
+    }
+
+    def __init__(self, code, *, keys=(), line=None):
+        detail, self.remedy = self._DETAILS[code]
+        self.code = code
+        self.keys = tuple(sorted({key for key in keys if isinstance(key, str)
+                                 and re.fullmatch(r'[A-Z][A-Z0-9_]*', key)}))
+        self.line = line if type(line) is int and line > 0 else None
+        if self.line is not None:
+            detail += f' Satır: {self.line}.'
+        if self.keys:
+            detail += ' Ayarlar: ' + ', '.join(self.keys) + '.'
+        super().__init__(detail)
+
+
 INSTALLER_ENVIRONMENT_KEYS = {
     'AWCENTER_MANAGED_PYTHON', 'AWCENTER_MANAGED_NODE', 'AWCENTER_MANAGED_NPM_CLI',
     'AWCENTER_PACKAGE_REPOSITORY', 'AWCENTER_OFFLINE_DIR',
@@ -91,28 +151,61 @@ def read_environment(path: Path) -> dict[str, str]:
 
 
 def parse_environment(content: str) -> dict[str, str]:
-    """Parse literal dotenv values; never interpolate variables or execute code."""
+    """Parse single-line literal dotenv values without interpolation or execution."""
     result = {}
-    try:
-        lines = content.splitlines()
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            key, separator, value = line.partition('=')
-            key, value = key.strip(), value.strip()
-            if not separator or not re.fullmatch(r'[A-Z][A-Z0-9_]*', key) or key in result:
+    for number, line in enumerate(content.splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        line = re.sub(r'^export\s+', '', line)
+        key, separator, value = line.partition('=')
+        key, value = key.strip(), value.strip()
+        valid_key = re.fullmatch(r'[A-Z][A-Z0-9_]*', key)
+        if not separator or not valid_key or key in result:
+            raise EnvironmentImportError('env_file_invalid', keys=(key,) if valid_key else (), line=number)
+        try:
+            value = _literal_environment_value(value)
+            if any(ord(char) < 32 or ord(char) == 127 for char in value):
                 raise ValueError
-            if value.startswith('"'):
-                value = json.loads(value)
-            elif value.startswith("'") and value.endswith("'"):
-                value = value[1:-1]
-            if not isinstance(value, str) or '\n' in value or '\r' in value or '\x00' in value:
-                raise ValueError
-            result[key] = value
-    except (OSError, UnicodeError, ValueError):
-        raise LauncherError('Private environment file is invalid; values have been withheld') from None
+        except ValueError:
+            raise EnvironmentImportError('env_file_invalid', keys=(key,), line=number) from None
+        result[key] = value
     return result
+
+
+def _literal_environment_value(value):
+    if not value.startswith(('"', "'")):
+        return '' if value.startswith('#') else re.split(r'\s+#', value, maxsplit=1)[0].rstrip()
+    quote, escaped = value[0], False
+    for index, char in enumerate(value[1:], 1):
+        if char == quote and (quote == "'" or not escaped):
+            tail = value[index + 1:].lstrip()
+            if tail and not tail.startswith('#'):
+                raise ValueError
+            body = value[1:index]
+            if quote == "'":
+                return body
+            return _double_quoted_environment_value(value[:index + 1], body)
+        escaped = char == '\\' and not escaped
+    raise ValueError
+
+
+def _double_quoted_environment_value(quoted, body):
+    """Keep JSON-written private profiles while accepting literal Windows paths."""
+    windows_path = re.match(r'(?:[A-Za-z]:\\|\\\\)', body)
+    try:
+        decoded = json.loads(quoted)
+        generated_path = (json.dumps(decoded, ensure_ascii=False) == quoted
+                          and not any(ord(char) < 32 for char in decoded))
+        if not windows_path or generated_path:
+            return decoded
+    except ValueError:
+        pass
+    # JSON treats Windows backslashes as escapes. Ordinary dotenv paths retain
+    # them; unknown non-path escapes also remain literal, as dotenv users expect.
+    if windows_path:
+        return body
+    return re.sub(r'\\([\\"])', r'\1', body)
 
 
 def read_profile_environment(profile) -> dict[str, str]:
@@ -168,6 +261,9 @@ def _configuration(profile):
 
 
 def _validate_options(profile):
+    if 'local_configuration' in profile:
+        from .installation_local_config import validate_marker
+        validate_marker(profile)
     modes = profile.get('port_modes')
     if modes is not None and (not isinstance(modes, dict) or
             set(modes) != {'backend_port', 'frontend_port'} or
@@ -184,7 +280,10 @@ def _validate_options(profile):
         if isinstance(profile[key], bool) or not isinstance(profile[key], int) or not 1 <= profile[key] <= 65535:
             raise LauncherError('Profile ports must be integers between 1 and 65535')
     if profile['name'] == 'dev':
-        if profile['host'] != '127.0.0.1':
+        if 'local_configuration' in profile:
+            from .installation_local_config import _host
+            _host(profile['host'])
+        elif profile['host'] != '127.0.0.1':
             raise LauncherError('Development profile must bind to 127.0.0.1')
         if profile['backend_port'] == profile['frontend_port']:
             raise LauncherError('Development frontend and backend ports must differ')
@@ -216,9 +315,15 @@ def _validate_options(profile):
 
 
 def _validate_environment(profile, values):
+    if 'local_configuration' in profile:
+        from .installation_local_config import validate_local_environment
+        validate_local_environment(profile, values)
+        _validate_identity_keys(values)
+        return
     expected = _configuration(profile)
-    if any(values.get(key) != expected.get(key) for key in PROFILE_BOUND_KEYS if key in expected):
-        raise LauncherError('Profile environment conflicts with its isolated state, bind or asset paths')
+    conflicts = [key for key in PROFILE_BOUND_KEYS if key in expected and values.get(key) != expected[key]]
+    if conflicts:
+        raise EnvironmentImportError('env_managed_setting_conflict', keys=conflicts)
     asset_models = Path(expected['MODEL_RUNTIME_DIR'])
     asset_templates = Path(expected['CUSTOM_TEMPLATE_DIR'])
     optional_asset_paths = {
@@ -228,10 +333,19 @@ def _validate_environment(profile, values):
         'WORD_ANALYZER_CROSS_MODEL': asset_models / 'ms-marco-cross-encoder',
         'COVER_PAGE_TEMPLATE_PATH': asset_templates / 'cover_page_template.docx',
     }
-    for key, path in optional_asset_paths.items():
-        if key in values and values[key] != path.as_posix():
-            raise LauncherError('Model and template overrides must use the selected canonical asset set')
+    conflicts = [key for key, path in optional_asset_paths.items() if key in values and values[key] != path.as_posix()]
+    if conflicts:
+        raise EnvironmentImportError('env_managed_setting_conflict', keys=conflicts)
+    for path in optional_asset_paths.values():
         require_unlinked(path)
+    _validate_identity_keys(values)
+    for key in ('DATABASE_URL', 'PRIVATE_MEDIA_ROOT', 'CACHE_DIRECTORY', 'MODEL_RUNTIME_DIR', 'CUSTOM_TEMPLATE_DIR', 'STATIC_ROOT', 'MEDIA_ROOT'):
+        value = values.get(key, '')
+        if value:
+            require_unlinked(Path(value.removeprefix('sqlite:///')))
+
+
+def _validate_identity_keys(values):
     if not values.get('SECRET_KEY', '').strip():
         raise LauncherError('Profile requires an explicit SECRET_KEY')
     try:
@@ -239,10 +353,6 @@ def _validate_environment(profile, values):
             raise ValueError
     except ValueError:
         raise LauncherError('Profile requires a separately generated valid JIRA encryption key') from None
-    for key in ('DATABASE_URL', 'PRIVATE_MEDIA_ROOT', 'CACHE_DIRECTORY', 'MODEL_RUNTIME_DIR', 'CUSTOM_TEMPLATE_DIR', 'STATIC_ROOT', 'MEDIA_ROOT'):
-        value = values.get(key, '')
-        if value:
-            require_unlinked(Path(value.removeprefix('sqlite:///')))
 
 
 def _require_separate(home, name, values, source_root):
@@ -261,9 +371,41 @@ def _require_separate(home, name, values, source_root):
             raise LauncherError('The other installation profile is invalid') from None
         if not isinstance(other_data, dict) or other_data.get('source_root') == source_root:
             raise LauncherError('Development and production must use separate source roots and virtual environments')
-    for key in ('SECRET_KEY', 'JIRA_SESSION_ENCRYPTION_KEY', 'DATABASE_URL', 'PRIVATE_MEDIA_ROOT', 'CACHE_DIRECTORY'):
+    for key in ('SECRET_KEY', 'JIRA_SESSION_ENCRYPTION_KEY'):
         if values.get(key) and values.get(key) == other_values.get(key):
             raise LauncherError('Development and production must not share secrets or state')
+
+    def state_path(value):
+        path = Path(os.path.abspath(value.removeprefix('sqlite:///')))
+        # Validate the selected spelling before normalization or file identity
+        # comparisons; resolving a link must never make it an admitted path.
+        require_unlinked(path)
+        return Path(os.path.normcase(str(path)))
+
+    def same_path(first, second):
+        if first == second:
+            return True
+        try:
+            return first.samefile(second)
+        except FileNotFoundError:
+            return False
+
+    def contains(directory, path):
+        if path.is_relative_to(directory):
+            return True
+        return any(same_path(directory, ancestor) for ancestor in (path, *path.parents))
+
+    # Only writable namespaces must be disjoint. Canonical model/template
+    # assets are shared read-only inputs and deliberately excluded.
+    keys = ('DATABASE_URL', 'PRIVATE_MEDIA_ROOT', 'CACHE_DIRECTORY', 'MEDIA_ROOT', 'STATIC_ROOT')
+    current_state, other_state = ({key: state_path(configuration[key]) for key in keys if configuration.get(key)}
+                                  for configuration in (values, other_values))
+    for key, path in current_state.items():
+        for other_key, other_path in other_state.items():
+            if (same_path(path, other_path)
+                    or key != 'DATABASE_URL' and contains(path, other_path)
+                    or other_key != 'DATABASE_URL' and contains(other_path, path)):
+                raise LauncherError('Development and production must not share secrets or state')
 
 
 def load_profile(project, name, home=None, *, tls_replacements=None) -> dict:
@@ -345,14 +487,20 @@ def _digest(content):
 
 def _asset_values(profile, values):
     result = dict(values)
+    explicit = set(profile.get('local_configuration', {}).get('asset_path_keys', ()))
     models = Path(profile['installation_home']) / 'assets/sets' / profile['asset_set'] / 'ai-models'
     templates = models.parent / 'document-templates'
-    result.update(MODEL_RUNTIME_DIR=models.as_posix(), CUSTOM_TEMPLATE_DIR=templates.as_posix(),
+    if 'MODEL_RUNTIME_DIR' in explicit:
+        models = Path(values['MODEL_RUNTIME_DIR'])
+    if 'CUSTOM_TEMPLATE_DIR' in explicit:
+        templates = Path(values['CUSTOM_TEMPLATE_DIR'])
+    replacements = dict(MODEL_RUNTIME_DIR=models.as_posix(), CUSTOM_TEMPLATE_DIR=templates.as_posix(),
                   WORD_TRANSLATION_TR_EN_MODEL=(models / 'opus-mt-tr-en').as_posix(),
                   WORD_TRANSLATION_EN_TR_MODEL=(models / 'opus-mt-en-tr').as_posix(),
                   WORD_ANALYZER_BI_MODEL=(models / 'paraphrase-multilingual').as_posix(),
                   WORD_ANALYZER_CROSS_MODEL=(models / 'ms-marco-cross-encoder').as_posix(),
                   COVER_PAGE_TEMPLATE_PATH=(templates / 'cover_page_template.docx').as_posix())
+    result.update({key: value for key, value in replacements.items() if key not in explicit})
     return result
 
 
@@ -373,16 +521,19 @@ def _recover_pending(project, name, home, path, env, pending):
     require_private(pending.parent)
     require_private(pending)
     try:
-        if pending.stat().st_size > 64 * 1024:
+        if pending.stat().st_size > 512 * 1024:
             raise ValueError
         document = json.loads(pending.read_text(encoding='utf-8'))
         candidate = document['profile']
-        if (document['version'] != 1 or document['operation'] not in {'create', 'assets', 'connection'} or
+        if (document['version'] != 1 or document['operation'] not in {'create', 'assets', 'connection', 'local'} or
                 candidate['version'] != PROFILE_VERSION or candidate['name'] != name or
                 candidate['source_root'] != str(project.root.resolve()) or
                 candidate['installation_home'] != str(home) or candidate['env_file'] != str(env)):
             raise ValueError
         _validate_options(candidate)
+        if document['operation'] == 'local':
+            from .installation_local_config import recover_local_configuration
+            return recover_local_configuration(project, candidate, document, path, env, pending)
         if not env.exists():
             if path.exists() or document['operation'] != 'create':
                 raise ValueError
@@ -444,6 +595,13 @@ def require_new_environment(env):
 def provision_profile(project, name, home=None, **options) -> dict:
     """Create private keys/config once. Existing configuration is never overwritten."""
     home, path, env = _paths(project, name, home)
+    if options.get('local_configuration'):
+        if name != 'dev':
+            raise LauncherError('Local configuration is available only for development')
+        profile = load_profile(project, name, home)
+        if 'local_configuration' not in profile:
+            raise LauncherError('Prepare local configuration before provisioning dependencies')
+        return profile
     selected = None
     if options.get('env_file'):
         from .installation_env import read_selected_environment

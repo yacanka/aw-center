@@ -140,6 +140,14 @@ def _django(project: Project, profile: dict, arguments: list[str], tool_env: dic
         raise LauncherError("Django kurulum kontrolü başarısız; yapılandırma değerleri ve komut çıktısı gizlendi.")
 
 
+def _deployment_checks(project: Project, profile: dict, tool_env: dict) -> None:
+    _django(project, profile, ["check", "--deploy", "--fail-level", "ERROR"], tool_env)
+    _django(project, profile, ["collectstatic", "--clear", "--noinput"], tool_env)
+    _django(project, profile, ["verify_frontend_artifact"], tool_env)
+    from .production_build import record_deployment_checks
+    record_deployment_checks(project, profile)
+
+
 def _runtime_options(profile: dict) -> dict:
     return {field: Path(profile[field]) for field in ('python_executable', 'node_executable') if profile.get(field)}
 
@@ -289,6 +297,8 @@ def _provision(project: Project, args) -> list[dict]:
         phase("ön kontrol")
         options = {name: getattr(args, name, None) for name in (
             "host", "backend_port", "frontend_port", "tls_cert_file", "tls_key_file", "asset_set", "exclude_doors", "env_file", "port_modes")}
+        if getattr(args, 'local_configuration', False) and args.profile == 'dev':
+            options['local_configuration'] = True
         assets = getattr(args, "assets", None)
         if bundle and bundle.get("asset_set") and not assets:
             assets = settings.offline_dir / "assets" / bundle["asset_set"]
@@ -315,11 +325,14 @@ def _provision(project: Project, args) -> list[dict]:
             runtime_options['node_probe_deadline'] = args.node_probe_deadline
         tool_env = ensure_toolchain(home, settings, **runtime_options)
         phase("kilitli bağımlılıklar")
+        package_options = {'repair_packages': True} if (
+            args.profile == 'dev' and getattr(args, 'manager_ensure', False) and
+            getattr(args, 'validation_policy', 'managed') == 'developer') else {}
         install_dependencies(project, settings, tool_env,
                              expected_python=Path(tool_env['AWCENTER_MANAGED_PYTHON']),
                              cache_root=home / 'cache' / 'packages',
                              repair_venv=bool(getattr(args, 'manager_ensure', False) or
-                                              getattr(args, 'manager_repair_venv', False)))
+                                              getattr(args, 'manager_repair_venv', False)), **package_options)
         if args.profile == 'prod':
             phase("TLS sertifika ve IP doğrulaması")
             runtime.validate_tls_identity(project, Path(tls['tls_cert_file']), Path(tls['tls_key_file']), tls['host'])
@@ -367,9 +380,7 @@ def _provision(project: Project, args) -> list[dict]:
                 if result.returncode:
                     raise LauncherError("Production frontend build başarısız; servis başlatılmadı.")
             def deploy():
-                _django(project, profile, ["check", "--deploy", "--fail-level", "ERROR"], tool_env)
-                _django(project, profile, ["collectstatic", "--clear", "--noinput"], tool_env)
-                _django(project, profile, ["verify_frontend_artifact"], tool_env)
+                _deployment_checks(project, profile, tool_env)
             if getattr(args, "manager_ensure", False):
                 from .production_build import prepare_build
                 prepare_build(project, profile, tool_env, build, deploy, phase)
@@ -457,10 +468,12 @@ def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None
             from .installation_readiness import HealthMonitor, healthy
             options['health'] = HealthMonitor(lambda: healthy(profile, lambda: _worker_ready(project, directory)), on_health)
         progress('Başlatma: web ve worker süreçleri açılıyor')
-        if name == "dev":
-            runtime.dev(project, Scope(), host=profile["host"], backend_port=profile["backend_port"],
-                        frontend_port=profile["frontend_port"], no_backend_reload=False, **options)
-        else:
-            runtime.prod(project, host=profile["host"], port=profile["backend_port"],
-                         env_file=Path(profile["env_file"]), certificate_file=Path(profile["tls_cert_file"]),
-                         private_key_file=Path(profile["tls_key_file"]), **options)
+        from .process import server_console
+        with server_console():
+            if name == "dev":
+                runtime.dev(project, Scope(), host=profile["host"], backend_port=profile["backend_port"],
+                            frontend_port=profile["frontend_port"], no_backend_reload=False, **options)
+            else:
+                runtime.prod(project, host=profile["host"], port=profile["backend_port"],
+                             env_file=Path(profile["env_file"]), certificate_file=Path(profile["tls_cert_file"]),
+                             private_key_file=Path(profile["tls_key_file"]), **options)

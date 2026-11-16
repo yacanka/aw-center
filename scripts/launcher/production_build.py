@@ -1,6 +1,8 @@
 """Owner-scoped build evidence for Manager's verified immutable production release."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
@@ -16,6 +18,45 @@ from .installation_state import private_directory
 from .model import LauncherError
 from .offline_manifest import file_sha256
 from .process import check_cancelled
+
+
+_deployment_checks = ContextVar('awcenter_deployment_checks', default=None)
+
+
+@contextmanager
+def deployment_checks_scope():
+    """Share successful gates only with the immediate start under the same leases.
+
+    The caller must retain exclusive preparation/lifecycle leases and must not
+    mutate source, runtime, configuration or artifacts after recording success.
+    No proof survives this operation, including a failed or cancelled start.
+    """
+    token = _deployment_checks.set({'proof': None})
+    try:
+        yield
+    finally:
+        _deployment_checks.reset(token)
+
+
+def _deployment_identity(project, host, port, env_file):
+    path = Path(env_file)
+    require_unlinked(path)
+    require_private(path)
+    return (str(project.root.resolve()), str(path.absolute()), host, port, file_sha256(path))
+
+
+def record_deployment_checks(project, profile):
+    current = _deployment_checks.get()
+    if current is not None:
+        current['proof'] = _deployment_identity(project, profile['host'], profile['backend_port'], profile['env_file'])
+
+
+def consume_deployment_checks(project, host, port, env_file):
+    current = _deployment_checks.get()
+    if current is None or current['proof'] is None:
+        return False
+    proof, current['proof'] = current['proof'], None
+    return proof == _deployment_identity(project, host, port, env_file)
 
 
 class FrontendBuildError(LauncherError):

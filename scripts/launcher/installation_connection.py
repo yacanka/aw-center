@@ -36,7 +36,7 @@ class MissingProductionSettings(LauncherError):
         super().__init__('Yeni üretim profili için gerekli alanlar: ' + ', '.join(labels[field] for field in missing) + '.')
 
 
-def select_ports(profile, overrides, *, automatic=()):
+def select_ports(profile, overrides, *, automatic=(), host='127.0.0.1'):
     """Reserve both candidates during selection; actual server bind is authoritative."""
     if profile and profile.get('name') != 'dev':
         raise ConnectionError('profile')
@@ -55,13 +55,13 @@ def select_ports(profile, overrides, *, automatic=()):
             if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
                 probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
             try:
-                probe.bind(('127.0.0.1', port))
+                probe.bind((host, port))
             except OSError as error:
                 if error.errno != errno.EADDRINUSE and getattr(error, 'winerror', None) != 10048:
                     raise ConnectionError(field) from None
                 if mode != 'automatic':
                     raise ConnectionError(field, occupied=True) from None
-                probe.bind(('127.0.0.1', 0))
+                probe.bind((host, 0))
             selected[field] = probe.getsockname()[1]
             modes[field] = mode
     return {**selected, 'port_modes': modes}

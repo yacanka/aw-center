@@ -59,6 +59,9 @@ yalnız sahip olunan süreçleri temizledikten sonra yeni ayarlarla devam eder.
 Ana ekran seçili **profilin gerçek durumu**, **ana eylem** ve **işlem ilerlemesi**
 üzerine kuruludur. Açılışta ve kaynak/profil değişiminde arka planda salt okunur
 inceleme yapılır; eski inceleme yeni seçimi değiştiremez.
+Bu inceleme kayıtlı profilin ve temel dosyaların durumuyla sınırlıdır; paketleri
+hash’lemez, araç aramaz ve Django başlatmaz. Kayıtlı profil bu aşamada hazır ilan
+edilmez. Kapsamlı inceleme **Durumu denetle** ile istenebilir.
 
 | Durum | Ana eylem |
 | --- | --- |
@@ -173,6 +176,11 @@ okunması ve v2 `host_runtimes` gereksinimlerinin doğrulanması korunur.
 
 Manager normal biçimde kapatıldığında son form değerlerini `%LOCALAPPDATA%\AWCenterManager\manager.json` içinde atomik ve yalnız mevcut kullanıcıya açık olarak saklar. Bu alan standart Windows kullanıcısının kendi profilindedir; yönetici olarak çalıştırma veya kurulum klasörünün izinlerini değiştirme gerektirmez. Kurulumun `%LOCALAPPDATA%\AWCenter` dizini yazılabilir veya tam olarak aynı özel ACL biçiminde olmak zorunda değildir. Profil, kaynak modu/adresleri, dizinler, Python/Node seçimleri, portlar, CA/TLS ve `.env` dosya yolları sonraki açılışta geri gelir. `--root` ile verilen kaynak dizini hatırlanan dizinden önceliklidir. İşlem başlatılmadan girilen değerler de kapanışta saklanır; ani süreç sonlandırmada son değişiklikler kaybolabilir.
 
+Host ve port alanlarında yalnız açıkça girilen değerler hatırlanır. Bu seçimler
+başka `.env` veya dağıtım seçildiğinde de öncelikli kalır; bir alanı temizlemek
+eski bir bağlamdaki değeri geri getirmez. Dosyadan çözülen değerler bu alanlara
+otomatik override olarak yazılmaz.
+
 Yeni kayıt yoksa önceki sürümün `%LOCALAPPDATA%\AWCenter\config\manager.json` dosyası salt okunur olarak kontrol edilir. Sahiplik, özel izinler ve symlink/junction kontrollerinden geçen eski değerler yüklenir ve normal kapanışta yeni alana yazılır. Eski dosya silinmez, içeriği veya izinleri değiştirilmez. Güvensiz ya da bozuk eski kayıt içe alınmaz; yeni alanda form değerlerini kaydetmek yine mümkündür.
 
 Yalnız dosya yolları kaydedilir; `.env`, sertifika ve özel anahtar içerikleri okunmaz. Yönetici kullanıcı adı/parolası ve credential içeren URL'ler kaydedilmez. Migration onayı her işlem için yeniden verilir. Kayıt okunamıyorsa form varsayılanlarla açılır ve durum/rapor mesajı gösterilir; kayıt yazılamıyorsa kapanışta uyarı verilir. Mesaj başarısız aşamayı, kullanıcı adını açığa çıkarmayan sembolik kayıt konumunu, `preferences_…` hata kodunu, varsa sayısal `WinError`/`errno` değerini ve çözüm adımını içerir. Windows ACL kontrolü başarısızsa ilgili güvenli kontrol kimliği de gösterilir; ham exception, SID, form değerleri veya dosya içerikleri gösterilmez. Dosya kilidi, erişim reddi, dolu disk/kota, salt okunur disk ve bozuk kayıt birbirinden ayrılır. Başarısız atomik yazmada önceki kayıt korunur. Bu dosya uygulama profillerinden ayrıdır; mevcut hesapları, anahtarları veya veritabanını değiştirmez.
@@ -183,13 +191,45 @@ Ana **AW Center’ı aç** eylemi seçilen ayarları kayıtlı profille karşıl
 değişiklik varsa hazırlama yolunu, yoksa normal başlatmayı kullanır. Gelişmiş
 paneldeki eski **Kur ve başlat** ve salt okunur denetim işlemleri de korunur.
 
-Çalışma sekmesindeki **.env dosyası (isteğe bağlı)** alanının **Seç…** düğmesiyle kendi dosyanızı seçebilirsiniz. Boş bırakılırsa mevcut profil kullanılır; yeni profilde varsayılan özel yapılandırma üretilir. Seçilen dosyanın yolu görev seçeneklerine alınır; içeriği arayüz veya rapora aktarılmaz.
+Çalışma sekmesindeki **.env dosyası (isteğe bağlı)** alanının **Seç…** düğmesiyle kendi dosyanızı seçebilirsiniz. Yerel geliştirmede her açılışta dosya yeniden okunur ve **dolu Manager alanı → `.env` değeri → uygulama varsayılanı** sırası uygulanır. Alan temizlendiğinde dosya değeri tekrar geçerli olur. Dosya seçimi de temizlenirse varsayılan uygulama ayarları kullanılır; önceki birleştirilmiş kopya yeni bir girdi katmanı değildir. Seçilen dosyanın yolu görev seçeneklerine alınır; içeriği arayüz veya rapora aktarılmaz.
 
-**Kur ve başlat**, literal `KEY=value` biçimindeki dosyayı doğrular ve ayarlarını `%LOCALAPPDATA%\AWCenter\config\dev.env` veya `prod.env` içindeki owner-only kopyaya aktarır. Kaynak dosyanın içeriği ve izinleri değiştirilmez. Kaynak dosyanızın izinlerini ayrıca koruyun; uygulama yalnız özel profil kopyasını kullanır. UTF-8/BOM desteklenir; yinelenen anahtar, symlink/junction, normal dosya olmayan yol, geçersiz sözdizimi veya 128 KiB üzeri dosya reddedilir. Shell komutu/variable interpolation yapılmaz; süreç başlatma ve başka env dosyasına yönlendirme ayarları kabul edilmez.
+**AW Center’ı aç**, literal `KEY=value` biçimindeki dosyayı doğrular ve ayarlarını `%LOCALAPPDATA%\AWCenter\config\dev.env` veya `prod.env` içindeki owner-only kopyaya aktarır. İsteğe bağlı `export` öneki, tırnaklı değerler ve değer dışındaki satır sonu yorumları desteklenir. Kaynak dosyanın içeriği ve izinleri değiştirilmez. Kaynak dosyanızın izinlerini ayrıca koruyun; uygulama yalnız özel profil kopyasını kullanır. UTF-8/BOM desteklenir; yinelenen anahtar, symlink/junction, normal dosya olmayan yol, geçersiz sözdizimi veya 128 KiB üzeri dosya reddedilir. Shell komutu/variable interpolation yapılmaz; süreç başlatma ve başka env dosyasına yönlendirme ayarları kabul edilmez. Hata mesajı varsa ilgili ayar adlarını veya satır numarasını gösterir; değerleri göstermez. Çözüm adımı ana ekranda görünür ve ilgili `.env` alanı açılır.
 
-Mevcut profilin `SECRET_KEY` / `JIRA_SESSION_ENCRYPTION_KEY` değerleri değiştirilemez. Profilin ayrı veritabanı, özel dosya ve bind/model yollarıyla çelişen ayarlar reddedilir; dosyadan bu alanları çıkarmak mevcut güvenli değerleri korur. İlk kez eski bir geliştirme veritabanı açıkça sahiplenilecekse seçilen dosya her iki özgün anahtarı da içermelidir; veritabanı resetlenmez. Production için seçilen dosya kaynak ağacının dışında olmalıdır. İlk kurulumda eksik anahtarlar yalnız yeni/boş ortam için oluşturulur.
+Yerel `.env`, SQLite veritabanı, private dosya, cache, model ve şablon yollarını
+belirleyebilir; Manager'ın eski sabit yollarıyla eşit olmaları gerekmez. Göreli
+yollar dosyanın konumuna değil `backend/` çalışma dizinine göre çözülür. Kaynak
+dosya yazılmaz; sonuç kullanıcıya özel çalışma kopyasıdır. Gerekli yerel originler
+etkili host/portlara göre eklenir; dosyanın ek originleri ve açıkça verdiği
+reset/davet adresleri korunur. Dosyada verilen port sabittir; yalnız varsayılan
+veya Manager'da `auto` seçilen port gerektiğinde boş bir porta alınır.
 
-**Durumu denetle** salt okunurdur. **Başlat** paket indirmez veya bağımlılık kurmaz; üretimin deployment, migration durumu, collectstatic ve artifact kontrollerini tekrar çalıştırır. Alan boşken kayıtlı profil kopyasını kullanırlar. Dosya seçiliyse aynı ayarlara karşılık geldiğini doğrularlar; farklı ayarlar varsa bunları önce **Kur ve başlat** ile uygulamanız istenir. Bu seçim, iki profilin aynı state veya anahtarları paylaşmasına izin vermez.
+Yerel dosyada açıkça verilen `SECRET_KEY` ve `JIRA_SESSION_ENCRYPTION_KEY`
+kullanılır. Eksik veya boş anahtarlar yalnız aynı SQLite hedefi için kayıtlı
+anahtarlardan tamamlanır; yeni ve boş veritabanı için bir kez oluşturulur.
+Kayıtlar özel `config/local-keys/` alanında tutulur, tercihlere yazılmaz.
+Farklı bir mevcut veritabanına geçerken gerekli özgün anahtarlar bilinmiyorsa
+yenileriyle değiştirilmez ve veritabanı sıfırlanmaz. Yerel otomatik yönetim
+SQLite içindir; PostgreSQL bu akışın kapsamında değildir.
+
+Production ve doğrudan CLI provisioning, ayrı state/canonical asset yollarını
+ve mevcut anahtarların değiştirilememesini korur. Production için seçilen dosya
+kaynak ağacının dışında olmalıdır.
+
+**Durumu denetle** salt okunurdur. **Başlat** paket indirmez veya bağımlılık kurmaz; üretimin deployment, migration durumu, collectstatic ve artifact kontrollerini tekrar çalıştırır. Alan boşken kayıtlı profil kopyasını kullanırlar. Dosya seçiliyse aynı ayarlara karşılık geldiğini doğrularlar; farklı ayarlar varsa bunları **AW Center’ı aç** ile uygulamanız istenir. Bu seçim, iki profilin aynı state veya anahtarları paylaşmasına izin vermez.
+
+Yerel **AW Center’ı aç**, eksik bağımlılıkları aynı işlemde hazırlar. Açık
+geliştirici seçiminde, güvenle okunabilen kurulum kaydı ve dosya envanteri paket
+çıktısının eksik/değişmiş olduğunu gösterirse önceki generated ortam `.runtime`
+yedeğinde korunarak yeniden hazırlanır; veritabanı ve kullanıcı dosyaları bu
+onarıma dahil değildir. Yönetilen kullanımda tam bütünlük uyuşmazlığı engelleyici
+olmaya devam eder.
+Gereken güvenli SQLite migration'ı doğrulanmış yedekten sonra otomatik çalışır.
+Kaynağı belirsiz yarım migration veya gerçek erişim hatası ayrıca bildirilir.
+
+Manager ve hazırlık işlemleri terminal açmaz. İlk sunucu sürecinde tek terminal
+açılır; backend/frontend/worker çıktıları orada izlenir. Terminali kapatmak
+sahipli sunucu ve worker süreçlerini durdurur, Manager açık kalır. Bu davranışın
+Windows kabul testi platforma özgüdür.
 
 ## Geliştirme ve üretim
 
@@ -645,6 +685,25 @@ süresi dolmuş veya başka worker'a ait kayıt hazır kabul edilmez. Durdurma v
 başlatma hatalarında sağlık süreci diğer alt süreçlerle birlikte kapatılır.
 PowerShell, yönetici yetkisi veya güvenlik doğrulamasını kapatma gerekmez.
 
+Standart Django/Vue yerleşimi bulunduğunda proje keşfi bağımlılık dizinlerini
+taramaz. İlk işlem planı kayıtlı profil ve sınırlı dosya yerleşimini okur; kaynak
+SHA-256 doğrulaması gerçek işlem kilitleri alındıktan sonra yapılır. Aynı
+başlatmadaki runtime kontrol sonucu yalnız aynı araçlar ve doğrulama politikası
+için yeniden kullanılır; geliştirici hızlı kontrolü tam bütünlük doğrulamasının
+yerine geçmez.
+
+Production hazırlığı başarıyla tamamlanırsa deployment kontrolleri, kilitler
+bırakılmadan yapılan ilk başlatmada tekrar çalıştırılmaz. Şema kontrolü korunur.
+Bu sonuç tek kullanımlıktır; farklı kaynak, değişmiş `.env`, iptal/hata veya yeni
+bir açılışta kullanılmaz. Ayrı production açılışında deployment, collectstatic ve
+artifact kapıları yeniden çalışır; kalıcı bir doğrulama önbelleği yoktur.
+
+Production komutlarının bekleme süresi sınırlıdır: TLS doğrulaması 30 saniye,
+deployment/şema/static/artifact kontrollerinin her biri 180 saniye, açık migration
+ve frontend build işlemleri 30 dakikadır. Hazır olma denetiminin 60 saniyelik
+bütçesi bu hazırlık adımlarından sonra başlar; toplam açılış süresi değildir.
+Zaman aşımı Manager'da `operation_timeout`, CLI'da güvenli hata olarak bildirilir.
+
 ### Paket indirmelerini tekrar kullanma
 
 Kurulum yardımcısı tamamlanan Python wheel ve npm paket edinimlerini
@@ -673,11 +732,23 @@ arşivleri `cache\runtimes`, kurulu yönetilen araçlar `runtimes\<ad>-<sürüm>
 altındadır. Hazır kurulumu açma işlemi paket hazırlığını çağırmaz.
 
 **AW Center’ı aç** önce gerekli işlem kilidini seçer. Hazır profilin değişmemiş
-bağımlılıkları için bu ilk kararda Django başlatılmaz. Kilit alındığında kurulu
-dosyalar ve kaynak lock dosyaları doğrulanır, şema ve yönetici için tek bir
-Django incelemesi yapılır. Bu sırada durum değişmişse Manager uygun kilidi alıp
-kararı yeniden doğrular. Pencere açılırken yapılan durum incelemesi ayrı bir
-salt okunur işlemdir.
+bağımlılıkları için bu ilk kararda Django başlatılmaz. Açık geliştirici seçiminde
+kilit alındığında paket kurulum kayıtları, kaynak lock dosyaları ve zorunlu
+Python/Vite çıktıları kontrol edilir; `.venv` ve `node_modules` içeriklerinin
+tamamı yeniden hash’lenmez. Yönetilen yerel kullanım ve üretim kapsamlı dosya
+doğrulamasını korur. Şema ve yönetici için tek bir Django incelemesi yapılır.
+Paketlerin ayrıntılı bütünlük taraması kurulum ve **Tam doğrula / Durumu denetle**
+sırasında da sürer. Aynı kilit altında doğrulanmış Python/Node/npm sonucu, hemen ardından
+başlatılırken yeniden taranmaz; başka işlem veya kilit aralığında kullanılmaz.
+Durum değişmişse Manager uygun kilidi alıp kararı yeniden doğrular.
+
+Paketli yerel kullanımda `.env` ile seçilmiş veritabanı, private/cache ve asset
+çıktılarının kaynak içindeki yolları özel profil metadata'sında birikimli olarak
+hatırlanır. Başka `.env` veya veritabanına geçmek önceki verileri kaynak hatası
+saymaz. Bu istisnalar manifest'e ait kaynak dosyalarını veya onları içeren
+dizinleri gizleyemez; kaynak manifest'i değiştirilmez. Mevcut eski profilden
+geçerken önceki veritabanının anahtarları, çalışma kopyası değiştirilmeden önce
+aynı özel anahtar kaydına alınır.
 
 Yalnız bağlantı ayarı değiştiğinde Manager yeni değeri kaydeder ve kalan
 gereksinimleri denetler. Ortam hazırsa paket kurmadan ve üretim arayüzünü tekrar
