@@ -25,7 +25,6 @@ class ManagerTask:
     cancel_requested: bool = False
     browser_opened: bool = False
     resource_values: dict = field(default_factory=dict)
-    input_id: str | None = None
     events: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=256))
     form_values: dict | None = None
 
@@ -273,16 +272,6 @@ class ManagerController:
                 task.resource_values = {**task.values, 'source_root': event['source_root']}
                 task.claims = claims_for(event['action'], task.resource_values)
             return
-        if kind == 'input' and event.get('kind') == 'migration':
-            request_id = event.get('request_id')
-            if not isinstance(request_id, str) or len(request_id) != 32:
-                self.stop(task.id)
-            elif self.closing or task.cancel_requested:
-                self.stop(task.id)
-            else:
-                task.input_id = request_id
-                self.view.request_migration(task.id, lambda value: self._migration_response(task.id, request_id, value))
-            return
         if kind == 'input' and event.get('kind') == 'admin':
             if self.closing or task.cancel_requested:
                 self.stop(task.id)
@@ -316,16 +305,6 @@ class ManagerController:
             self.stop(task_id)
             return
         if value is None:
-            self.stop(task_id)
-
-    def _migration_response(self, task_id, request_id, value):
-        task = self.tasks.get(task_id)
-        if not task or not task.active or task.input_id != request_id or task.cancel_requested or self.closing:
-            return
-        task.input_id = None
-        try:
-            task.session.send({'type': 'migration', 'request_id': request_id, 'value': value is True})
-        except Exception:
             self.stop(task_id)
 
     def open_browser(self, url, task_id=None):

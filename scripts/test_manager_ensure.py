@@ -39,14 +39,24 @@ class EnsureTests(unittest.TestCase):
         args = self.args(frontend_port='15173', env_file='/selected.env', migration_policy='confirm')
         self.assertEqual(args.frontend_port, 15173)
         self.assertEqual(args.env_file, Path('/selected.env'))
-        self.assertEqual(args.migration_policy, 'confirm')
+        self.assertEqual(args.migration_policy, 'automatic')
+
+    def test_legacy_migration_settings_cannot_change_manager_migration_policy(self):
+        for policy in ('confirm', 'unknown', None):
+            with self.subTest(policy=policy):
+                args = self.args(migration_policy=policy)
+                self.assertEqual(args.migration_policy, 'automatic')
+                values = normalize_values('ensure', {'migration_policy': policy, 'migrate': True})
+                self.assertNotIn('migration_policy', values)
+                self.assertNotIn('migrate', values)
 
     def test_main_action_prepares_pending_environment_without_advanced_settings(self):
         state = ManagerTaskStates()
         state.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'incomplete'})
         self.assertEqual(state.profile_presentation('dev')['action'], 'ensure')
         values = normalize_values('ensure', {'backend_port': 'auto', 'frontend_port': 'auto'})
-        self.assertEqual(values['migration_policy'], 'automatic')
+        self.assertEqual(values['backend_port'], 'auto')
+        self.assertEqual(values['frontend_port'], 'auto')
 
     def test_fresh_profile_selects_provision_without_creating_storage(self):
         from scripts.manager.ensure import needs_preparation
@@ -129,6 +139,23 @@ class EnsureTests(unittest.TestCase):
              operation_control(stop):
             with self.assertRaises(OperationCancelled):
                 _initialize_schema(self.project, profile, args, {})
+
+    def test_existing_database_uses_backup_migrations_without_legacy_prompt(self):
+        from scripts.launcher.installation import _initialize_schema
+        profile = profiles.provision_profile(self.project, 'dev', self.home)
+        database = Path(profiles.read_profile_environment(profile)['DATABASE_URL'].removeprefix('sqlite:///'))
+        database.parent.mkdir(parents=True, exist_ok=True)
+        database.touch()
+        args = self.args(migration_policy='confirm')
+        args.manager_ensure = True
+        stages = []
+        def backed_up_migrations(*_args, **kwargs):
+            kwargs['before_migrate']()
+            stages.append('backup migration flow admitted')
+        with patch('scripts.launcher.installation_backup.run_backed_up_migrations',
+                   side_effect=backed_up_migrations):
+            _initialize_schema(self.project, profile, args, {})
+        self.assertEqual(stages, ['backup migration flow admitted'])
 
     def test_startup_repairs_directory_inheritance_before_reading_automatic_source(self):
         from scripts.launcher import installation_permissions as permissions

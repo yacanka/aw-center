@@ -75,7 +75,8 @@ frontend ile session-cookie kullanan API'nin hostlarını hizalar.
 `check` backend için Django system check, isolated in-memory migration drift/plan; frontend için format ve typecheck çalıştırır. `test` full Django, launcher/release metadata unittest'leri ve frontend `test:ci` çalıştırır.
 
 Manager'daki **Geliştirici modu — hızlı kontrol**, `dev`/`prod` profilinden ayrı,
-açıkça seçilen kaynak dizinine bağlı bir doğrulama tercihidir. Yalnız dev
+checkbox ile açılan bir doğrulama tercihidir; kaynak dizinini elle seçmek gerekmez.
+Kullanılacak kaynak yolu Manager'da gösterilir. Yalnız dev
 başlatmasında tam kurulu dosya envanterleri yerine sınırlı araç/lock kontrolü
 kullanır. Profil/state ayrılığı, süreç kilitleri, `migrate --check` ve gerçek
 HTTP/worker hazırlığı korunur. İlk hazırlık, indirme/kurulum, **Tam doğrula**

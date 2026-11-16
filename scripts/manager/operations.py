@@ -44,11 +44,11 @@ def arguments(request):
         request.get('validation_policy', 'managed'), profile=profile,
         source_selection=values['source_selection'])
     if values['validation_policy'] == 'developer':
-        source = request.get('source_root')
-        if not isinstance(source, str) or not source.strip() or len(source) > 8192 or any(c in source for c in '\0\r\n'):
-            raise LauncherError('Geliştirici modu için açık kaynak dizini seçilmeli.')
-    values['migration_policy'] = request.get('migration_policy', 'automatic')
-    if values['source_selection'] not in {'automatic', 'explicit'} or values['migration_policy'] not in {'automatic', 'confirm'}:
+        source = request.get('source_root', '')
+        if not isinstance(source, str) or len(source) > 8192 or any(c in source for c in '\0\r\n'):
+            raise LauncherError('Geçersiz kaynak dizini.')
+    values['migration_policy'] = 'automatic'
+    if values['source_selection'] not in {'automatic', 'explicit'}:
         raise LauncherError('Geçersiz otomasyon seçimi.')
     values['automatic_ports'] = tuple(field for field in ('backend_port', 'frontend_port')
                                      if request.get(field) == 'auto')
@@ -99,10 +99,10 @@ def _remedy(phase):
     if 'yönetici' in phase:
         return 'İlk yönetici bilgilerini ve parola kurallarını kontrol edip yeniden deneyin. Mevcut hesaplar değiştirilmez.'
     if 'şema' in phase or 'Production' in phase:
-        return 'Profil, veritabanı yedeği ve production için IPv4/TLS dosyalarını kontrol edin. Bekleyen migration için açık onay kutusunu kullanın.'
+        return 'Profil, veritabanı yedeği ve production için IPv4/TLS dosyalarını kontrol edin. Ayarları düzelttikten sonra AW Center’ı aç ile yeniden deneyin.'
     if 'bağımlılık' in phase or 'runtime' in phase:
         return 'Kaynakları test edin. Python paketi, npm deposu ve runtime arşivleri ayrı kaynaklardır. ZIP paketinin tamamını çıkardığınızdan emin olun.'
-    return 'Kaynakları ve profil ayarlarını kontrol edin. Kontrol et ile eksikleri görüntüleyip yeniden deneyin.'
+    return 'Kaynakları ve profil ayarlarını düzeltip AW Center’ı aç ile yeniden deneyin.'
 
 
 def _errors_with_remedy():
@@ -156,7 +156,7 @@ def _failure_reason(error):
         (('installation bundle output must be outside all input',), 'bundle_output_invalid', 'Paket hedefi kaynak, Manager dağıtımı, asset ve bağımlılık girdilerinden ayrı olmalı.'),
         (('symlink', 'reparse'), 'storage_path_unsafe', 'Kurulum veya paket yolu bağlantı / reparse noktası içeriyor; güvenli bir yerel klasör gerekli.'),
         (('project root', 'manage.py was not found', 'vue package.json'), 'source_unavailable', 'Proje kaynağı bulunamadı veya Django/Vue kaynakları eksik. ZIP paketinin tamamını çıkarıp kaynak dizinini kontrol edin.'),
-        (('uygulamak için kur ve başlat',), 'env_import_required', 'Seçilen .env profilin kayıtlı ayarlarından farklı. Uygulamak için Kur ve başlat kullanın.'),
+        (('uygulamak için kur ve başlat',), 'env_import_required', 'Seçilen .env profilin kayıtlı ayarlarından farklı. AW Center’ı aç ile uygulayın.'),
         (('.env', 'environment file is invalid'), 'env_file_invalid', 'Seçilen .env okunamadı, biçimi veya profil ile uyumu doğrulanamadı. Dosyayı ve mevcut anahtar/veri yolu uyumunu kontrol edin.'),
         (('venv farklı',), 'venv_python_mismatch', 'Mevcut .venv seçilen Python’a bağlı değil; otomatik değiştirilmedi. Ayrı temiz kaynak dizini kullanın.'),
         (('uygun sistem python',), 'system_python_missing', 'Uygun sistem Python 3.11 x64 bulunamadı; Python komutu / yolu alanına python veya python.exe yolunu girin ya da “Python çalışma zamanını kur” seçeneğini işaretleyin.'),
@@ -198,7 +198,7 @@ def _system_failure(error):
     return code, message
 
 
-def execute(request, emit, admin_provider, stop, migration_provider=None):
+def execute(request, emit, admin_provider, stop):
     """Map only declared results/errors; a failure belongs to this worker alone."""
     phase = 'Hazırlık'
     try:
@@ -210,7 +210,6 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
         from .paths import default_source_root
         args.source_root = request.get('source_root') or str(default_source_root())
         args.admin_provider = admin_provider
-        args.migration_provider = migration_provider
         args.manager_repair_venv = True
         def progress(label):
             nonlocal phase
@@ -250,7 +249,7 @@ def execute(request, emit, admin_provider, stop, migration_provider=None):
             'python_packages_missing': 'İzin verilen paket kaynakları denendi. Kısıtlı bilgisayara tam çevrimdışı Manager paketini aktarın veya erişilebilir Python paket indeksini seçin.',
             'npm_packages_missing': 'İzin verilen paket kaynakları denendi. Tam çevrimdışı Manager paketini aktarın veya erişilebilir npm deposunu seçin.',
             'system_python_missing': 'Çalışma sekmesindeki gelişmiş ayarlarda Python komutu / yolu alanına python, py -3.11 veya python.exe dosyasının tam yolunu girin. CPython 3.11 x64 gerekir; isterseniz Python kurulumu kutusunu seçin.',
-            'env_import_required': 'Çalışan ilgili görevi durdurun; seçilen dosyayı Kur ve başlat ile uygulayın. Mevcut anahtar ve veri yolları korunmalıdır.',
+            'env_import_required': 'Seçilen dosyayı AW Center’ı aç ile uygulayın; çalışan profil gerekirse otomatik durdurulup yeniden açılır.',
             'env_file_invalid': 'Çalışma sekmesindeki .env dosyasını kontrol edin; yalnız uygulama ayarlarını içeren, profilin anahtarları ve veri yollarıyla uyumlu bir dosya seçin.',
         }
         remedy = error.remedy if isinstance(error, _errors_with_remedy()) else remedies.get(code, _remedy(phase))

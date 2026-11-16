@@ -5,8 +5,8 @@ from .model import LauncherError
 def require_validation_policy(value='managed', *, profile='dev', source_selection=None) -> str:
     """Reject malformed or unsupported requests without echoing untrusted input.
 
-    Internal launcher callers may omit source selection after Manager admission;
-    external request boundaries must supply their explicit selection.
+    Developer validation is an explicit policy choice for dev, independent of
+    whether the source path was detected automatically or selected manually.
     """
     field = 'validation_policy'
     message = None
@@ -14,9 +14,6 @@ def require_validation_policy(value='managed', *, profile='dev', source_selectio
         message = 'Geçerli bir doğrulama politikası seçin.'
     elif value == 'developer' and profile != 'dev':
         message = 'Geliştirici modu yalnız geliştirme profilinde kullanılabilir.'
-    elif value == 'developer' and source_selection is not None and source_selection != 'explicit':
-        field = 'source_root'
-        message = 'Geliştirici modu için düzenlenebilir kaynak dizinini açıkça seçin.'
     if message:
         error = LauncherError(message)
         error.code = 'invalid_validation_policy'

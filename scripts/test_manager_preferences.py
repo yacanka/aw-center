@@ -19,13 +19,14 @@ class PreferencesTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.home = Path(self.temporary.name).resolve() / 'AWCenterManager'
 
-    def test_developer_selection_round_trips_only_for_explicit_dev_source(self):
+    def test_developer_selection_round_trips_for_automatic_and_explicit_dev_source(self):
         base = {'profile': 'dev', 'source_root': '/editable', 'source_selection': 'explicit',
                 'validation_policy': 'developer'}
-        self.preferences.save_preferences(self.home, base)
-        self.assertEqual(self.preferences.load_preferences(self.home)['validation_policy'], 'developer')
-        for changes in ({'profile': 'prod'}, {'source_selection': 'automatic'}, {'source_root': ''},
-                        {'validation_policy': 'unknown'}):
+        for changes in ({}, {'source_selection': 'automatic'}, {'source_selection': 'automatic', 'source_root': ''}):
+            with self.subTest(changes=changes):
+                self.preferences.save_preferences(self.home, {**base, **changes})
+                self.assertEqual(self.preferences.load_preferences(self.home)['validation_policy'], 'developer')
+        for changes in ({'profile': 'prod'}, {'validation_policy': 'unknown'}):
             with self.subTest(changes=changes):
                 self.preferences.save_preferences(self.home, {**base, **changes})
                 self.assertEqual(self.preferences.load_preferences(self.home).get('validation_policy', 'managed'), 'managed')
@@ -36,7 +37,8 @@ class PreferencesTests(unittest.TestCase):
                   'env_file': 'C:/config/prod.env',
                   'host': '192.0.2.1', 'backend_port': '8443', 'tls_key_file': 'C:/tls/private.key',
                   'python_index_url': 'https://packages.example/simple', 'install_python': False,
-                  'migrate': True, 'password': 'must-not-persist', 'username': 'must-not-persist'}
+                  'migrate': True, 'migration_policy': 'confirm',
+                  'password': 'must-not-persist', 'username': 'must-not-persist'}
         self.preferences.save_preferences(self.home, values)
         restored = self.preferences.load_preferences(self.home)
         for key in ('profile', 'source_mode', 'source_root', 'python_command', 'node_command', 'env_file',
@@ -45,11 +47,13 @@ class PreferencesTests(unittest.TestCase):
         self.assertFalse(restored.get('migrate', False))
         raw = (self.home / 'manager.json').read_text(encoding='utf-8')
         self.assertNotIn('must-not-persist', raw)
+        self.assertNotIn('migration_policy', json.loads(raw)['values'])
 
     def test_media_context_history_is_filtered_and_round_trips(self):
         context = 'a' * 64
         self.preferences.save_preferences(self.home, {'node_command': 'node', '_media_context': context,
-            '_contexts': {'b' * 64: {'env_file': '/old/path.env', 'password': 'must-not-persist', 'migrate': True}}})
+            '_contexts': {'b' * 64: {'env_file': '/old/path.env', 'password': 'must-not-persist',
+                                    'migrate': True, 'migration_policy': 'confirm'}}})
         restored = self.preferences.load_preferences(self.home)
         self.assertEqual(restored['_media_context'], context)
         self.assertEqual(restored['_contexts']['b' * 64], {'env_file': '/old/path.env'})
@@ -124,12 +128,14 @@ class PreferencesTests(unittest.TestCase):
         legacy.parent.mkdir(parents=True)
         secure_path(legacy.parent.parent)
         secure_path(legacy.parent)
-        original = json.dumps({'version': 1, 'values': {'python_command': 'python', 'migrate': True}}).encode()
+        original = json.dumps({'version': 1, 'values': {'python_command': 'python', 'migrate': True,
+                                                      'migration_policy': 'confirm'}}).encode()
         legacy.write_bytes(original)
         secure_path(legacy)
         restored = self.preferences.load_preferences(self.home)
         self.assertEqual(restored['python_command'], 'python')
         self.assertFalse(restored.get('migrate', False))
+        self.assertNotIn('migration_policy', restored)
         self.preferences.save_preferences(self.home, {**restored, 'python_command': 'py -3.11'})
         self.assertEqual(self.preferences.load_preferences(self.home)['python_command'], 'py -3.11')
         self.assertEqual(legacy.read_bytes(), original)

@@ -43,7 +43,7 @@ class DeveloperStartupTests(unittest.TestCase):
 
     def test_worker_rejects_invalid_policy_before_storage_or_dispatch(self):
         for values in ({'validation_policy': 'fast'}, {'profile': 'prod'},
-                       {'source_selection': 'automatic'}, {'source_root': ''},
+                       {'source_selection': 'invalid'}, {'source_root': 'bad\npath'}, {'source_root': None},
                        {'validation_policy': None}):
             with self.subTest(values=values), patch.object(operations, '_dispatch') as dispatch:
                 events = self.execute(**values)
@@ -53,6 +53,11 @@ class DeveloperStartupTests(unittest.TestCase):
 
     def test_missing_policy_keeps_managed_default(self):
         self.assertEqual(operations.arguments({'action': 'inspect'}).validation_policy, 'managed')
+
+    def test_worker_accepts_developer_with_no_source_override(self):
+        args = operations.arguments({'action': 'inspect', 'validation_policy': 'developer'})
+        self.assertEqual(args.source_selection, 'automatic')
+        self.assertEqual(args.validation_policy, 'developer')
 
     def test_inspection_only_reads_bounded_metadata_without_any_probe(self):
         self.prepared()
@@ -79,6 +84,18 @@ class DeveloperStartupTests(unittest.TestCase):
             inspection.inspect_profile(self.args(action='inspect'), events.append)
         self.assertEqual(events[-1]['status'], 'not_installed')
         self.assertFalse(self.home.exists())
+
+    def test_automatic_developer_inspection_reports_recorded_source(self):
+        self.prepared()
+        args = self.args(action='inspect', source_selection='automatic')
+        args.source_root = str(self.root / 'different-media')
+        events = []
+        with patch.object(inspection, 'require_windows'), \
+             patch.object(inspection, 'installation_home', return_value=self.home), \
+             patch('scripts.launcher.installation.require_windows'):
+            inspection.inspect_profile(args, events.append)
+        self.assertEqual(events[-1]['status'], 'stopped')
+        self.assertEqual(events[-1]['source_root'], str(self.project.root))
 
     def test_inspection_rejects_oversized_metadata_before_loading_profile(self):
         self.prepared()
@@ -132,6 +149,24 @@ class DeveloperStartupTests(unittest.TestCase):
         self.assertTrue(all(value == 0 for value in metrics['counts'].values()))
         self.assertEqual(next(event['validation_policy'] for event in events if event['type'] == 'resources'),
                          'developer')
+
+    def test_automatic_developer_start_uses_recorded_source_without_inventory(self):
+        self.prepared()
+        started = []
+        def start_profile(project, name, **options):
+            started.append(project.root)
+            self.assertEqual(options['validation_policy'], 'developer')
+            options['on_ready'](profiles.load_profile(project, name, self.home))
+        with patch('scripts.launcher.installation.require_windows'), \
+             patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]), \
+             patch.object(packages, '_package_inventory', side_effect=AssertionError('inventory')), \
+             patch.object(installation, 'backend_inspection', return_value={
+                 'schema': 'ready', 'admin_exists': True, 'auto_migrate_safe': True}), \
+             patch.object(installation, 'provision', side_effect=AssertionError('installation')), \
+             patch.object(installation, 'start_profile', side_effect=start_profile):
+            events = self.execute(source_selection='automatic', source_root='')
+        self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
+        self.assertEqual(started, [self.project.root])
 
     def test_changed_lock_selects_preparation_for_only_affected_dependency(self):
         self.prepared()

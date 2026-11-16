@@ -69,6 +69,13 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.sessions[-1].request['validation_policy'], 'managed')
         self.assertEqual(self.controller.tasks[task_id].snapshot()['values']['validation_policy'], 'managed')
 
+    def test_worker_snapshot_drops_obsolete_gui_migration_settings(self):
+        task_id = self.start('ensure', migrate=True, migration_policy='confirm')
+        request = self.sessions[-1].request
+        self.assertNotIn('migrate', request)
+        self.assertNotIn('migration_policy', request)
+        self.assertNotIn('migration_policy', self.controller.tasks[task_id].snapshot()['values'])
+
     def test_running_app_does_not_block_source_probe_or_doctor(self):
         run_id = self.start('start')
         source_id = self.start('test-sources')

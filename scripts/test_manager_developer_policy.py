@@ -1,4 +1,4 @@
-"""Developer validation is an explicit dev/source choice, never an implicit default."""
+"""Developer validation is an explicit dev policy choice, never an implicit default."""
 import importlib
 import unittest
 from pathlib import Path
@@ -26,33 +26,48 @@ class ValidationPolicyTests(unittest.TestCase):
             self.assertEqual(caught.exception.field, 'validation_policy')
             self.assertNotIn('secret', str(caught.exception))
 
-    def test_developer_requires_dev_and_explicit_source_when_supplied(self):
+    def test_developer_accepts_automatic_source_but_requires_dev(self):
         self.assertEqual(self.policy('developer'), 'developer')
         self.assertEqual(self.policy('developer', source_selection='explicit'), 'developer')
+        self.assertEqual(self.policy('developer', source_selection='automatic'), 'developer')
         with self.assertRaises(LauncherError):
             self.policy('developer', profile='prod', source_selection='explicit')
-        for selection in ('automatic', '', False):
-            with self.subTest(selection=selection), self.assertRaises(LauncherError) as caught:
-                self.policy('developer', source_selection=selection)
-            self.assertEqual(caught.exception.field, 'source_root')
 
-    def test_form_rejects_developer_for_unselected_source_or_prod(self):
-        for values in ({'source_selection': 'automatic'}, {'profile': 'prod', 'source_selection': 'explicit'}):
-            with self.subTest(values=values), self.assertRaises(FormError):
-                normalize_values('start', {'validation_policy': 'developer', **values})
+    def test_form_accepts_automatic_developer_source_and_rejects_prod(self):
+        values = normalize_values('start', {'validation_policy': 'developer'})
+        self.assertEqual(values['source_selection'], 'automatic')
+        self.assertEqual(values['source_root'], '')
+        self.assertEqual(values['validation_policy'], 'developer')
+        for selection in ('automatic', 'explicit'):
+            with self.subTest(selection=selection), self.assertRaises(FormError):
+                normalize_values('start', {'validation_policy': 'developer', 'profile': 'prod',
+                                           'source_selection': selection})
+        for selection in ('', 'invalid'):
+            with self.subTest(selection=selection), self.assertRaises(FormError):
+                normalize_values('start', {'validation_policy': 'developer', 'source_selection': selection})
 
-    def test_blocked_profile_full_verification_action_is_labelled(self):
+    def test_blocked_profile_can_open_without_losing_the_failure(self):
         states = ManagerTaskStates()
-        states.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'blocked'})
+        states.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'blocked',
+                             'detail': 'Profile validation failed.'})
         presentation = states.profile_presentation('dev')
-        self.assertEqual(presentation['action'], 'doctor')
-        self.assertEqual(presentation['label'], 'Tam doğrula')
+        self.assertEqual(presentation['action'], 'ensure')
+        self.assertEqual(presentation['label'], 'AW Center’ı aç')
+        self.assertEqual(presentation['status'], 'blocked')
+        self.assertEqual(presentation['detail'], 'Profile validation failed.')
 
     def test_startup_malformed_policy_preserves_safe_default(self):
         for value in (None, [], False, 'unknown'):
             with self.subTest(value=value):
                 restored = paths.startup_values({'validation_policy': value}, None)
                 self.assertEqual(restored['validation_policy'], 'managed')
+
+    def test_startup_retains_developer_with_automatic_source(self):
+        for source in ('', '/detected'):
+            with self.subTest(source=source):
+                saved = {'profile': 'dev', 'source_root': source, 'source_selection': 'automatic',
+                         'validation_policy': 'developer'}
+                self.assertEqual(paths.startup_values(saved, None)['validation_policy'], 'developer')
 
     def test_startup_source_override_resets_developer_but_same_source_retains_it(self):
         saved = {'source_root': '/source', 'source_selection': 'explicit', 'profile': 'dev',

@@ -15,11 +15,29 @@ akışta ele alınır. İlk aktif yönetici yoksa kullanıcı adı ve parola sor
 Hazır ortam yeniden kurulmadan açılır. Pencerenin açılması tek başına kurulum,
 migration veya sunucu başlatmaz.
 
+Ana ekran profilin durumunu, tek ana eylemi, kaynak yolunu ve geliştirici modu
+seçimini gösterir. İlerleme ana ekranda seçili profilin açılışını takip eder;
+başka bir raporu seçmek bu ilerlemeyi değiştirmez. **Ayrıntılar** görünümünde
+mevcut işlemler, geçmiş raporlar, bildirimler ve seçili işlemi durdurma bulunur.
+Görev güncellemeleri veya pencere boyutunun değişmesi listeyi ana ekrana taşımaz.
+
+Başlatma için tek eylem **AW Center’ı aç**'tır; ayrı **Kur ve başlat** ve migration
+onayı kutuları yoktur. Açılış incelemesinde sorun görülse de ana eylem hazırlamayı
+yeniden değerlendirir; önce **Tam doğrula** çalıştırmak gerekmez. Çalışan profilde
+sağlık sorunu varsa **Yeniden başlat ve aç**, mevcut süreçleri kapatıp aynı akışı
+sürdürür. Başlatmayı yeniden denemek, aynı profilin formunda düzelttiğiniz
+ayarları kullanır. Başka profil seçiliyse denenen işlemin profil ve ayarları korunur.
+Tarayıcı web ve worker hazır olduğunda otomatik açılır. İlk kurulumda yönetici
+bilgileri, production için eksik IPv4/TLS dosyaları ve güvenle otomatik
+düzeltilemeyen gerçek hatalar kullanıcı girdisi gerektirmeye devam eder.
+
 ## Kaynak kod geliştirirken hızlı açılış
 
-Gelişmiş ayarlarda düzenlediğiniz kaynak dizinini seçin ve **Geliştirici modu —
-hızlı kontrol** seçimini açın. Bu seçenek yalnız `dev` profili ve açıkça seçilen
-kaynak için geçerlidir. Ana **AW Center’ı aç**, durdurma ve tarayıcıda açma
+Ana ekranda **Geliştirici modu — hızlı kontrol** seçimini açın. Kaynak
+dizini seçmeniz gerekmez; checkbox'ın yanında kullanılacak kaynak yolu gösterilir.
+Otomatik seçim kayıtlı profilin kaynağını, profil yoksa Manager'ın algıladığı
+kaynağı kullanır. İsterseniz farklı bir kaynak dizini seçebilirsiniz. Bu seçenek
+yalnız `dev` profili için geçerlidir. Ana **AW Center’ı aç**, durdurma ve tarayıcıda açma
 eylemleri aynı kalır. Etkin çalışma biçimi ana durum bilgisinde görünür;
 çalışan ortamın seçimini değiştirmek mevcut durdur/uygula/aç akışını kullanır.
 
@@ -52,7 +70,12 @@ bilgisini değiştirmeden doğrudan `node_modules` içeriğini düzenlediyseniz
 
 Profil, kaynak, bağlantı, araç ve `.env` alanları **Gelişmiş ayarları göster**
 altındadır; kayıtlı değerler olsa da bu panel başlangıçta kapalıdır. Kaynaklar ve
-Rapor görünümleri isteğe bağlıdır. Ana eylem, gelişmiş değişiklikleri uygular veya
+Ayrıntılar görünümleri isteğe bağlıdır. Geliştirmede frontend portu, üretimde
+TLS alanları ve üretim açıklaması gösterilir. Çevrimdışı modda ağ deposu
+alanları; yönetilen Python/Node seçildiğinde elle runtime yolu alanı gizlenir.
+CA alanı çevrimdışı paket kurulumunda da kullanılabildiği için görünür kalır.
+Seçim değişince yazılan değerler geri gelir. Boş bırakılan otomatik seçimler
+yeniden doldurulmak zorunda değildir. Ana eylem, gelişmiş değişiklikleri uygular veya
 ilgili engeli açıklar. Çalışan profilin ayarları değişirse **Durdur, uygula ve aç**
 yalnız sahip olunan süreçleri temizledikten sonra yeni ayarlarla devam eder.
 
@@ -61,7 +84,7 @@ Ana ekran seçili **profilin gerçek durumu**, **ana eylem** ve **işlem ilerlem
 inceleme yapılır; eski inceleme yeni seçimi değiştiremez.
 Bu inceleme kayıtlı profilin ve temel dosyaların durumuyla sınırlıdır; paketleri
 hash’lemez, araç aramaz ve Django başlatmaz. Kayıtlı profil bu aşamada hazır ilan
-edilmez. Kapsamlı inceleme **Durumu denetle** ile istenebilir.
+edilmez. Kapsamlı inceleme **Tam doğrula** ile istenebilir.
 
 | Durum | Ana eylem |
 | --- | --- |
@@ -69,9 +92,10 @@ edilmez. Kapsamlı inceleme **Durumu denetle** ile istenebilir.
 | Hazırlanmış, durmuş | AW Center’ı aç |
 | Tamamlanabilir yarım kurulum | Tamamla ve aç |
 | Çalışıyor ve sağlıklı | Tarayıcıda aç |
-| Müdahale gerekiyor | Eksikleri göster |
+| Açılış incelemesinde sorun var | AW Center’ı aç |
+| Çalışan profilde sağlık sorunu var | Yeniden başlat ve aç |
 
-Kaynaklar ve Rapor düğmeleri ilgili görünümü açar; Ctrl+1/2/3 korunur.
+Kaynaklar ve Ayrıntılar düğmeleri ilgili görünümü açar; Ctrl+1/2/3 korunur.
 Kaynak testi veya başka bir rapor seçmek çalışan profilin Tarayıcıda aç/Durdur
 kontrollerini değiştirmez. Üretimde eksik IPv4, sertifika ve özel anahtar alanları
 gerektiğinde gelişmiş panelde gösterilir. Açık/koyu tema, sistem
@@ -79,9 +103,12 @@ fontu, klavye odağı ve küçük pencerede kaydırma korunur.
 
 İlerleme geçerli aşama, geçen süre ve bekleme nedenini gösterir; tahmini yüzde
 üretilmez. Denetim özeti Hazır, Eksiklerle kullanılabilir veya Kurulum engellendi
-olur. **Yeniden dene / Ctrl+R**, ilgili görevin kayıtlı ayarlarını kullanır;
-formu değiştirmek yeni bir işlem başlatmak içindir. Başlatmada tarayıcı bir kez
-açılır. Durdurulan görevin canlı bağlantısı kaldırılır.
+olur. Bir alan düzeltilebiliyorsa kısa hata açıklamasının altında aynı ayara bağlı
+giriş alanı gösterilir; sekme değişmez ve gelişmiş panel kendiliğinden açılmaz.
+**Yeniden dene / Ctrl+R** düzeltmeyi kullanıp aynı akışı sürdürür. Başka profilin
+raporu deneniyorsa o işlemin kayıtlı profili ve ayarları korunur. Alanı olmayan
+hataların açıklaması ve tam teknik raporu Ayrıntılar'da tutulur. Başlatmada
+tarayıcı bir kez açılır. Durdurulan görevin canlı bağlantısı kaldırılır.
 
 Aktif işlem varken **X** görev çubuğuna küçültür. **Çıkış**, mevcut onaylı güvenli
 durdurma akışını çalıştırır; süreçler temizlendikten sonra kapanır. Aktif işlem
@@ -100,7 +127,7 @@ launcher'ın mevcut konsolu korunur. İşlem iptali ve Job Object sınırı değ
 
 Manager varsayılan olarak önce sistemdeki uygun Python ve Node.js kurulumlarını arar; bulunan aracı indirmez veya değiştirmez. Python için mevcut CPython, `py -3.11`, PATH'in tüm dizinleri, Windows Python kayıtlarının 32/64 bit görünümleri ve yaygın kurulum dizinleri üzerinden tam **CPython 3.11 x64** aranır. `venv` ve `ensurepip` desteği de doğrulanır. Otomatik aramada uygun Python bulunamazsa seçilen kaynak politikasına göre yönetilen Python hazırlanır. **Her durumda yönetilen Python kurulumunu kullan** kutusu bu otomatik tercihi açıkça geçersiz kılar. Store yürütme alias'ı başlatılmaz; Python launcher'ın otomatik kurulum seçeneği sorguda kapalıdır. [Python Windows launcher ayarları](https://docs.python.org/3/using/windows.html) bu ortam seçeneklerini açıklar.
 
-Otomatik tespit yeterli olmazsa **Gelişmiş ayarlar → Python komutu / yolu (isteğe bağlı)** alanına `python`, `py -3.11`, `C:\Python311\python.exe` veya Python kurulum dizinini girin; **Seç…** düğmesiyle `python.exe` de seçebilirsiniz. Boşluk içeren, tırnakla kopyalanmış dosya yolları desteklenir. Girilen seçim doğrulanır; uyumsuzsa farklı bir Python'a sessizce geçilmez. Shell komutu çalıştırılmaz. Yönetilen Python kutusu seçildiğinde bu alan kullanılmaz. Alan Kur ve başlat ile offline paket hazırlığı içindir; Başlat ve Durumu denetle mevcut profilin kayıtlı Python seçimini korur.
+Otomatik tespit yeterli olmazsa **Gelişmiş ayarlar → Python komutu / yolu (isteğe bağlı)** alanına `python`, `py -3.11`, `C:\Python311\python.exe` veya Python kurulum dizinini girin; **Seç…** düğmesiyle `python.exe` de seçebilirsiniz. Boşluk içeren, tırnakla kopyalanmış dosya yolları desteklenir. Girilen seçim doğrulanır; uyumsuzsa farklı bir Python'a sessizce geçilmez. Shell komutu çalıştırılmaz. Yönetilen Python kutusu seçildiğinde bu alan kullanılmaz. AW Center’ı aç bu seçimi uygular; çevrimdışı paket hazırlığı da aynı alanı kullanır. Tam doğrula kayıtlı profilin Python seçimini korur.
 
 **Node.js komutu / yolu (isteğe bağlı)** alanı `node`, `node.exe` dosyasının tam yolu veya kurulum dizinini kabul eder; **Seç…** düğmesi EXE seçer. Boşsa PATH, Windows kayıtları ve yaygın dizinler taranır. Desteklenen sistem Node, x64 **22.13+ (22.x) veya 24+** sürümüdür; ön sürümler ve uyumsuz mimariler kullanılmaz. Otomatik arama uygun kurulum bulamazsa yalnız eksik yönetilen Node hazırlanır. Elle verilen geçersiz seçim açık hata üretir. İptal, indirmeye geçiş sayılmaz.
 
@@ -183,13 +210,13 @@ otomatik override olarak yazılmaz.
 
 Yeni kayıt yoksa önceki sürümün `%LOCALAPPDATA%\AWCenter\config\manager.json` dosyası salt okunur olarak kontrol edilir. Sahiplik, özel izinler ve symlink/junction kontrollerinden geçen eski değerler yüklenir ve normal kapanışta yeni alana yazılır. Eski dosya silinmez, içeriği veya izinleri değiştirilmez. Güvensiz ya da bozuk eski kayıt içe alınmaz; yeni alanda form değerlerini kaydetmek yine mümkündür.
 
-Yalnız dosya yolları kaydedilir; `.env`, sertifika ve özel anahtar içerikleri okunmaz. Yönetici kullanıcı adı/parolası ve credential içeren URL'ler kaydedilmez. Migration onayı her işlem için yeniden verilir. Kayıt okunamıyorsa form varsayılanlarla açılır ve durum/rapor mesajı gösterilir; kayıt yazılamıyorsa kapanışta uyarı verilir. Mesaj başarısız aşamayı, kullanıcı adını açığa çıkarmayan sembolik kayıt konumunu, `preferences_…` hata kodunu, varsa sayısal `WinError`/`errno` değerini ve çözüm adımını içerir. Windows ACL kontrolü başarısızsa ilgili güvenli kontrol kimliği de gösterilir; ham exception, SID, form değerleri veya dosya içerikleri gösterilmez. Dosya kilidi, erişim reddi, dolu disk/kota, salt okunur disk ve bozuk kayıt birbirinden ayrılır. Başarısız atomik yazmada önceki kayıt korunur. Bu dosya uygulama profillerinden ayrıdır; mevcut hesapları, anahtarları veya veritabanını değiştirmez.
+Yalnız dosya yolları kaydedilir; `.env`, sertifika ve özel anahtar içerikleri okunmaz. Yönetici kullanıcı adı/parolası ve credential içeren URL'ler kaydedilmez. Ana açılış akışı tanınan migration’ları doğrulanmış yedekten sonra ek onay istemeden uygular. Kayıt okunamıyorsa form varsayılanlarla açılır ve durum/rapor mesajı gösterilir; kayıt yazılamıyorsa kapanışta uyarı verilir. Mesaj başarısız aşamayı, kullanıcı adını açığa çıkarmayan sembolik kayıt konumunu, `preferences_…` hata kodunu, varsa sayısal `WinError`/`errno` değerini ve çözüm adımını içerir. Windows ACL kontrolü başarısızsa ilgili güvenli kontrol kimliği de gösterilir; ham exception, SID, form değerleri veya dosya içerikleri gösterilmez. Dosya kilidi, erişim reddi, dolu disk/kota, salt okunur disk ve bozuk kayıt birbirinden ayrılır. Başarısız atomik yazmada önceki kayıt korunur. Bu dosya uygulama profillerinden ayrıdır; mevcut hesapları, anahtarları veya veritabanını değiştirmez.
 
 ## .env dosyası seçimi
 
 Ana **AW Center’ı aç** eylemi seçilen ayarları kayıtlı profille karşılaştırır;
 değişiklik varsa hazırlama yolunu, yoksa normal başlatmayı kullanır. Gelişmiş
-paneldeki eski **Kur ve başlat** ve salt okunur denetim işlemleri de korunur.
+paneldeki **Tam doğrula** salt okunur ve isteğe bağlı bir denetimdir.
 
 Çalışma sekmesindeki **.env dosyası (isteğe bağlı)** alanının **Seç…** düğmesiyle kendi dosyanızı seçebilirsiniz. Yerel geliştirmede her açılışta dosya yeniden okunur ve **dolu Manager alanı → `.env` değeri → uygulama varsayılanı** sırası uygulanır. Alan temizlendiğinde dosya değeri tekrar geçerli olur. Dosya seçimi de temizlenirse varsayılan uygulama ayarları kullanılır; önceki birleştirilmiş kopya yeni bir girdi katmanı değildir. Seçilen dosyanın yolu görev seçeneklerine alınır; içeriği arayüz veya rapora aktarılmaz.
 
@@ -290,7 +317,7 @@ işlem açıklamayla durur. Başka uygulamalar kapatılmaz; doğrulanmış port
 
 Ana akışta mevcut ve tanınan veritabanının bekleyen migration'ları, uygulama
 durmuşken SQLite ve özel dosya yedeği doğrulandıktan sonra otomatik uygulanır.
-Gelişmiş panelde yedek sonrası ayrıca onay isteme seçilebilir. Yedekler
+Eski ayarlardaki ayrıca onay isteme tercihi ana akışı durdurmaz. Yedekler
 `%LOCALAPPDATA%\AWCenter\backups\<profil>\<kimlik>` altında owner-only tutulur;
 eski yedekler silinmez veya üzerlerine yazılmaz. Manifest içerik yerine hash ve
 işlem kimliklerini taşır; mevcut anahtarlar özel environment dosyasında korunur.
@@ -343,7 +370,7 @@ EXE'si üretilmelidir. Windows'ta CPython 3.11 ve Tk mevcutsa güncel repository
 kökünden `py -3.11 -m scripts.manager.main` ile EXE derlemeden de çalıştırılabilir.
 Mevcut profil ve kurumsal kaynak seçimi korunarak **AW Center’ı aç** yeniden denenir.
 
-Kur ve başlat ve Çevrimdışı paket hazırla, EXE yanındaki doğrulanmış arşiv ve
+AW Center’ı aç ve Çevrimdışı paket hazırla, EXE yanındaki doğrulanmış arşiv ve
 bağımlılık paketlerini otomatik değerlendirir. Çevrimdışı modda dizin alanını boş
 bırakabilirsiniz; gerekli içerik otomatik bulunan yerel pakette yoksa eksik bildirilir.
 Kayıtlı kaynak modu ve CLI'nin online varsayılanı korunur. Ağ kullanılan modlarda
@@ -470,11 +497,11 @@ lock dosyasını değiştirmez; hedef kurulum özgün lock koşullarını uygula
 
 ## İşlemler ve ilk yönetici
 
-Manager ilk üretim kurulumunda ve kayıtlı bağlantı bilgileri değiştiğinde TLS dosyalarını kendi Python yorumlayıcısıyla denetler. Sertifika ve özel anahtar eşleşmeli, sertifikanın IP SAN alanı seçilen IPv4 adresini içermeli ve geçerlilik süresinin dolmasına bir günden fazla kalmalıdır. İlk kurulumda bu denetim bağımlılıklardan önce, mevcut profilde ise yeni TLS yolları kaydedilmeden önce yapılır. Doğrulanmış uygulama ortamı hazır olduğunda cryptography tam kimlik kontrolünü yapar. Ardından yeni kurulumda profil, şema, ilk yönetici, seçilen ekler ve üretim derlemesi hazırlanır. Başlat mevcut profilde web ve worker süreçlerini açar. Kontrol et salt okunur tanılama yapar. Kaynak testi seçilen politikanın erişimini veya yerel bağımlılık envanterini inceler.
+Manager ilk üretim kurulumunda ve kayıtlı bağlantı bilgileri değiştiğinde TLS dosyalarını kendi Python yorumlayıcısıyla denetler. Sertifika ve özel anahtar eşleşmeli, sertifikanın IP SAN alanı seçilen IPv4 adresini içermeli ve geçerlilik süresinin dolmasına bir günden fazla kalmalıdır. İlk kurulumda bu denetim bağımlılıklardan önce, mevcut profilde ise yeni TLS yolları kaydedilmeden önce yapılır. Doğrulanmış uygulama ortamı hazır olduğunda cryptography tam kimlik kontrolünü yapar. Ardından yeni kurulumda profil, şema, ilk yönetici, seçilen ekler ve üretim derlemesi hazırlanır. AW Center’ı aç mevcut profilde web ve worker süreçlerini açar. Tam doğrula salt okunur tanılama yapar. Kaynak testi seçilen politikanın erişimini veya yerel bağımlılık envanterini inceler.
 
 İlk aktif yönetici bulunmadığında kullanıcı adı ve parola ayrı, maskeli parola alanı olan pencerede istenir. Kullanıcı adı bir harf ve beş rakamdır. Bilgiler yalnız worker'ın özel stdin kanalıyla aktarılır; argv, environment, kaynak dosyası veya rapora yazılmaz. Mevcut kullanıcılar değiştirilmez veya yöneticiye yükseltilmez.
 
-Durdur yalnız görev listesindeki seçili işlemi ve onun alt süreçlerini durdurur. Çıkış işlemini onaylamak tüm aktif işlemlere iptal gönderir ve süreç temizliğinin bitmesini bekler. Devam eden migration güvenli komut sınırında durur; tamamlanan kurulum adımları korunur. Hata sonrası gösterilen aşamayı ve çözüm bilgisini inceleyip aynı işlemi tekrar çalıştırın. Özel profili veya veritabanını silmek bir kurtarma adımı değildir. Rapor yalnız temizlenmiş durum bilgisidir.
+Ayrıntılar içindeki İşlemi durdur yalnız listede seçili işlemi ve onun alt süreçlerini durdurur. Ana ekrandaki Durdur seçili profilin çalışan sürecini durdurur. Çıkış işlemini onaylamak tüm aktif işlemlere iptal gönderir ve süreç temizliğinin bitmesini bekler. Devam eden migration güvenli komut sınırında durur; tamamlanan kurulum adımları korunur. Hata sonrası gösterilen aşamayı ve çözüm bilgisini inceleyip aynı işlemi tekrar çalıştırın. Özel profili veya veritabanını silmek bir kurtarma adımı değildir. Rapor yalnız temizlenmiş durum bilgisidir.
 
 ## Modüller ve bağımsız işlemler
 

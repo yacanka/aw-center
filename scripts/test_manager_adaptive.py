@@ -98,6 +98,34 @@ class AdaptiveStateTests(unittest.TestCase):
         self.assertEqual(presentation['task_id'], 'server')
         self.assertEqual(states.selected_id, 'probe')
 
+    def test_degraded_lifecycle_offers_restart_without_opening_unhealthy_url(self):
+        for action in ('start', 'provision', 'ensure'):
+            with self.subTest(action=action):
+                states = ManagerTaskStates()
+                states.update_tasks([
+                    {'id': 'server', 'action': action, 'profile': 'dev', 'status': 'ready'}])
+                states.handle_event({'task_id': 'server', 'type': 'ready',
+                                     'url': 'http://127.0.0.1:5173/app/'})
+                states.update_tasks([
+                    {'id': 'server', 'action': action, 'profile': 'dev', 'status': 'degraded'}])
+                states.handle_event({'task_id': 'server', 'type': 'health', 'healthy': False,
+                                     'message': 'Web or worker unhealthy.'})
+                presentation = states.profile_presentation('dev')
+                self.assertEqual(presentation['action'], 'ensure')
+                self.assertEqual(presentation['label'], 'Yeniden başlat ve aç')
+                self.assertEqual(presentation['task_id'], 'server')
+                self.assertEqual(presentation['status'], 'degraded')
+                self.assertEqual(presentation['detail'], 'Web or worker unhealthy.')
+                self.assertEqual(presentation['url'], '')
+
+    def test_active_preparation_and_cleanup_do_not_offer_another_start(self):
+        for status in ('running', 'stopping', 'finishing'):
+            with self.subTest(status=status):
+                states = ManagerTaskStates()
+                states.update_tasks([
+                    {'id': 'server', 'action': 'ensure', 'profile': 'dev', 'status': status}])
+                self.assertIsNone(states.profile_presentation('dev')['action'])
+
     def test_profile_inspection_selects_install_or_start_and_does_not_select_a_report(self):
         states = ManagerTaskStates()
         states.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'not_installed', 'checks': []})
@@ -147,6 +175,29 @@ class AdaptiveControllerTests(unittest.TestCase):
         callback()
         self.assertEqual(len(self.sessions), 2)
         self.assertEqual(self.sessions[1].request['frontend_port'], '15173')
+
+    def test_degraded_restart_waits_for_actual_child_cleanup(self):
+        states = ManagerTaskStates()
+        self.view.update_tasks.side_effect = states.update_tasks
+        self.view.handle_event.side_effect = states.handle_event
+        task = self.start('ensure')
+        self.event(task, type='ready', url='http://127.0.0.1:5173/app/')
+        self.event(task, type='health', healthy=False, message='Web or worker unhealthy.')
+        presentation = states.profile_presentation('dev')
+        self.assertEqual(presentation['action'], 'ensure')
+        self.controller.action(presentation['action'], {'profile': 'dev', 'source_root': '/source'})
+        self.assertTrue(self.sessions[0].stopped)
+        self.assertEqual(self.controller.tasks[task].status, 'stopping')
+        self.assertEqual(len(self.sessions), 1)
+        self.event(task, type='done', ok=True, cancelled=True)
+        self.assertEqual(len(self.sessions), 1)
+        self.event(task, type='_closed')
+        self.assertEqual(len(self.sessions), 1)
+        callback = self.root.after_idle.call_args.args[0]
+        callback()
+        self.assertEqual(len(self.sessions), 2)
+        self.assertTrue(self.sessions[1].started.wait(1))
+        self.assertEqual(self.sessions[1].request['action'], 'ensure')
 
     def test_window_close_minimizes_active_work_without_cancelling(self):
         self.start('start')
@@ -205,4 +256,7 @@ class AdaptiveControllerTests(unittest.TestCase):
                 self.event(task, type='error', code=code, message='Profile validation failed.')
                 event = self.view.handle_event.call_args.args[0]
                 self.assertEqual(event['status'], 'blocked')
-                self.assertEqual(states.profile_presentation('prod')['action'], 'doctor')
+                presentation = states.profile_presentation('prod')
+                self.assertEqual(presentation['action'], 'ensure')
+                self.assertEqual(presentation['status'], 'blocked')
+                self.assertIn('Profile validation failed.', presentation['detail'])

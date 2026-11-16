@@ -17,10 +17,10 @@ DEFAULT_VALUES = {
     "npm_registry_url": "", "ca_file": "", "assets": "",
     "feature_catalog": "", "host": "", "backend_port": "",
     "frontend_port": "", "tls_cert_file": "", "tls_key_file": "",
-    "migrate": False, "install_python": False, "install_node": False, "python_command": "", "node_command": "",
+    "install_python": False, "install_node": False, "python_command": "", "node_command": "",
     "bundle_host_python": False, "bundle_host_node": False, "bundle_import": "",
     "output": "", "env_file": "", "manager_distribution": "",
-    "source_selection": "automatic", "migration_policy": "automatic",
+    "source_selection": "automatic",
     "validation_policy": "managed",
 }
 SOURCE_ACTIONS = {"provision", "ensure", "test-sources", "bundle"}
@@ -104,8 +104,6 @@ def normalize_values(action: str, values: dict) -> dict[str, str | bool]:
         raise FormError("profile", "Geliştirme veya üretim profilini seçin.")
     if result["source_mode"] not in {"online", "restricted", "corporate", "offline"}:
         raise FormError("source_mode", "Geçerli bir kaynak modu seçin.")
-    if result['migration_policy'] not in {'automatic', 'confirm'}:
-        raise FormError('migration_policy', 'Geçerli bir migration politikası seçin.')
     if result['source_selection'] not in {'automatic', 'explicit'}:
         raise FormError('source_root', 'Geçerli bir kaynak seçimi kullanın.')
     try:
@@ -196,6 +194,7 @@ class ManagerState:
         self.error_message = ""
         self.error_remedy = ""
         self.error_code = ""
+        self.error_field = ""
         self.ready_url = ""
         self.checks: list[dict[str, str]] = []
         self.last_action: str | None = None
@@ -216,6 +215,7 @@ class ManagerState:
         self.phases = []
         self.phase = ""
         self.error_message = self.error_remedy = self.error_code = self.ready_url = ""
+        self.error_field = ""
         self.checks = []
         self.status = "İşlem başlatılıyor."
         self._append(f"İşlem: {action}; profil: {self.last_values['profile']}; kaynak: {self.last_values['source_mode']}; doğrulama: {self.last_values['validation_policy']}")
@@ -243,6 +243,8 @@ class ManagerState:
             self.last_health = safe_text(event.get('message', ''))
             self.status = safe_text(event.get('message', ''))
         elif kind == "error":
+            field = event.get('field')
+            self.error_field = field if isinstance(field, str) and field in DEFAULT_VALUES else ''
             self.error_message = safe_text(event.get("message", "İşlem tamamlanamadı."))
             self.error_remedy = safe_text(event.get("remedy", "Kaynakları ve durum raporunu inceleyip yeniden deneyin."))
             self.error_code = safe_text(event.get("code", ""), limit=100)
@@ -318,15 +320,20 @@ class ManagerTaskStates:
                 continue
             state = self.states[task['id']]
             ready = task['status'] == 'ready' and state.healthy and bool(state.ready_url)
-            return {'status': task['status'], 'action': 'open' if ready else None,
-                    'label': 'Tarayıcıda aç' if ready else 'İşlem sürüyor', 'task_id': task['id'],
+            action, label = None, 'İşlem sürüyor'
+            if ready:
+                action, label = 'open', 'Tarayıcıda aç'
+            elif task['status'] == 'degraded':
+                action, label = 'ensure', 'Yeniden başlat ve aç'
+            return {'status': task['status'], 'action': action,
+                    'label': label, 'task_id': task['id'],
                     'url': state.ready_url if ready else '', 'detail': state.status}
         snapshot = self.profiles.get(profile, {})
         status = snapshot.get('status', 'inspecting')
         actions = {'inspecting': ('ensure', 'AW Center’ı aç'), 'not_installed': ('ensure', 'AW Center’ı aç'),
                    'unverified': ('ensure', 'AW Center’ı aç'),
                    'stopped': ('ensure', 'AW Center’ı aç'),
-                   'incomplete': ('ensure', 'Tamamla ve aç'), 'blocked': ('doctor', 'Tam doğrula')}
+                   'incomplete': ('ensure', 'Tamamla ve aç'), 'blocked': ('ensure', 'AW Center’ı aç')}
         action, label = actions.get(status, (None, 'Denetleniyor…'))
         return {'status': status, 'action': action, 'label': label, 'task_id': None, 'url': '',
                 'detail': snapshot.get('detail', ''), 'tools': snapshot.get('tools', '')}

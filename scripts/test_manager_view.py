@@ -21,7 +21,6 @@ class FormTests(unittest.TestCase):
         self.assertEqual(values["host"], "")
         self.assertEqual(values["backend_port"], "")
         self.assertEqual(values["source_mode"], "restricted")
-        self.assertIs(values["migrate"], False)
 
     def test_node_selection_is_optional_and_preserved_for_each_operation(self):
         for action in ("provision", "test-sources", "bundle", "start", "doctor"):
@@ -300,6 +299,9 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.window.summary_title_var = tk.StringVar(interpreter)
         self.window.summary_context_var = tk.StringVar(interpreter)
         self.window.task_count_var = tk.StringVar(interpreter)
+        self.window._default_source_root = 'C:/detected'
+        self.window._detected_sources = {}
+        self.window.source_path_var = tk.StringVar(interpreter)
         self.window.task_states.update_tasks([
             {"id": "dev", "action": "start", "profile": "dev", "status": "ready", "values": {"source_root": "C:/dev"}},
         ], selected_id="dev")
@@ -313,14 +315,35 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.assertEqual(self.window.state.last_values["source_root"], "C:/dev")
         self.assertIn("Dev çalışıyor", self.window.state.report())
 
-    def test_retry_uses_original_snapshot_even_when_form_changes(self):
+    def test_lifecycle_retry_preserves_target_when_another_profile_is_selected(self):
         self.window.variables["source_root"].set("D:/edited")
         self.window.variables["profile"].set("prod")
         self.window._retry()
-        self.assertEqual(self.actions[0][0], "start")
+        self.assertEqual(self.actions[0][0], "ensure")
         self.assertEqual(self.actions[0][1]["profile"], "dev")
         self.assertEqual(self.actions[0][1]["source_root"], "C:/dev")
         self.assertEqual(self.window.state.last_values["source_root"], "C:/dev")
+
+    def test_lifecycle_retry_uses_corrected_form_for_the_same_profile(self):
+        window = self.window
+        window.variables['source_root'].set('C:/corrected')
+        window.variables['node_command'].set('node')
+        window.variables['validation_policy'].set('developer')
+        window._retry()
+        action, values = self.actions[-1]
+        self.assertEqual(action, 'ensure')
+        self.assertEqual(values['source_root'], 'C:/corrected')
+        self.assertEqual(values['node_command'], 'node')
+        self.assertEqual(values['validation_policy'], 'developer')
+        self.assertNotIn('migration_policy', values)
+        self.assertEqual(window.state.last_values['source_root'], 'C:/dev')
+
+    def test_main_action_uses_only_current_gui_fields(self):
+        window = self.window
+        window.task_states.update_tasks([])
+        window._primary_action()
+        self.assertEqual(self.actions[-1][0], 'ensure')
+        self.assertNotIn('migration_policy', self.actions[-1][1])
 
     def test_default_browser_helper_runs_off_tk_thread(self):
         self.window.state.handle_event({"type": "ready", "url": "http://127.0.0.1:8000/app/"})
@@ -369,18 +392,17 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.assertEqual(self.actions[-1][1]["node_command"], "node")
         self.assertIs(self.actions[-1][1]["install_python"], True)
 
-    def test_advanced_form_error_selects_tab_and_reveals_before_focus(self):
-        window, calls = self.window, []
-        window.tabs.select.side_effect = lambda tab: calls.append(("tab", tab))
-        window.advanced_frame.grid.side_effect = lambda: calls.append(("expanded", None))
-        window._fields["frontend_port"].focus_set.side_effect = lambda: calls.append(("focus", None))
+    def test_advanced_form_error_keeps_navigation_and_stores_the_correctable_field(self):
+        window = self.window
         window.variables["frontend_port"].set("invalid")
         window._dispatch("provision")
         self.assertEqual(self.actions, [])
-        self.assertIs(window.advanced_var.get(), True)
-        self.assertEqual(calls, [("tab", window.run_tab), ("expanded", None), ("focus", None)])
+        self.assertIs(window.advanced_var.get(), False)
+        window.advanced_frame.grid.assert_not_called()
         self.assertIsNone(window.selected_task_id())
         self.assertEqual(window.state.error_code, "invalid_form")
+        self.assertEqual(window.state.error_field, 'frontend_port')
+        self.assertEqual(window.state.last_action, 'provision')
 
     def test_source_errors_do_not_expand_advanced_settings(self):
         for field in ("offline_dir",):
@@ -388,8 +410,9 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
                 window = self.window
                 window.tabs.select.reset_mock()
                 window._show_form_error(FormError(field, "Alanı düzeltin."))
-                window.tabs.select.assert_called_once_with(window._field_tabs[field])
-                window._fields[field].focus_set.assert_called_once()
+                window.tabs.select.assert_not_called()
+                window._fields[field].focus_set.assert_not_called()
+                self.assertEqual(window.state.error_field, field)
                 self.assertIs(window.advanced_var.get(), False)
         self.window.advanced_frame.grid.assert_not_called()
 
@@ -415,6 +438,39 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
             window.variables['validation_policy'].set('developer')
             callback()
             self.assertEqual(window.variables['validation_policy'].get(), 'managed')
+
+    def test_detected_source_display_tracks_inspection_and_explicit_override(self):
+        window = self.window
+        window._update_controls = Mock()
+        window._schedule_inspection = Mock()
+        window._source_changed()
+        self.assertIn('C:/detected', window.source_path_var.get())
+        window.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped',
+                             'source_root': 'C:/installed'})
+        self.assertIn('C:/installed', window.source_path_var.get())
+        window.variables['source_root'].set('C:/override')
+        window._source_changed()
+        self.assertIn('C:/override', window.source_path_var.get())
+        window.handle_event({'type': 'profile', 'profile': 'prod', 'source_root': 'C:/prod'})
+        self.assertIn('C:/override', window.source_path_var.get())
+
+    def test_automatic_source_display_survives_profile_switch_until_source_is_edited(self):
+        window = self.window
+        window._update_controls = Mock()
+        window._schedule_inspection = Mock()
+        window.handle_event({'type': 'profile', 'profile': 'dev', 'status': 'stopped',
+                             'source_root': 'C:/installed'})
+        window.variables['profile'].set('prod')
+        window._profile_changed()
+        self.assertIn('C:/detected', window.source_path_var.get())
+        window.variables['profile'].set('dev')
+        window._profile_changed()
+        self.assertIn('C:/installed', window.source_path_var.get())
+        window.variables['source_root'].set('C:/override')
+        window._source_changed()
+        window.variables['source_root'].set('')
+        window._source_changed()
+        self.assertIn('C:/detected', window.source_path_var.get())
 
     def test_live_asset_change_offers_stop_apply_and_open(self):
         window = self.window
@@ -522,11 +578,12 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.stops = []
         self.window = ManagerWindow(root, lambda action, values: self.actions.append((action, values)), lambda: self.stops.append(self.window.selected_task_id()), lambda: None, source_root="C:/source")
 
-    def test_developer_selector_requires_explicit_source_and_resets_on_context_change(self):
+    def test_developer_selector_accepts_detected_source_and_resets_on_context_change(self):
         window = self.window
-        self.assertEqual(str(window.validation_selector['state']), 'disabled')
+        self.assertEqual(str(window.validation_selector['state']), 'normal')
         self.assertEqual(window.action_buttons['doctor'].cget('text'), 'Tam doğrula')
-        window.variables['source_root'].set('C:/editable')
+        self.assertIn('C:/source', window.source_path_var.get())
+        window.variables['source_root'].set('')
         self.assertEqual(str(window.validation_selector['state']), 'normal')
         window.validation_selector.invoke()
         self.assertEqual(window.form_values()['validation_policy'], 'developer')
@@ -569,10 +626,83 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertLessEqual(action.winfo_rooty() + action.winfo_height(),
                              window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height())
 
-    def test_task_table_follows_settings_in_the_same_scroll_stack(self):
+    def test_task_history_stays_in_details_after_updates_errors_and_resizing(self):
         window = self.window
-        self.assertIs(window.task_tree.master.master, window.run_tab.body)
-        self.assertEqual(tuple(window.task_tree.cget('displaycolumns')), ('action', 'profile', 'status', 'report'))
+        self.root.deiconify()
+        for geometry in ('1000x820', '700x560', '1000x820'):
+            self.root.geometry(geometry)
+            window.update_tasks([
+                {'id': 'server', 'action': 'ensure', 'profile': 'dev', 'status': 'running', 'values': {}},
+                {'id': 'old', 'action': 'doctor', 'profile': 'dev', 'status': 'done', 'values': {}},
+            ], selected_id='server')
+            window.handle_event({'task_id': 'server', 'type': 'status', 'message': 'Hazırlanıyor'})
+            window.handle_event({'task_id': 'server', 'type': 'error', 'message': 'Bir ayar eksik.'})
+            self.root.update()
+            self.assertEqual(window.tabs.select(), str(window.run_tab))
+            self.assertFalse(window.task_tree.winfo_viewable())
+        window.details_button.invoke()
+        self.root.update()
+        self.assertTrue(window.task_tree.winfo_viewable())
+        self.assertTrue(window.report_text.winfo_viewable())
+        window.task_tree.selection_set('old')
+        window._select_task()
+        self.root.update()
+        self.assertEqual(window.selected_task_id(), 'old')
+
+    def test_source_and_developer_mode_are_visible_without_advanced_settings(self):
+        window = self.window
+        self.root.geometry('700x560')
+        self.root.deiconify()
+        self.root.update()
+        self.assertFalse(window.advanced_var.get())
+        for control in (window.source_path_label, window.validation_selector, window.action_buttons['start']):
+            self.assertTrue(control.winfo_viewable())
+            self.assertLessEqual(control.winfo_rooty() + control.winfo_height(),
+                                 window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height())
+        window.validation_selector.invoke()
+        window.action_buttons['start'].invoke()
+        self.assertEqual(self.actions[-1][0], 'ensure')
+        self.assertEqual(self.actions[-1][1]['validation_policy'], 'developer')
+
+    def test_main_progress_follows_profile_when_another_report_is_selected(self):
+        window = self.window
+        window.update_tasks([
+            {'id': 'server', 'action': 'ensure', 'profile': 'dev', 'status': 'running', 'values': {}},
+            {'id': 'old', 'action': 'doctor', 'profile': 'prod', 'status': 'done', 'values': {}},
+        ], selected_id='old')
+        window.handle_event({'task_id': 'server', 'type': 'status', 'message': 'Uygulama hazırlanıyor'})
+        self.root.update()
+        self.assertTrue(window._progress_running)
+        self.assertIn('Uygulama hazırlanıyor', window.status_var.get())
+
+    def test_unstarted_profile_does_not_show_another_profiles_progress(self):
+        window = self.window
+        window.update_tasks([
+            {'id': 'server', 'action': 'ensure', 'profile': 'dev', 'status': 'running', 'values': {}},
+        ], selected_id='server')
+        window.handle_event({'task_id': 'server', 'type': 'status', 'message': 'DEV hazırlanıyor'})
+        window.variables['profile'].set('prod')
+        self.root.update()
+        self.assertFalse(window._progress_running)
+        self.assertNotIn('DEV hazırlanıyor', window.status_var.get())
+
+    def test_main_error_and_retry_follow_profile_instead_of_selected_report(self):
+        window = self.window
+        window.update_tasks([
+            {'id': 'server', 'action': 'ensure', 'profile': 'dev', 'status': 'running', 'values': {'source_root': 'C:/source'}},
+            {'id': 'old', 'action': 'doctor', 'profile': 'prod', 'status': 'done', 'values': {}},
+        ], selected_id='old')
+        window.handle_event({'task_id': 'old', 'type': 'error', 'message': 'Eski rapor hatası'})
+        window.handle_event({'task_id': 'server', 'type': 'error', 'message': 'Açılış ayarı eksik', 'remedy': 'Ayarı düzeltin'})
+        self.root.update()
+        self.assertEqual(window.error_var.get(), 'Açılış ayarı eksik')
+        self.assertEqual(window.error_remedy_var.get(), 'Ayarı düzeltin')
+        window.retry_button.invoke()
+        self.assertEqual(self.actions[-1][0], 'ensure')
+        self.assertEqual(self.actions[-1][1]['profile'], 'dev')
+        window.details_button.invoke()
+        self.root.update()
+        self.assertEqual(window.error_var.get(), 'Eski rapor hatası')
 
     def test_ready_server_keeps_task_active_without_startup_progress_or_clipped_actions(self):
         root, window = self.root, self.window
@@ -624,14 +754,20 @@ class NativeWindowSmokeTests(unittest.TestCase):
         ], selected_id='dev')
         window.handle_event({'task_id': 'dev', 'type': 'status', 'message': 'Dev test kaydı'})
         window.handle_event({'task_id': 'prod', 'type': 'status', 'message': 'Prod test kaydı'})
-        with patch.object(window.task_tree, 'identify_region', return_value='cell'), \
-             patch.object(window.task_tree, 'identify_column', return_value='#4'), \
-             patch.object(window.task_tree, 'identify_row', return_value='prod'):
-            window._open_task_report(Mock(x=1, y=1))
+        self.root.deiconify()
+        window.details_button.invoke()
+        self.root.update()
+        x, y, width, height = window.task_tree.bbox('prod', 'report')
+        window._open_task_report(Mock(x=x + width // 2, y=y + height // 2))
         self.assertEqual(window.selected_task_id(), 'prod')
         self.assertEqual(window.tabs.select(), str(window.report_tab))
         self.assertIn('Prod test kaydı', window.report_text.get('1.0', 'end'))
         self.assertNotIn('Dev test kaydı', window.report_text.get('1.0', 'end'))
+        x, y, width, height = window.task_tree.bbox('dev', 'report')
+        window._open_task_report(Mock(x=x + width // 2, y=y + height // 2))
+        self.root.update()
+        window.stop_button.invoke()
+        self.assertEqual(self.stops, ['dev'])
 
     def test_labels_wrap_to_their_allocated_width_after_first_layout_and_resize(self):
         root, window = self.root, self.window
@@ -647,22 +783,23 @@ class NativeWindowSmokeTests(unittest.TestCase):
 
     def test_small_window_keeps_error_field_and_report_reachable(self):
         root, window = self.root, self.window
+        window.update_tasks([
+            {'id': 'old', 'action': 'doctor', 'profile': 'dev', 'status': 'done', 'values': {}},
+        ], selected_id='old')
         window.handle_event({"type": "error", "message": "Doğrulama başarısız.",
                              "remedy": "Kaynakları değiştirin."})
         root.geometry("700x560")
         root.deiconify()
         root.update()
-        self.assertEqual(window.task_tree.winfo_manager(), "")
+        self.assertFalse(window.task_tree.winfo_viewable())
         self.assertGreaterEqual(window.run_tab.canvas.winfo_height(), 100)
-        window.tabs.select(window.report_tab)
+        window.details_button.invoke()
         root.update()
         self.assertGreaterEqual(window.report_text.winfo_height(), 60)
-        window.task_toggle_button.invoke()
-        root.update_idletasks()
-        self.assertEqual(window.task_tree.winfo_manager(), "grid")
-        self.assertTrue(window.task_tree.winfo_ismapped())
-        window.task_toggle_button.invoke()
-        self.assertEqual(window.task_tree.winfo_manager(), "")
+        self.assertTrue(window.task_tree.winfo_viewable())
+        window.tabs.select(window.run_tab)
+        root.update()
+        self.assertFalse(window.task_tree.winfo_viewable())
 
     def test_primary_action_has_a_distinct_keyboard_focus_border(self):
         from tkinter import ttk
@@ -725,15 +862,15 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.assertEqual(window.variables["env_file"].get(), "C:/private/selected.env")
         self.assertIs(window.variables["install_python"].get(), True)
 
-    def test_invalid_advanced_field_reveals_run_tab_and_blocks_submission(self):
+    def test_invalid_advanced_field_stays_on_current_tab_and_blocks_submission(self):
         window = self.window
         window.tabs.select(window.source_tab)
         window.variables["frontend_port"].set("invalid")
-        window.action_buttons["provision"].invoke()
+        window.action_buttons["start"].invoke()
         self.assertEqual(self.actions, [])
-        self.assertEqual(window.tabs.select(), str(window.run_tab))
-        self.assertIs(window.advanced_var.get(), True)
-        self.assertEqual(window.advanced_frame.winfo_manager(), "grid")
+        self.assertEqual(window.tabs.select(), str(window.source_tab))
+        self.assertIs(window.advanced_var.get(), False)
+        self.assertEqual(window.state.error_field, 'frontend_port')
         self.assertEqual(window.state.error_code, "invalid_form")
 
     def test_selecting_prod_reveals_tls_without_expanding_advanced_settings(self):
@@ -751,20 +888,20 @@ class NativeWindowSmokeTests(unittest.TestCase):
 
     def test_actions_belong_to_their_tabs_and_stop_remains_global(self):
         window = self.window
-        for action in ("provision", "start", "doctor"):
+        for action in ("start", "doctor"):
             self.assertTrue(str(window.action_buttons[action]).startswith(str(window.run_tab) + "."), action)
+        self.assertNotIn('provision', window.action_buttons)
         for action in ("test-sources", "bundle"):
             self.assertTrue(str(window.action_buttons[action]).startswith(str(window.source_tab) + "."), action)
-        self.assertTrue(str(window.open_button).startswith(str(window.run_tab) + "."))
-        for tab in (window.run_tab, window.source_tab, window.report_tab):
-            self.assertFalse(str(window.stop_button).startswith(str(tab) + "."))
+        self.assertTrue(str(window.banner_stop_button).startswith(str(window.run_tab) + "."))
+        self.assertTrue(str(window.stop_button).startswith(str(window.report_tab) + "."))
 
     def test_python_installation_is_unchecked_and_optional_in_submitted_action(self):
         self.assertIs(self.window.variables['install_python'].get(), False)
-        self.window.action_buttons['provision'].invoke()
+        self.window.action_buttons['start'].invoke()
         self.assertIs(self.actions[-1][1]['install_python'], False)
         self.window.variables['install_python'].set(True)
-        self.window.action_buttons['provision'].invoke()
+        self.window.action_buttons['start'].invoke()
         self.assertIs(self.actions[-1][1]['install_python'], True)
 
     def test_python_picker_and_managed_choice_preserve_manual_value(self):
@@ -802,9 +939,11 @@ class NativeWindowSmokeTests(unittest.TestCase):
         try:
             window = ManagerWindow(root, lambda *_: None, lambda: None, lambda: None,
                 source_root='C:/explicit', initial_values={'source_root': 'C:/saved', 'env_file': 'C:/private/dev.env',
-                    'python_command': 'python', 'source_mode': 'corporate', 'migrate': True})
+                    'python_command': 'python', 'source_mode': 'corporate', 'migrate': True,
+                    'migration_policy': 'confirm'})
             self.assertFalse(window.advanced_var.get())
-            self.assertFalse(window.variables['migrate'].get())
+            self.assertNotIn('migrate', window.form_values())
+            self.assertNotIn('migration_policy', window.form_values())
             self.assertEqual(window.variables['source_root'].get(), 'C:/explicit')
         finally:
             root.destroy()
@@ -817,7 +956,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         with patch('scripts.manager.view.filedialog.askopenfilename', return_value='C:/private/selected.env') as picker:
             self.window._pick('env_file', 'environment')
         picker.assert_called_once()
-        self.window.action_buttons['provision'].invoke()
+        self.window.action_buttons['start'].invoke()
         self.assertEqual(self.actions[-1][1]['env_file'], 'C:/private/selected.env')
         self.assertNotIn('C:/private/selected.env', self.window.state.report())
 
@@ -850,6 +989,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
 
     def test_selecting_task_retains_independent_error_and_report(self):
         window = self.window
+        window.details_button.invoke()
         window.update_tasks([
             {"id": "dev", "action": "start", "profile": "dev", "status": "ready", "values": {}},
             {"id": "prod", "action": "doctor", "profile": "prod", "status": "running", "values": {}},
@@ -948,6 +1088,9 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.root.update_idletasks()
         self.assertIn(start_id, self.window._admin_dialogs)
         self.assertIsNone(self.root.grab_current())
+        self.assertNotIn("Kaynak denetimi sürüyor", self.window.status_var.get())
+        self.window.details_button.invoke()
+        self.root.update()
         self.assertIn("Kaynak denetimi sürüyor", self.window.status_var.get())
         self.window.stop_button.invoke()
         self.assertTrue(sessions[1].stopped)

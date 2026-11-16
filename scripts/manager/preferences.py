@@ -104,8 +104,8 @@ def _safe_values(values: dict) -> dict:
     result = {}
     for key, default in DEFAULT_VALUES.items():
         value = values.get(key)
-        # Migration authorization is specific to one operation, never a preference.
-        if key in {'migrate', 'bundle_import'} or type(value) is not type(default):
+        # Imported bundle selection is specific to one operation.
+        if key == 'bundle_import' or type(value) is not type(default):
             continue
         if isinstance(value, str):
             value = value.strip()
@@ -121,16 +121,12 @@ def _safe_values(values: dict) -> dict:
             continue
         if key == 'source_mode' and value not in {'online', 'restricted', 'corporate', 'offline'}:
             continue
-        if key == 'migration_policy' and value not in {'automatic', 'confirm'}:
-            continue
         if key == 'source_selection' and value not in {'automatic', 'explicit'}:
             continue
         if key == 'validation_policy' and value not in {'managed', 'developer'}:
             continue
         result[key] = value
-    if result.get('validation_policy') == 'developer' and (
-            result.get('profile', 'dev') != 'dev' or result.get('source_selection') != 'explicit' or
-            not result.get('source_root')):
+    if result.get('validation_policy') == 'developer' and result.get('profile', 'dev') != 'dev':
         result['validation_policy'] = 'managed'
     return result
 

@@ -27,6 +27,8 @@ class NativeRenderingTests(unittest.TestCase):
 
     def test_status_burst_retains_events_with_one_scheduled_refresh(self):
         window = self.window
+        window.tabs.select(window.report_tab)
+        self.root.update()
         with patch.object(window, "_refresh", wraps=window._refresh) as refresh:
             for index in range(200):
                 window.handle_event({"task_id": "selected", "type": "status", "message": f"Kontrol {index}"})

@@ -30,6 +30,7 @@ def _metadata_inspection(args, home, path, emit):
         tools = ' · '.join(f"{label}: {'sistem kurulumu' if profile.get(field) else 'yönetilen kurulum'}"
                           for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))
     emit({'type': 'profile', 'profile': args.profile, 'status': status, 'tools': tools,
+          'source_root': str(args.source_root),
           'validation_policy': 'developer', 'checks': [],
           'detail': 'Geliştirici modu — hızlı kontrol. Yalnız profil kayıtları okundu; bağımlılıklar ve şema açılışta denetlenir.'})
 
@@ -37,16 +38,18 @@ def _metadata_inspection(args, home, path, emit):
 def inspect_profile(args, emit):
     """Read profile metadata for the window; explicit diagnostics use doctor."""
     from scripts.launcher.validation_policy import require_validation_policy
+    from .paths import default_source_root
     policy = require_validation_policy(getattr(args, 'validation_policy', 'managed'),
                                        profile=args.profile, source_selection=args.source_selection)
     require_windows()
+    args.source_root = getattr(args, 'source_root', None) or str(default_source_root())
     home = installation_home()
     path = home / 'config' / (args.profile + '.profile.json')
-    if policy == 'developer':
-        return _metadata_inspection(args, home, path, emit)
     if getattr(args, 'source_selection', None) == 'automatic':
         from .ensure import resolve_source
         resolve_source(args, home)
+    if policy == 'developer':
+        return _metadata_inspection(args, home, path, emit)
     require_unlinked(path)
     if not path.exists():
         pending = path.with_name(args.profile + '.pending.json')
@@ -57,6 +60,7 @@ def inspect_profile(args, emit):
         require_unlinked(env)
         status = 'incomplete' if pending.is_file() else 'blocked' if env.exists() else 'not_installed'
         emit({'type': 'profile', 'profile': args.profile, 'status': status,
+              'source_root': str(args.source_root),
               'tools': 'Python 3.11 ve Node.js kurulum sırasında denetlenecek.',
               'detail': 'İlk kurulum gerekli.' if status == 'not_installed' else 'Özel profil hazırlığı tamamlanmalı.'})
         return
@@ -83,6 +87,7 @@ def _profile_summary(args, home, emit):
     tools = ' · '.join(f"{label}: {'sistem kurulumu' if profile.get(field) else 'yönetilen kurulum'}"
                       for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))
     emit({'type': 'profile', 'profile': args.profile,
+          'source_root': str(args.source_root),
           'status': 'incomplete' if incomplete else 'unverified', 'tools': tools,
           'detail': ('Kayıtlı hazırlık tamamlanmalı; AW Center’ı aç ile eksikler denetlenecek.' if incomplete else
                      'Profil kayıtlı. Başlatma gereksinimleri uygulama açılırken doğrulanacak; '

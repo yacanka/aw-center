@@ -58,7 +58,8 @@ class InspectionSummaryTests(unittest.TestCase):
         self.assertEqual(summary['status'], 'unverified')
         self.assertNotIn('checks', summary)
         self.assertIn('açılırken', summary['detail'])
-        self.assertNotIn(str(self.project.root), json.dumps(events))
+        self.assertEqual(summary['source_root'], str(self.project.root))
+        self.assertNotIn(str(self.project.root), summary['detail'])
         self.assertNotIn(profiles.read_profile_environment(profile)['SECRET_KEY'], json.dumps(events))
         self.assertEqual(Path(profile['env_file']).read_bytes(), before)
 
@@ -121,7 +122,9 @@ class InspectionSummaryTests(unittest.TestCase):
         self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
         self.assertEqual(next(event['status'] for event in events if event['type'] == 'profile'),
                          'unverified')
-        self.assertNotIn(str(source), json.dumps(events))
+        summary = next(event for event in events if event['type'] == 'profile')
+        self.assertEqual(summary['source_root'], str(source))
+        self.assertNotIn(str(source), summary['detail'])
         self.assertFalse((source / 'manager-source-manifest.json').exists())
 
     def test_orphan_environment_is_reported_without_reading_secrets(self):

@@ -101,6 +101,51 @@ class WorkerProtocolTests(unittest.TestCase):
             for stream in (child.stdin, child.stdout, child.stderr):
                 stream.close()
 
+    def test_private_admin_prompt_preserves_replies_and_cancellation(self):
+        program = r'''
+from unittest.mock import patch
+from scripts.manager import operations, worker
+
+def dispatch(action, args, emit):
+    credentials = args.admin_provider()
+    if credentials != {'username': 'U12345', 'password': 'example-test-password'}:
+        raise AssertionError('Administrator reply was not preserved')
+    emit({'type': 'status', 'message': 'Administrator reply accepted'})
+
+with patch.object(operations, '_dispatch', side_effect=dispatch):
+    raise SystemExit(worker.main(['--manager-gate']))
+'''
+        credentials = {'username': 'U12345', 'password': 'example-test-password'}
+        for reply in ({'type': 'admin', 'value': credentials},
+                      {'type': 'admin', 'value': None}, {'type': 'cancel'}):
+            with self.subTest(reply_type=reply['type'], cancelled=reply.get('value') is None):
+                child = subprocess.Popen([sys.executable, '-c', program],
+                    cwd=Path(__file__).resolve().parents[1], stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                try:
+                    child.stdin.write(b'go\n{"action":"test-sources"}\n')
+                    child.stdin.flush()
+                    prompt = json.loads(child.stdout.readline())
+                    self.assertEqual(prompt['type'], 'input')
+                    self.assertEqual(prompt['kind'], 'admin')
+                    # An obsolete control message cannot answer the admin prompt.
+                    child.stdin.write(b'{"type":"migration","value":true}\n')
+                    child.stdin.write(json.dumps(reply).encode('utf-8') + b'\n')
+                    child.stdin.flush()
+                    self.assertEqual(child.wait(timeout=5), 0)
+                    events = [json.loads(line) for line in child.stdout]
+                    cancelled = reply.get('value') is None
+                    self.assertEqual(events[-1], {'type': 'done', 'ok': True,
+                                                 **({'cancelled': True} if cancelled else {})})
+                    self.assertNotIn('example-test-password', json.dumps(events))
+                    self.assertEqual(child.stderr.read(), b'')
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+                        child.wait(timeout=5)
+                    for stream in (child.stdin, child.stdout, child.stderr):
+                        stream.close()
+
     def test_worker_probes_python_while_control_pipe_read_is_pending(self):
         program = r'''
 import os

@@ -67,7 +67,6 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
             self.view.variables['validation_policy'].set(validation_policy)
             self.view.request_admin = lambda _id, send: send(
                 {'username': 'U12345', 'password': password} if password else None)
-            self.view.request_migration = lambda _id, send: send(False)
             self.view.confirm_stop = lambda: True
             self.root.mainloop = self.drive
 

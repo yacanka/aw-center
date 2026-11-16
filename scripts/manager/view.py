@@ -10,10 +10,11 @@ from typing import Callable
 import webbrowser
 
 from .view_model import DEFAULT_VALUES, FormError, ManagerTaskStates, normalize_values, safe_text, validate_admin
+from .task_policy import ACTION_LABELS
 from .view_theme import apply_control_styles, icon_image
 
 
-_ACTION_LABELS = {"provision": "Kur ve başlat", "start": "Başlat", "doctor": "Tam doğrula",
+_ACTION_LABELS = {**ACTION_LABELS,
                   "test-sources": "Kaynakları dene", "bundle": "Çevrimdışı paket hazırla"}
 _TASK_STATUSES = {"running": "Çalışıyor", "ready": "Hazır / çalışıyor", "stopping": "Durduruluyor",
                   "degraded": "Sağlık sorunu",
@@ -121,8 +122,8 @@ class ManagerWindow:
     """
 
     _advanced_fields = frozenset({"profile", "source_root", "host", "backend_port", "tls_cert_file", "tls_key_file",
-                                  "frontend_port", "install_node", "migration_policy", "validation_policy",
-                                  "migrate", "install_python", "python_command", "node_command", "env_file"})
+                                  "frontend_port", "install_node",
+                                  "install_python", "python_command", "node_command", "env_file"})
 
     def __init__(self, root, on_action: Callable, on_stop: Callable,
                  on_close: Callable, source_root=None, *, initial_values=None):
@@ -139,16 +140,19 @@ class ManagerWindow:
         self._rendered_report = None
         self._rendered_controls = None
         self._rendered_status_tile = None
-        self._compact_layout = None
-        self._tasks_expanded = True
-        values = {**DEFAULT_VALUES, **(initial_values or {}), 'migrate': False}
+        self._error_editing_field = ''
+        values = {**DEFAULT_VALUES, **(initial_values or {})}
         self.variables = {key: (tk.BooleanVar(root, value=value) if isinstance(value, bool)
                                 else tk.StringVar(root, value=value))
                           for key, value in values.items() if key in DEFAULT_VALUES}
-        self.variables["source_root"].set(str(source_root or Path(__file__).resolve().parents[2]))
+        from .paths import default_source_root
+        self._default_source_root = str(source_root or default_source_root())
+        self._detected_sources: dict[str, str] = {}
+        self.variables["source_root"].set(self._default_source_root)
         self._controls: list[ttk.Widget] = []
         self._fields: dict[str, ttk.Entry] = {}
         self._field_titles: dict[str, str] = {}
+        self._field_rows: dict[str, list[ttk.Widget]] = {}
         self._pickers: dict[str, ttk.Button] = {}
         self._field_tabs: dict[str, ttk.Frame] = {}
         self._wrapping: list[ttk.Label] = []
@@ -156,6 +160,8 @@ class ManagerWindow:
         self.error_var = tk.StringVar(root)
         self.error_remedy_var = tk.StringVar(root)
         self.source_help_var = tk.StringVar(root)
+        self.source_path_var = tk.StringVar(root)
+        self._update_source_path()
         self.profile_help_var = tk.StringVar(root)
         self.advanced_var = tk.BooleanVar(root, value=False)
         self.summary_title_var = tk.StringVar(root)
@@ -193,6 +199,8 @@ class ManagerWindow:
     def _source_changed(self):
         self.variables['validation_policy'].set('managed')
         self.variables['source_selection'].set('explicit' if self.variables['source_root'].get().strip() else 'automatic')
+        self._detected_sources.clear()
+        self._update_source_path()
         self._update_controls()
         self._schedule_inspection()
 
@@ -200,11 +208,23 @@ class ManagerWindow:
         self._update_controls()
         self._schedule_inspection()
 
+    def _update_source_path(self, detected_source=None):
+        """Display worker-resolved paths without doing filesystem work on Tk."""
+        selected = self.variables['source_root'].get().strip()
+        source = selected or self._default_source_root
+        if self.variables['source_selection'].get() == 'automatic':
+            profile = self.variables['profile'].get()
+            if detected_source:
+                self._detected_sources[profile] = detected_source
+            source = self._detected_sources.get(profile, source)
+        self.source_path_var.set('Kullanılacak kaynak: ' + safe_text(source, limit=8192))
+
     def _tick_progress(self):
         import time
-        if self.state.busy:
-            elapsed = max(0, int(time.monotonic() - self.state.started_at))
-            self.status_var.set(f'{self.state.status} · {elapsed // 60:02d}:{elapsed % 60:02d}')
+        state = self._visible_state()
+        if state and state.busy:
+            elapsed = max(0, int(time.monotonic() - state.started_at))
+            self.status_var.set(f'{state.status} · {elapsed // 60:02d}:{elapsed % 60:02d}')
         self.root.after(1000, self._tick_progress)
 
     def form_values(self):
@@ -214,6 +234,23 @@ class ManagerWindow:
     @property
     def state(self):
         return self.task_states.current
+
+    def _visible_state(self):
+        """Main feedback follows its profile; Details follows the selected report."""
+        if self.tabs.select() != str(self.run_tab):
+            return self.state
+        profile = self.variables['profile'].get()
+        general = self.task_states.general
+        if (self.selected_task_id() is None and general.error_message
+                and general.last_values.get('profile', 'dev') == profile):
+            return general
+        task_id = self.task_states.profile_presentation(profile)['task_id']
+        if task_id:
+            return self.task_states.states[task_id]
+        for task in reversed(list(self.task_states.tasks.values())):
+            if task['profile'] == profile and task['action'] in {'ensure', 'start', 'provision'}:
+                return self.task_states.states[task['id']]
+        return None
 
     def _label(self, parent, text=None, **kwargs):
         kwargs.setdefault("style", "Manager.Panel.TLabel")
@@ -363,7 +400,7 @@ class ManagerWindow:
              icon_image(self.root, name, self._palette['accent'], size=round(16*self._text_scale)))
             for name in ('play', 'package', 'file-text')]
         for panel, text in ((self.run_tab, "Çalışma"), (self.source_tab, "Paket kaynakları"),
-                            (self.report_tab, "Durum ve rapor")):
+                            (self.report_tab, "Ayrıntılar")):
             self.tabs.add(panel, text=text, compound="left")
         self.tabs.bind('<<NotebookTabChanged>>', self._tab_changed)
         self._tab_changed()
@@ -371,11 +408,13 @@ class ManagerWindow:
         self._build_sources(self.source_tab.body)
         self._build_report(self.report_tab)
         self._build_actions()
-        self._build_tasks(self.run_tab.body)
         self._build_error(shell)
-        for column, (label, panel) in enumerate((('Ana ekran', self.run_tab), ('Kaynaklar', self.source_tab), ('Rapor', self.report_tab)), 2):
-            ttk.Button(header, text=label, command=lambda target=panel: self.tabs.select(target),
-                       style='Manager.Footer.TButton').grid(row=0, column=column, padx=(8, 0))
+        for column, (label, panel) in enumerate((('Ana ekran', self.run_tab), ('Kaynaklar', self.source_tab), ('Ayrıntılar', self.report_tab)), 2):
+            button = ttk.Button(header, text=label, command=lambda target=panel: self.tabs.select(target),
+                                style='Manager.Footer.TButton')
+            button.grid(row=0, column=column, padx=(8, 0))
+            if panel is self.report_tab:
+                self.details_button = button
         footer = ttk.Frame(shell, padding=(30, 8, 30, 10), style="Manager.TFrame")
         footer.grid(row=4, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
@@ -386,19 +425,12 @@ class ManagerWindow:
         controls.grid(row=1, column=0, sticky="ew")
         controls.columnconfigure(0, weight=1)
         self._label(controls, textvariable=self.status_var, style="Manager.Muted.TLabel").grid(row=0, column=0, sticky="ew", padx=(0, 12))
-        self.task_toggle_button = ttk.Button(controls, text="İşlemler", command=self._toggle_task_details,
-                                             style="Manager.Footer.TButton")
-        self.task_toggle_button.grid(row=0, column=1, padx=(8, 0))
-        ttk.Button(controls, text="Bildirimler", command=self._show_general,
-                   style="Manager.Footer.TButton").grid(row=0, column=2, padx=(8, 0))
-        self.stop_button = ttk.Button(controls, text="Durdur", command=self._stop_selected, state="disabled")
-        self.stop_button.grid(row=0, column=3, padx=(8, 0))
         ttk.Button(controls, text='Çıkış', command=lambda: self.on_exit() if self.on_exit else None,
-                   style='Manager.Footer.TButton').grid(row=0, column=4, padx=(8, 0))
+                   style='Manager.Footer.TButton').grid(row=0, column=1, padx=(8, 0))
 
     def _build_tasks(self, parent):
-        tasks = self.tasks_card = _Card(parent, padding=20)
-        tasks.grid(row=4, column=0, sticky="ew", pady=(18, 0))
+        tasks = self.tasks_card = _Card(parent, padding=12)
+        tasks.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         tasks.columnconfigure(0, weight=1)
         bar = ttk.Frame(tasks, style="Manager.Panel.TFrame")
         bar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
@@ -419,8 +451,8 @@ class ManagerWindow:
         self.task_tree.bind("<Double-1>", lambda _event: self.tabs.select(self.report_tab))
         self.task_tree.bind("<Return>", lambda _event: self.tabs.select(self.report_tab))
         self.task_tree.bind("<ButtonRelease-1>", self._open_task_report)
-        links = self.task_links = ttk.Frame(tasks, style="Manager.Panel.TFrame")
-        links.grid(row=2, column=0, sticky="ew")
+        self.stop_button = ttk.Button(bar, text="İşlemi durdur", command=self._stop_selected, state="disabled")
+        self.stop_button.grid(row=0, column=2)
         tasks.grid_remove()
 
     def _tab_changed(self, _event=None):
@@ -429,21 +461,8 @@ class ManagerWindow:
             self.tabs.tab(tab, image=active if tab == selected else normal)
         if hasattr(self, "report_text") and selected == str(self.report_tab):
             self._render_report()
-
-    def _set_task_details(self, expanded: bool):
-        self._tasks_expanded = expanded
-        for widget in (self.task_tree, self.task_scrollbar, self.task_links):
-            widget.grid() if expanded else widget.grid_remove()
-        self.task_toggle_button.configure(text="Listeyi gizle" if expanded else "Listeyi göster")
-
-    def _toggle_task_details(self):
-        expanded = self.tabs.select() != str(self.run_tab) or not self._tasks_expanded
-        self.tabs.select(self.run_tab)
-        self._set_task_details(expanded)
-        if expanded:
-            self.tasks_card.grid()
-            self.root.update_idletasks()
-            self.run_tab.canvas.yview_moveto(1)
+        if hasattr(self, 'action_buttons'):
+            self._refresh()
 
     def _open_task_report(self, event):
         if self.task_tree.identify_region(event.x, event.y) != "cell" or self.task_tree.identify_column(event.x) != "#4":
@@ -457,35 +476,30 @@ class ManagerWindow:
             self._render_report()
 
     def _entry(self, parent, row, key, label, *, tab, picker=None, stacked=False):
-        ttk.Label(parent, text=label, style="Manager.Panel.TLabel").grid(
+        title = ttk.Label(parent, text=label, style="Manager.Panel.TLabel")
+        title.grid(
             row=row-1 if stacked else row, column=0, columnspan=3 if stacked else 1,
             sticky="w", padx=(0, 12), pady=(0, 6) if stacked else 7)
         entry = ttk.Entry(parent, textvariable=self.variables[key], width=32)
         entry.grid(row=row, column=0 if stacked else 1, columnspan=2 if stacked else 1, sticky="ew", pady=7)
         self._fields[key] = entry
         self._field_titles[key] = label
+        self._field_rows[key] = [title, entry]
         self._field_tabs[key] = tab
         self._controls.append(entry)
         if picker:
             button = ttk.Button(parent, text="Seç…", command=lambda: self._pick(key, picker))
             button.grid(row=row, column=2, sticky="ew", padx=(8, 0), pady=7)
             self._pickers[key] = button
+            self._field_rows[key].append(button)
             self._controls.append(button)
         parent.columnconfigure(1, weight=1)
         return entry
 
     def _build_run(self, parent):
         parent.columnconfigure(0, weight=1)
-        intro = ttk.Frame(parent, style="Manager.TFrame")
-        intro.grid(row=0, column=0, sticky="ew", pady=(0, 20))
-        intro.columnconfigure(0, weight=1)
-        self._label(intro, "ÇALIŞMA ALANI", style="Manager.Eyebrow.TLabel").grid(row=0, column=0, sticky="ew")
-        self._label(intro, "AW Center hazır olsun.", style="Manager.Title.TLabel").grid(row=1, column=0, sticky="ew", pady=(5, 0))
-        self._label(intro, "Tek tuşla hazırlayın ve açın. Gerekli ayarlar otomatik seçilir.", style="Manager.Muted.TLabel").grid(row=2, column=0, sticky="ew", pady=(6, 0))
-        self.profile_badge_var = tk.StringVar(self.root)
-        ttk.Label(intro, textvariable=self.profile_badge_var, style="Manager.Badge.TLabel").grid(row=0, column=1, rowspan=2, sticky="ne", padx=(12, 0))
         summary = _Card(parent)
-        summary.grid(row=1, column=0, sticky="ew", pady=(0, 18))
+        summary.grid(row=0, column=0, sticky="ew", pady=(0, 18))
         summary.columnconfigure(1, weight=1)
         tile_size = round(42 * self._text_scale)
         self.status_tile = tk.Canvas(summary, width=tile_size, height=tile_size,
@@ -495,13 +509,24 @@ class ManagerWindow:
         self._label(summary, textvariable=self.summary_title_var, style="Manager.Section.TLabel").grid(row=0, column=1, sticky="ew")
         self._label(summary, textvariable=self.summary_context_var, style="Manager.Endpoint.TLabel").grid(row=1, column=1, sticky="ew", pady=(5, 0))
         self.banner_actions = ttk.Frame(summary, style="Manager.Panel.TFrame")
-        self.banner_actions.grid(row=0, column=2, rowspan=2, sticky="e", padx=(18, 0))
-        self.open_button = ttk.Button(self.banner_actions, text="Tarayıcıda aç", command=self._open_ready,
-                                      style="Manager.Primary.TButton", state="disabled")
-        self.open_button.grid(row=0, column=0)
+        self.banner_actions.grid(row=2, column=1, sticky="w", pady=(14, 0))
         self.banner_stop_button = ttk.Button(self.banner_actions, text="Durdur", command=self._stop_profile,
                                              style="Manager.TButton", state="disabled")
         self.banner_stop_button.grid(row=0, column=1, padx=(8, 0))
+        source_info = ttk.Frame(parent, style='Manager.TFrame')
+        source_info.grid(row=1, column=0, sticky='ew', pady=(0, 12))
+        source_info.columnconfigure(0, weight=1)
+        self.source_path_label = self._label(source_info, textvariable=self.source_path_var,
+                                             style='Manager.Muted.TLabel')
+        self.source_path_label.grid(row=0, column=0, sticky='ew')
+        self.validation_selector = ttk.Checkbutton(
+            source_info, text='Geliştirici modu — hızlı kontrol',
+            variable=self.variables['validation_policy'], onvalue='developer', offvalue='managed',
+            style='Manager.TCheckbutton')
+        self.validation_selector.grid(row=1, column=0, sticky='w', pady=(8, 0))
+        self._controls.append(self.validation_selector)
+        self._fields['validation_policy'] = self.validation_selector
+        self._field_tabs['validation_policy'] = self.run_tab
         paths = self.run_settings = _Card(parent, padding=20)
         paths.grid(row=3, column=0, sticky="ew")
         paths.columnconfigure(0, weight=1)
@@ -546,40 +571,27 @@ class ManagerWindow:
         paths.grid_remove()
 
     def _build_advanced(self, parent):
-        self.validation_selector = ttk.Checkbutton(
-            parent, text='Geliştirici modu — hızlı kontrol (yalnız seçilen dev kaynağı)',
-            variable=self.variables['validation_policy'], onvalue='developer', offvalue='managed',
-            style='Manager.TCheckbutton')
-        self.validation_selector.grid(row=16, column=0, columnspan=3, sticky='w', pady=(8, 0))
-        self._controls.append(self.validation_selector)
-        self._fields['validation_policy'] = self.validation_selector
-        self._field_tabs['validation_policy'] = self.run_tab
-        self._label(parent, 'Günlük açılışta sınırlı metadata kontrolü yapılır. Dosya bütünlüğünü kapsamlı incelemek için Tam doğrula kullanın. Kaynak veya profil değişirse bu seçim sıfırlanır.').grid(row=17, column=0, columnspan=3, sticky='ew', pady=(4, 0))
+        self._label(parent, 'Kaynak dizini seçmeden hızlı modu açabilirsiniz. Günlük açılışta sınırlı metadata kontrolü yapılır. Dosya bütünlüğünü kapsamlı incelemek için Tam doğrula kullanın. Kaynak veya profil değişirse bu seçim sıfırlanır.').grid(row=18, column=0, columnspan=3, sticky='ew', pady=(4, 0))
         self._entry(parent, 0, "frontend_port", "Frontend portu (dev)", tab=self.run_tab)
-        self._label(parent, "Yeni prod profili için makineye atanmış sabit IPv4 ve kaynak dizini dışındaki TLS dosyaları gerekir.").grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 12))
-        migrate = ttk.Checkbutton(parent, text="Mevcut veritabanının migration işlemlerini uygula",
-                                  variable=self.variables["migrate"], style="Manager.TCheckbutton")
-        migrate.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        migrate.configure(text='Eski Kur ve başlat işleminde migration’a izin ver')
-        self._controls.append(migrate)
-        policy = ttk.Checkbutton(parent, text='Otomatik akışta yedek doğrulandıktan sonra ayrıca onay iste',
-                                 variable=self.variables['migration_policy'], onvalue='confirm', offvalue='automatic',
-                                 style='Manager.TCheckbutton')
-        policy.grid(row=15, column=0, columnspan=3, sticky='w', pady=(8, 0))
-        self._controls.append(policy)
+        self.production_help = self._label(parent, "Yeni prod profili için makineye atanmış sabit IPv4 ve kaynak dizini dışındaki TLS dosyaları gerekir.")
+        self.production_help.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 12))
         python = ttk.Checkbutton(parent, text="Her durumda yönetilen Python kurulumunu kullan",
                                  variable=self.variables['install_python'], style="Manager.TCheckbutton")
         python.grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self._controls.append(python)
         self._label(parent, "Varsayılan olarak önce sistemdeki CPython 3.11 x64 aranır; bulunamazsa yönetilen Python otomatik indirilir veya çevrimdışı paketten kurulur. Bu seçim yönetilen kurulumu zorlar. pip paketleri ayrı sanal ortama kurulur.").grid(row=6, column=0, columnspan=3, sticky="ew", pady=(4, 12))
         self._entry(parent, 7, 'python_command', 'Python komutu / yolu (isteğe bağlı)', tab=self.run_tab, picker='python')
-        self._label(parent, 'Boşsa otomatik aranır. python, py -3.11, python.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Python seçimini kullanır.').grid(row=8, column=0, columnspan=3, sticky='ew', pady=(4, 12))
+        python_help = self._label(parent, 'Boşsa otomatik aranır. python, py -3.11, python.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Python seçimini kullanır.')
+        python_help.grid(row=8, column=0, columnspan=3, sticky='ew', pady=(4, 12))
+        self._field_rows['python_command'].append(python_help)
         self._entry(parent, 9, 'node_command', 'Node.js komutu / yolu (isteğe bağlı)', tab=self.run_tab, picker='node')
         managed_node = ttk.Checkbutton(parent, text='Her durumda yönetilen Node.js kurulumunu kullan',
                                       variable=self.variables['install_node'], style='Manager.TCheckbutton')
         managed_node.grid(row=14, column=0, columnspan=3, sticky='w', pady=(8, 0))
         self._controls.append(managed_node)
-        self._label(parent, 'Boşsa önce uygun sistem Node.js aranır; bulunamazsa yönetilen Node.js kurulur. node, node.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Node.js seçimini kullanır.').grid(row=10, column=0, columnspan=3, sticky='ew', pady=(4, 12))
+        node_help = self._label(parent, 'Boşsa önce uygun sistem Node.js aranır; bulunamazsa yönetilen Node.js kurulur. node, node.exe dosyasının tam yolu veya kurulum dizini girilebilir. Başlat ve durum kontrolü kayıtlı profilin Node.js seçimini kullanır.')
+        node_help.grid(row=10, column=0, columnspan=3, sticky='ew', pady=(4, 12))
+        self._field_rows['node_command'].append(node_help)
         self._entry(parent, 11, 'env_file', '.env dosyası (isteğe bağlı)', tab=self.run_tab, picker='environment')
         self._label(parent, 'AW Center’ı aç seçilen dosyadaki uygulama ayarlarını her açılışta okur; kaynak dosyayı değiştirmez. Manager’a girdiğiniz değerler .env değişse de geçerlidir. Alanı temizlemek .env değerini, orada da yoksa varsayılanı kullanır.').grid(row=12, column=0, columnspan=3, sticky='ew', pady=(4, 0))
 
@@ -594,7 +606,8 @@ class ManagerWindow:
 
     def _profile_changed(self):
         self.variables['validation_policy'].set('managed')
-        self._update_controls()
+        self._update_source_path()
+        self._refresh()
         self._schedule_inspection()
 
     def _build_sources(self, parent):
@@ -634,13 +647,14 @@ class ManagerWindow:
 
     def _build_report(self, parent):
         parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(1, weight=1)
-        self._label(parent, "Seçili işlemin güvenli durum raporu.").grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        parent.rowconfigure(2, weight=1)
+        self._build_tasks(parent)
+        self._label(parent, "Seçili işlemin güvenli durum raporu.").grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.report_text = tk.Text(parent, wrap="word", width=60, height=12, state="disabled", font=self._body_font, takefocus=True, borderwidth=0, padx=12, pady=12)
         scrollbar = ttk.Scrollbar(parent, command=self.report_text.yview)
         self.report_text.configure(yscrollcommand=scrollbar.set)
-        self.report_text.grid(row=1, column=0, sticky="nsew")
-        scrollbar.grid(row=1, column=1, sticky="ns")
+        self.report_text.grid(row=2, column=0, sticky="nsew")
+        scrollbar.grid(row=2, column=1, sticky="ns")
         # A native Text is needed for selectable reports; derive its appearance from ttk.
         style = ttk.Style(parent)
         for option, style_option in (("background", "fieldbackground"), ("foreground", "foreground")):
@@ -648,17 +662,18 @@ class ManagerWindow:
             if color:
                 self.report_text.configure(**{option: color})
         bar = ttk.Frame(parent, style="Manager.Panel.TFrame")
-        bar.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        bar.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         ttk.Button(bar, text="Güvenli raporu kopyala", command=self._copy_report).grid(row=0, column=0, sticky="w")
         self.report_open_button = ttk.Button(bar, text="Tarayıcıda aç", command=self._open_ready, state="disabled")
         self.report_open_button.grid(row=0, column=1, sticky="w", padx=(12, 0))
+        ttk.Button(bar, text='Bildirimler', command=self._show_general).grid(row=0, column=2, padx=(12, 0))
 
     def _build_actions(self):
         """Place each operation with its inputs; stopping remains task-scoped."""
         self.action_buttons = {"start": ttk.Button(self.banner_actions, text="Başlat", style="Manager.Primary.TButton",
                                                    command=self._primary_action)}
         self.action_buttons["start"].grid(row=0, column=0)
-        for parent, row, names in ((self.advanced_frame, 13, ("doctor", "provision")),
+        for parent, row, names in ((self.advanced_frame, 13, ("doctor",)),
                                    (self.source_tab.body, 3, ("test-sources", "bundle"))):
             actions = ttk.Frame(parent, style="Manager.Panel.TFrame")
             actions.grid(row=row, column=0, columnspan=3, sticky="e", pady=(16, 0))
@@ -676,13 +691,42 @@ class ManagerWindow:
         self.error_frame.columnconfigure(0, weight=1)
         self._label(self.error_frame, textvariable=self.error_var, style="Manager.TLabel").grid(row=0, column=0, sticky="ew")
         self._label(self.error_frame, textvariable=self.error_remedy_var, style="Manager.Muted.TLabel").grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.error_field_frame = ttk.Frame(self.error_frame)
+        self.error_field_frame.grid(row=2, column=0, sticky='ew', pady=(8, 0))
+        self.error_field_frame.columnconfigure(1, weight=1)
+        self.error_field_label = ttk.Label(self.error_field_frame)
+        self.error_field_label.grid(row=0, column=0, sticky='w', padx=(0, 8))
+        self.error_entry = ttk.Entry(self.error_field_frame)
+        self.error_entry.grid(row=0, column=1, sticky='ew')
+        self.error_picker = ttk.Button(self.error_field_frame, text='Seç…')
+        self.error_picker.grid(row=0, column=2, padx=(8, 0))
+        self.error_field_frame.grid_remove()
         bar = ttk.Frame(self.error_frame)
-        bar.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        self.retry_button = ttk.Button(bar, text="Tekrar denetle ve dene", command=self._retry)
+        bar.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        self.retry_button = ttk.Button(bar, text="Yeniden dene", command=self._retry)
         self.retry_button.grid(row=0, column=0, sticky="w")
-        ttk.Button(bar, text="Kaynakları değiştir", command=self._show_sources).grid(row=0, column=1, sticky="w", padx=(8, 0))
-        ttk.Button(bar, text="Çözümü incele", command=lambda: self.tabs.select(self.report_tab)).grid(row=0, column=2, sticky="w", padx=(8, 0))
         self.error_frame.grid_remove()
+
+    def _update_error_field(self, state):
+        field = state.error_field if state else ''
+        original = self._fields.get(field)
+        if (not isinstance(original, ttk.Entry) or original.instate(['disabled'])
+                or state.last_values.get('profile', 'dev') != self.variables['profile'].get()):
+            self._error_editing_field = ''
+            self.error_field_frame.grid_remove()
+            return
+        self.error_field_label.configure(text=self._field_titles[field])
+        self.error_remedy_var.set('Aşağıdaki alanı düzeltip Yeniden dene’ye basın.')
+        self.error_entry.configure(textvariable=self.variables[field])
+        self.error_field_frame.grid()
+        if field in self._pickers:
+            self.error_picker.configure(command=self._pickers[field].invoke)
+            self.error_picker.grid()
+        else:
+            self.error_picker.grid_remove()
+        if self._error_editing_field != field:
+            self.error_entry.focus_set()
+        self._error_editing_field = field
 
     def _pick(self, key, kind):
         options = {"parent": self.root, "title": self._field_titles[key]}
@@ -701,9 +745,10 @@ class ManagerWindow:
 
     def _dispatch(self, action, values=None):
         try:
-            submitted = normalize_values(action, values if values is not None else self.form_values())
+            selected = values if values is not None else self.form_values()
+            submitted = normalize_values(action, selected)
         except FormError as error:
-            self._show_form_error(error)
+            self._show_form_error(error, action)
             return
         self.task_states.general.record_action(action, submitted)
         self.task_states.general.busy = False
@@ -715,29 +760,33 @@ class ManagerWindow:
             self.handle_event({"type": "error", "code": "manager_action_failed", "message": "İşlem başlatılamadı.", "remedy": "Güvenli raporu inceleyip işlemi yeniden deneyin."})
             self.handle_event({"type": "done", "ok": False})
 
-    def _show_form_error(self, error):
-        self.handle_event({"type": "error", "code": "invalid_form", "message": str(error), "remedy": "Belirtilen alanı düzeltip işlemi yeniden başlatın."})
-        tab = self._field_tabs.get(error.field)
-        if tab:
-            self.tabs.select(tab)
-        if error.field in self._advanced_fields:
-            self._set_advanced(True)
-        field = self._fields.get(error.field)
-        if field:
-            self.root.update_idletasks()
-            field.focus_set()
+    def _show_form_error(self, error, action='ensure'):
+        self.task_states.general.last_action = action
+        self.task_states.general.last_values = {'profile': self.variables['profile'].get()}
+        self.handle_event({"type": "error", "code": "invalid_form", "field": error.field,
+                           "message": str(error), "remedy": "Aşağıdaki alanı düzeltip Yeniden dene’ye basın."})
 
     def _retry(self):
-        if self.state.last_action:
-            values = self.form_values() if self.state.last_action == 'bundle' else self.state.last_values
-            self._dispatch(self.state.last_action, {**values, 'migrate': False})
+        state = self._visible_state()
+        action = state.last_action if state else None
+        if not action:
+            return
+        values = state.last_values
+        if action in {'ensure', 'start', 'provision'}:
+            action = 'ensure'
+            current = self.form_values()
+            if current['profile'] == values.get('profile', 'dev'):
+                values = current
+        elif action == 'bundle' or (state.error_field and self.variables['profile'].get() == values.get('profile', 'dev')):
+            values = self.form_values()
+        self._dispatch(action, values)
 
     def _profile_presentation(self):
         presentation = self.task_states.profile_presentation(self.variables['profile'].get())
         if presentation['action'] == 'open':
             state = self.task_states.states[presentation['task_id']]
             current = normalize_values('start', self.form_values())
-            fields = (self._advanced_fields | {'source_selection', 'assets', 'feature_catalog'}) - {'migrate', 'migration_policy'}
+            fields = self._advanced_fields | {'validation_policy', 'source_selection', 'assets', 'feature_catalog'}
             if any(current.get(key, DEFAULT_VALUES[key]) != state.last_values.get(key, DEFAULT_VALUES[key])
                    for key in fields):
                 return {**presentation, 'action': 'ensure', 'label': 'Durdur, uygula ve aç'}
@@ -749,17 +798,11 @@ class ManagerWindow:
             self._open_ready()
         elif action:
             self._dispatch(action)
-            if action == 'doctor':
-                self.tabs.select(self.report_tab)
 
     def _stop_profile(self):
         task = self._profile_presentation()['task_id']
         if task:
             self.on_stop(task)
-
-    def _show_sources(self):
-        self.tabs.select(self.source_tab)
-        self._fields["offline_dir" if self.variables["source_mode"].get() == "offline" else "repository"].focus_set()
 
     def _copy_report(self):
         try:
@@ -794,23 +837,16 @@ class ManagerWindow:
 
     def _layout_changed(self, event):
         if event.widget is self.root:
-            self._fit_layout()
-            if self.state.error_message:
-                self.error_var.set(self._error_summary())
-                self.error_remedy_var.set(self._error_summary(self.state.error_remedy))
-
-    def _fit_layout(self):
-        # Reserve useful form/report space on smaller displays and at large
-        # system font sizes. The operator can still expand the list explicitly.
-        compact = self.root.winfo_height() < max(700, self._body_font.metrics("linespace") * 38)
-        compact = compact or bool(self.state.error_message)
-        if compact != self._compact_layout:
-            self._compact_layout = compact
-            self._set_task_details(not compact)
+            state = self._visible_state()
+            if state and state.error_message:
+                self.error_var.set(self._error_summary(state.error_message))
+                if not self._error_editing_field:
+                    self.error_remedy_var.set(self._error_summary(state.error_remedy))
 
     def _error_summary(self, message=None):
         """Keep recovery controls visible; the report retains the complete error."""
-        message = self.state.error_message if message is None else message
+        state = self._visible_state()
+        message = (state.error_message if state else '') if message is None else message
         summary = message.splitlines()[0][:100]
         width = max(240, self.root.winfo_width() - 100)
         while summary and self._section_font.measure(summary + "…") > width:
@@ -820,11 +856,12 @@ class ManagerWindow:
     def _update_controls(self):
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
         profile_state = self._profile_presentation()
+        visible = self._visible_state()
         presentation = (self.variables["profile"].get(), self.variables["source_mode"].get(),
                         self.variables["validation_policy"].get(), self.variables["source_selection"].get(),
                         self.variables['install_python'].get(), selected.get("status"),
                         self.variables['install_node'].get(),
-                        bool(self.state.last_action), tuple(profile_state.items()))
+                        bool(visible and visible.last_action), tuple(profile_state.items()))
         if presentation == self._rendered_controls:
             self._update_summary()
             self._paint_status_tile()
@@ -833,10 +870,9 @@ class ManagerWindow:
         for control in self._controls:
             control.configure(state="normal")
         profile = self.variables["profile"].get()
-        self.profile_badge_var.set("DEV profili" if profile == "dev" else "PROD profili")
         self.tls_frame.grid() if profile == 'prod' else self.tls_frame.grid_remove()
-        self.validation_selector.configure(state='normal' if profile == 'dev' and
-            self.variables['source_selection'].get() == 'explicit' else 'disabled')
+        self.production_help.grid() if profile == 'prod' else self.production_help.grid_remove()
+        self.validation_selector.configure(state='normal' if profile == 'dev' else 'disabled')
         mode = self.variables["source_mode"].get()
         disabled = {"frontend_port"} if profile == "prod" else {"tls_cert_file", "tls_key_file"}
         if self.variables['install_python'].get():
@@ -845,6 +881,9 @@ class ManagerWindow:
             disabled.add('node_command')
         if mode == "offline":
             disabled.update({"repository", "python_index_url", "npm_registry_url"})
+        for key, widgets in self._field_rows.items():
+            for widget in widgets:
+                widget.grid_remove() if key in disabled else widget.grid()
         for key in disabled:
             self._fields[key].configure(state="disabled")
             if key in self._pickers:
@@ -854,8 +893,8 @@ class ManagerWindow:
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
         self.stop_button.configure(state="normal" if selected.get("status") in ManagerTaskStates.ACTIVE_STATUSES else "disabled")
         self.banner_stop_button.configure(state="normal" if profile_state['task_id'] else "disabled")
-        self.retry_button.configure(state="normal" if self.state.last_action else "disabled")
-        self.open_button.grid_remove()
+        self.banner_stop_button.grid() if profile_state['task_id'] else self.banner_stop_button.grid_remove()
+        self.retry_button.configure(state="normal" if visible and visible.last_action else "disabled")
         self.report_open_button.configure(state="normal" if profile_state['url'] else "disabled")
         self.action_buttons['start'].configure(text=profile_state['label'],
             state="normal" if profile_state['action'] else "disabled")
@@ -905,12 +944,12 @@ class ManagerWindow:
             'inspecting': 'ortamı denetleniyor', 'degraded': 'ortamında sağlık sorunu',
             'running': 'işlemi sürüyor', 'finishing': 'işlemi tamamlanıyor', 'stopping': 'ortamı durduruluyor'}
         self.summary_title_var.set(f"{name} {descriptions.get(current['status'], 'ortamı başlatılıyor')}")
-        self.summary_context_var.set(' · '.join(filter(None, (current.get('detail'), current.get('tools')))))
+        self.summary_context_var.set('')
         if current['url']:
             from urllib.parse import urlsplit
             endpoint = urlsplit(current['url'])
             self.summary_title_var.set(f"{name} ortamı çalışıyor")
-            self.summary_context_var.set(f"{endpoint.scheme}://{safe_text(endpoint.netloc, limit=120)} · #{safe_text(current['task_id'], limit=8)}")
+            self.summary_context_var.set(f"{endpoint.scheme}://{safe_text(endpoint.netloc, limit=120)}")
 
         policy = self.variables['validation_policy'].get()
         active = self.task_states.states.get(current['task_id'])
@@ -929,10 +968,13 @@ class ManagerWindow:
         if self._refresh_job is not None:
             self.root.after_cancel(self._refresh_job)
             self._refresh_job = None
-        selected = self.task_states.tasks.get(self.selected_task_id(), {})
+        state = self._visible_state()
+        task_id = (self._profile_presentation()['task_id'] if self.tabs.select() == str(self.run_tab)
+                   else self.selected_task_id())
+        status = self.task_states.tasks.get(task_id, {}).get('status')
         # A ready server remains controller-owned, but its startup has finished.
         # Progress is presentation state and must not change lifecycle fencing.
-        progressing = self.state.busy and selected.get('status') not in {'ready', 'degraded'}
+        progressing = bool(state and state.busy and status not in {'ready', 'degraded'})
         if progressing != self._progress_running:
             if progressing:
                 self.progress.grid()
@@ -941,20 +983,22 @@ class ManagerWindow:
                 self.progress.stop()
                 self.progress.grid_remove()
             self._progress_running = progressing
-        self.status_var.set(self.state.status)
-        if self.state.error_message:
+        self.status_var.set(state.status if state else '')
+        if state and state.error_message:
             # Full sanitized error/remedy/code remain in the selectable report.
-            self.error_var.set(self._error_summary())
-            self.error_remedy_var.set(self._error_summary(self.state.error_remedy))
+            self.error_var.set(self._error_summary(state.error_message))
+            self.error_remedy_var.set(self._error_summary(state.error_remedy))
             self.error_frame.grid()
+            self._update_error_field(state)
         else:
             self.error_var.set("")
             self.error_remedy_var.set("")
+            self._error_editing_field = ''
+            self.error_field_frame.grid_remove()
             self.error_frame.grid_remove()
         if self.tabs.select() == str(self.report_tab):
             self._render_report()
         self._update_controls()
-        self._fit_layout()
 
     def _render_report(self):
         report = self.state.report()
@@ -971,14 +1015,14 @@ class ManagerWindow:
         self.report_text.yview_moveto(position)
 
     def handle_event(self, event: dict):
+        if event.get('type') == 'error' and event.get('task_id') is None:
+            self.task_states.general.last_values['profile'] = self.variables['profile'].get()
         self.task_states.handle_event(event)
-        if event.get('type') == 'error' and event.get('field') in self._fields:
-            field = event['field']
-            if field in self._advanced_fields:
-                self._set_advanced(True)
-            self.tabs.select(self._field_tabs[field])
-            self._fields[field].focus_set()
-        if event.get("task_id") is not None and event["task_id"] != self.selected_task_id():
+        if (event.get('type') == 'profile' and event.get('profile') == self.variables['profile'].get()
+                and isinstance(event.get('source_root'), str)):
+            self._update_source_path(event['source_root'])
+        if (event.get("task_id") is not None and event["task_id"] != self.selected_task_id()
+                and event['task_id'] != self._profile_presentation()['task_id']):
             self._update_controls()
             return
         self._sync_task_selection()
@@ -1007,7 +1051,7 @@ class ManagerWindow:
                 self.task_tree.insert("", "end", iid=task_id, values=values)
         for task_id in existing - self.task_states.tasks.keys():
             self.task_tree.delete(task_id)
-        height = max(1, min(3, len(self.task_states.tasks)))
+        height = max(1, min(2, len(self.task_states.tasks)))
         if int(self.task_tree.cget("height")) != height:
             self.task_tree.configure(height=height)
         self._sync_task_selection()
@@ -1089,23 +1133,6 @@ class ManagerWindow:
         dialog.bind("<Return>", lambda _event: submit())
         dialog.bind("<Destroy>", lambda event: self._finish_admin(task_id, None) if event.widget is dialog else None)
         fields["username"].focus_set()
-
-    def request_migration(self, task_id, callback):
-        """One-operation confirmation; the verified snapshot already exists."""
-        if task_id in self._admin_dialogs:
-            return
-        dialog = tk.Toplevel(self.root)
-        dialog.title('Veritabanı güncellemesi')
-        dialog.transient(self.root)
-        body = ttk.Frame(dialog, padding=20)
-        body.grid(sticky='nsew')
-        self._admin_dialogs[task_id] = {'dialog': dialog, 'variables': {}, 'callback': callback}
-        ttk.Label(body, text='Veritabanı ve özel dosyaların yedeği doğrulandı. Bekleyen migration işlemleri uygulansın mı?',
-                  wraplength=460).grid(row=0, column=0, columnspan=2, pady=(0, 16))
-        ttk.Button(body, text='İptal', command=lambda: self._finish_admin(task_id, False)).grid(row=1, column=0)
-        ttk.Button(body, text='Uygula', command=lambda: self._finish_admin(task_id, True)).grid(row=1, column=1)
-        dialog.protocol('WM_DELETE_WINDOW', lambda: self._finish_admin(task_id, False))
-        dialog.bind('<Escape>', lambda _event: self._finish_admin(task_id, False))
 
     def dismiss_admin(self, task_id: str) -> None:
         """Wipe a task's prompt after cancellation without invoking its reply."""

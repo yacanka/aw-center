@@ -101,8 +101,13 @@ def package_trust_environment(tool_env: dict, *, ca_file: Path | None = None,
     with _trust_step('system', progress):
         context = export_context()
     for selected in extra_files:
-        with _trust_step('extra_ca', progress):
-            context.load_verify_locations(cafile=str(selected))
+        try:
+            with _trust_step('extra_ca', progress):
+                context.load_verify_locations(cafile=str(selected))
+        except PackageTrustError as error:
+            if selected == ca_file:
+                error.field = 'ca_file'
+            raise
     if python:
         with _trust_step('python', progress):
             context.load_verify_locations(cadata=_python_roots(python, tool_env))
