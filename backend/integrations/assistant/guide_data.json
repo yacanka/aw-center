@@ -454,6 +454,35 @@
     ]
   },
   {
+    "id": "jira-documents",
+    "title": "JIRA Documents",
+    "path": "/jira/documents",
+    "purpose": "Generate a Word document from a published template and a JIRA issue.",
+    "inputs": [
+      "JIRA issue key or browse URL",
+      "Optional manual values"
+    ],
+    "outputs": [
+      "Private DOCX in Job Center"
+    ],
+    "steps": [
+      "Connect to JIRA and look up the issue.",
+      "Choose a matching template, review the values and generate the document."
+    ],
+    "limitations": [
+      "A published template must match the JIRA project and issue type.",
+      "A template publisher permission is required to manage the library."
+    ],
+    "keywords": [
+      "jira",
+      "şablon",
+      "template",
+      "belge",
+      "docx",
+      "word"
+    ]
+  },
+  {
     "id": "organization",
     "title": "Organization",
     "path": "/organization",

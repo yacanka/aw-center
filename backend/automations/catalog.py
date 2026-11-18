@@ -51,6 +51,13 @@ EXECUTOR_CATALOG = (
         timeout_seconds=900,
     ),
     ExecutorMetadata(
+        kind="jira.create_template_document",
+        dotted_path="integrations.jira.template_jobs.execute_template_document",
+        queue=LOCAL_QUEUE,
+        upload_policy=None,
+        timeout_seconds=180,
+    ),
+    ExecutorMetadata(
         kind="dcc.create_document",
         dotted_path="integrations.jira.document_job.execute_dcc_document_creation",
         queue=LOCAL_QUEUE,

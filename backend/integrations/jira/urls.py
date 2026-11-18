@@ -20,10 +20,17 @@ from .watcher_views import import_watcher_issue, watcher_status
 from .watcher_assessment import assess_watcher_pdf
 from .watcher_preferences import watcher_preferences
 
+from . import template_views
 from .views import JiraSessionView
 from .user_content_views import saved_lists
 
 urlpatterns = [
+    path("document-templates/", template_views.document_templates),
+    path("document-templates/inspect/", template_views.inspect_document_template),
+    path("document-templates/<uuid:template_id>/", template_views.document_template),
+    path("document-templates/<uuid:template_id>/source/", template_views.document_template_source),
+    path("document-generation/resolve/", template_views.resolve_document_issue),
+    path("document-generation/jobs/", template_views.document_generation_job),
     path("subtasks/saved-lists/", saved_lists, name="jira-saved-lists"),
     path("session/", JiraSessionView.as_view(), name="jira-session"),
     path("watcher/preferences/", watcher_preferences, name="dcc-watcher-preferences"),

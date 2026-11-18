@@ -97,9 +97,12 @@ function workflowOptions(
     )
   }
   const jiraPosition = projects.length ? 3 : 2
-  if (dccAvailable) {
-    options.splice(jiraPosition, 0, menuItem('JIRA', '/jira', 'jira', JiraIcon))
-  }
+  options.splice(
+    jiraPosition,
+    0,
+    ...(dccAvailable ? [menuItem('JIRA', '/jira', 'jira', JiraIcon)] : []),
+    menuItem('JIRA Documents', '/jira/documents', 'jiraDocuments', Document24Regular)
+  )
   if (organizationAvailable) {
     options.push(menuItem('Organization', '/organization', 'organization', PeopleAudience24Regular))
   }

@@ -24,6 +24,8 @@ describe('project-aware main navigation', () => {
     expect(keys).not.toContain('/compdocs')
     expect(keys).not.toContain('/organization')
     expect(keys).not.toContain('/jira')
+    expect(keys).toContain('/jira/documents')
+    expect(menuKeys(createMainMenuOptions([], {}))).not.toContain('/jira/documents')
   })
 
   it('shows only domains backed by validated catalog roles', () => {

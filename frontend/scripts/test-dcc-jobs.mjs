@@ -37,7 +37,7 @@ const sessionConsumerUrls = [
   '../src/features/integrations/jira/pages/ExcelSubtaskGenerator.vue'
 ].map((path) => new URL(path, import.meta.url))
 const jiraCredentialUrl = new URL(
-  '../src/features/integrations/jira/pages/Jira.vue',
+  '../src/features/integrations/jira/components/JiraConnection.vue',
   import.meta.url
 )
 

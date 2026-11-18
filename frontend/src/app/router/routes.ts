@@ -128,6 +128,11 @@ export const routes: RouteRecordRaw[] = [
     component: lazyRoute(() => import('@/features/integrations/jira/pages/Jira.vue'))
   },
   {
+    path: '/jira/documents',
+    name: 'jiraDocuments',
+    component: lazyRoute(() => import('@/features/integrations/jira/pages/JiraDocuments.vue'))
+  },
+  {
     path: '/ddfAssistant',
     name: 'ddfAssistant',
     meta: { access: navigationAccessPolicy('/ddfAssistant') },
