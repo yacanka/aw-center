@@ -110,17 +110,8 @@ export function createCompdocController(): CompdocController {
   controller.fetchReferencePanels = () => fetchReferencePanels(state)
   controller.fetchCompdocs = (query) => fetchCompdocs(state, query)
   controller.createCompdoc = (data) => createCompdoc(state, data)
-  controller.acceptCreatedCompdoc = (data) => {
-    const created = normalizeCompdoc(data)
-    state.compdocs.unshift(created)
-    return created
-  }
-  controller.acceptUpdatedCompdoc = (data) => {
-    const updated = normalizeCompdoc(data)
-    const index = state.compdocs.findIndex((document) => document.id === updated.id)
-    if (index >= 0) state.compdocs[index] = updated
-    return updated
-  }
+  controller.acceptCreatedCompdoc = (data) => acceptChangedCompdoc(state, data, true)
+  controller.acceptUpdatedCompdoc = (data) => acceptChangedCompdoc(state, data, false)
   controller.updateCompdoc = (id, data) => updateCompdoc(state, id, data)
   controller.fetchCompdoc = (id) => fetchCompdoc(state, id)
   controller.archiveCompdoc = (id, version, reason) =>
@@ -174,13 +165,16 @@ async function fetchCompdocs(state: CompdocState, query?: PaginationQuery): Prom
   const requestedProject = state.projectName
   if (query) state.lastQuery = { ...query }
   const requestedQuery = query || state.lastQuery
+  const params = compactPaginationQuery(requestedQuery)
+  // An empty CAT is the dashboard's Unspecified slice.
+  if (requestedQuery.dashboard_cat === '') params.dashboard_cat = ''
   const requestId = ++state.listRequestId
   const isCurrent = () =>
     state.projectName === requestedProject && state.listRequestId === requestId
   state.loading = true
   const response = await handleRequest<unknown[]>(
     apiClient.get(compdocCollectionPath(state.projectName), {
-      params: compactPaginationQuery(requestedQuery),
+      params,
       paramsSerializer: { indexes: null }
     }),
     (data) => {
@@ -209,12 +203,42 @@ async function fetchReferencePanels(state: CompdocState): Promise<void> {
   }
 }
 
+function hasDashboardSlice(state: CompdocState) {
+  return (
+    state.lastQuery.dashboard_delivery !== undefined || state.lastQuery.dashboard_cat !== undefined
+  )
+}
+
+function refreshDashboardSlice(state: CompdocState) {
+  if (!hasDashboardSlice(state)) return false
+  const requestId = state.listRequestId
+  const project = state.projectName
+  // Refresh after the mutation's loading handler, unless a newer list request already started.
+  queueMicrotask(() => {
+    if (state.projectName === project && state.listRequestId === requestId) {
+      void fetchCompdocs(state).catch(() => undefined)
+    }
+  })
+  return true
+}
+
+function acceptChangedCompdoc(state: CompdocState, payload: unknown, created: boolean) {
+  const document = normalizeCompdoc(payload)
+  if (refreshDashboardSlice(state)) return document
+  if (created) state.compdocs.unshift(document)
+  else {
+    const index = state.compdocs.findIndex((item) => item.id === document.id)
+    if (index >= 0) state.compdocs[index] = document
+  }
+  return document
+}
+
 async function createCompdoc(state: CompdocState, data: ICompDoc): Promise<void> {
   state.loading = true
   await handleRequest<unknown>(
     apiClient.post(compdocCollectionPath(state.projectName), buildCompdocCreatePayload(data)),
     (payload) => {
-      state.compdocs.unshift(normalizeCompdoc(payload))
+      acceptChangedCompdoc(state, payload, true)
       notifySuccess('New document added successfully.')
     },
     notifyError,
@@ -231,9 +255,7 @@ async function updateCompdoc(
   await handleRequest<unknown>(
     apiClient.put(`${compdocDocumentPath(state.projectName, id)}/`, data),
     (payload) => {
-      const updated = normalizeCompdoc(payload)
-      const index = state.compdocs.findIndex((document) => document.id === id)
-      if (index >= 0) state.compdocs[index] = updated
+      acceptChangedCompdoc(state, payload, false)
       notifySuccess('Updated successfully.')
     },
     notifyError,
@@ -244,6 +266,7 @@ async function updateCompdoc(
 async function fetchCompdoc(state: CompdocState, id: string): Promise<ICompDoc> {
   const response = await apiClient.get<unknown>(`${compdocDocumentPath(state.projectName, id)}/`)
   const document = normalizeCompdoc(response.data)
+  if (hasDashboardSlice(state)) return document
   const index = state.compdocs.findIndex((item) => item.id === id)
   if (index >= 0) state.compdocs[index] = document
   return document
@@ -264,6 +287,7 @@ async function setArchiveState(
     ),
     () => {
       state.compdocs = state.compdocs.filter((document) => document.id !== id)
+      refreshDashboardSlice(state)
       notifySuccess(archived ? 'Document archived successfully.' : 'Document restored.')
     },
     notifyError,

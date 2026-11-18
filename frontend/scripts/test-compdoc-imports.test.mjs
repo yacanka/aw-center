@@ -453,7 +453,11 @@ test('CompDoc UI gates every mutation with canonical project-domain roles', asyn
   assert.match(table, /initialFilters/)
   assert.match(toolbar, /v-if="canCreate"/)
   assert.doesNotMatch(toolbar, /CompDocBulkDelete/)
-  assert.match(remoteTable, /dependencies\.project\.value, dependencies\.canView\.value/)
+  assert.match(
+    remoteTable,
+    /watch\(\s*\[\s*dependencies\.project,\s*dependencies\.canView,/,
+    'The remote table must watch both project and view permission'
+  )
   assert.match(remoteTable, /dependencies\.initialFilters/)
   assert.match(popup, /popupMode ={2,3} 'view' && canEdit/)
 })

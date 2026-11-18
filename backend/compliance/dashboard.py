@@ -1,8 +1,10 @@
 """Read-only project and panel analytics for the canonical compliance aggregate."""
 
 from collections import Counter
+from re import escape
 
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .dashboard_timeline import build_timeline
@@ -22,6 +24,10 @@ PENDING_BUCKETS = {
     "authority_review": "authority",
 }
 QUALITY_KEYS = ("missing_panel", "unknown_status", "blank_cover_page", "out_of_order_dates")
+UNISSUED_BUCKETS = ("delayed", "expected", "missing_target")
+UNASSIGNED_PANEL_NAME = "Unassigned"
+# Match Python's str.strip() character set in both SQLite and PostgreSQL.
+CAT_PADDING = "[\x09-\x0d\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*"
 
 
 def build_dashboard(project, *, today=None):
@@ -58,7 +64,7 @@ def build_dashboard(project, *, today=None):
         if panel_id not in panels:
             panels[panel_id] = {
                 "id": panel_id,
-                "panel": document.panel.name if document.panel_id else "Unassigned",
+                "panel": document.panel.name if document.panel_id else UNASSIGNED_PANEL_NAME,
                 "ata": document.panel.ata if document.panel_id else "",
                 "state": _empty_state(),
             }
@@ -99,6 +105,39 @@ def build_dashboard(project, *, today=None):
             for name, group in sorted(panel_groups.items(), key=lambda item: item[0].casefold())
         ],
     }
+
+
+def filter_dashboard_slice(queryset, *, delivery=None, cat=None, panel=None, panel_id=None):
+    """Match an active dashboard slice within an already project-scoped queryset."""
+    queryset = queryset.filter(is_archived=False)
+    if panel is not None:
+        scope = Q(panel__name=panel)
+        if panel == UNASSIGNED_PANEL_NAME:
+            scope |= Q(panel__isnull=True)
+        queryset = queryset.filter(scope)
+    if panel_id is not None:
+        queryset = queryset.filter(panel_id=None if panel_id == "unassigned" else panel_id)
+    if cat is not None:
+        pattern = f"^{CAT_PADDING}{escape(cat)}{CAT_PADDING}$" if cat else f"^{CAT_PADDING}$"
+        category = Q(cat__regex=pattern)
+        if not cat:
+            category |= Q(cat__isnull=True)
+        queryset = queryset.filter(category)
+    return _filter_delivery_slice(queryset, delivery) if delivery else queryset
+
+
+def _filter_delivery_slice(queryset, delivery):
+    if delivery.startswith("issued:"):
+        status = delivery.removeprefix("issued:")
+        statuses = ("unknown", "") if status == "unknown" else (status,)
+        return queryset.filter(release_date__isnull=False, status__in=statuses)
+    unissued = queryset.filter(release_date__isnull=True).alias(
+        dashboard_target=Coalesce("revised_target_date", "target_date"),
+    )
+    if delivery == "missing_target":
+        return unissued.filter(dashboard_target__isnull=True)
+    lookup = "dashboard_target__lt" if delivery == "delayed" else "dashboard_target__gte"
+    return unissued.filter(**{lookup: timezone.localdate()})
 
 
 def _empty_state():

@@ -7,10 +7,11 @@ import {
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [390, 1440]) {
     test(`panel breakdown modes inherit ${theme} theme at ${width}px`, async ({ page }) => {
+      const listQueries: URLSearchParams[] = []
       await page.setViewportSize({ width, height: 900 })
       await page.emulateMedia({ colorScheme: theme })
       await page.route('**/api/**', async (route) => {
-        const path = new URL(route.request().url()).pathname
+        const { pathname: path, searchParams } = new URL(route.request().url())
         if (!path.startsWith('/api/')) return route.fallback()
         let body: unknown = { count: 0, results: [], next: null, previous: null }
         if (path === '/api/session/')
@@ -36,6 +37,8 @@ for (const theme of ['light', 'dark'] as const) {
           ]
         else if (path.endsWith('/compliance-documents/dashboard/')) {
           const summary = dashboardSummary()
+          summary.panels[0].id = '21'
+          summary.panels[0].analytics.cat_counts = { '': 1 }
           const structures = {
             id: 'panel-3',
             panel: 'Structures',
@@ -75,6 +78,17 @@ for (const theme of ['light', 'dark'] as const) {
             panels: [...summary.panels, structures],
             panel_groups: [...summary.panel_groups, { ...structures, id: 'panel:Structures' }]
           }
+        } else if (path.endsWith('/compliance-documents/fields/')) {
+          body = { schema_version: 4, project: 'ozgur', fields: [] }
+        } else if (path.endsWith('/compliance-documents/options/')) {
+          body = {
+            count: 1,
+            results: [{ id: 21, name: 'Systems', ata: '27', label: 'Systems · ATA 27' }],
+            next: null,
+            previous: null
+          }
+        } else if (path.endsWith('/compliance-documents/')) {
+          listQueries.push(searchParams)
         } else if (path.startsWith('/api/releases/')) return route.fulfill({ status: 204 })
         return route.fulfill({ json: body })
       })
@@ -221,6 +235,50 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(page.locator('.metrics .n-statistic').first()).toContainText('7')
       await rows.first().dblclick()
       await expect(page.locator('.summary-meta')).toContainText('Systems · 27')
+
+      const statusCanvas = distributions.first().locator('canvas')
+      await statusCanvas.scrollIntoViewIfNeeded()
+      const { width: chartWidth, height: chartHeight } = (await statusCanvas.boundingBox())!
+      await statusCanvas.click({ position: { x: chartWidth / 2, y: chartHeight / 2 } })
+      await expect(page).toHaveURL(/\/app\/compdocs\/home$/)
+      const arc = {
+        x: chartWidth / 2,
+        y: chartHeight / 2 - Math.min(chartWidth, chartHeight) * 0.4
+      }
+      await statusCanvas.hover({ position: arc })
+      await expect(statusCanvas).toHaveCSS('cursor', 'pointer')
+      await statusCanvas.click({ position: arc })
+      await expect(page).toHaveURL(/\/app\/compdocs\/ozgur\?/)
+      const deliveryFilter = page.getByText('Not issued · Delayed · Systems · ATA 27', {
+        exact: true
+      })
+      await expect(deliveryFilter).toBeVisible()
+      await expect.poll(() => listQueries.at(-1)?.get('dashboard_delivery')).toBe('delayed')
+      expect(listQueries[0].get('dashboard_panel_id')).toBe('21')
+      expect(listQueries[0].get('page')).toBe('1')
+
+      const requestsBeforeReload = listQueries.length
+      await page.reload()
+      await expect(deliveryFilter).toBeVisible()
+      await expect.poll(() => listQueries.length).toBeGreaterThan(requestsBeforeReload)
+      expect(listQueries[requestsBeforeReload].get('dashboard_delivery')).toBe('delayed')
+      await page.goBack()
+      await expect(page).toHaveURL(/\/app\/compdocs\/home$/)
+      await tabs.getByRole('tab', { name: 'ATA based' }).click()
+      await expect(rows).toHaveCount(3)
+      await rows.first().dblclick()
+      const catLink = catCard.getByRole('link', { name: 'Unspecified', exact: true })
+      await catLink.focus()
+      await catLink.press('Enter')
+      await expect(
+        page.getByText('CAT unspecified · Systems · ATA 27', { exact: true })
+      ).toBeVisible()
+      await expect.poll(() => listQueries.at(-1)?.get('dashboard_cat')).toBe('')
+      expect(listQueries.at(-1)?.get('dashboard_panel_id')).toBe('21')
+      await page.getByRole('button', { name: 'Clear dashboard filter' }).click()
+      await expect(page).toHaveURL(/\/app\/compdocs\/ozgur$/)
+      await expect.poll(() => listQueries.at(-1)?.has('dashboard_cat')).toBe(false)
+      expect(listQueries.at(-1)?.has('dashboard_panel_id')).toBe(false)
     })
   }
 }

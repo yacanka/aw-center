@@ -80,6 +80,7 @@ const stubs = {
     template: '<span><slot /><button @click="$emit(\'close\')">Clear scope</button></span>'
   },
   NButton: { template: '<button><slot /></button>' },
+  RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' },
   NSelect: {
     name: 'NSelect',
     props: ['value', 'options'],
@@ -109,6 +110,39 @@ describe('compliance dashboard scope', () => {
     await flushPromises()
     return wrapper
   }
+
+  it('opens the selected chart slice with its project and breakdown scope', async () => {
+    const summary = dashboardSummary()
+    summary.panels[0].id = '21'
+    summary.panels[0].analytics.publication.issued = {
+      total: 1,
+      status_counts: { constructor: 1 }
+    }
+    mocks.fetch.mockResolvedValueOnce(summary)
+    const wrapper = await dashboard()
+    await wrapper.findAll('tr')[0].trigger('dblclick')
+    const [status, cat] = wrapper.findAllComponents({ name: 'DoughnutChart' })
+    status.props('options').onClick({}, [])
+    expect(mocks.push).not.toHaveBeenCalled()
+    status.props('options').onClick({}, [{ datasetIndex: 0, index: 0 }])
+    expect(mocks.push).toHaveBeenLastCalledWith({
+      name: 'compdocs',
+      params: { project: 'ozgur' },
+      query: { dashboard_delivery: 'issued:constructor', dashboard_panel_id: '21' }
+    })
+    status.props('options').onClick({}, [{ datasetIndex: 0, index: 1 }])
+    expect(mocks.push).toHaveBeenLastCalledWith({
+      name: 'compdocs',
+      params: { project: 'ozgur' },
+      query: { dashboard_delivery: 'delayed', dashboard_panel_id: '21' }
+    })
+    cat.props('options').onClick({}, [{ datasetIndex: 0, index: 0 }])
+    expect(mocks.push).toHaveBeenLastCalledWith({
+      name: 'compdocs',
+      params: { project: 'ozgur' },
+      query: { dashboard_cat: 'A', dashboard_panel_id: '21' }
+    })
+  })
 
   it('uses the same positive rows for explicit legends and publication chart arcs', async () => {
     const rows = [

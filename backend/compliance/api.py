@@ -26,7 +26,7 @@ from projects.registry import PROJECT_DEFINITIONS
 
 from .status_catalog import create_status, delete_status, status_options, status_payload
 from .compdoc_import import REQUIRED_IMPORT_FIELDS
-from .dashboard import build_dashboard
+from .dashboard import UNISSUED_BUCKETS, build_dashboard, filter_dashboard_slice
 from .doors_imports import (
     create_doors_confirmation,
     default_mapping,
@@ -206,6 +206,7 @@ class DocumentCollectionView(ProjectComplianceMixin, APIView):
                 | Q(number__icontains=search)
             )
         queryset = _apply_document_filters(queryset, request.query_params)
+        queryset = _apply_dashboard_slice(queryset, request.query_params)
         queryset = _apply_document_ordering(queryset, request.query_params.get("ordering"))
         paginator = StandardResultsSetPagination()
         page = paginator.paginate_queryset(queryset, request)
@@ -1192,6 +1193,38 @@ def _apply_document_filters(queryset, query_params):
             else:
                 queryset = queryset.filter(**{lookup: value})
     return queryset
+
+
+def _apply_dashboard_slice(queryset, query_params):
+    """Read a dashboard delivery or exact CAT slice and its optional panel scope.
+
+    Delivery accepts issued:<status> or an unissued bucket. An empty CAT selects
+    the unspecified category. The panel scope is a group name or a panel ID.
+    """
+    delivery = query_params.get("dashboard_delivery")
+    cat = query_params.get("dashboard_cat")
+    if delivery is None and cat is None:
+        return queryset
+    if delivery is not None:
+        issued_status = delivery.removeprefix("issued:")
+        if delivery not in UNISSUED_BUCKETS and not (
+            delivery.startswith("issued:") and 0 < len(issued_status) <= 128
+        ):
+            raise serializers.ValidationError({"dashboard_delivery": "Invalid delivery bucket."})
+        serializers.CharField(max_length=135, trim_whitespace=False).run_validation(delivery)
+    if cat is not None:
+        cat = serializers.CharField(
+            max_length=12, allow_blank=True, trim_whitespace=False,
+        ).run_validation(cat)
+    panel = query_params.get("dashboard_panel")
+    if panel is not None:
+        panel = serializers.CharField(max_length=255, trim_whitespace=False).run_validation(panel)
+    panel_id = query_params.get("dashboard_panel_id")
+    if panel_id is not None and panel_id != "unassigned":
+        panel_id = serializers.IntegerField(min_value=1, max_value=2**63 - 1).run_validation(panel_id)
+    return filter_dashboard_slice(
+        queryset, delivery=delivery, cat=cat, panel=panel, panel_id=panel_id,
+    )
 
 
 def _apply_document_ordering(queryset, raw_ordering):

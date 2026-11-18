@@ -99,9 +99,10 @@ export function createStatusChartRows(
         expected: ['expected', 'in design'],
         missing_target: ['target date missing', 'in design (date missing)']
       }
-      const displayLabel = defaultLabels[value]?.includes(label.toLowerCase())
-        ? STATUS_PRESENTATION.find((item) => item.value === value)!.label
-        : label
+      const displayLabel =
+        Object.hasOwn(defaultLabels, value) && defaultLabels[value].includes(label.toLowerCase())
+          ? STATUS_PRESENTATION.find((item) => item.value === value)!.label
+          : label
       const status = { value, label: displayLabel, color }
       const count = safeNumber(counts[status.value])
       return { ...status, count, percentage: total ? Math.round((count / total) * 100) : 0 }

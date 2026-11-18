@@ -10,6 +10,7 @@ interface RemoteTableDependencies {
   canView: Ref<boolean>
   columnOverrides: Ref<DataTableColumns<ICompDoc>>
   initialFilters?: Ref<Record<string, unknown>>
+  dashboardFilters?: Ref<Record<string, string>>
   store: CompdocController
 }
 
@@ -41,7 +42,9 @@ export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
       { page: page.value, pageSize: pageSize.value },
       ordering.value
     )
-    return store.fetchCompdocs(query).catch(() => undefined)
+    return store
+      .fetchCompdocs({ ...query, ...dependencies.dashboardFilters?.value })
+      .catch(() => undefined)
   }
   const onFilter = (key: string, value: unknown) => updateCustomFilter(key, value)
   const onClean = (key: string) => updateCustomFilter(key, null)
@@ -134,8 +137,19 @@ export function useCompdocRemoteTable(dependencies: RemoteTableDependencies) {
   }
 
   watch(
-    () => [dependencies.project.value, dependencies.canView.value] as const,
-    ([project, canView]) => void initialize(project, canView),
+    [
+      dependencies.project,
+      dependencies.canView,
+      () => JSON.stringify(dependencies.dashboardFilters?.value)
+    ],
+    ([project, canView], [previousProject, previousAccess]) => {
+      if (project !== previousProject || canView !== previousAccess) {
+        void initialize(project, canView)
+      } else {
+        page.value = 1
+        void fetchRows()
+      }
+    },
     { immediate: true }
   )
   onUnmounted(() => store.clearList())

@@ -33,7 +33,15 @@
           </h3>
           <div v-for="item in group.rows" :key="item.value" class="status-row">
             <span class="status-dot" :style="{ background: item.color }" />
-            <span class="status-label">{{ item.label }}</span>
+            <RouterLink
+              v-if="item.to"
+              :to="item.to"
+              class="status-label status-link"
+              :title="item.label"
+            >
+              {{ item.label }}
+            </RouterLink>
+            <span v-else class="status-label">{{ item.label }}</span>
             <strong>{{ item.count }}</strong>
             <n-text depth="3">{{ item.percentage }}%</n-text>
             <span class="status-rail">
@@ -55,6 +63,8 @@
 import { useThemeVars } from 'naive-ui'
 import type { CompdocOption } from '@/features/compliance/api/compdocCatalog'
 import { computed } from 'vue'
+import { useRouter, type RouteLocationRaw } from 'vue-router'
+import type { ChartOptions } from 'chart.js'
 import { Doughnut } from 'vue-chartjs'
 import { useSessionStore } from '@/features/session/stores/session'
 import { resolvePreferredTheme } from '@/app/services/theme'
@@ -75,7 +85,13 @@ const props = withDefaults(
     statuses?: CompdocOption[]
     selectedPanel?: string
     rows?: StatusChartRow[]
-    groups?: Array<{ label: string; total: number; rows: StatusChartRow[] }>
+    groups?: Array<{
+      key?: 'issued' | 'not_issued'
+      label: string
+      total: number
+      rows: StatusChartRow[]
+    }>
+    sliceRoute?: (value: string, group?: 'issued' | 'not_issued') => RouteLocationRaw
     title?: string
     subtitle?: string
     emptyDescription?: string
@@ -90,6 +106,7 @@ defineEmits<{ 'clear-panel': [] }>()
 
 ensureCompdocChartsRegistered()
 const userStore = useSessionStore()
+const router = useRouter()
 const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const themeVars = useThemeVars()
 const displayGroups = computed(() => {
@@ -102,7 +119,15 @@ const displayGroups = computed(() => {
         createStatusChartRows(props.counts, props.statuses, themeVars.value.textColor3)
     }
   ]
-  return groups.map((group) => ({ ...group, rows: group.rows.filter((row) => row.count > 0) }))
+  return groups.map((group) => ({
+    ...group,
+    rows: group.rows
+      .filter((row) => row.count > 0)
+      .map((row) => ({
+        ...row,
+        to: props.sliceRoute?.(row.value, 'key' in group ? group.key : undefined)
+      }))
+  }))
 })
 const statusRows = computed(() =>
   displayGroups.value.flatMap((group) =>
@@ -113,7 +138,21 @@ const statusRows = computed(() =>
 )
 const total = computed(() => statusRows.value.reduce((sum, row) => sum + row.count, 0))
 const chartData = computed(() => createStatusChartData(statusRows.value))
-const chartOptions = computed(() => createStatusChartOptions(theme.value))
+const chartOptions = computed<ChartOptions<'doughnut'>>(() => {
+  const options = createStatusChartOptions(theme.value)
+  if (!props.sliceRoute) return options
+  return {
+    ...options,
+    onClick: (_event, [element]) => {
+      if (element?.datasetIndex !== 0) return
+      const to = statusRows.value[element.index]?.to
+      if (to) void router.push(to)
+    },
+    onHover: (_event, elements, chart) => {
+      chart.canvas.style.cursor = elements.length ? 'pointer' : ''
+    }
+  }
+})
 </script>
 
 <style scoped>
@@ -182,6 +221,17 @@ const chartOptions = computed(() => createStatusChartOptions(theme.value))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.status-link {
+  color: v-bind('themeVars.textColor1');
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.status-link:focus-visible {
+  outline: 2px solid v-bind('themeVars.primaryColor');
+  outline-offset: 2px;
 }
 
 .status-rail {

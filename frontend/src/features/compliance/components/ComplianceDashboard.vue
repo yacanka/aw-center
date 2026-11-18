@@ -75,6 +75,7 @@
             :statuses="summary.statuses"
             :counts="focusedAnalytics.chart_status_counts"
             :groups="publicationGroups"
+            :slice-route="deliverySliceRoute"
             subtitle="Delivery status · percentages of all documents"
           />
           <CompDocStatusDashboard
@@ -83,6 +84,7 @@
             empty-description="No CAT data"
             :counts="focusedAnalytics.cat_counts"
             :rows="catRows"
+            :slice-route="catSliceRoute"
           >
             <template #distribution-extra>
               <section class="moc-distribution">
@@ -112,6 +114,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useThemeVars } from 'naive-ui'
+import type { RouteLocationRaw } from 'vue-router'
 import {
   createCatChartRows,
   createStatusChartRows
@@ -166,6 +169,7 @@ const publicationGroups = computed(() => {
             { value: 'missing_target', label: 'Target date missing' }
           ]
     return {
+      key,
       label: key === 'issued' ? 'Issued' : 'Not issued',
       total: group.total,
       rows: createStatusChartRows(group.status_counts, options, themeVars.value.textColor3).map(
@@ -199,6 +203,23 @@ const qualityMessage = computed(() => {
     .filter(Boolean)
     .join(' · ')
 })
+
+function deliverySliceRoute(value: string, group?: 'issued' | 'not_issued') {
+  return sliceRoute({ dashboard_delivery: group === 'issued' ? `issued:${value}` : value })
+}
+
+function catSliceRoute(value: string) {
+  return sliceRoute({ dashboard_cat: value })
+}
+
+function sliceRoute(query: Record<string, string>): RouteLocationRaw {
+  const panel = selectedPanel.value
+  if (panel) {
+    if (breakdownMode.value === 'panel') query.dashboard_panel = panel.panel
+    else query.dashboard_panel_id = panel.id
+  }
+  return { name: 'compdocs', params: { project: activeProject.value }, query }
+}
 </script>
 
 <style scoped>

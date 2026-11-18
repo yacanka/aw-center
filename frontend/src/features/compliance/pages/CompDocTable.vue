@@ -12,7 +12,10 @@ import DownloadComponent from '@/features/compliance/components/Downloader.vue'
 import { provideCompdocController } from '@/features/compliance/composables/compdocController'
 import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import { createEmptyCompdoc } from '@/features/compliance/api/compdocCatalog'
+import { createStatusChartRows } from '@/features/compliance/api/compdocChartData'
 import {
+  DASHBOARD_FILTER_KEYS,
+  compdocDashboardFilters,
   compdocQuickFilter,
   compdocRouteFilters
 } from '@/features/compliance/api/compdocQuickFilters'
@@ -36,6 +39,39 @@ const canImport = computed(() => canAdd.value && canChange.value)
 const canViewAudits = canView
 const catalogReady = computed(() => projectCatalog.status === 'ready')
 const initialFilters = computed(() => compdocRouteFilters(route.query))
+const dashboardFilters = computed(() => compdocDashboardFilters(route.query))
+const dashboardFilterLabel = computed(() => {
+  const {
+    dashboard_cat: cat,
+    dashboard_delivery: delivery,
+    dashboard_panel: panel,
+    dashboard_panel_id: panelId
+  } = dashboardFilters.value
+  if (cat === undefined && !delivery) return ''
+  const labels = []
+  if (delivery) {
+    const issued = delivery.startsWith('issued:')
+    const status = delivery.replace(/^issued:/, '')
+    const choice = issued
+      ? store.fields
+          .find((field) => field.key === 'status')
+          ?.choices.find((item) => item.value === status)
+      : undefined
+    const rows = createStatusChartRows(
+      { [status]: 1 },
+      choice ? [{ value: status, label: choice.label }] : []
+    )
+    labels.push(`${issued ? 'Issued' : 'Not issued'} · ${rows[0].label}`)
+  }
+  if (cat !== undefined) labels.push(cat ? `CAT ${cat}` : 'CAT unspecified')
+  if (panel) labels.push(panel)
+  if (panelId === 'unassigned') labels.push('Unassigned')
+  else if (panelId) {
+    const reference = store.getPanels.find((item) => String(item.id) === panelId)
+    labels.push(reference?.label || `Panel #${panelId}`)
+  }
+  return labels.join(' · ')
+})
 const workspaceTab = computed(() => {
   const requested = String(route.query.workspace || '')
   if (requested === 'transition' && !canChange.value) return 'overview'
@@ -64,6 +100,7 @@ const table = useCompdocRemoteTable({
   canView,
   columnOverrides: overrides.columns,
   initialFilters,
+  dashboardFilters,
   store
 })
 const displayColumns = computed(() => table.columns.value)
@@ -124,6 +161,12 @@ function createDocument() {
 
 function applyQuickFilter(value: string) {
   table.replaceQuickFilters(compdocQuickFilter(value))
+}
+
+function clearDashboardFilter() {
+  const query = { ...route.query }
+  DASHBOARD_FILTER_KEYS.forEach((key) => delete query[key])
+  void router.replace({ query })
 }
 
 async function refreshWorkspaceDocument() {
@@ -194,6 +237,10 @@ void projectCatalog.load().catch(() => undefined)
       @search="table.updateCustomFilter('search', $event)"
       @quick-filter="applyQuickFilter"
     />
+    <n-flex v-if="dashboardFilterLabel" align="center">
+      <n-tag type="info">{{ dashboardFilterLabel }}</n-tag>
+      <n-button text size="small" @click="clearDashboardFilter">Clear dashboard filter</n-button>
+    </n-flex>
 
     <n-data-table
       :loading="store.isLoading"

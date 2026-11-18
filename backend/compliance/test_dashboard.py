@@ -1,6 +1,7 @@
 """Regression coverage for project-wide and panel-focused dashboard analytics."""
 
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -39,6 +40,72 @@ class DashboardTests(TestCase):
             for index, (status, day) in enumerate(events)
         ])
         return document
+
+    def test_document_list_matches_dashboard_slices_and_scopes(self):
+        ProjectRoleAssignment.objects.create(
+            project=self.project, user=self.user, domain="compliance", role="viewer",
+        )
+        self.client.force_authenticate(self.user)
+        rows = [
+            ("Issued", {"status": "authority_review", "release_date": TODAY, "cat": "A"}),
+            ("Issued unknown", {"status": "", "release_date": TODAY}),
+            ("Delayed", {
+                "status": "authority_review", "target_date": TODAY,
+                "revised_target_date": date(2026, 7, 21), "cat": " A\u00a0",
+            }),
+            ("Expected", {
+                "target_date": date(2026, 7, 21), "revised_target_date": TODAY,
+                "panel": self.other_panel, "cat": "AA",
+            }),
+            ("Unassigned", {"panel": None, "cat": "\t "}),
+            ("Distinct CAT", {"cat": "\ufeffA+", "release_date": TODAY, "status": "constructor"}),
+            ("Archived", {"is_archived": True, "cat": "A"}),
+        ]
+        ComplianceDocument.objects.bulk_create([
+            ComplianceDocument(
+                project=self.project, cover_page=self.cover,
+                **{"name": name, "panel": self.panel, **values},
+            )
+            for name, values in rows
+        ])
+        other_cover = CoverPage.objects.create(project=self.other_project, number="CP-OTHER")
+        ComplianceDocument.objects.create(
+            project=self.other_project, cover_page=other_cover, name="Other project", cat="A",
+        )
+        cases = [
+            ({"dashboard_delivery": "issued:authority_review"}, {"Issued"}),
+            ({"dashboard_delivery": "issued:unknown"}, {"Issued unknown"}),
+            ({"dashboard_delivery": "issued:constructor"}, {"Distinct CAT"}),
+            ({"dashboard_delivery": "delayed"}, {"Delayed"}),
+            ({"dashboard_delivery": "expected"}, {"Expected"}),
+            ({"dashboard_delivery": "missing_target"}, {"Unassigned"}),
+            ({"dashboard_cat": "A"}, {"Issued", "Delayed"}),
+            ({"dashboard_cat": "AA"}, {"Expected"}),
+            ({"dashboard_cat": "\ufeffA+"}, {"Distinct CAT"}),
+            ({"dashboard_cat": ""}, {"Unassigned", "Issued unknown"}),
+            ({"dashboard_cat": "", "dashboard_panel_id": "unassigned"}, {"Unassigned"}),
+            ({"dashboard_cat": "A", "dashboard_panel": "Systems"}, {"Issued", "Delayed"}),
+            ({"dashboard_cat": "AA", "dashboard_panel_id": self.panel.pk}, set()),
+            ({"dashboard_cat": "AA", "dashboard_panel_id": self.other_panel.pk}, {"Expected"}),
+            ({"dashboard_cat": "A", "archived": "all"}, {"Issued", "Delayed"}),
+        ]
+        with patch("compliance.dashboard.timezone.localdate", return_value=TODAY):
+            for query, expected in cases:
+                with self.subTest(query=query):
+                    response = self.client.get(self.url.removesuffix("dashboard/"), query)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual({row["name"] for row in response.data["results"]}, expected)
+                    self.assertEqual(response.data["count"], len(expected))
+
+    def test_document_list_rejects_unknown_dashboard_delivery_bucket(self):
+        ProjectRoleAssignment.objects.create(
+            project=self.project, user=self.user, domain="compliance", role="viewer",
+        )
+        self.client.force_authenticate(self.user)
+        response = self.client.get(
+            self.url.removesuffix("dashboard/"), {"dashboard_delivery": "unsupported"},
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_all_rows_are_counted_without_per_document_queries(self):
         ComplianceDocument.objects.bulk_create([
