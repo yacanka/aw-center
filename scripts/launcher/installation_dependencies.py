@@ -218,6 +218,16 @@ def _stage_current(target, lock, *, verify=True, reinstall_invalid=False):
     return files_match and saved['lock'] == file_sha256(lock)
 
 
+def _developer_stage_current(project, name, target, lock, required):
+    from .developer_readiness import stage_current
+    try:
+        return stage_current(project, name, target, lock, target / _STAGE_RECEIPT, required=(required,))
+    except OperationCancelled:
+        raise
+    except (OSError, ValueError, LauncherError):
+        raise DependencyIntegrityError(target) from None
+
+
 def dependency_checks(project, *, verify=True, fail_invalid=False, developer=False):
     rows = []
     for name, target, lock, label in (
@@ -225,16 +235,8 @@ def dependency_checks(project, *, verify=True, fail_invalid=False, developer=Fal
             ('frontend-packages', project.frontend / 'node_modules', project.frontend / 'package-lock.json', 'Frontend')):
         try:
             if developer:
-                from .developer_readiness import stage_current
-                required = ((project.python,) if name == 'python-packages' else
-                            (target / 'vite' / 'bin' / 'vite.js',))
-                try:
-                    current = stage_current(project, name, target, lock, target / _STAGE_RECEIPT,
-                                            required=required)
-                except OperationCancelled:
-                    raise
-                except (OSError, ValueError, LauncherError):
-                    raise DependencyIntegrityError(target) from None
+                required = project.python if name == 'python-packages' else target / 'vite/bin/vite.js'
+                current = _developer_stage_current(project, name, target, lock, required)
             else:
                 current = _stage_current(target, lock, verify=verify)
             status = 'ready' if current else 'missing'
@@ -770,7 +772,7 @@ def _prepare_package_venv(project, tool_env, settings, expected_python, repair, 
 
 def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None,
                          repair_venv: bool = False, cache_root: Path | None = None,
-                         repair_packages: bool = False) -> None:
+                         repair_packages: bool = False, reuse_current_packages: bool = False) -> None:
     """Install locked packages; only local Manager opts into replacing invalid outputs.
 
     Only a safely inspected receipt/tree mismatch permits reinstalling an invalid
@@ -779,16 +781,23 @@ def install_dependencies(project: Project, settings: SourceSettings, tool_env: d
     """
     frontend = project.frontend / 'node_modules'
     frontend_lock = project.frontend / 'package-lock.json'
-    settings.report('Kurulu Python bağımlılıkları doğrulanıyor')
-    python_current = _stage_current(project.venv, project.requirements,
-                                    reinstall_invalid=repair_packages and expected_python is not None)
-    settings.report('Kurulu frontend bağımlılıkları doğrulanıyor')
-    frontend_current = _stage_current(frontend, frontend_lock, reinstall_invalid=repair_packages)
+    def check_stage(name, label, target, lock, required, *, reinstall_invalid):
+        if reuse_current_packages:
+            settings.report(f'{label} bağımlılıklarının kurulum kaydı denetleniyor')
+            if _developer_stage_current(project, name, target, lock, required):
+                return True
+        settings.report(f'Kurulu {label} bağımlılıkları doğrulanıyor')
+        return _stage_current(target, lock, reinstall_invalid=reinstall_invalid)
+
+    python_current = check_stage('python-packages', 'Python', project.venv, project.requirements,
+                                 project.python, reinstall_invalid=repair_packages and expected_python is not None)
+    frontend_current = check_stage('frontend-packages', 'frontend', frontend, frontend_lock,
+                                   frontend / 'vite/bin/vite.js', reinstall_invalid=repair_packages)
     python_current = _prepare_package_venv(project, tool_env, settings, expected_python, repair_venv, python_current)
     if python_current:
-        settings.report('Python bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')
+        settings.report('Güncel Python kurulumu kullanılıyor')
     if frontend_current:
-        settings.report('Frontend bağımlılıkları doğrulandı; tamamlanmış aşama kullanılıyor')
+        settings.report('Güncel frontend kurulumu kullanılıyor')
     if python_current and frontend_current:
         return
     node = tool_env.get('AWCENTER_MANAGED_NODE') or shutil.which('node', path=tool_env.get('PATH'))

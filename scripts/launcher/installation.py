@@ -82,7 +82,7 @@ def backend_inspection(project: Project, profile: dict) -> dict:
 
 
 def _core_checks(project: Project, profile: dict, *, observed_backend=None, before_lock=False,
-                 fail_invalid=False, managed_build=False, validation_policy='managed') -> list[dict]:
+                 fail_invalid=False, managed_build=False, validation_policy='managed', progress=None) -> list[dict]:
     """Record one Django snapshot after the policy's package readiness checks."""
     developer = require_validation_policy(validation_policy, profile=profile['name']) == 'developer'
     checks = inspect_profile(project, profile)
@@ -96,6 +96,8 @@ def _core_checks(project: Project, profile: dict, *, observed_backend=None, befo
     checks.extend(packages)
     if before_lock or packages[0]['status'] != 'ready':
         return checks
+    if progress is not None:
+        progress('Veritabanı şeması ve yönetici kaydı denetleniyor')
     backend = backend_inspection(project, profile)
     if observed_backend is not None:
         observed_backend.update(backend)
@@ -106,6 +108,8 @@ def _core_checks(project: Project, profile: dict, *, observed_backend=None, befo
                    "detail": "Aktif yönetici mevcut." if backend.get("admin_exists") else "İlk yönetici oluşturulmalı."})
     if profile["name"] == "prod":
         from .production_build import build_is_current
+        if progress is not None and managed_build:
+            progress('Üretim frontend çıktısı doğrulanıyor')
         if backend.get("frontend_build_ready") is False or (managed_build and not build_is_current(project, profile)):
             checks.append({"name": "frontend-build", "status": "missing",
                            "detail": "Üretim arayüzü için doğrulanmış derleme gerekli. AW Center’ı aç ile tamamlanabilir."})
@@ -325,10 +329,13 @@ def _provision(project: Project, args) -> list[dict]:
             runtime_options['node_probe_deadline'] = args.node_probe_deadline
         tool_env = ensure_toolchain(home, settings, **runtime_options)
         phase("kilitli bağımlılıklar")
-        developer = (
-            args.profile == 'dev' and getattr(args, 'manager_ensure', False) and
-            getattr(args, 'validation_policy', 'managed') == 'developer')
-        package_options = {'repair_packages': True} if developer else {}
+        fast_manager = (getattr(args, 'manager_ensure', False) and
+                        getattr(args, 'validation_policy', 'managed') == 'developer')
+        reuse_current_packages = fast_manager and args.profile == 'prod' and existing is not None
+        repair_packages = fast_manager and args.profile == 'dev'
+        package_options = {'repair_packages': True} if repair_packages else {}
+        if reuse_current_packages:
+            package_options['reuse_current_packages'] = True
         install_dependencies(project, settings, tool_env,
                              expected_python=Path(tool_env['AWCENTER_MANAGED_PYTHON']),
                              cache_root=home / 'cache' / 'packages',
@@ -388,7 +395,7 @@ def _provision(project: Project, args) -> list[dict]:
             else:
                 build()
                 deploy()
-        check_options = {'validation_policy': 'developer'} if developer else {}
+        check_options = {'validation_policy': 'developer'} if repair_packages or reuse_current_packages else {}
         checks = _core_checks(project, profile, **check_options) + features
         save_report(home, profile["name"], checks)
         return checks

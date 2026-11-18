@@ -51,6 +51,9 @@ beklenen davranıştır. Hızlı kontrol tam dosya bütünlüğü kanıtı üret
 Üretimde hızlı açılış, kayıtlı sürümün kaynak bütünlüğünü, TLS kimliğini,
 Django dağıtım kontrollerini, güncel şemayı ve frontend çıktısını doğrular.
 İlk üretim hazırlığı kapsamlı kurulum kontrollerini çalıştırır.
+Kayıtlı üretim profili yeniden hazırlık gerektirirse hızlı mod, güncel paket
+kurulumlarını kurulum kayıtlarından tanır ve yalnız eksik veya güncel olmayan
+paket aşamalarını hazırlar.
 
 **Tam doğrula**, geliştirici modu seçiliyken de mevcut kapsamlı runtime ve
 bağımlılık denetimlerini çalıştırır; ayrı kaynak bağlantısı sınaması veya tam

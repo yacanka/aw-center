@@ -138,12 +138,12 @@ def needs_preparation(project, args, *, before_lock=False, observed_runtime=None
         observed_runtime.update(home=home, checks=[dict(row) for row in checks], verify=not developer,
                                 **runtime_options, **runtime_paths)
     if not before_lock:
-        args.progress('Geliştirici modu — bağımlılık kayıtları ve güncel şema denetleniyor' if developer else
+        args.progress('Geliştirici modu — bağımlılık kayıtları denetleniyor' if developer else
                       'Kurulu Python ve frontend bağımlılıklarının dosyaları doğrulanıyor')
     state = {}
     options = {'validation_policy': 'developer'} if developer else {}
     checks.extend(_core_checks(project, profile, before_lock=before_lock, observed_backend=state,
-                               fail_invalid=True, managed_build=True, **options))
+                               fail_invalid=True, managed_build=True, progress=args.progress, **options))
     if state.get('schema') in {'ready', 'pending'} and state.get('auto_migrate_safe') is False:
         raise LauncherError('Veritabanı migration geçmişi otomatik hazırlık için doğrulanamadı.')
     return any(row['status'] not in {'ready', 'available'} for row in checks)
