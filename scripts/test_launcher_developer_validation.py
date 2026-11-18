@@ -244,11 +244,32 @@ class DeveloperStartupTests(unittest.TestCase):
             self.assertTrue(callable(dev.call_args.kwargs['ready']))
             self.assertFalse(dev.call_args.kwargs['migrate'])
 
-    def test_unknown_and_production_developer_policy_rejected_before_runtime(self):
+    def test_production_fast_start_reaches_production_with_tls_and_readiness(self):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            project = create_project(Path(temporary))
+            certificate, key = project.root / 'cert.pem', project.root / 'key.pem'
+            profile = {'name': 'prod', 'installation_home': temporary, 'env_file': temporary + '/prod.env',
+                       'host': '192.0.2.10', 'backend_port': 8443,
+                       'tls_cert_file': str(certificate), 'tls_key_file': str(key)}
+            stack.enter_context(patch.object(installation, 'require_windows'))
+            stack.enter_context(patch.object(installation, 'load_profile', return_value=profile))
+            stack.enter_context(patch.object(installation, 'profile_environment', return_value={}))
+            tools = stack.enter_context(patch.object(toolchain, 'toolchain_environment', return_value={}))
+            stack.enter_context(patch.object(features, 'feature_environment', return_value={}))
+            session = stack.enter_context(patch.object(installation, 'runtime_session'))
+            session.return_value.__enter__.return_value = project.root
+            prod = stack.enter_context(patch.object(installation.runtime, 'prod'))
+            installation._start_profile(project, 'prod', validation_policy='developer')
+            self.assertFalse(tools.call_args.kwargs['verify'])
+            self.assertEqual(prod.call_args.kwargs['certificate_file'], certificate)
+            self.assertEqual(prod.call_args.kwargs['private_key_file'], key)
+            self.assertTrue(callable(prod.call_args.kwargs['ready']))
+
+    def test_unknown_policy_rejected_before_runtime(self):
         with patch.object(installation, 'require_windows'), \
              patch.object(installation, 'load_profile') as load:
             for function in (installation.start_profile, installation._start_profile):
-                for name, policy in (('prod', 'developer'), ('dev', 'unknown')):
+                for name, policy in (('prod', 'unknown'), ('dev', 'unknown')):
                     with self.subTest(function=function.__name__, name=name, policy=policy), self.assertRaises(LauncherError):
                         function(SimpleNamespace(), name, validation_policy=policy)
             load.assert_not_called()

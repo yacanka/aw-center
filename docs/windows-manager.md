@@ -31,13 +31,13 @@ Tarayıcı web ve worker hazır olduğunda otomatik açılır. İlk kurulumda y�
 bilgileri, production için eksik IPv4/TLS dosyaları ve güvenle otomatik
 düzeltilemeyen gerçek hatalar kullanıcı girdisi gerektirmeye devam eder.
 
-## Kaynak kod geliştirirken hızlı açılış
+## Hızlı açılış
 
 Ana ekranda **Geliştirici modu — hızlı kontrol** seçimini açın. Kaynak
 dizini seçmeniz gerekmez; checkbox'ın yanında kullanılacak kaynak yolu gösterilir.
 Otomatik seçim kayıtlı profilin kaynağını, profil yoksa Manager'ın algıladığı
 kaynağı kullanır. İsterseniz farklı bir kaynak dizini seçebilirsiniz. Bu seçenek
-yalnız `dev` profili için geçerlidir. Ana **AW Center’ı aç**, durdurma ve tarayıcıda açma
+`dev` ve `prod` profillerinde kullanılabilir. Ana **AW Center’ı aç**, durdurma ve tarayıcıda açma
 eylemleri aynı kalır. Etkin çalışma biçimi ana durum bilgisinde görünür;
 çalışan ortamın seçimini değiştirmek mevcut durdur/uygula/aç akışını kullanır.
 
@@ -48,18 +48,22 @@ isteğe bağlı araçların bütün dosyaları her açılışta tekrar taranmaz.
 ve aynı lock altında yerel bağımlılık değişiklikleri geliştirme sırasında
 beklenen davranıştır. Hızlı kontrol tam dosya bütünlüğü kanıtı üretmez.
 
+Üretimde hızlı açılış, kayıtlı sürümün kaynak bütünlüğünü, TLS kimliğini,
+Django dağıtım kontrollerini, güncel şemayı ve frontend çıktısını doğrular.
+İlk üretim hazırlığı kapsamlı kurulum kontrollerini çalıştırır.
+
 **Tam doğrula**, geliştirici modu seçiliyken de mevcut kapsamlı runtime ve
 bağımlılık denetimlerini çalıştırır; ayrı kaynak bağlantısı sınaması veya tam
 test paketi çalıştırmaz. İlk kurulum ve bağımlılık güncellemesi mevcut edinim
 ve bütünlük kontrollerini korur. Manager kurulum kaydı olmayan elle hazırlanmış
 bir ortam ilk kullanımda bir defalık hazırlık isteyebilir. Lock değiştiğinde
-ilgili bağımlılık aşaması güncellenir. Geliştirici modunda hazırlığın sonunda aynı
+ilgili bağımlılık aşaması güncellenir. `dev` profilinde hızlı modla hazırlığın sonunda aynı
 bağımlılık ağaçları rapor üretmek için tekrar taranmaz; tamamlanan kurulumun
 güncellik kayıtları ve güncel veritabanı durumu kullanılır.
 
 Tercih aynı kaynak için hatırlanır; kaynak, profil veya paket bağlamı değişince
-sıfırlanır. Yeni ve eski ayarların varsayılanı yönetilen kullanımdır. Production
-geliştirici modunu kabul etmez. Yönetilen kullanıma dönmek kapsamlı dosya
+sıfırlanır. Yeni ve eski ayarların varsayılanı yönetilen kullanımdır.
+Geliştirici modu seçimini kapatmak kapsamlı dosya
 kontrollerini yeniden çalıştırır; mevcut hesaplar, anahtarlar ve veritabanı
 değişmez.
 

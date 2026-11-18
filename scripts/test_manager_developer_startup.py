@@ -42,7 +42,7 @@ class DeveloperStartupTests(unittest.TestCase):
         return events
 
     def test_worker_rejects_invalid_policy_before_storage_or_dispatch(self):
-        for values in ({'validation_policy': 'fast'}, {'profile': 'prod'},
+        for values in ({'validation_policy': 'fast'}, {'profile': 'unknown'},
                        {'source_selection': 'invalid'}, {'source_root': 'bad\npath'}, {'source_root': None},
                        {'validation_policy': None}):
             with self.subTest(values=values), patch.object(operations, '_dispatch') as dispatch:

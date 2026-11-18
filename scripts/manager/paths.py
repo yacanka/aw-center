@@ -71,8 +71,7 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
             values['validation_policy'] = 'managed'
         values['source_root'] = str(explicit_root)
         values['source_selection'] = 'explicit'
-    if (values.get('validation_policy', 'managed') not in ('managed', 'developer') or
-            (values.get('validation_policy') == 'developer' and values.get('profile', 'dev') != 'dev')):
+    if values.get('validation_policy', 'managed') not in ('managed', 'developer'):
         values['validation_policy'] = 'managed'
     return values
 

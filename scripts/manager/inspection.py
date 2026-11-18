@@ -24,8 +24,8 @@ def _metadata_inspection(args, home, path, emit):
         status = 'incomplete' if pending.exists() else 'blocked' if env.exists() else 'not_installed'
         tools = ''
     else:
-        from .operations import _project_for
-        profile = load_profile(_project_for('inspect', args), args.profile, home)
+        from .operations import _project_from_layout
+        profile = load_profile(_project_from_layout(Path(args.source_root)), args.profile, home)
         status = 'incomplete' if pending.exists() else 'stopped'
         tools = ' · '.join(f"{label}: {'sistem kurulumu' if profile.get(field) else 'yönetilen kurulum'}"
                           for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))

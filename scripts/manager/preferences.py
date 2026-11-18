@@ -126,8 +126,6 @@ def _safe_values(values: dict) -> dict:
         if key == 'validation_policy' and value not in {'managed', 'developer'}:
             continue
         result[key] = value
-    if result.get('validation_policy') == 'developer' and result.get('profile', 'dev') != 'dev':
-        result['validation_policy'] = 'managed'
     return result
 
 

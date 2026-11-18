@@ -268,7 +268,7 @@ def _project_for(action, args, *, before_lock=False):
     from scripts.launcher.validation_policy import require_validation_policy
     policy = require_validation_policy(getattr(args, 'validation_policy', 'managed'),
                                        profile=args.profile, source_selection=args.source_selection)
-    editable = policy == 'developer' and action != 'bundle'
+    editable = policy == 'developer' and args.profile == 'dev' and action != 'bundle'
     args.progress('Geliştirici kaynağının yerleşimi denetleniyor' if editable else
                   'Proje kaynağı ve paket bütünlüğü doğrulanıyor')
     require_windows()
@@ -282,7 +282,7 @@ def _project_for(action, args, *, before_lock=False):
         resolve_source(preliminary)
         source = Path(preliminary.source_root)
     if before_lock or editable:
-        return _editable_project(source)
+        return _project_from_layout(source)
     if args.profile == 'prod' and action != 'bundle':
         from .payload import resolve_production_source, stage_production_source
         args.progress('Production kaynakları doğrulanıyor')
@@ -300,7 +300,7 @@ def _local_source_state(source, args, action):
     from scripts.launcher.installation_profiles import installation_home, load_profile
     from scripts.launcher.installation_permissions import require_unlinked
     from scripts.launcher.installation_local_config import resolve_local_configuration
-    project = _editable_project(source)
+    project = _project_from_layout(source)
     path = installation_home() / 'config' / 'dev.profile.json'
     require_unlinked(path)
     pending = path.with_name('dev.pending.json')
@@ -333,8 +333,8 @@ def _pending_source_profile(project, home, pending):
     return candidate
 
 
-def _editable_project(source):
-    """Admit the conventional editable layout without a recursive source walk."""
+def _project_from_layout(source):
+    """Read the conventional project layout without a recursive source walk."""
     from scripts.launcher.discovery import manifest_uses_vue
     from scripts.launcher.installation_permissions import require_unlinked
     from scripts.launcher.model import Project
@@ -345,7 +345,7 @@ def _editable_project(source):
     for path in (manage, package, requirements):
         require_unlinked(path)
         if not path.is_file():
-            raise LauncherError('Geliştirici kaynak yerleşimi backend/manage.py, frontend/package.json ve requirements.txt gerektirir.')
+            raise LauncherError('Proje yerleşimi backend/manage.py, frontend/package.json ve requirements.txt gerektirir.')
     if package.stat().st_size > 1024 * 1024 or not manifest_uses_vue(package):
         raise LauncherError('Vue package.json doğrulanamadı.')
     return Project(source, manage, package, requirements)

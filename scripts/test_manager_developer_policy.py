@@ -1,4 +1,4 @@
-"""Developer validation is an explicit dev policy choice, never an implicit default."""
+"""Developer validation is an explicit policy choice, never an implicit default."""
 import importlib
 import unittest
 from pathlib import Path
@@ -26,22 +26,24 @@ class ValidationPolicyTests(unittest.TestCase):
             self.assertEqual(caught.exception.field, 'validation_policy')
             self.assertNotIn('secret', str(caught.exception))
 
-    def test_developer_accepts_automatic_source_but_requires_dev(self):
+    def test_developer_accepts_both_profiles_and_source_selections(self):
         self.assertEqual(self.policy('developer'), 'developer')
         self.assertEqual(self.policy('developer', source_selection='explicit'), 'developer')
         self.assertEqual(self.policy('developer', source_selection='automatic'), 'developer')
-        with self.assertRaises(LauncherError):
-            self.policy('developer', profile='prod', source_selection='explicit')
+        for selection in ('automatic', 'explicit'):
+            with self.subTest(selection=selection):
+                self.assertEqual(self.policy('developer', profile='prod', source_selection=selection), 'developer')
 
-    def test_form_accepts_automatic_developer_source_and_rejects_prod(self):
+    def test_form_accepts_developer_mode_in_production(self):
         values = normalize_values('start', {'validation_policy': 'developer'})
         self.assertEqual(values['source_selection'], 'automatic')
         self.assertEqual(values['source_root'], '')
         self.assertEqual(values['validation_policy'], 'developer')
         for selection in ('automatic', 'explicit'):
-            with self.subTest(selection=selection), self.assertRaises(FormError):
-                normalize_values('start', {'validation_policy': 'developer', 'profile': 'prod',
-                                           'source_selection': selection})
+            with self.subTest(selection=selection):
+                values = normalize_values('start', {'validation_policy': 'developer', 'profile': 'prod',
+                                                     'source_selection': selection})
+                self.assertEqual(values['validation_policy'], 'developer')
         for selection in ('', 'invalid'):
             with self.subTest(selection=selection), self.assertRaises(FormError):
                 normalize_values('start', {'validation_policy': 'developer', 'source_selection': selection})
@@ -63,10 +65,9 @@ class ValidationPolicyTests(unittest.TestCase):
                 self.assertEqual(restored['validation_policy'], 'managed')
 
     def test_startup_retains_developer_with_automatic_source(self):
-        for source in ('', '/detected'):
-            with self.subTest(source=source):
-                saved = {'profile': 'dev', 'source_root': source, 'source_selection': 'automatic',
-                         'validation_policy': 'developer'}
+        for profile in ('dev', 'prod'):
+            with self.subTest(profile=profile):
+                saved = {'profile': profile, 'source_selection': 'automatic', 'validation_policy': 'developer'}
                 self.assertEqual(paths.startup_values(saved, None)['validation_policy'], 'developer')
 
     def test_startup_source_override_resets_developer_but_same_source_retains_it(self):

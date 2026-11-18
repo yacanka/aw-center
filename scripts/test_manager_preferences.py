@@ -19,17 +19,18 @@ class PreferencesTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.home = Path(self.temporary.name).resolve() / 'AWCenterManager'
 
-    def test_developer_selection_round_trips_for_automatic_and_explicit_dev_source(self):
+    def test_developer_selection_round_trips_for_both_profiles(self):
         base = {'profile': 'dev', 'source_root': '/editable', 'source_selection': 'explicit',
                 'validation_policy': 'developer'}
-        for changes in ({}, {'source_selection': 'automatic'}, {'source_selection': 'automatic', 'source_root': ''}):
+        for changes in ({}, {'source_selection': 'automatic'}, {'profile': 'prod'},
+                        {'profile': 'prod', 'source_selection': 'automatic', 'source_root': ''}):
             with self.subTest(changes=changes):
                 self.preferences.save_preferences(self.home, {**base, **changes})
                 self.assertEqual(self.preferences.load_preferences(self.home)['validation_policy'], 'developer')
-        for changes in ({'profile': 'prod'}, {'validation_policy': 'unknown'}):
-            with self.subTest(changes=changes):
-                self.preferences.save_preferences(self.home, {**base, **changes})
-                self.assertEqual(self.preferences.load_preferences(self.home).get('validation_policy', 'managed'), 'managed')
+
+    def test_unknown_policy_is_discarded(self):
+        self.preferences.save_preferences(self.home, {'profile': 'prod', 'validation_policy': 'unknown'})
+        self.assertNotIn('validation_policy', self.preferences.load_preferences(self.home))
 
     def test_restart_restores_inputs_without_credentials_or_migration_consent(self):
         values = {'profile': 'prod', 'source_mode': 'corporate', 'source_root': 'C:/AW/source',

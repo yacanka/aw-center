@@ -872,7 +872,6 @@ class ManagerWindow:
         profile = self.variables["profile"].get()
         self.tls_frame.grid() if profile == 'prod' else self.tls_frame.grid_remove()
         self.production_help.grid() if profile == 'prod' else self.production_help.grid_remove()
-        self.validation_selector.configure(state='normal' if profile == 'dev' else 'disabled')
         mode = self.variables["source_mode"].get()
         disabled = {"frontend_port"} if profile == "prod" else {"tls_cert_file", "tls_key_file"}
         if self.variables['install_python'].get():

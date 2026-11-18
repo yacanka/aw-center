@@ -8,7 +8,7 @@ from unittest.mock import patch
 from scripts.launcher import installation_profiles as profiles, resource_locks
 from scripts.launcher.discovery import discover_project
 from scripts.launcher.model import LauncherError
-from scripts.manager import ensure, operations, payload
+from scripts.manager import ensure, inspection, operations, payload
 from scripts.test_launcher_bundle import project_at
 
 
@@ -79,6 +79,20 @@ class PreliminarySourceTests(unittest.TestCase):
                 operations._dispatch('start', args, lambda _: None)
         self.assertEqual(held_during_scan, [True])
         self.assertEqual(changed.read_text(), '# modified after preliminary plan\n')
+
+    def test_production_fast_inspection_and_start_preserve_release_validation_boundary(self):
+        args = self.args(validation_policy='developer')
+        events = []
+        with patch.object(inspection, 'require_windows'), \
+             patch.object(payload, '_source_inventory', side_effect=AssertionError('source inventory')):
+            inspection.inspect_profile(args, events.append)
+        self.assertEqual(events[-1]['status'], 'stopped')
+        self.assertEqual(events[-1]['validation_policy'], 'developer')
+        self.assertEqual(operations._project_for('start', args).root, self.release)
+        (self.release / 'launcher.py').write_text('# changed release')
+        for action in ('start', 'provision', 'doctor'):
+            with self.subTest(action=action), self.assertRaisesRegex(LauncherError, 'checksum'):
+                operations._project_for(action, args)
 
     def test_packaged_local_preliminary_layout_is_reverified_before_use(self):
         project = discover_project(self.media)

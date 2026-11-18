@@ -76,12 +76,13 @@ frontend ile session-cookie kullanan API'nin hostlarını hizalar.
 
 Manager'daki **Geliştirici modu — hızlı kontrol**, `dev`/`prod` profilinden ayrı,
 checkbox ile açılan bir doğrulama tercihidir; kaynak dizinini elle seçmek gerekmez.
-Kullanılacak kaynak yolu Manager'da gösterilir. Yalnız dev
+Kullanılacak kaynak yolu Manager'da gösterilir. Her iki profilin günlük
 başlatmasında tam kurulu dosya envanterleri yerine sınırlı araç/lock kontrolü
 kullanır. Profil/state ayrılığı, süreç kilitleri, `migrate --check` ve gerçek
-HTTP/worker hazırlığı korunur. İlk hazırlık, indirme/kurulum, **Tam doğrula**
-(`doctor`) ve production kapsamlı kontrollerini sürdürür. Bu tercih genel bir
-CLI kontrol-atlama bayrağı değildir. Ayrıntılar [Windows Manager](windows-manager.md)
+HTTP/worker hazırlığı korunur. Üretim sürümünün kaynak, TLS, deployment ve
+frontend çıktı kontrolleri sürer. İlk üretim hazırlığı, indirme/kurulum ve
+**Tam doğrula** (`doctor`) kapsamlı kontrollerini sürdürür. Tercih Manager
+üzerinden uygulanır. Ayrıntılar [Windows Manager](windows-manager.md)
 rehberindedir.
 
 `npm --prefix frontend run predev` Mermaid renderer için geliştirme önbelleğini

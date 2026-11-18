@@ -593,7 +593,11 @@ class NativeWindowSmokeTests(unittest.TestCase):
         window.validation_selector.invoke()
         window.variables['profile'].set('prod')
         self.assertEqual(window.form_values()['validation_policy'], 'managed')
-        self.assertEqual(str(window.validation_selector['state']), 'disabled')
+        self.assertEqual(str(window.validation_selector['state']), 'normal')
+        window.validation_selector.invoke()
+        self.assertEqual(window.form_values()['validation_policy'], 'developer')
+        window.validation_selector.invoke()
+        self.assertEqual(window.form_values()['validation_policy'], 'managed')
 
     def test_simple_mockup_uses_horizontal_basic_fields_and_custom_tabs(self):
         window = self.window
