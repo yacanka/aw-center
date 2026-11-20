@@ -53,6 +53,9 @@ class InitialAdminServiceTests(TestCase):
         from django.core.exceptions import ValidationError
         with self.assertRaises(ValidationError):
             create_initial_admin('admin', 'service-fixture!921')
+        with self.assertRaises(ValidationError) as rejected:
+            create_initial_admin('U12345', 'password')
+        self.assertIn('password_too_common', [error.code for error in rejected.exception.error_list])
         with self.assertRaises(ValidationError):
             create_initial_admin('U12345', '123')
         self.assertFalse(get_user_model().objects.exists())
@@ -66,8 +69,9 @@ class InitialAdminServiceTests(TestCase):
         from django.core.exceptions import ValidationError
         user = get_user_model().objects.create_user(username='U12345', password='preserved-fixture!621')
         before = user.password
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError) as rejected:
             create_initial_admin('U12345', 'service-fixture!921')
+        self.assertEqual(rejected.exception.code, 'username_taken')
         user.refresh_from_db()
         self.assertFalse(user.is_superuser)
         self.assertEqual(user.password, before)

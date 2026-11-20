@@ -108,11 +108,21 @@ def inspect_backend(*, startup_only=False) -> dict:
     return result
 
 
+ADMIN_INPUT_ERRORS = {
+    'invalid_username_format': ('username', 'Kullanıcı adı için bir harf ve ardından beş rakam girin.'),
+    'username_taken': ('username', 'Bu kullanıcı adı kullanılıyor. Başka bir kullanıcı adı girin.'),
+    'password_too_similar': ('password', 'Parola kullanıcı adınıza çok benziyor. Farklı bir parola seçin.'),
+    'password_too_short': ('password', 'En az 8 karakter içeren bir parola girin.'),
+    'password_too_common': ('password', 'Bu parola çok yaygın. Tahmin edilmesi daha zor bir parola seçin.'),
+    'password_entirely_numeric': ('password', 'Parola yalnız rakamlardan oluşamaz. Bir harf de ekleyin.'),
+}
+
+
 def provision_admin_json(stream) -> dict:
     """Consume a bounded private stdin message; return only a declared status.
 
     This transport never places credentials in argv, environment, output or a
-    temporary file. Validation details are deliberately withheld from the IPC.
+    temporary file. Only fixed validation codes can cross the IPC boundary.
     """
     try:
         payload = stream.read(16 * 1024 + 1)
@@ -123,11 +133,20 @@ def provision_admin_json(stream) -> dict:
                 or any(not isinstance(value, str) or not value for value in content.values())
                 or len(content['username']) > 150 or len(content['password']) > 4096):
             raise ValueError
+    except (TypeError, ValueError):
+        return {'status': 'error', 'code': 'invalid_admin_input'}
+    from django.core.exceptions import ValidationError
+    try:
         from users.initial_admin import create_initial_admin
         created = create_initial_admin(content['username'], content['password'])
         return {'status': 'created' if created else 'exists'}
+    except ValidationError as error:
+        for item in getattr(error, 'error_list', ()):
+            if getattr(item, 'code', None) in ADMIN_INPUT_ERRORS:
+                return {'status': 'error', 'code': item.code}
+        return {'status': 'error', 'code': 'backend_unavailable'}
     except Exception:
-        return {'status': 'error', 'code': 'invalid_admin_input'}
+        return {'status': 'error', 'code': 'backend_unavailable'}
 
 
 def main(argv=None) -> int:

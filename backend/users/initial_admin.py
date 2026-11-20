@@ -20,7 +20,8 @@ def validate_initial_admin_username(username: str) -> None:
     """Reject invalid identities and existing accounts before requesting a password."""
     validate_username_format(username)
     if get_user_model().objects.filter(username__iexact=username).exists():
-        raise ValidationError('That account already exists; it will not be changed or promoted.')
+        raise ValidationError('That account already exists; it will not be changed or promoted.',
+                              code='username_taken')
 
 
 def create_initial_admin(username: str, password: str) -> bool:
@@ -42,5 +43,9 @@ def create_initial_admin(username: str, password: str) -> bool:
             user.set_password(password)
             user.save(force_insert=True)
     except IntegrityError:
-        raise ValidationError('The account already exists; no account was changed.') from None
+        if not get_user_model().objects.filter(username__iexact=username).exists():
+            raise ValidationError('The administrator account could not be created.',
+                                  code='administrator_unavailable') from None
+        raise ValidationError('The account already exists; no account was changed.',
+                              code='username_taken') from None
     return True
