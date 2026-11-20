@@ -682,7 +682,6 @@ class ManagerWindow:
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(2, weight=1)
         self._build_tasks(parent)
-        self._label(parent, "Seçili işlemin güvenli durum raporu.").grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.report_text = tk.Text(parent, wrap="word", width=60, height=12, state="disabled", font=self._body_font, takefocus=True, borderwidth=0, padx=12, pady=12)
         scrollbar = ttk.Scrollbar(parent, command=self.report_text.yview)
         self.report_text.configure(yscrollcommand=scrollbar.set)
