@@ -57,6 +57,25 @@ class GlobalInputTests(unittest.TestCase):
                 self.assertEqual(restored['python_command'], 'C:/first/python.exe')
                 self.assertEqual(restored['env_file'], 'C:/first/app.env')
 
+    def test_returning_media_restores_its_env_paths_and_current_profile_connection(self):
+        first = {**self.startup(self.media[0], {}), 'profile': 'dev', 'host': 'localhost',
+                 'backend_port': 'auto', 'env_file': 'C:/first/dev.env',
+                 'prod_env_file': 'C:/first/prod.env'}
+        moved = self.startup(self.media[1], first)
+        self.assertFalse(moved.get('prod_env_file'))
+        self.assertFalse(moved.get('dev_env_file'))
+        moved.update(profile='prod', host='192.0.2.20', backend_port='8443',
+                     env_file='C:/second/prod.env')
+
+        restored = self.startup(self.media[0], moved)
+        self.assertEqual(restored['profile'], 'dev')
+        self.assertEqual(restored['host'], 'localhost')
+        self.assertEqual(restored['backend_port'], 'auto')
+        self.assertEqual(restored['prod_host'], '192.0.2.20')
+        self.assertEqual(restored['prod_backend_port'], '8443')
+        self.assertEqual(restored['env_file'], 'C:/first/dev.env')
+        self.assertEqual(restored['prod_env_file'], 'C:/first/prod.env')
+
     def test_env_switch_and_restart_preserve_raw_and_cleared_inputs(self):
         home = self.root / 'preferences'
         saved = self.startup(self.media[0], {})

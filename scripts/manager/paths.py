@@ -10,7 +10,11 @@ import hashlib
 from scripts.launcher.model import LauncherError
 
 
-_GLOBAL_CONNECTION_FIELDS = frozenset({'host', 'backend_port', 'frontend_port'})
+_PROFILE_CONNECTION_FIELDS = ('host', 'backend_port')
+_GLOBAL_CONNECTION_FIELDS = {
+    'host', 'backend_port', 'frontend_port',
+    'dev_host', 'dev_backend_port', 'prod_host', 'prod_backend_port',
+}
 
 
 def new_bundle_output(parent: Path | None = None) -> Path:
@@ -25,6 +29,12 @@ def new_bundle_output(parent: Path | None = None) -> Path:
 def startup_values(saved: dict, explicit_root: Path | None) -> dict:
     """Read only bounded media metadata here; the worker verifies every byte."""
     values = dict(saved)
+    # Older versions stored one active form. Attribute its inputs to the last
+    # selected profile before a different package restores its own selection.
+    last_profile = saved.get('profile', 'dev')
+    for field in _PROFILE_CONNECTION_FIELDS:
+        if field in saved:
+            values[f'{last_profile}_{field}'] = saved[field]
     values.setdefault('source_selection', 'explicit' if saved.get('source_root') else 'automatic')
     if getattr(sys, 'frozen', False):
         directory = Path(sys.executable).resolve().parent
@@ -42,8 +52,10 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
                     if previous and previous != context:
                         history[previous] = {key: value for key, value in saved.items() if not key.startswith('_')}
                     if previous != context:
+                        for field in ('dev_env_file', 'prod_env_file'):
+                            values.pop(field, None)
                         if context in history:
-                            # Connection inputs are global, including an explicit clear.
+                            # Connection inputs follow the profile across media, including an explicit clear.
                             values.update({key: value for key, value in history[context].items()
                                            if key not in _GLOBAL_CONNECTION_FIELDS})
                         else:
@@ -75,6 +87,10 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
         values['source_selection'] = 'explicit'
     if values.get('validation_policy', 'developer') not in ('managed', 'developer'):
         values['validation_policy'] = 'developer'
+    selected_profile = values.get('profile', 'dev')
+    for field in _PROFILE_CONNECTION_FIELDS:
+        if field in values:
+            values[field] = values.get(f'{selected_profile}_{field}', '')
     return values
 
 

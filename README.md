@@ -22,8 +22,10 @@ AW Center, kullanıcı erişimini ve doküman işlemlerini uygulama sunucusunda 
 ## Kurulum ve çalıştırma
 
 Windows masaüstü yöneticisi için taşınabilir ZIP'in tamamını çıkarıp
-`AWCenterManager.exe` dosyasını açın. Arayüz dev/prod kurulumu, başlatma/durdurma,
-kurumsal ve offline kaynaklar ile durum raporlarını yönetir. İlk pencere için
+`AWCenterManager.exe` dosyasını açın. Yerel kullanımda **Geliştirme → AW Center’ı aç**
+yeterlidir. Yeni **Üretim** profili için sabit IPv4 adresini, TLS sertifikasını
+ve özel anahtarı seçin. Port, `.env` ve isteğe bağlı açılış denetimlerini
+**Gelişmiş ayarları göster** altında yönetebilirsiniz. İlk pencere için
 kurulu Python, Node veya Git gerekmez. ZIP, Windows build workflow'u tarafından
 üretilir; kaynak `.pyw` dosyası taşınabilir EXE'nin yerine geçmez.
 [Masaüstü yöneticisi rehberi](docs/windows-manager.md) paketleme ve kullanımı açıklar.

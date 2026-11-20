@@ -294,6 +294,7 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.window._advanced_fields = self.window.__class__._advanced_fields
         self.window.advanced_var = tk.BooleanVar(interpreter, value=False)
         self.window.advanced_frame = Mock()
+        self.window._optional_rows = (self.window.advanced_frame,)
         self.window.run_settings = Mock()
         self.window.advanced_button = Mock()
         self.window.summary_title_var = tk.StringVar(interpreter)
@@ -301,6 +302,9 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.window.task_count_var = tk.StringVar(interpreter)
         self.window._default_source_root = 'C:/detected'
         self.window._detected_sources = {}
+        self.window._editing_profile = 'dev'
+        self.window._profile_overrides = {profile: dict.fromkeys(view_model.PROFILE_OVERRIDE_FIELDS, '')
+                                          for profile in ('dev', 'prod')}
         self.window.source_path_var = tk.StringVar(interpreter)
         self.window.task_states.update_tasks([
             {"id": "dev", "action": "start", "profile": "dev", "status": "ready", "values": {"source_root": "C:/dev"}},
@@ -614,6 +618,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
 
     def test_simple_mockup_uses_horizontal_basic_fields_and_custom_tabs(self):
         window = self.window
+        window.advanced_button.invoke()
         host_group = window._fields['host'].master
         port_group = window._fields['backend_port'].master
         self.assertIs(host_group.master, port_group.master)
@@ -666,21 +671,55 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.root.update()
         self.assertEqual(window.selected_task_id(), 'old')
 
-    def test_main_screen_hides_technical_source_and_shows_validation_choice(self):
+    def test_main_screen_switches_profiles_and_only_requests_new_production_inputs(self):
+        from tkinter import ttk
+
         window = self.window
         self.root.geometry('700x560')
         self.root.deiconify()
         self.root.update()
+        profiles = {button.cget('value'): button for button in window._controls
+                    if isinstance(button, ttk.Radiobutton) and button.cget('value') in {'dev', 'prod'}}
+
+        def visible_inputs():
+            self.root.update()
+            return {key for key, widget in window._fields.items()
+                    if isinstance(widget, ttk.Entry) and widget.winfo_viewable()}
+
+        for profile in ('dev', 'prod'):
+            self.assertTrue(profiles[profile].winfo_viewable())
+        self.assertEqual(visible_inputs(), set())
+        self.assertFalse(window.validation_selector.winfo_viewable())
+        self.assertTrue(window.action_buttons['start'].winfo_viewable())
+
+        profiles['prod'].invoke()
+        window.handle_event({'type': 'profile', 'profile': 'prod', 'status': 'not_installed'})
+        self.assertEqual(visible_inputs(), {'host', 'tls_cert_file', 'tls_key_file'})
         self.assertFalse(window.advanced_var.get())
-        self.assertFalse(window.source_path_label.winfo_viewable())
-        for control in (window.validation_selector, window.action_buttons['start']):
-            self.assertTrue(control.winfo_viewable())
-            self.assertLessEqual(control.winfo_rooty() + control.winfo_height(),
-                                 window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height())
+        window.variables['host'].set('192.0.2.20')
+        window.variables['tls_cert_file'].set('C:/private/server.crt')
+        window.variables['tls_key_file'].set('C:/private/server.key')
+        window.action_buttons['start'].invoke()
+        self.assertEqual(self.actions[-1][1]['profile'], 'prod')
+        self.assertEqual(self.actions[-1][1]['host'], '192.0.2.20')
+        self.assertEqual(self.actions[-1][1]['tls_key_file'], 'C:/private/server.key')
+
+        window.handle_event({'type': 'profile', 'profile': 'prod', 'status': 'stopped'})
+        self.assertEqual(visible_inputs(), set())
+        window.advanced_button.invoke()
+        self.assertIn('tls_cert_file', visible_inputs())
+        self.assertNotIn('frontend_port', visible_inputs())
+        self.assertTrue(window.validation_selector.winfo_viewable())
         window.validation_selector.invoke()
         window.action_buttons['start'].invoke()
-        self.assertEqual(self.actions[-1][0], 'ensure')
         self.assertEqual(self.actions[-1][1]['validation_policy'], 'managed')
+        window.advanced_button.invoke()
+        profiles['dev'].invoke()
+        self.assertEqual(visible_inputs(), set())
+        window.action_buttons['start'].invoke()
+        self.assertEqual(self.actions[-1][1]['profile'], 'dev')
+        self.assertEqual(self.actions[-1][1]['tls_key_file'], '')
+        self.assertEqual(window.form_values()['tls_key_file'], 'C:/private/server.key')
 
     def test_main_progress_follows_profile_when_another_report_is_selected(self):
         window = self.window

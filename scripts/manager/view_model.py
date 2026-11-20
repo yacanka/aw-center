@@ -23,6 +23,7 @@ DEFAULT_VALUES = {
     "source_selection": "automatic",
     "validation_policy": "developer",
 }
+PROFILE_OVERRIDE_FIELDS = ('host', 'backend_port', 'env_file')
 SOURCE_ACTIONS = {"provision", "ensure", "test-sources", "bundle"}
 CHECK_LABELS = {
     "ready": "HAZIR", "available": "HAZIR", "missing": "EKSİK",

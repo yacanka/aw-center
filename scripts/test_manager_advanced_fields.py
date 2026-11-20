@@ -90,6 +90,35 @@ class AdvancedFieldVisibilityTests(unittest.TestCase):
         self.assertEqual(window.form_values()["python_command"], "C:/Python 311/python.exe")
         self.assertEqual(window.form_values()["node_command"], "C:/Node 24/node.exe")
 
+    def test_profiles_keep_their_own_host_port_and_environment_across_restart(self):
+        import tempfile
+        from pathlib import Path
+        from tkinter import Toplevel
+        from scripts.manager.preferences import load_preferences, save_preferences
+        from scripts.manager.view import ManagerWindow
+
+        window = self.window
+        dev = {'host': 'localhost', 'backend_port': 'auto', 'env_file': 'C:/config/dev.env'}
+        prod = {'host': '192.0.2.20', 'backend_port': '8443', 'env_file': 'C:/config/prod.env'}
+        for key, value in dev.items():
+            window.variables[key].set(value)
+        window.variables['profile'].set('prod')
+        window.action_buttons['start'].invoke()
+        self.assertTrue(self.actions, 'A Dev override blocked opening Prod')
+        self.assertEqual({key: self.actions[-1][1][key] for key in prod}, dict.fromkeys(prod, ''))
+        for key, value in prod.items():
+            window.variables[key].set(value)
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory).resolve() / 'preferences'
+            save_preferences(home, window.form_values(include_profiles=True))
+            saved = load_preferences(home)
+        top = Toplevel(self.root)
+        self.addCleanup(top.destroy)
+        restored = ManagerWindow(top, lambda *_: None, lambda: None, lambda: None, initial_values=saved)
+        for profile, expected in (('prod', prod), ('dev', dev), ('prod', prod)):
+            restored.variables['profile'].set(profile)
+            self.assertEqual({key: restored.form_values()[key] for key in expected}, expected)
+
     def test_offline_hides_network_fields_and_preserves_local_inputs_and_other_modes(self):
         window = self.window
         window.tabs.select(window.source_tab)

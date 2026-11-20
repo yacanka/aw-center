@@ -8,15 +8,16 @@ Pencerenin açılması uygulamanın hazır olduğu anlamına gelmez. Güncel tam
 
 ## Sade yönetim ekranı
 
-Yeni kullanıcı için varsayılan yerel geliştirme profilidir. **AW Center’ı aç**,
-teknik alan doldurmadan eksik kurulumu hazırlar ve uygulamayı başlatır. Gerekli
-Python/Node, kilitli bağımlılıklar, özel yapılandırma, veritabanı ve worker aynı
-akışta ele alınır. İlk aktif yönetici yoksa kullanıcı adı ve parola sorulur.
-Hazır ortam yeniden kurulmadan açılır. Pencerenin açılması tek başına kurulum,
-migration veya sunucu başlatmaz.
+**Geliştirme** seçiliyken **AW Center’ı aç** düğmesine basın. Hazır bir ortamda
+alan doldurmanız gerekmez. Manager Django, Vite ve worker süreçlerini başlatır
+ve uygulama hazır olduğunda tarayıcıyı açar. İlk kurulumda eksik paketleri
+hazırlar ve aktif yönetici yoksa kullanıcı adı ve parola ister.
 
-Ana ekran profilin durumunu, tek ana eylemi ve kapsamlı denetim
-seçimini gösterir. İlerleme ana ekranda seçili profilin açılışını takip eder;
+**Üretim** ilk kurulumda sabit IPv4 adresi, TLS sertifikası ve TLS özel anahtarı
+ister. Kayıtlı üretim profili bu değerleri sonraki açılışlarda kullanır.
+
+Ana ekran profil seçimini, durumunu ve ana eylemi gösterir.
+İlerleme ana ekranda seçili profilin açılışını takip eder;
 başka bir raporu seçmek bu ilerlemeyi değiştirmez. **Ayrıntılar** görünümünde
 mevcut işlemler, geçmiş raporlar, bildirimler ve seçili işlemi durdurma bulunur.
 Görev güncellemeleri veya pencere boyutunun değişmesi listeyi ana ekrana taşımaz.
@@ -33,10 +34,9 @@ düzeltilemeyen gerçek hatalar kullanıcı girdisi gerektirmeye devam eder.
 
 ## Hızlı açılış
 
-**Kapsamlı denetimleri çalıştır** kutusu ilk açılışta kapalıdır. Eski ayarlardan
-geçişte de hızlı kontrol kullanılır. Kutu seçimi aynı kaynak ve profille yeniden
-açılışta hatırlanır. Kaynak yolunu **Gelişmiş ayarları göster** altında görebilir
-ve değiştirebilirsiniz.
+Günlük kullanımda hızlı açılış varsayılandır. **Gelişmiş ayarları göster**
+altında kaynak yolunu değiştirebilir veya **Açılışta kapsamlı denetimleri
+çalıştır** seçeneğini açabilirsiniz. Bu seçim aynı kaynak ve profilde hatırlanır.
 
 Günlük açılışta Manager kayıtlı profili, araç kimliklerini, bağımlılık
 kilitlerini, şemayı ve web/worker hazırlığını kontrol eder. Hazır yerel
@@ -44,8 +44,15 @@ ortamda kaynak, runtime, `.venv` ve `node_modules` dosyalarının tamamını
 yeniden taramaz. İlk kurulumda paket bütünlüğü doğrulanır. Üretimde kaynak
 bütünlüğü, TLS, Django dağıtım kontrolleri ve frontend çıktısı doğrulanır.
 
-Her açılışta kapsamlı dosya denetimi için kutuyu işaretleyin. Tek seferlik
-doğrulama için **Ayrıntılar → Tam doğrula** eylemini kullanın.
+Konsoldan kurulmuş bir geliştirme ortamı için Manager ilk kullanımda
+aynı CPython 3.11 kurulumuna bağlı `.venv` içindeki paket sürümlerini
+`requirements.txt` ile karşılaştırır. Frontend için npm'in yerel kurulum
+kaydını `package-lock.json` ile karşılaştırır. Uyumlu tarafı yerinde kullanır.
+Sonraki açılışlar küçük yerel kaydı okur. Mevcut SQLite veritabanınızın
+anahtarları bir `.env` dosyasındaysa bu dosyayı gelişmiş ayarlardan seçebilirsiniz.
+
+Tek seferlik doğrulama için **Ayrıntılar → Tam doğrula** eylemini kullanın.
+Tam doğrulama, dosya bütünlüğü için Manager kurulum kayıtlarını arar.
 
 Frontend geliştirme başlangıcında Mermaid renderer girdileri aynıysa doğrulanmış
 yerel çıktı yeniden kullanılır. Renderer kaynakları/yerel importları, lock veya
@@ -54,8 +61,8 @@ bilgisini değiştirmeden doğrudan `node_modules` içeriğini düzenlediyseniz
 `frontend/` içinden `node scripts/build-mermaid-renderer.mjs --dev --force`
 çalıştırın. Production build ve test hazırlığı her zaman renderer'ı derler.
 
-Profil, kaynak, bağlantı, araç ve `.env` alanları **Gelişmiş ayarları göster**
-altındadır; kayıtlı değerler olsa da bu panel başlangıçta kapalıdır. Kaynaklar ve
+İsteğe bağlı kaynak, bağlantı, araç ve `.env` alanları **Gelişmiş ayarları göster**
+altındadır. Kayıtlı değerler olsa da bu panel başlangıçta kapalıdır. Kaynaklar ve
 Ayrıntılar görünümleri isteğe bağlıdır. Geliştirmede frontend portu, üretimde
 TLS alanları ve üretim açıklaması gösterilir. Çevrimdışı modda ağ deposu
 alanları; yönetilen Python/Node seçildiğinde elle runtime yolu alanı gizlenir.
@@ -83,8 +90,8 @@ edilmez. Kapsamlı inceleme **Tam doğrula** ile istenebilir.
 
 Kaynaklar ve Ayrıntılar düğmeleri ilgili görünümü açar; Ctrl+1/2/3 korunur.
 Kaynak testi veya başka bir rapor seçmek çalışan profilin Tarayıcıda aç/Durdur
-kontrollerini değiştirmez. Üretimde eksik IPv4, sertifika ve özel anahtar alanları
-gerektiğinde gelişmiş panelde gösterilir. Açık/koyu tema, sistem
+kontrollerini değiştirmez. Yeni üretim profilinin zorunlu alanları ana ekranda
+gösterilir. Açık/koyu tema, sistem
 fontu, klavye odağı ve küçük pencerede kaydırma korunur.
 
 İlerleme geçerli aşama, geçen süre ve bekleme nedenini gösterir; tahmini yüzde
@@ -189,10 +196,9 @@ okunması ve v2 `host_runtimes` gereksinimlerinin doğrulanması korunur.
 
 Manager normal biçimde kapatıldığında son form değerlerini `%LOCALAPPDATA%\AWCenterManager\manager.json` içinde atomik ve yalnız mevcut kullanıcıya açık olarak saklar. Bu alan standart Windows kullanıcısının kendi profilindedir; yönetici olarak çalıştırma veya kurulum klasörünün izinlerini değiştirme gerektirmez. Kurulumun `%LOCALAPPDATA%\AWCenter` dizini yazılabilir veya tam olarak aynı özel ACL biçiminde olmak zorunda değildir. Profil, kaynak modu/adresleri, dizinler, Python/Node seçimleri, portlar, CA/TLS ve `.env` dosya yolları sonraki açılışta geri gelir. `--root` ile verilen kaynak dizini hatırlanan dizinden önceliklidir. İşlem başlatılmadan girilen değerler de kapanışta saklanır; ani süreç sonlandırmada son değişiklikler kaybolabilir.
 
-Host ve port alanlarında yalnız açıkça girilen değerler hatırlanır. Bu seçimler
-başka `.env` veya dağıtım seçildiğinde de öncelikli kalır; bir alanı temizlemek
-eski bir bağlamdaki değeri geri getirmez. Dosyadan çözülen değerler bu alanlara
-otomatik override olarak yazılmaz.
+Manager, sunucu adresi, sunucu portu ve `.env` seçimini Dev ve Prod için ayrı
+hatırlar. Eski kayıtlardaki değerler son kullanılan profile aittir. Aynı profilin
+açıkça girilmiş adres ve port değerleri dağıtım değiştiğinde de korunur.
 
 Yeni kayıt yoksa önceki sürümün `%LOCALAPPDATA%\AWCenter\config\manager.json` dosyası salt okunur olarak kontrol edilir. Sahiplik, özel izinler ve symlink/junction kontrollerinden geçen eski değerler yüklenir ve normal kapanışta yeni alana yazılır. Eski dosya silinmez, içeriği veya izinleri değiştirilmez. Güvensiz ya da bozuk eski kayıt içe alınmaz; yeni alanda form değerlerini kaydetmek yine mümkündür.
 
@@ -201,8 +207,8 @@ Yalnız dosya yolları kaydedilir; `.env`, sertifika ve özel anahtar içerikler
 ## .env dosyası seçimi
 
 Ana **AW Center’ı aç** eylemi seçilen ayarları kayıtlı profille karşılaştırır;
-değişiklik varsa hazırlama yolunu, yoksa normal başlatmayı kullanır. Gelişmiş
-paneldeki **Tam doğrula** salt okunur ve isteğe bağlı bir denetimdir.
+değişiklik varsa hazırlama yolunu, yoksa normal başlatmayı kullanır.
+**Ayrıntılar → Tam doğrula** salt okunur ve isteğe bağlı bir denetimdir.
 
 Çalışma sekmesindeki **.env dosyası (isteğe bağlı)** alanının **Seç…** düğmesiyle kendi dosyanızı seçebilirsiniz. Yerel geliştirmede her açılışta dosya yeniden okunur ve **dolu Manager alanı → `.env` değeri → uygulama varsayılanı** sırası uygulanır. Alan temizlendiğinde dosya değeri tekrar geçerli olur. Dosya seçimi de temizlenirse varsayılan uygulama ayarları kullanılır; önceki birleştirilmiş kopya yeni bir girdi katmanı değildir. Seçilen dosyanın yolu görev seçeneklerine alınır; içeriği arayüz veya rapora aktarılmaz.
 
@@ -752,7 +758,7 @@ altındadır. Hazır kurulumu açma işlemi paket hazırlığını çağırmaz.
 bağımlılıkları için bu ilk kararda Django başlatılmaz. Varsayılan hızlı kontrolde
 kilit alındığında paket kurulum kayıtları, kaynak lock dosyaları ve zorunlu
 Python/Vite çıktıları kontrol edilir; `.venv` ve `node_modules` içeriklerinin
-tamamı yeniden hash’lenmez. **Kapsamlı denetimleri çalıştır** seçimi kurulu
+tamamı yeniden hash’lenmez. **Açılışta kapsamlı denetimleri çalıştır** seçimi kurulu
 dosyaların bütünlüğünü de doğrular. Şema ve yönetici için tek bir Django
 incelemesi yapılır. Kurulumda ve **Tam doğrula** sırasında paketler ayrıntılı
 olarak denetlenir. Aynı kilit altında doğrulanmış Python/Node/npm sonucu, hemen ardından
@@ -779,9 +785,9 @@ bir kez yeniden derler. Eksik çıktı aynı düğmeyle tamamlanır. Üretimde
 
 Katalogdaki Python, Node ve npm için kurulu dosya ağacı güvenilir bir SHA-256
 özetiyle karşılaştırılır. Dosyalar eşleştiğinde aynı runtime arşivi yeniden
-indirilmez veya açılmaz. Uygulama bağımlılıkları için ekranda önce mevcut
-kurulumun doğrulandığı görünür; kurulum yalnız gerekli aşamaya girildiğinde
-bildirilir.
+indirilmez veya açılmaz. Hazırlık gerektiğinde Manager güncel Python ve
+frontend paketlerini yeniden kullanır. Kurulum ilerlemesini yalnızca
+hazırlanması gereken taraf için gösterir.
 
 Yeni prod kaynakları kısa `r/<12-karakter-kaynak-kimliği>` yolunu kullanır.
 Bu, özellikle Torch'un derin paket dosyalarında Windows uzun yol politikasını

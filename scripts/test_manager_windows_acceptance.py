@@ -43,31 +43,36 @@ def record_sample(result, distribution, profile, tools, attempt):
         (directory / name).write_text(json.dumps(sample, indent=2), encoding='utf-8')
 
 
-def prepared_outputs(source, profile):
+def prepared_outputs(source, profile, *, started=False):
     outputs = [source / folder / '.awcenter-packages.json' for folder in ('.venv', 'frontend/node_modules')]
     if profile == 'prod':
         outputs.append(source / 'frontend/dist/index.html')
+    elif started:
+        outputs.append(source / 'frontend/.cache/mermaid/renderer.js')
     return [(hashlib.sha256(path.read_bytes()).digest(), path.stat().st_mtime_ns) for path in outputs]
 
 
 def click_and_stop(source, environment, profile, *, password=None, executable=None, when_ready=None,
-                   validation_policy='managed', offline_package=None):
+                   validation_policy=None, offline_package=None):
     """Drive real Tk buttons, private IPC and contained worker; intercept the browser handoff."""
     from scripts.manager.controller import ManagerController
-    evidence = StartupEvidence(validation_policy=validation_policy)
+    expected_policy = validation_policy or 'developer'
+    evidence = StartupEvidence(validation_policy=expected_policy, profile=profile)
     errors = []
     warm = password is None
+    expected_status = {'developer': 'stopped', 'managed': 'unverified'}[expected_policy] if warm else 'not_installed'
 
     class DrivenController(ManagerController):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs, browser_opener=evidence.open_browser)
             if self.view.variables['profile'].get() != profile:
                 self.view.variables['profile'].set(profile)
-            self.view.variables['source_selection'].set('explicit')
-            if offline_package is None:
-                self.view.variables['validation_policy'].set(validation_policy)
-            else:
-                assert self.view.variables['validation_policy'].get() == validation_policy
+            assert self.view.variables['source_selection'].get() == 'automatic'
+            if validation_policy and self.view.variables['validation_policy'].get() != validation_policy:
+                self.view.advanced_button.invoke()
+                self.view.validation_selector.invoke()
+            assert self.view.variables['validation_policy'].get() == expected_policy
+            if offline_package is not None:
                 with patch('scripts.manager.view.filedialog.askdirectory', return_value=str(offline_package)):
                     self.view._pickers['offline_dir'].invoke()
                 assert self.view.variables['source_mode'].get() == 'offline'
@@ -93,7 +98,7 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
         def drive(self):
             try:
                 self.wait_for(lambda: not self.busy and self.view._profile_presentation()['status'] != 'inspecting', 300)
-                assert self.view._profile_presentation()['status'] == ('stopped' if warm else 'not_installed')
+                assert self.view._profile_presentation()['status'] == expected_status
                 evidence.begin()
                 self.view.action_buttons['start'].invoke()
                 assert any(task.action == 'ensure' for task in self.tasks.values()), 'Primary action did not dispatch ensure'
@@ -123,7 +128,9 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
             context.enter_context(patch('scripts.manager.paths.sys', runtime))
             context.enter_context(patch('scripts.manager.transport.sys', runtime))
         entry = str(source / 'AWCenterManager.pyw')
-        context.enter_context(patch.object(sys, 'argv', [entry, '--root', str(source)] if executable else [entry]))
+        # Match a double-click: a new installation uses the adjacent checkout,
+        # and a warm portable launch resolves the private profile's saved source.
+        context.enter_context(patch.object(sys, 'argv', [entry]))
         try:
             runpy.run_path(entry, run_name='__main__')
         except SystemExit as finished:
@@ -137,6 +144,20 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
 
 
 class ContainmentTests(unittest.TestCase):
+    def test_fast_production_warm_evidence_requires_one_canonical_source_inventory(self):
+        from scripts.launcher.startup_metrics import count_startup_work, startup_work
+        sample = StartupEvidence(validation_policy='developer', profile='prod')
+        sample.observe({'type': 'resources', 'action': 'start'})
+        with startup_work(sample.observe, 'developer'):
+            count_startup_work('source_inventory')
+        sample.observe({'type': 'ready', 'url': 'https://192.0.2.1/app/'})
+        sample.open_browser('https://192.0.2.1/app/')
+        sample.check(warm=True)
+        for counter, wrong in (('source_inventory', 0), ('source_inventory', 2), ('dependency_inventory', 1)):
+            with self.subTest(counter=counter, count=wrong), patch.dict(sample.work_counts, {counter: wrong}):
+                with self.assertRaises(AssertionError):
+                    sample.check(warm=True)
+
     def test_developer_warm_evidence_requires_zero_actual_inventory_counts(self):
         from scripts.launcher.startup_metrics import startup_work
         sample = StartupEvidence(validation_policy='developer')
@@ -296,7 +317,7 @@ class NativeSourceAcceptance(unittest.TestCase):
             saved = json.loads((home / 'config/dev.profile.json').read_text(encoding='utf-8'))
             self.assertEqual(Path(saved['python_executable']).resolve(), python)
             self.assertEqual(Path(saved['node_executable']).resolve(), node)
-            before = prepared_outputs(source, 'dev')
+            before = prepared_outputs(source, 'dev', started=True)
             programs = acceptance_programs(None, directory, source, python, node)
             with deny_external_network(host, programs):
                 NativeOfflineAcceptance.assert_runtime_network_denied(self, saved, source, home)
@@ -305,15 +326,11 @@ class NativeSourceAcceptance(unittest.TestCase):
                         f"http://127.0.0.1:{saved['backend_port']}", frontend_origin=url.removesuffix('/app/')).exercise(password))
                         if attempt == 1 else None)
                     record_sample(warm, 'source', 'dev', 'automatic', attempt)
-                    self.assertEqual(prepared_outputs(source, 'dev'), before)
-                renderer = source / 'frontend/.cache/mermaid/renderer.js'
-                renderer_before = (hashlib.sha256(renderer.read_bytes()).digest(), renderer.stat().st_mtime_ns)
+                    self.assertEqual(prepared_outputs(source, 'dev', started=True), before)
                 for attempt in range(1, 4):
-                    warm = click_and_stop(source, environment, 'dev', validation_policy='developer')
-                    record_sample(warm, 'source-developer', 'dev', 'automatic', attempt)
-                    self.assertEqual(prepared_outputs(source, 'dev'), before)
-                    self.assertEqual((hashlib.sha256(renderer.read_bytes()).digest(), renderer.stat().st_mtime_ns),
-                                     renderer_before, 'Ready developer startup rebuilt the renderer')
+                    warm = click_and_stop(source, environment, 'dev', validation_policy='managed')
+                    record_sample(warm, 'source-managed-validation', 'dev', 'automatic', attempt)
+                    self.assertEqual(prepared_outputs(source, 'dev', started=True), before)
 
 
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE') == '1',
@@ -451,7 +468,7 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
             programs = acceptance_programs(external, directory, source, self.python, self.node)
             with deny_external_network(host, programs):
                 result = click_and_stop(source, self.environment(directory, network=True), 'dev',
-                    executable=external, password=secrets.token_urlsafe(48), validation_policy='developer',
+                    executable=external, password=secrets.token_urlsafe(48),
                     offline_package=self.executable.parent / 'dependencies/wheels')
             self.assertFalse(any(result.source_attempts.values()))
 
@@ -580,26 +597,21 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
                             with live.request('/api/jobs/' + job_id + '/download/') as response:
                                 self.assertEqual(hashlib.sha256(response.read()).hexdigest(), digest)
 
-                        before = prepared_outputs(actual_source, profile)
+                        before = prepared_outputs(actual_source, profile, started=True)
                         for attempt in range(1, 4):
                             result = click_and_stop(source, self.environment(directory, network=True), profile,
                                 executable=self.executable, when_ready=verify_persisted_output if attempt == 1 else None)
                             record_sample(result, 'packaged', profile, 'system' if system else 'managed', attempt)
-                            self.assertEqual(prepared_outputs(actual_source, profile), before)
+                            self.assertEqual(prepared_outputs(actual_source, profile, started=True), before)
                             self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
                             for port in ports:
                                 with socket.socket() as probe:
                                     probe.settimeout(1)
                                     self.assertNotEqual(probe.connect_ex((bind, port)), 0)
-                        if profile == 'dev':
-                            renderer = actual_source / 'frontend/.cache/mermaid/renderer.js'
-                            renderer_before = (hashlib.sha256(renderer.read_bytes()).digest(), renderer.stat().st_mtime_ns)
-                            for attempt in range(1, 4):
-                                result = click_and_stop(source, self.environment(directory, network=True), profile,
-                                    executable=self.executable, validation_policy='developer')
-                                record_sample(result, 'packaged-developer', profile,
-                                              'system' if system else 'managed', attempt)
-                                self.assertEqual(prepared_outputs(actual_source, profile), before)
-                                self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
-                                self.assertEqual((hashlib.sha256(renderer.read_bytes()).digest(), renderer.stat().st_mtime_ns),
-                                                 renderer_before, 'Ready developer startup rebuilt the renderer')
+                        for attempt in range(1, 4):
+                            result = click_and_stop(source, self.environment(directory, network=True), profile,
+                                executable=self.executable, validation_policy='managed')
+                            record_sample(result, 'packaged-managed-validation', profile,
+                                          'system' if system else 'managed', attempt)
+                            self.assertEqual(prepared_outputs(actual_source, profile, started=True), before)
+                            self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)

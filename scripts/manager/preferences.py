@@ -13,9 +13,12 @@ from scripts.launcher.installation_permissions import (PERMISSION_CHECK_LABELS, 
                                                       require_unlinked, secure_path)
 from scripts.launcher.installation_state import private_directory
 from scripts.launcher.model import LauncherError
-from .view_model import DEFAULT_VALUES, FormError, _https
+from .view_model import DEFAULT_VALUES, PROFILE_OVERRIDE_FIELDS, FormError, _https
 
 _LIMIT = 128 * 1024
+_PREFERENCE_DEFAULTS = DEFAULT_VALUES | {
+    f'{profile}_{key}': '' for profile in ('dev', 'prod') for key in PROFILE_OVERRIDE_FIELDS
+}
 _STAGES = {
     'location': 'Kullanıcı kayıt konumunu belirleme',
     'path': 'Bağlantı / reparse noktası denetimi',
@@ -102,7 +105,7 @@ def preferences_home() -> Path:
 
 def _safe_values(values: dict) -> dict:
     result = {}
-    for key, default in DEFAULT_VALUES.items():
+    for key, default in _PREFERENCE_DEFAULTS.items():
         value = values.get(key)
         # Imported bundle selection is specific to one operation.
         if key == 'bundle_import' or type(value) is not type(default):

@@ -9,7 +9,8 @@ from threading import Thread
 from typing import Callable
 import webbrowser
 
-from .view_model import DEFAULT_VALUES, FormError, ManagerTaskStates, normalize_values, safe_text, validate_admin
+from .view_model import (DEFAULT_VALUES, PROFILE_OVERRIDE_FIELDS, FormError, ManagerTaskStates,
+                         normalize_values, safe_text, validate_admin)
 from .task_policy import ACTION_LABELS
 from .view_theme import apply_control_styles, icon_image
 
@@ -142,6 +143,10 @@ class ManagerWindow:
         self._rendered_status_tile = None
         self._error_editing_field = ''
         values = {**DEFAULT_VALUES, **(initial_values or {})}
+        self._editing_profile = values['profile']
+        self._profile_overrides = {
+            profile: {key: values.get(f'{profile}_{key}', '') for key in PROFILE_OVERRIDE_FIELDS}
+            for profile in ('dev', 'prod')}
         self.variables = {key: (tk.BooleanVar(root, value=value) if isinstance(value, bool)
                                 else tk.StringVar(root, value=value))
                           for key, value in values.items() if key in DEFAULT_VALUES}
@@ -162,7 +167,6 @@ class ManagerWindow:
         self.source_help_var = tk.StringVar(root)
         self.source_path_var = tk.StringVar(root)
         self._update_source_path()
-        self.profile_help_var = tk.StringVar(root)
         self.advanced_var = tk.BooleanVar(root, value=False)
         self.summary_title_var = tk.StringVar(root)
         self.summary_context_var = tk.StringVar(root)
@@ -227,9 +231,14 @@ class ManagerWindow:
             self.status_var.set(f'{state.status} · {elapsed // 60:02d}:{elapsed % 60:02d}')
         self.root.after(1000, self._tick_progress)
 
-    def form_values(self):
-        """Snapshot inputs, including inactive fields, without credentials or I/O."""
-        return {key: variable.get() for key, variable in self.variables.items()}
+    def form_values(self, *, include_profiles=False):
+        """Snapshot the current form. Only preference storage needs both profiles."""
+        values = {key: variable.get() for key, variable in self.variables.items()}
+        if include_profiles:
+            for profile, overrides in self._profile_overrides.items():
+                inputs = values if profile == self._editing_profile else overrides
+                values.update({f'{profile}_{key}': inputs[key] for key in PROFILE_OVERRIDE_FIELDS})
+        return values
 
     @property
     def state(self):
@@ -514,27 +523,16 @@ class ManagerWindow:
         self.banner_stop_button = ttk.Button(self.banner_actions, text="Durdur", command=self._stop_profile,
                                              style="Manager.TButton", state="disabled")
         self.banner_stop_button.grid(row=0, column=1, padx=(8, 0))
-        source_info = ttk.Frame(parent, style='Manager.TFrame')
-        source_info.grid(row=1, column=0, sticky='ew', pady=(0, 12))
-        source_info.columnconfigure(0, weight=1)
-        self.validation_selector = ttk.Checkbutton(
-            source_info, text='Kapsamlı denetimleri çalıştır',
-            variable=self.variables['validation_policy'], onvalue='managed', offvalue='developer',
-            style='Manager.TCheckbutton')
-        self.validation_selector.grid(row=1, column=0, sticky='w', pady=(8, 0))
-        self._controls.append(self.validation_selector)
-        self._fields['validation_policy'] = self.validation_selector
-        self._field_tabs['validation_policy'] = self.run_tab
+        profile = ttk.Frame(summary, style="Manager.Segment.TFrame", padding=3)
+        profile.grid(row=0, column=2, rowspan=2, sticky="ne")
+        for column, (value, label) in enumerate((("dev", "Geliştirme"), ("prod", "Üretim"))):
+            button = ttk.Radiobutton(profile, text=label, value=value, variable=self.variables["profile"], style="Manager.TRadiobutton")
+            button.grid(row=0, column=column)
+            self._controls.append(button)
         paths = self.run_settings = _Card(parent, padding=20)
         paths.grid(row=3, column=0, sticky="ew")
         paths.columnconfigure(0, weight=1)
         ttk.Label(paths, text="Çalışma ayarları", style="Manager.Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        profile = ttk.Frame(paths, style="Manager.Segment.TFrame", padding=3)
-        profile.grid(row=0, column=1, columnspan=2, sticky="e")
-        for column, (value, label) in enumerate((("dev", "Geliştirme"), ("prod", "Üretim"))):
-            button = ttk.Radiobutton(profile, text=label, value=value, variable=self.variables["profile"], style="Manager.TRadiobutton")
-            button.grid(row=0, column=column, sticky="w")
-            self._controls.append(button)
         source = ttk.Frame(paths, style="Manager.Panel.TFrame")
         source.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         source.columnconfigure(1, weight=1)
@@ -545,33 +543,42 @@ class ManagerWindow:
                     style="Manager.Muted.TLabel").grid(row=2, column=0, columnspan=3, sticky="ew")
         connection = ttk.Frame(paths, style="Manager.Panel.TFrame")
         connection.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        for column, (key, title) in enumerate((("host", "Host / statik IPv4"), ("backend_port", "Backend / HTTPS portu"))):
+        for column, (key, title) in enumerate((("host", "Sunucu adresi"), ("backend_port", "Sunucu portu"))):
             connection.columnconfigure(column, weight=1, uniform="connection")
             field = ttk.Frame(connection, style="Manager.Panel.TFrame")
             field.grid(row=0, column=column, sticky="ew", padx=(0, 8) if column == 0 else (8, 0))
             field.columnconfigure(0, weight=1)
-            ttk.Label(field, text=title, style="Manager.Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+            label = ttk.Label(field, text=title, style="Manager.Panel.TLabel")
+            label.grid(row=0, column=0, sticky="w", pady=(0, 6))
+            if key == 'host':
+                self.host_label = label
             entry = ttk.Entry(field, textvariable=self.variables[key], width=12)
             entry.grid(row=1, column=0, sticky="ew")
             self._fields[key], self._field_titles[key], self._field_tabs[key] = entry, title, self.run_tab
             self._controls.append(entry)
-        self._label(paths, "Dolu alanlar .env değerlerini geçersiz kılar; boş alanlarda önce .env, ardından varsayılanlar kullanılır. Yerel portta auto otomatik seçimi etkinleştirir.", style="Manager.PanelMuted.TLabel").grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 12))
+        connection_help = self._label(paths, "Boş alanlarda .env veya profil varsayılanları kullanılır. Geliştirme portu için auto girebilirsiniz.", style="Manager.PanelMuted.TLabel")
+        connection_help.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 0))
         self.tls_frame = ttk.Frame(paths, style='Manager.Panel.TFrame')
         self.tls_frame.grid(row=4, column=0, columnspan=3, sticky='ew')
-        self._entry(self.tls_frame, 0, 'tls_cert_file', 'TLS sertifikası (prod)', tab=self.run_tab, picker='certificate')
-        self._entry(self.tls_frame, 1, 'tls_key_file', 'TLS özel anahtarı (prod)', tab=self.run_tab, picker='key')
-        ttk.Separator(paths).grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        self._entry(self.tls_frame, 0, 'tls_cert_file', 'TLS sertifikası', tab=self.run_tab, picker='certificate')
+        self._entry(self.tls_frame, 1, 'tls_key_file', 'TLS özel anahtarı', tab=self.run_tab, picker='key')
         self.advanced_button = ttk.Button(parent, text="Gelişmiş ayarları göster", command=self._toggle_advanced,
                                           style="Manager.Link.TButton")
         self.advanced_button.grid(row=2, column=0, sticky="w", pady=(0, 12))
         self.advanced_frame = ttk.Frame(paths, style="Manager.Panel.TFrame")
         self.advanced_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self._build_advanced(self.advanced_frame)
-        self.advanced_frame.grid_remove()
-        paths.grid_remove()
+        self._optional_rows = (source, self._fields['backend_port'].master, connection_help, self.advanced_frame)
 
     def _build_advanced(self, parent):
-        self._label(parent, 'Kaynak dizini seçmeden hızlı modu açabilirsiniz. Günlük açılışta sınırlı metadata kontrolü yapılır. Dosya bütünlüğünü kapsamlı incelemek için Tam doğrula kullanın. Kaynak veya profil değişirse bu seçim sıfırlanır.').grid(row=18, column=0, columnspan=3, sticky='ew', pady=(4, 0))
+        self.validation_selector = ttk.Checkbutton(
+            parent, text='Açılışta kapsamlı denetimleri çalıştır',
+            variable=self.variables['validation_policy'], onvalue='managed', offvalue='developer',
+            style='Manager.TCheckbutton')
+        self.validation_selector.grid(row=18, column=0, columnspan=3, sticky='w', pady=(8, 0))
+        self._controls.append(self.validation_selector)
+        self._fields['validation_policy'] = self.validation_selector
+        self._field_tabs['validation_policy'] = self.run_tab
         self._entry(parent, 0, "frontend_port", "Frontend portu (dev)", tab=self.run_tab)
         self.production_help = self._label(parent, "Yeni prod profili için makineye atanmış sabit IPv4 ve kaynak dizini dışındaki TLS dosyaları gerekir.")
         self.production_help.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 12))
@@ -597,14 +604,27 @@ class ManagerWindow:
 
     def _set_advanced(self, expanded: bool):
         self.advanced_var.set(expanded)
-        self.run_settings.grid() if expanded else self.run_settings.grid_remove()
-        self.advanced_frame.grid() if expanded else self.advanced_frame.grid_remove()
         self.advanced_button.configure(text="Gelişmiş ayarları gizle" if expanded else "Gelişmiş ayarları göster")
+        self._update_settings(self._profile_presentation()['status'])
+
+    def _update_settings(self, status):
+        expanded = self.advanced_var.get()
+        new_production = self.variables['profile'].get() == 'prod' and status == 'not_installed'
+        self.run_settings.grid() if expanded or new_production else self.run_settings.grid_remove()
+        for widget in self._optional_rows:
+            widget.grid() if expanded else widget.grid_remove()
 
     def _toggle_advanced(self):
         self._set_advanced(not self.advanced_var.get())
 
     def _profile_changed(self):
+        selected = self.variables['profile'].get()
+        if selected != self._editing_profile:
+            self._profile_overrides[self._editing_profile] = {
+                key: self.variables[key].get() for key in PROFILE_OVERRIDE_FIELDS}
+            self._editing_profile = selected
+            for key, value in self._profile_overrides[selected].items():
+                self.variables[key].set(value)
         self.variables['validation_policy'].set('developer')
         self._update_source_path()
         self._refresh()
@@ -874,6 +894,9 @@ class ManagerWindow:
         for control in self._controls:
             control.configure(state="normal")
         profile = self.variables["profile"].get()
+        self._update_settings(profile_state['status'])
+        self._field_titles['host'] = 'Sabit IPv4' if profile == 'prod' else 'Sunucu adresi'
+        self.host_label.configure(text=self._field_titles['host'])
         self.tls_frame.grid() if profile == 'prod' else self.tls_frame.grid_remove()
         self.production_help.grid() if profile == 'prod' else self.production_help.grid_remove()
         mode = self.variables["source_mode"].get()
@@ -902,7 +925,6 @@ class ManagerWindow:
         self.action_buttons['start'].configure(text=profile_state['label'],
             state="normal" if profile_state['action'] else "disabled")
         self.action_buttons['start'].grid()
-        self.profile_help_var.set("Dev: yerel geliştirme sunucuları; varsayılan host 127.0.0.1, açıkça girilen IPv4 veya localhost kullanılabilir." if profile == "dev" else "Prod: HTTPS, sabit IPv4 ve ayrı özel veritabanı / artifact dizinleri.")
         self.source_help_var.set({
             "online": "Doğrulanmış yerel paketler kullanılır; eksikler için önce genel internet, ardından seçilen kurumsal kaynaklar denenir.",
             "restricted": "Önce doğrulanmış yerel paketler, sonra seçilen depolar ve genel internet kaynakları otomatik denenir. Geçici bağlantı hataları yeniden denenir; yalnız çözülemeyen ihtiyaçlar bildirilir.",
@@ -942,7 +964,7 @@ class ManagerWindow:
         self.task_count_var.set(f"{active} aktif · {len(tasks)} işlem" if tasks else "Henüz işlem yok")
         current = self._profile_presentation()
         name = 'Geliştirme' if self.variables['profile'].get() == 'dev' else 'Üretim'
-        descriptions = {'not_installed': 'kurulumu gerekli', 'stopped': 'ortamı hazır', 'unverified': 'profili kayıtlı',
+        descriptions = {'not_installed': 'kurulumu gerekli', 'stopped': 'profili kayıtlı', 'unverified': 'profili kayıtlı',
             'incomplete': 'kurulumu tamamlanmalı', 'blocked': 'kurulumu engellendi',
             'inspecting': 'ortamı denetleniyor', 'degraded': 'ortamında sağlık sorunu',
             'running': 'işlemi sürüyor', 'finishing': 'işlemi tamamlanıyor', 'stopping': 'ortamı durduruluyor'}

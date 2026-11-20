@@ -28,10 +28,11 @@ class StartupEvidence:
         'Uygulama ve worker süreçleri başlatılıyor': 'startup',
     }
 
-    def __init__(self, *, validation_policy='managed'):
+    def __init__(self, *, validation_policy='managed', profile='dev'):
         if validation_policy not in {'managed', 'developer'}:
             raise ValueError('Invalid evidence validation policy')
         self.validation_policy = validation_policy
+        self.profile = profile
         self.work_counts = None
         self.work_received_before_ready = False
         self.begin()
@@ -109,7 +110,10 @@ class StartupEvidence:
             assert not any(self.source_attempts.values()), self.summary()
             if self.validation_policy == 'developer':
                 assert self.work_received_before_ready and self.work_counts is not None, self.summary()
-                assert not any(self.work_counts.values()), self.summary()
+                expected = dict.fromkeys(self.work_counts, 0)
+                if self.profile == 'prod':
+                    expected['source_inventory'] = 1  # Authenticate the canonical release before execution.
+                assert self.work_counts == expected, self.summary()
 
 
 @contextmanager
