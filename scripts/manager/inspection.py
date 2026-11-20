@@ -29,10 +29,12 @@ def _metadata_inspection(args, home, path, emit):
         status = 'incomplete' if pending.exists() else 'stopped'
         tools = ' · '.join(f"{label}: {'sistem kurulumu' if profile.get(field) else 'yönetilen kurulum'}"
                           for label, field in (('Python 3.11', 'python_executable'), ('Node.js', 'node_executable')))
+    details = {'stopped': 'Profil kayıtlı.', 'not_installed': 'İlk kurulum açılışta yapılacak.',
+               'incomplete': 'Yarım kalan kurulumu Tamamla ve aç ile sürdürebilirsiniz.',
+               'blocked': 'Ortam dosyası mevcut ancak profil kaydı eksik.'}
     emit({'type': 'profile', 'profile': args.profile, 'status': status, 'tools': tools,
           'source_root': str(args.source_root),
-          'validation_policy': 'developer', 'checks': [],
-          'detail': 'Hızlı kontrol. Yalnız profil kayıtları okundu; bağımlılıklar ve şema açılışta denetlenir.'})
+          'validation_policy': 'developer', 'checks': [], 'detail': details[status]})
 
 
 def inspect_profile(args, emit):

@@ -73,8 +73,7 @@ class DeveloperStartupTests(unittest.TestCase):
             inspection.inspect_profile(self.args(action='inspect'), events.append)
         self.assertEqual(events[-1]['status'], 'stopped')
         self.assertEqual(events[-1]['validation_policy'], 'developer')
-        self.assertIn('Hızlı kontrol', events[-1]['detail'])
-        self.assertNotIn('başlatılmaya hazır', events[-1]['detail'])
+        self.assertEqual(events[-1]['detail'], 'Profil kayıtlı.')
 
     def test_uninstalled_inspection_does_not_probe_tool_choices(self):
         events = []
@@ -83,6 +82,7 @@ class DeveloperStartupTests(unittest.TestCase):
              patch('scripts.launcher.runtime_selection.tool_choices', side_effect=AssertionError('runtime selection')):
             inspection.inspect_profile(self.args(action='inspect'), events.append)
         self.assertEqual(events[-1]['status'], 'not_installed')
+        self.assertIn('İlk kurulum', events[-1]['detail'])
         self.assertFalse(self.home.exists())
 
     def test_automatic_developer_inspection_reports_recorded_source(self):
@@ -167,6 +167,93 @@ class DeveloperStartupTests(unittest.TestCase):
             events = self.execute(source_selection='automatic', source_root='')
         self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
         self.assertEqual(started, [self.project.root])
+
+    def test_configured_open_checks_packages_and_dev_schema_once_under_the_start_leases(self):
+        from scripts.launcher import resource_locks
+
+        self.prepared()
+        package_leases = []
+        def check_packages(*args, **options):
+            package_leases.append(bool(resource_locks._held.get()))
+            return packages.dependency_checks(*args, **options)
+
+        with patch.object(operations, '_project_for', return_value=self.project), \
+             patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]), \
+             patch.object(installation, 'dependency_checks', side_effect=check_packages), \
+             patch.object(installation, 'backend_inspection', return_value={
+                 'schema': 'ready', 'admin_exists': True, 'auto_migrate_safe': True, 'dev_schema_checked': True}) as backend, \
+             patch.object(installation, 'start_profile') as start:
+            events = self.execute()
+
+        self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
+        self.assertEqual(package_leases, [True])
+        self.assertTrue(backend.call_args.kwargs['startup_only'])
+        self.assertTrue(start.call_args.kwargs['dev_schema_checked'])
+
+    def test_native_dev_schema_gate_runs_unless_the_project_probe_completed_that_check(self):
+        self.prepared()
+        for checked in (True, False):
+            state = {'schema': 'ready', 'admin_exists': True, 'auto_migrate_safe': True}
+            if checked:
+                state['dev_schema_checked'] = True
+            with self.subTest(checked=checked), \
+                 patch.object(operations, '_project_for', return_value=self.project), \
+                 patch.object(installation, 'require_windows'), \
+                 patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]), \
+                 patch('scripts.launcher.toolchain.toolchain_environment', return_value={}), \
+                 patch('scripts.launcher.installation_features.feature_environment', return_value={}), \
+                 patch.object(installation, 'backend_inspection', return_value=state), \
+                 patch.object(installation, '_django') as django, patch.object(installation.runtime, 'dev') as dev:
+                events = self.execute()
+            self.assertEqual(events[-1], {'type': 'done', 'ok': True}, events)
+            self.assertEqual([call.args[2] for call in django.call_args_list], [] if checked else [['migrate', '--check']])
+            dev.assert_called_once()
+
+    def test_write_access_probes_wait_until_preparation_is_needed(self):
+        from scripts.launcher import installation_state as storage
+
+        self.prepared()
+        with patch.object(operations, '_project_for', return_value=self.project), \
+             patch('scripts.launcher.toolchain.inspect_toolchain', return_value=[]), \
+             patch.object(installation, 'backend_inspection', return_value={'schema': 'ready', 'admin_exists': True}), \
+             patch.object(storage, '_probe_writable', wraps=storage._probe_writable) as writes, \
+             patch.object(installation, 'provision') as provision, patch.object(installation, 'start_profile'):
+            self.assertEqual(self.execute()[-1], {'type': 'done', 'ok': True})
+            writes.assert_not_called()
+            provision.assert_not_called()
+            (self.project.frontend / 'package-lock.json').write_text('{"changed":true}')
+            self.assertEqual(self.execute()[-1], {'type': 'done', 'ok': True})
+            self.assertEqual([call.args[0] for call in writes.call_args_list], [self.home, self.home / 'config'])
+            provision.assert_called_once()
+
+    def test_selected_asset_set_compares_manifests_before_requesting_an_import(self):
+        import hashlib
+        import json
+        from scripts.launcher import installation_bundle as bundle, installation_features as features
+
+        profile = self.prepared()
+        source = self.root / 'assets'
+        payload = source / 'ai-models/weights.bin'
+        payload.parent.mkdir(parents=True)
+        payload.write_bytes(b'approved weights')
+        manifest = {'format_version': 1, 'asset_set': profile['asset_set'], 'artifacts': [
+            {'path': 'ai-models/weights.bin', 'size': payload.stat().st_size,
+             'sha256': hashlib.sha256(payload.read_bytes()).hexdigest()}]}
+        selected = source / bundle.ASSET_MANIFEST
+        selected.write_text(json.dumps(manifest))
+        destination = features.import_asset_set(source, self.home)
+        args = self.args(assets=str(source))
+        with patch.object(bundle, 'install_inventory', wraps=bundle.install_inventory) as inventory:
+            self.assertFalse(ensure._optional_changes(profile, args))
+            inventory.assert_not_called()
+            self.assertFalse(ensure._optional_changes(profile, self.args(assets=str(source), validation_policy='managed')))
+            inventory.assert_called_once()
+            manifest['artifacts'][0]['sha256'] = '0' * 64
+            selected.write_text(json.dumps(manifest))
+            self.assertTrue(ensure._optional_changes(profile, args))
+            with self.assertRaises(LauncherError):
+                features.import_asset_set(source, self.home)
+        self.assertEqual((destination / 'ai-models/weights.bin').read_bytes(), b'approved weights')
 
     def test_changed_lock_selects_preparation_for_only_affected_dependency(self):
         self.prepared()

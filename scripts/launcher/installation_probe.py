@@ -59,7 +59,7 @@ def inspect_sqlite(database: Path, required_migrations: set[tuple[str, str]], *,
     return result
 
 
-def inspect_backend() -> dict:
+def inspect_backend(*, startup_only=False) -> dict:
     """Load Django metadata and inspect state without migration or external calls."""
     import django
     django.setup()
@@ -76,6 +76,19 @@ def inspect_backend() -> dict:
     if settings.AWCENTER_DEPLOYMENT_MODE == 'windows-native':
         from awcenter.frontend_artifact import frontend_files_are_ready
         result['frontend_build_ready'] = frontend_files_are_ready(require_collected=False)
+    applied = {tuple(item) for item in result['migration_plan']['applied']}
+    for key in applied:
+        if key in loader.graph.node_map:
+            parents = {node.key for node in loader.graph.node_map[key].parents}
+            if not parents <= applied:
+                result['auto_migrate_safe'] = False
+    if startup_only:
+        if loader.detect_conflicts():
+            result['auto_migrate_safe'] = False
+        if (settings.AWCENTER_DEPLOYMENT_MODE == 'development' and result['schema'] == 'ready'
+                and result['auto_migrate_safe']):
+            result['dev_schema_checked'] = True
+        return {key: value for key, value in result.items() if key not in {'migration_plan', 'diagnostics'}}
     # Bind the plan to installed Django and project migration code, without
     # exposing interpreter paths or migration contents in the IPC response.
     sources = {}
@@ -85,13 +98,6 @@ def inspect_backend() -> dict:
         sources['/'.join(key)] = hashlib.sha256(source.read_bytes()).hexdigest()
     result['migration_plan']['source_sha256'] = hashlib.sha256(
         json.dumps(sources, sort_keys=True).encode()).hexdigest()
-    applied = {tuple(item) for item in result.get('migration_plan', {}).get('applied', [])}
-    # A known migration name alone is insufficient when its parents were skipped.
-    for key in applied:
-        if key in loader.graph.node_map:
-            parents = {node.key for node in loader.graph.node_map[key].parents}
-            if not parents <= applied:
-                result['auto_migrate_safe'] = False
     for name, enabled in (
         ('JIRA', settings.JIRA_ENABLED), ('DOORS', settings.DOORS_ENABLED),
         ('Teamcenter', settings.TEAMCENTER_ENABLED), ('DocProof', settings.DOCPROOF_ENABLED),
@@ -156,7 +162,7 @@ def main(argv=None) -> int:
     try:
         # Imports or third-party app startup must not corrupt the single JSON result.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            result = inspect_backend()
+            result = inspect_backend(startup_only=os.environ.get('AWCENTER_MANAGER_STARTUP_INSPECTION') == '1')
     except Exception:
         result = {'schema': 'error', 'admin_exists': None, 'diagnostics': [{'name': 'backend', 'status': 'error', 'detail': 'Backend configuration or dependency inspection failed; details withheld.'}]}
     print(json.dumps(result))

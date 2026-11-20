@@ -93,9 +93,15 @@ class ProvisionValidationTests(unittest.TestCase):
         backend.assert_called_once()
         return checks, inventory.call_count
 
-    def test_developer_manager_preparation_inventories_each_completed_stage_once(self):
+    def test_development_fast_preparation_reuses_both_completed_stages(self):
         checks, inventories = self.provision('developer')
+        self.assertEqual(inventories, 0)
+        self.assertTrue(all(row['status'] == 'ready' for row in checks), checks)
+
+    def test_development_fast_preparation_updates_only_the_stale_stage(self):
+        checks, inventories = self.provision('developer', update_frontend=True)
         self.assertEqual(inventories, 2)
+        self.assertEqual((self.project.frontend / 'node_modules/vite/bin/vite.js').read_bytes(), b'updated Vite')
         self.assertTrue(all(row['status'] == 'ready' for row in checks), checks)
 
     def test_managed_preparation_retains_full_final_package_validation(self):

@@ -471,6 +471,12 @@ def apply_local_configuration(project, args, profile=None):
     if any(candidate[field] != selected[field] for field in PORT_FIELDS):
         candidate.update(selected)
         _bind_values(candidate, values, source)
+    if current is None and getattr(args, 'manager_ensure', False) and getattr(args, 'validation_policy', None) == 'developer':
+        # Once a profile exists, absent runtime pointers mean managed tools.
+        # Record first-use choices with the profile so retries keep its system tools.
+        from .runtime_selection import tool_choices
+        candidate.update({field: str(path) for field, path in tool_choices(args).items()})
+        profiles._validate_options(candidate)
     profiles._validate_environment(candidate, values)
     profiles._require_separate(home, 'dev', values, candidate['source_root'])
     profiles._check_inherited(values, str(env))

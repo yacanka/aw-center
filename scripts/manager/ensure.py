@@ -64,6 +64,23 @@ def connection_changes(profile, args):
     return {key: value for key, value in changes.items() if profile is None or value != profile.get(key)}
 
 
+def _asset_selection_changed(profile, args):
+    from scripts.launcher.installation_bundle import ASSET_MANIFEST, _json_object, verify_asset_source
+    if args.validation_policy != 'developer':
+        return verify_asset_source(args.assets)['asset_set'] != profile['asset_set']
+    # Imported sets are immutable. Unchanged manifests select the existing
+    # private copy; only an import consumes or verifies the external payload.
+    selected = args.assets / ASSET_MANIFEST
+    installed = Path(profile['installation_home']) / 'assets/sets' / profile['asset_set'] / ASSET_MANIFEST
+    for path in (selected, installed):
+        require_unlinked(path)
+        if not path.is_file():
+            return True
+    require_private(installed)
+    manifest = _json_object(selected)
+    return manifest.get('asset_set') != profile['asset_set'] or manifest != _json_object(installed)
+
+
 def _optional_changes(profile, args):
     if args.env_file and args.profile != 'dev':
         from scripts.launcher.installation_env import read_selected_environment, merge_selected_environment
@@ -73,10 +90,8 @@ def _optional_changes(profile, args):
         selected = read_selected_environment(project, args.profile, args.env_file)
         if merge_selected_environment(profile, current, selected, existing=True) != current:
             return True
-    if args.assets:
-        from scripts.launcher.installation_bundle import verify_asset_source
-        if verify_asset_source(args.assets)['asset_set'] != profile['asset_set']:
-            return True
+    if args.assets and _asset_selection_changed(profile, args):
+        return True
     if args.feature_catalog:
         from scripts.launcher.installation_features import read_feature_catalog
         installed = Path(profile['installation_home']) / 'config/features.catalog.json'
@@ -91,7 +106,7 @@ def _optional_changes(profile, args):
     return False
 
 
-def needs_preparation(project, args, *, before_lock=False, observed_runtime=None):
+def needs_preparation(project, args, *, before_lock=False, observed_runtime=None, observed_backend=None):
     """Read-only decision; an error is not permission to repair unknown state."""
     from scripts.launcher.validation_policy import require_validation_policy
     policy = require_validation_policy(getattr(args, 'validation_policy', 'managed'),
@@ -99,6 +114,8 @@ def needs_preparation(project, args, *, before_lock=False, observed_runtime=None
     developer = policy == 'developer'
     if observed_runtime is not None:
         observed_runtime.clear()
+    if observed_backend is not None:
+        observed_backend.clear()
     path = _profile_path(args)
     for candidate in (path, path.with_name(args.profile + '.pending.json')):
         require_unlinked(candidate)
@@ -140,7 +157,7 @@ def needs_preparation(project, args, *, before_lock=False, observed_runtime=None
     if not before_lock:
         args.progress('Bağımlılık kurulum kayıtları denetleniyor' if developer else
                       'Kurulu Python ve frontend bağımlılıklarının dosyaları doğrulanıyor')
-    state = {}
+    state = {} if observed_backend is None else observed_backend
     options = {'validation_policy': 'developer'} if developer else {}
     checks.extend(_core_checks(project, profile, before_lock=before_lock, observed_backend=state,
                                fail_invalid=True, managed_build=True, progress=args.progress, **options))
@@ -153,14 +170,20 @@ def _initial_action(args):
     from .operations import _project_for
     path = _profile_path(args)
     require_unlinked(path)
-    if path.exists():
-        return 'provision' if needs_preparation(_project_for('doctor', args, before_lock=True), args,
-                                               before_lock=True) else 'start'
     pending = path.with_name(args.profile + '.pending.json')
     require_unlinked(pending)
-    if not pending.exists():
-        profiles.require_new_environment(path.with_name(args.profile + '.env'))
-        _require_new_production_settings(args)
+    if pending.exists() or getattr(args, '_automatic_port_conflicts', ()):
+        return 'provision'
+    if path.exists():
+        # Normal opens can take the start leases immediately. If something
+        # changed, claimed() releases them and requests preparation leases.
+        # Explicit prod media still needs the preliminary staging decision.
+        if args.validation_policy == 'developer' and (args.profile == 'dev' or args.source_selection == 'automatic'):
+            return 'start'
+        return 'provision' if needs_preparation(_project_for('doctor', args, before_lock=True), args,
+                                               before_lock=True) else 'start'
+    profiles.require_new_environment(path.with_name(args.profile + '.env'))
+    _require_new_production_settings(args)
     return 'provision'
 
 
@@ -244,15 +267,16 @@ def prepare_connection(project, args):
 
 def claimed(project, action, args, emit):
     """The branch decision is revalidated after its OS-owned leases are acquired."""
-    observed_runtime = {}
-    required = 'provision' if needs_preparation(project, args, observed_runtime=observed_runtime) else 'start'
+    observed_runtime, backend = {}, {}
+    observations = {'observed_runtime': observed_runtime, 'observed_backend': backend}
+    required = 'provision' if needs_preparation(project, args, **observations) else 'start'
     if action != required:
         raise Replan(required)
     emit({'type': 'resources', 'action': action, 'source_root': str(project.root),
           'validation_policy': getattr(args, 'validation_policy', 'managed')})
     if action == 'provision':
         updated = prepare_connection(project, args)
-        if updated and not needs_preparation(project, args, observed_runtime=observed_runtime):
+        if updated and not needs_preparation(project, args, **observations):
             action = 'start'
     from .operations import _run_lifecycle
     if action == 'start' and observed_runtime:
@@ -260,5 +284,7 @@ def claimed(project, action, args, emit):
         # These are the same leases used by the decision above. Provision may
         # change runtimes, so only the confirmed start branch can share proof.
         with verified_toolchain_scope(**observed_runtime):
-            return _run_lifecycle(project, action, args, emit, ensured=True)
+            schema_checked = (args.profile == 'dev' and args.validation_policy == 'developer'
+                              and backend.get('dev_schema_checked') is True)
+            return _run_lifecycle(project, action, args, emit, ensured=True, dev_schema_checked=schema_checked)
     _run_lifecycle(project, action, args, emit, ensured=True)

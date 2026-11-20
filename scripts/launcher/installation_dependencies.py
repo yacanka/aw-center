@@ -228,7 +228,7 @@ def _developer_stage_current(project, name, target, lock, required):
         raise DependencyIntegrityError(target) from None
 
 
-def dependency_checks(project, *, verify=True, fail_invalid=False, developer=False):
+def dependency_checks(project, *, verify=True, fail_invalid=False, developer=False, use_local_packages=False):
     rows = []
     for name, target, lock, label in (
             ('python-packages', project.venv, project.requirements, 'Python'),
@@ -237,6 +237,9 @@ def dependency_checks(project, *, verify=True, fail_invalid=False, developer=Fal
             if developer:
                 required = project.python if name == 'python-packages' else target / 'vite/bin/vite.js'
                 current = _developer_stage_current(project, name, target, lock, required)
+                if use_local_packages and not current:
+                    from .developer_readiness import local_stage_current
+                    current = local_stage_current(project, name, target, lock, required)
             else:
                 current = _stage_current(target, lock, verify=verify)
             status = 'ready' if current else 'missing'
@@ -735,8 +738,8 @@ def _frontend_packages(project: Project, settings: SourceSettings, tool_env: dic
                        "--no-audit", "--no-fund"], project, tool_env), "Frontend paket kurulumu")
 
 
-def _legacy_venv_matches(project, expected_python):
-    """Permit preserving a compatible legacy CLI venv without running its contents."""
+def _legacy_venv_matches(project, expected_python, *, require_home=False):
+    """Match venv metadata without executing it. Reuse also requires the same base home."""
     from .installation_permissions import require_unlinked
     config = project.venv / 'pyvenv.cfg'
     require_unlinked(config)
@@ -746,10 +749,84 @@ def _legacy_venv_matches(project, expected_python):
         lines = config.read_text(encoding='utf-8').splitlines()
     except (OSError, UnicodeError):
         return False
-    executables = [value.strip() for key, sep, value in (line.partition('=') for line in lines)
-                   if sep and key.strip() == 'executable']
-    return (len(executables) == 1 and
-            os.path.normcase(executables[0]) == os.path.normcase(str(expected_python.resolve())))
+    expected = {'executable': expected_python.resolve()}
+    if require_home:
+        expected['home'] = expected['executable'].parent
+    for field, path in expected.items():
+        entries = [os.path.normcase(value.strip()) for key, sep, value in (line.partition('=') for line in lines)
+                   if sep and key.strip().casefold() == field]
+        if entries != [os.path.normcase(str(path))]:
+            return False
+    return True
+
+
+def _console_python_packages_match(project, expected_python, tool_env):
+    """Read installed distribution versions using the selected base Python."""
+    from .developer_readiness import venv_site_packages
+    from .installation_permissions import require_unlinked
+    if not expected_python or not _legacy_venv_matches(project, expected_python, require_home=True):
+        return False
+    if os.name == 'nt':
+        import filecmp
+        templates = (expected_python, expected_python.parent / 'Lib/venv/scripts/nt/python.exe')
+        if not any(path.is_file() and filecmp.cmp(project.python, path, shallow=False) for path in templates):
+            return False
+    site = venv_site_packages(project.venv)
+    require_unlinked(site)
+    if not site.is_dir() or project.requirements.stat().st_size > 1024 * 1024:
+        return False
+    probe = """
+from importlib.metadata import distributions
+from importlib.util import find_spec
+from pathlib import Path
+import sys
+if find_spec('pip') is None:
+    import ensurepip
+    sys.path.insert(0, str(next((Path(ensurepip.__file__).parent / '_bundled').glob('pip-*.whl'))))
+from pip._vendor.packaging.requirements import Requirement
+from pip._vendor.packaging.utils import canonicalize_name
+installed = {canonicalize_name(dist.metadata['Name']): dist.version
+             for dist in distributions(path=[sys.argv[1]])}
+for line in Path(sys.argv[2]).read_text(encoding='utf-8').splitlines():
+    line = line.strip()
+    if line and not line.startswith('#'):
+        req = Requirement(line)
+        if req.marker is None or req.marker.evaluate():
+            version = installed.get(canonicalize_name(req.name))
+            if not version or req.url or not req.specifier.contains(version, prereleases=True):
+                sys.exit(1)
+"""
+    return capture([expected_python, '-I', '-B', '-c', probe, site, project.requirements],
+                   project, tool_env, timeout=30).returncode == 0
+
+
+def _console_frontend_packages_match(lock, installed_lock):
+    """Compare npm's completed installation metadata, including optional platform packages."""
+    from .installation_bundle import _json_object
+    try:
+        expected = _json_object(lock).get('packages')
+        installed = _json_object(installed_lock).get('packages')
+    except LauncherError as error:
+        if isinstance(error.__cause__, OSError):
+            raise
+        return False
+    if not isinstance(expected, dict) or not isinstance(installed, dict) or 'node_modules/vite' not in installed:
+        return False
+    for name, package in expected.items():
+        if not name:
+            continue
+        if not isinstance(package, dict):
+            return False
+        if package.get('optional') and name not in installed:
+            # The Manager targets Windows x64. Vite's native bindings for
+            # that host are optional in the cross-platform npm lock.
+            if 'win32' not in package.get('os', []) or 'x64' not in package.get('cpu', ['x64']):
+                continue
+        actual = installed.get(name)
+        if (not isinstance(actual, dict) or not package.get('version') or
+                any(actual.get(field) != package.get(field) for field in ('version', 'integrity'))):
+            return False
+    return 'node_modules/vite' in expected
 
 
 def _prepare_package_venv(project, tool_env, settings, expected_python, repair, current):
@@ -772,7 +849,8 @@ def _prepare_package_venv(project, tool_env, settings, expected_python, repair, 
 
 def install_dependencies(project: Project, settings: SourceSettings, tool_env: dict, *, expected_python: Path | None = None,
                          repair_venv: bool = False, cache_root: Path | None = None,
-                         repair_packages: bool = False, reuse_current_packages: bool = False) -> None:
+                         repair_packages: bool = False, reuse_current_packages: bool = False,
+                         use_local_packages: bool = False) -> None:
     """Install locked packages; only local Manager opts into replacing invalid outputs.
 
     Only a safely inspected receipt/tree mismatch permits reinstalling an invalid
@@ -781,19 +859,31 @@ def install_dependencies(project: Project, settings: SourceSettings, tool_env: d
     """
     frontend = project.frontend / 'node_modules'
     frontend_lock = project.frontend / 'package-lock.json'
+    from .developer_readiness import local_stage_current
+
     def check_stage(name, label, target, lock, required, *, reinstall_invalid):
         if reuse_current_packages:
-            settings.report(f'{label} bağımlılıklarının kurulum kaydı denetleniyor')
             if _developer_stage_current(project, name, target, lock, required):
                 return True
-        settings.report(f'Kurulu {label} bağımlılıkları doğrulanıyor')
+        if use_local_packages:
+            def check_metadata(record):
+                if name == 'python-packages':
+                    return _console_python_packages_match(project, expected_python, tool_env)
+                return _console_frontend_packages_match(lock, record)
+            if local_stage_current(project, name, target, lock, required, check_metadata=check_metadata):
+                return True
+        if not reuse_current_packages or target.exists():
+            settings.report(f'Kurulu {label} bağımlılıkları doğrulanıyor')
         return _stage_current(target, lock, reinstall_invalid=reinstall_invalid)
 
     python_current = check_stage('python-packages', 'Python', project.venv, project.requirements,
                                  project.python, reinstall_invalid=repair_packages and expected_python is not None)
     frontend_current = check_stage('frontend-packages', 'frontend', frontend, frontend_lock,
                                    frontend / 'vite/bin/vite.js', reinstall_invalid=repair_packages)
-    python_current = _prepare_package_venv(project, tool_env, settings, expected_python, repair_venv, python_current)
+    prepared = _prepare_package_venv(project, tool_env, settings, expected_python, repair_venv, python_current)
+    # A base-interpreter change can move the previous venv during preparation.
+    python_current = prepared or (python_current and use_local_packages and local_stage_current(
+        project, 'python-packages', project.venv, project.requirements, project.python))
     if python_current:
         settings.report('Güncel Python kurulumu kullanılıyor')
     if frontend_current:

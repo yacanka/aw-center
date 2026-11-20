@@ -52,6 +52,18 @@ class LocalConfigurationTests(unittest.TestCase):
                    side_effect=lambda candidate, ports, **_options: {**ports, 'port_modes': candidate['port_modes']}):
             return self.apply(args, profile)
 
+    def test_first_manager_configuration_keeps_system_runtimes_for_provision_and_retry(self):
+        from scripts.launcher.runtime_selection import tool_choices
+        self.write()
+        python, node = self.root / 'python.exe', self.root / 'node.exe'
+        def request():
+            return self.args(manager_ensure=True, validation_policy='developer')
+        with patch('scripts.launcher.system_python.discover_python', return_value=python), \
+             patch('scripts.launcher.system_node.discover_node', return_value=node):
+            self.apply_without_port_probe(request())
+        saved = profiles.load_profile(self.project, 'dev', self.home)
+        self.assertEqual(tool_choices(request(), saved), {'python_executable': python, 'node_executable': node})
+
     def test_legacy_database_keys_survive_first_switch_and_return(self):
         legacy = profiles.provision_profile(self.project, 'dev', self.home)
         original = profiles.read_profile_environment(legacy)

@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import stat
 import json
+import sysconfig
 import tempfile
 
 from .installation_bundle import _json_object
@@ -43,6 +44,53 @@ def _publish(path: Path, document: dict) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def venv_site_packages(venv):
+    return Path(sysconfig.get_path('purelib', scheme='venv', vars={'base': str(venv), 'platbase': str(venv)}))
+
+
+def local_stage_current(project, name, target, lock, required, *, check_metadata=None):
+    """Reuse console-installed Dev packages. Only preparation can publish the hint."""
+    installer_record = target / ('pyvenv.cfg' if name == 'python-packages' else '.package-lock.json')
+    hint = project.root / '.runtime/developer-readiness' / (name + '.local.json')
+    for path in (hint, target / '.awcenter-packages.json', required, installer_record):
+        require_unlinked(path)
+    if (target / '.awcenter-packages.json').exists() or not lock:
+        return False
+    require_unlinked(lock)
+    if not all(path.is_file() for path in (lock, required, installer_record)):
+        return False
+    site = None
+    if name == 'python-packages':
+        marker = target / '.awcenter-creating.json'
+        require_unlinked(marker)
+        site = venv_site_packages(target)
+        require_unlinked(site)
+        if marker.exists() or not site.is_dir():
+            return False
+
+    def identity():
+        context = {'target': str(target.absolute()), 'lock': file_sha256(lock),
+                   'output': _receipt_identity(required), 'installer': _receipt_identity(installer_record)}
+        if site is not None:
+            info = site.stat()
+            context['site'] = [info.st_ino, info.st_mtime_ns]
+        return context
+
+    observed = identity()
+    if hint.is_file():
+        try:
+            if _json_object(hint, limit=16 * 1024) == observed:
+                return True
+        except LauncherError:
+            pass  # A generated hint can be reconstructed from installer metadata.
+    if check_metadata is None or not check_metadata(installer_record):
+        return False
+    if identity() != observed:
+        raise LauncherError('Yerel paket kaydı işlem sırasında değişti. Yeniden deneyin.')
+    _publish(hint, observed)
+    return True
 
 
 def stage_current(project, name: str, target: Path, lock: Path | None,

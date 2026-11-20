@@ -40,14 +40,15 @@ def private_directory(path: Path, *, root: Path | None = None, progress=None) ->
     return path
 
 
-def prepare_installation_storage(home: Path, *, progress=None) -> None:
+def prepare_installation_storage(home: Path, *, progress=None, check_writes=True) -> None:
     """Admit explicit startup before reading profiles or doing expensive work.
 
     Only managed directory ACLs are prepared here. Existing profile/env/database
     files retain strict read checks; no content or ownership is repaired.
     """
     if progress is not None:
-        progress('Kurulum alanı ve dosya yazma erişimi denetleniyor')
+        progress('Kurulum alanı ve dosya yazma erişimi denetleniyor' if check_writes else
+                 'Özel profil dizini açılıyor')
     require_local_ntfs(home)
     directories = [private_directory(home, root=home, progress=progress)]
     for name in ('config', 'locks'):
@@ -57,6 +58,8 @@ def prepare_installation_storage(home: Path, *, progress=None) -> None:
             private_directory(path, root=home, progress=progress)
             if name == 'config':
                 directories.append(path)
+    if not check_writes:
+        return
     for directory in directories:
         if progress is not None:
             progress('Kurulum alanının yazma ve atomik dosya değiştirme erişimi denetleniyor')

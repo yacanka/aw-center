@@ -74,16 +74,12 @@ frontend ile session-cookie kullanan API'nin hostlarını hizalar.
 
 `check` backend için Django system check, isolated in-memory migration drift/plan; frontend için format ve typecheck çalıştırır. `test` full Django, launcher/release metadata unittest'leri ve frontend `test:ci` çalıştırır.
 
-Manager'daki **Geliştirici modu — hızlı kontrol**, `dev`/`prod` profilinden ayrı,
-checkbox ile açılan bir doğrulama tercihidir; kaynak dizinini elle seçmek gerekmez.
-Kullanılacak kaynak yolu Manager'da gösterilir. Her iki profilin günlük
-başlatmasında tam kurulu dosya envanterleri yerine sınırlı araç/lock kontrolü
-kullanır. Profil/state ayrılığı, süreç kilitleri, `migrate --check` ve gerçek
-HTTP/worker hazırlığı korunur. Üretim sürümünün kaynak, TLS, deployment ve
-frontend çıktı kontrolleri sürer. İlk üretim hazırlığı, indirme/kurulum ve
-**Tam doğrula** (`doctor`) kapsamlı kontrollerini sürdürür. Tercih Manager
-üzerinden uygulanır. Ayrıntılar [Windows Manager](windows-manager.md)
-rehberindedir.
+Manager her iki profilde de hızlı açılışı varsayılan olarak kullanır. Güncel
+paketleri kurulum kayıtlarından tanır. Dev'de seçili veritabanının şema ve
+yönetici durumunu okur. Prod'da kaynak, TLS, deployment, migration, static
+ve frontend çıktısı kontrollerini çalıştırır. Tarayıcı web ve worker hazır
+olduğunda açılır. Bir defalık kapsamlı denetim için **Ayrıntılar → Tam
+doğrula** eylemini kullanabilirsiniz. [Windows Manager rehberi](windows-manager.md)
 
 `npm --prefix frontend run predev` Mermaid renderer için geliştirme önbelleğini
 kullanır. Yeniden kullanım yalnız girdi kimliği ve çıktı özeti eşleştiğinde

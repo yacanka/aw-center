@@ -467,3 +467,18 @@ class ReadOnlyProbeTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(json.loads(completed.stdout)['schema'], 'missing')
             self.assertEqual(list(root.iterdir()), [])
+
+    def test_startup_probe_omits_backup_and_integration_details(self):
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            environment = {**os.environ, 'AWCENTER_ENV_FILE': os.devnull,
+                           'SECRET_KEY': 'isolated-probe-fixture', 'DEBUG': 'True',
+                           'DATABASE_URL': 'sqlite:///' + (root / 'absent/db.sqlite3').as_posix(),
+                           'AWCENTER_MANAGER_STARTUP_INSPECTION': '1', 'PYTHONDONTWRITEBYTECODE': '1'}
+            completed = subprocess.run([sys.executable, '-m', 'scripts.launcher.installation_probe', 'inspect'],
+                cwd=Path(__file__).resolve().parents[1], env=environment, capture_output=True, text=True, check=True)
+            self.assertEqual(json.loads(completed.stdout), {'schema': 'missing', 'admin_exists': None,
+                                                           'auto_migrate_safe': False})
+            self.assertFalse((root / 'absent').exists())

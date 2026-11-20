@@ -62,11 +62,14 @@ def source_settings(args, project: Project | None = None) -> SourceSettings:
                           ca_file=Path(getattr(args, "ca_file", None) or saved["ca_file"]) if getattr(args, "ca_file", None) or saved.get("ca_file") else None)
 
 
-def backend_inspection(project: Project, profile: dict) -> dict:
+def backend_inspection(project: Project, profile: dict, *, startup_only=False) -> dict:
     """Read a bounded, declared JSON result; do not expose stderr or raw configuration."""
     if not project.python.is_file():
         return {"schema": "error", "admin_exists": None, "diagnostics": []}
-    values = environment({**profile_environment(profile), "PYTHONDONTWRITEBYTECODE": "1"})
+    # Previously installed releases understand the same inspect command and
+    # return the full compatible result when they do not recognize this hint.
+    values = environment({**profile_environment(profile), "PYTHONDONTWRITEBYTECODE": "1",
+                          "AWCENTER_MANAGER_STARTUP_INSPECTION": "1" if startup_only else "0"})
     try:
         result = controlled_run([str(project.python), "-m", "scripts.launcher.installation_probe", "inspect"],
                                 cwd=project.root, env=values, text=True, capture_output=True,
@@ -92,13 +95,16 @@ def _core_checks(project: Project, profile: dict, *, observed_backend=None, befo
     if any(check["status"] == "blocked" for check in checks):
         return checks
     options = {'developer': True} if developer else {}
+    if developer and profile['name'] == 'dev':
+        options['use_local_packages'] = True
     packages = dependency_checks(project, verify=not before_lock, fail_invalid=fail_invalid, **options)
     checks.extend(packages)
     if before_lock or packages[0]['status'] != 'ready':
         return checks
     if progress is not None:
         progress('Veritabanı şeması ve yönetici kaydı denetleniyor')
-    backend = backend_inspection(project, profile)
+    probe_options = {'startup_only': True} if developer and observed_backend is not None else {}
+    backend = backend_inspection(project, profile, **probe_options)
     if observed_backend is not None:
         observed_backend.update(backend)
     state = backend["schema"]
@@ -331,10 +337,9 @@ def _provision(project: Project, args) -> list[dict]:
         phase("kilitli bağımlılıklar")
         fast_manager = (getattr(args, 'manager_ensure', False) and
                         getattr(args, 'validation_policy', 'managed') == 'developer')
-        reuse_current_packages = fast_manager and args.profile == 'prod' and existing is not None
-        repair_packages = fast_manager and args.profile == 'dev'
-        package_options = {'repair_packages': True} if repair_packages else {}
-        if reuse_current_packages:
+        local_packages = fast_manager and args.profile == 'dev'
+        package_options = {'repair_packages': True, 'use_local_packages': True} if local_packages else {}
+        if fast_manager and (local_packages or existing is not None):
             package_options['reuse_current_packages'] = True
         install_dependencies(project, settings, tool_env,
                              expected_python=Path(tool_env['AWCENTER_MANAGED_PYTHON']),
@@ -395,7 +400,7 @@ def _provision(project: Project, args) -> list[dict]:
             else:
                 build()
                 deploy()
-        check_options = {'validation_policy': 'developer'} if repair_packages or reuse_current_packages else {}
+        check_options = {'validation_policy': 'developer'} if package_options else {}
         checks = _core_checks(project, profile, **check_options) + features
         save_report(home, profile["name"], checks)
         return checks
@@ -421,7 +426,7 @@ def _worker_ready(project: Project, directory: Path) -> bool:
 
 
 def start_profile(project: Project, name: str, *, on_ready=None, on_health=None,
-                  validation_policy='managed') -> None:
+                  validation_policy='managed', dev_schema_checked=False) -> None:
     require_validation_policy(validation_policy, profile=name)
     require_windows()
     from .resource_locks import lifecycle_locks
@@ -432,11 +437,13 @@ def start_profile(project: Project, name: str, *, on_ready=None, on_health=None,
     require_local_ntfs(home)
     with lifecycle_locks(home, project, name):
         options = {'validation_policy': validation_policy} if validation_policy != 'managed' else {}
+        if dev_schema_checked:
+            options['dev_schema_checked'] = True
         _start_profile(project, name, on_ready=on_ready, on_health=on_health, **options)
 
 
 def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None,
-                   validation_policy='managed') -> None:
+                   validation_policy='managed', dev_schema_checked=False) -> None:
     developer = require_validation_policy(validation_policy, profile=name) == 'developer'
     require_windows()
     profile = load_profile(project, name)
@@ -455,8 +462,9 @@ def _start_profile(project: Project, name: str, *, on_ready=None, on_health=None
         pointers = {key: selected[key] for key in ("AWCENTER_ENV_FILE", "DJANGO_SETTINGS_MODULE") if key in selected}
         values = {**tools, **pointers, **feature_environment(project, profile, **options)}
     with process_environment(values), runtime_session(profile) as directory:
-        if name == "dev":
-            # runtime.prod performs this check with its validated production environment.
+        if name == "dev" and not (developer and dev_schema_checked):
+            # A Manager fast start has already checked the live SQLite migration
+            # graph under this same lease. Standalone starts check it here.
             progress('Başlatma: veritabanı şeması doğrulanıyor')
             _django(project, profile, ["migrate", "--check"], {})
         def ready(processes):

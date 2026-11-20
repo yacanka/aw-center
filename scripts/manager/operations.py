@@ -246,7 +246,7 @@ def execute(request, emit, admin_provider, stop):
             'system_io_failed': 'Rapordaki son aşama ve sayısal sistem kodunu kullanarak disk veya çalıştırma erişimini kontrol edin; tamamlanan aşamalar korunur.',
             'port_unavailable': 'Gelişmiş ayarlarda ilgili alan için kullanılabilir bir port seçin. Geliştirme profilinde auto da kullanılabilir.',
             'connection_override_invalid': 'Gelişmiş bağlantı ayarlarını ve varsa özel .env içindeki origin/reset/invitation adreslerini birlikte kontrol edin.',
-            'production_settings_required': 'Gelişmiş bağlantı ayarlarında belirtilen alanları doldurup AW Center’ı aç düğmesine basın.',
+            'production_settings_required': 'Ana ekranda eksik IPv4, TLS sertifikası veya özel anahtar alanını doldurup AW Center’ı aç düğmesine basın.',
             'manager_distribution_required': 'Aynı sürümden Windows Manager ZIP paketinin tamamını çıkarın. Kaynak çalıştırmada Windows Manager paketi alanını seçin; EXE ile açıldığında dağıtım otomatik bulunur.',
             'bundle_output_invalid': 'Çıktı için bir klasör seçin veya alanı boş bırakın; mevcut dosyalar korunarak yeni bir paket dizini oluşturulur.',
             'storage_path_unsafe': 'Bağlantı / junction içermeyen yerel bir klasör kullanın. Mevcut profil ve veritabanını silmeyin.',
@@ -390,15 +390,17 @@ def _bundle_output(args, home, source):
 
 
 def _dispatch(action, args, emit):
-    if action in {'ensure', 'provision', 'start', 'bundle'} and not getattr(args, '_storage_prepared', False):
+    if action in {'ensure', 'provision', 'start', 'bundle'}:
         from scripts.launcher.installation_profiles import installation_home
         from scripts.launcher.installation_state import prepare_installation_storage
-        prepare_installation_storage(installation_home(), progress=args.progress)
-        args._storage_prepared = True
+        storage_check = 'write' if action in {'provision', 'bundle'} or args.validation_policy == 'managed' else 'access'
+        if getattr(args, '_storage_check', None) not in {storage_check, 'write'}:
+            prepare_installation_storage(installation_home(), progress=args.progress, check_writes=storage_check == 'write')
+            args._storage_check = storage_check
     if action == 'ensure':
         from .ensure import run
         return run(args, emit)
-    if action in {'start', 'doctor'}:
+    if action in {'start', 'doctor'} and not getattr(args, 'manager_ensure', False):
         # Match inspection/ensure: updated media is not a new installed profile.
         # Resolve before start's leases so they protect the recorded source.
         from .ensure import resolve_source
@@ -449,7 +451,7 @@ def _dispatch_claimed(action, args, emit):
         run(args, emit)
         return
     project = _project_for(action, args)
-    if args.env_file and action in {'start', 'doctor'}:
+    if args.env_file and action in {'start', 'doctor'} and not getattr(args, 'manager_ensure', False):
         from scripts.launcher.installation_profiles import load_profile
         _check_environment_source(project, load_profile(project, args.profile), args)
     if action == 'doctor':
@@ -518,7 +520,7 @@ def _lifecycle(project, action, args, emit):
         _run_lifecycle(project, action, args, emit)
 
 
-def _run_lifecycle(project, action, args, emit, *, ensured=False):
+def _run_lifecycle(project, action, args, emit, *, ensured=False, dev_schema_checked=False):
     if getattr(args, 'manager_ensure', False) and not ensured:
         from .ensure import claimed
         return claimed(project, action, args, emit)
@@ -549,4 +551,6 @@ def _run_lifecycle(project, action, args, emit, *, ensured=False):
             else:
                 emit(event)
         options = {'validation_policy': 'developer'} if getattr(args, 'validation_policy', 'managed') == 'developer' else {}
+        if dev_schema_checked:
+            options['dev_schema_checked'] = True
         start_profile(project, args.profile, on_ready=ready, on_health=lifecycle_event, **options)

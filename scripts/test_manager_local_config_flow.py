@@ -70,7 +70,7 @@ class LocalConfigurationFlowTests(unittest.TestCase):
         def provision(project, args):
             profiles.provision_profile(project, 'dev', self.home)
             return []
-        def start(project, name, *, on_ready, on_health):
+        def start(project, name, *, on_ready, on_health, validation_policy='managed'):
             profile = profiles.load_profile(project, name, self.home)
             self.launches.append((profile, profiles.read_profile_environment(profile)))
             on_ready(profile)
@@ -102,7 +102,7 @@ class LocalConfigurationFlowTests(unittest.TestCase):
         self.source_env.write_text('PORT=18003\nDEV_FRONTEND_PORT=15174\nEMAIL_HOST=first.example.invalid\n')
         first, before = self.run_manager()
         self.source_env.write_text('PORT=18004\nDEV_FRONTEND_PORT=15174\n')
-        second, after = self.run_manager()
+        second, after = self.run_manager(validation_policy='developer')
         self.assertEqual(first['backend_port'], 18003)
         self.assertEqual(second['backend_port'], 18004)
         self.assertEqual(before['EMAIL_HOST'], 'first.example.invalid')
