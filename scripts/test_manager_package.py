@@ -209,11 +209,12 @@ class NativeWindowsPackageTests(unittest.TestCase):
                 stream.close()
 
     def next_event(self, child, events, deadline):
+        from scripts.manager.transport import EVENT_TYPES
         while time.monotonic() < deadline:
             try:
                 event = events.get(timeout=1)
                 self.assertIsNotNone(event, 'Packaged worker exited before its completion event')
-                self.assertIn(event.get('type'), {'phase', 'status', 'checks', 'ready', 'error', 'input', 'done', 'health', 'profile', 'resources'})
+                self.assertIn(event.get('type'), EVENT_TYPES)
                 if event['type'] in {'phase', 'ready', 'error', 'done'}:
                     # Never print message, input, environment or process output.
                     print(f"[native] {event['type']}; {max(0, int(deadline - time.monotonic()))}s remaining", flush=True)
