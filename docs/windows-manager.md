@@ -15,7 +15,7 @@ akışta ele alınır. İlk aktif yönetici yoksa kullanıcı adı ve parola sor
 Hazır ortam yeniden kurulmadan açılır. Pencerenin açılması tek başına kurulum,
 migration veya sunucu başlatmaz.
 
-Ana ekran profilin durumunu, tek ana eylemi, kaynak yolunu ve geliştirici modu
+Ana ekran profilin durumunu, tek ana eylemi ve kapsamlı denetim
 seçimini gösterir. İlerleme ana ekranda seçili profilin açılışını takip eder;
 başka bir raporu seçmek bu ilerlemeyi değiştirmez. **Ayrıntılar** görünümünde
 mevcut işlemler, geçmiş raporlar, bildirimler ve seçili işlemi durdurma bulunur.
@@ -33,42 +33,19 @@ düzeltilemeyen gerçek hatalar kullanıcı girdisi gerektirmeye devam eder.
 
 ## Hızlı açılış
 
-Ana ekranda **Geliştirici modu — hızlı kontrol** seçimini açın. Kaynak
-dizini seçmeniz gerekmez; checkbox'ın yanında kullanılacak kaynak yolu gösterilir.
-Otomatik seçim kayıtlı profilin kaynağını, profil yoksa Manager'ın algıladığı
-kaynağı kullanır. İsterseniz farklı bir kaynak dizini seçebilirsiniz. Bu seçenek
-`dev` ve `prod` profillerinde kullanılabilir. Ana **AW Center’ı aç**, durdurma ve tarayıcıda açma
-eylemleri aynı kalır. Etkin çalışma biçimi ana durum bilgisinde görünür;
-çalışan ortamın seçimini değiştirmek mevcut durdur/uygula/aç akışını kullanır.
+**Kapsamlı denetimleri çalıştır** kutusu ilk açılışta kapalıdır. Eski ayarlardan
+geçişte de hızlı kontrol kullanılır. Kutu seçimi aynı kaynak ve profille yeniden
+açılışta hatırlanır. Kaynak yolunu **Gelişmiş ayarları göster** altında görebilir
+ve değiştirebilirsiniz.
 
-Geliştirici modunda pencere açılışı yalnız profil kayıtlarını okur. Günlük
-başlatmada Python/Node kimliği, bağımlılık lock bilgileri, şema durumu, portlar
-ve gerçek web/worker hazırlığı denetlenir. `.venv`, `node_modules`, runtime ve
-isteğe bağlı araçların bütün dosyaları her açılışta tekrar taranmaz. Kaynak kod
-ve aynı lock altında yerel bağımlılık değişiklikleri geliştirme sırasında
-beklenen davranıştır. Hızlı kontrol tam dosya bütünlüğü kanıtı üretmez.
+Günlük açılışta Manager kayıtlı profili, araç kimliklerini, bağımlılık
+kilitlerini, şemayı ve web/worker hazırlığını kontrol eder. Hazır yerel
+ortamda kaynak, runtime, `.venv` ve `node_modules` dosyalarının tamamını
+yeniden taramaz. İlk kurulumda paket bütünlüğü doğrulanır. Üretimde kaynak
+bütünlüğü, TLS, Django dağıtım kontrolleri ve frontend çıktısı doğrulanır.
 
-Üretimde hızlı açılış, kayıtlı sürümün kaynak bütünlüğünü, TLS kimliğini,
-Django dağıtım kontrollerini, güncel şemayı ve frontend çıktısını doğrular.
-İlk üretim hazırlığı kapsamlı kurulum kontrollerini çalıştırır.
-Kayıtlı üretim profili yeniden hazırlık gerektirirse hızlı mod, güncel paket
-kurulumlarını kurulum kayıtlarından tanır ve yalnız eksik veya güncel olmayan
-paket aşamalarını hazırlar.
-
-**Tam doğrula**, geliştirici modu seçiliyken de mevcut kapsamlı runtime ve
-bağımlılık denetimlerini çalıştırır; ayrı kaynak bağlantısı sınaması veya tam
-test paketi çalıştırmaz. İlk kurulum ve bağımlılık güncellemesi mevcut edinim
-ve bütünlük kontrollerini korur. Manager kurulum kaydı olmayan elle hazırlanmış
-bir ortam ilk kullanımda bir defalık hazırlık isteyebilir. Lock değiştiğinde
-ilgili bağımlılık aşaması güncellenir. `dev` profilinde hızlı modla hazırlığın sonunda aynı
-bağımlılık ağaçları rapor üretmek için tekrar taranmaz; tamamlanan kurulumun
-güncellik kayıtları ve güncel veritabanı durumu kullanılır.
-
-Tercih aynı kaynak için hatırlanır; kaynak, profil veya paket bağlamı değişince
-sıfırlanır. Yeni ve eski ayarların varsayılanı yönetilen kullanımdır.
-Geliştirici modu seçimini kapatmak kapsamlı dosya
-kontrollerini yeniden çalıştırır; mevcut hesaplar, anahtarlar ve veritabanı
-değişmez.
+Her açılışta kapsamlı dosya denetimi için kutuyu işaretleyin. Tek seferlik
+doğrulama için **Ayrıntılar → Tam doğrula** eylemini kullanın.
 
 Frontend geliştirme başlangıcında Mermaid renderer girdileri aynıysa doğrulanmış
 yerel çıktı yeniden kullanılır. Renderer kaynakları/yerel importları, lock veya
@@ -768,13 +745,13 @@ arşivleri `cache\runtimes`, kurulu yönetilen araçlar `runtimes\<ad>-<sürüm>
 altındadır. Hazır kurulumu açma işlemi paket hazırlığını çağırmaz.
 
 **AW Center’ı aç** önce gerekli işlem kilidini seçer. Hazır profilin değişmemiş
-bağımlılıkları için bu ilk kararda Django başlatılmaz. Açık geliştirici seçiminde
+bağımlılıkları için bu ilk kararda Django başlatılmaz. Varsayılan hızlı kontrolde
 kilit alındığında paket kurulum kayıtları, kaynak lock dosyaları ve zorunlu
 Python/Vite çıktıları kontrol edilir; `.venv` ve `node_modules` içeriklerinin
-tamamı yeniden hash’lenmez. Yönetilen yerel kullanım ve üretim kapsamlı dosya
-doğrulamasını korur. Şema ve yönetici için tek bir Django incelemesi yapılır.
-Paketlerin ayrıntılı bütünlük taraması kurulum ve **Tam doğrula / Durumu denetle**
-sırasında da sürer. Aynı kilit altında doğrulanmış Python/Node/npm sonucu, hemen ardından
+tamamı yeniden hash’lenmez. **Kapsamlı denetimleri çalıştır** seçimi kurulu
+dosyaların bütünlüğünü de doğrular. Şema ve yönetici için tek bir Django
+incelemesi yapılır. Kurulumda ve **Tam doğrula** sırasında paketler ayrıntılı
+olarak denetlenir. Aynı kilit altında doğrulanmış Python/Node/npm sonucu, hemen ardından
 başlatılırken yeniden taranmaz; başka işlem veya kilit aralığında kullanılmaz.
 Durum değişmişse Manager uygun kilidi alıp kararı yeniden doğrular.
 

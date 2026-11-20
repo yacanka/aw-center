@@ -28,6 +28,19 @@ class PreferencesTests(unittest.TestCase):
                 self.preferences.save_preferences(self.home, {**base, **changes})
                 self.assertEqual(self.preferences.load_preferences(self.home)['validation_policy'], 'developer')
 
+    def test_old_managed_default_requires_new_explicit_opt_in(self):
+        from scripts.manager.view_model import normalize_values
+        self.preferences.save_preferences(self.home, {'validation_policy': 'managed'})
+        path = self.home / 'manager.json'
+        document = json.loads(path.read_text())
+        for version in (1, 2):
+            document['version'] = version
+            path.write_text(json.dumps(document))
+            values = self.preferences.load_preferences(self.home)
+            self.assertEqual(normalize_values('ensure', values)['validation_policy'], 'developer')
+        self.preferences.save_preferences(self.home, {'validation_policy': 'managed'})
+        self.assertEqual(self.preferences.load_preferences(self.home)['validation_policy'], 'managed')
+
     def test_unknown_policy_is_discarded(self):
         self.preferences.save_preferences(self.home, {'profile': 'prod', 'validation_policy': 'unknown'})
         self.assertNotIn('validation_policy', self.preferences.load_preferences(self.home))

@@ -1,4 +1,4 @@
-"""Developer validation is an explicit policy choice, never an implicit default."""
+"""Desktop validation defaults and launcher admission contracts."""
 import importlib
 import unittest
 from pathlib import Path
@@ -14,9 +14,9 @@ class ValidationPolicyTests(unittest.TestCase):
         helper = importlib.import_module('scripts.launcher.validation_policy')
         return helper.require_validation_policy(*args, **kwargs)
 
-    def test_missing_policy_defaults_to_managed(self):
+    def test_only_desktop_defaults_to_fast_validation(self):
         self.assertEqual(self.policy(), 'managed')
-        self.assertEqual(normalize_values('start', {})['validation_policy'], 'managed')
+        self.assertEqual(normalize_values('start', {})['validation_policy'], 'developer')
 
     def test_unknown_policies_are_safe_structured_errors(self):
         for value in ('', None, False, [], 'Developer', 'unknown-token=secret'):
@@ -62,7 +62,7 @@ class ValidationPolicyTests(unittest.TestCase):
         for value in (None, [], False, 'unknown'):
             with self.subTest(value=value):
                 restored = paths.startup_values({'validation_policy': value}, None)
-                self.assertEqual(restored['validation_policy'], 'managed')
+                self.assertEqual(restored['validation_policy'], 'developer')
 
     def test_startup_retains_developer_with_automatic_source(self):
         for profile in ('dev', 'prod'):
@@ -70,24 +70,24 @@ class ValidationPolicyTests(unittest.TestCase):
                 saved = {'profile': profile, 'source_selection': 'automatic', 'validation_policy': 'developer'}
                 self.assertEqual(paths.startup_values(saved, None)['validation_policy'], 'developer')
 
-    def test_startup_source_override_resets_developer_but_same_source_retains_it(self):
+    def test_startup_source_override_resets_full_validation_but_same_source_retains_it(self):
         saved = {'source_root': '/source', 'source_selection': 'explicit', 'profile': 'dev',
-                 'validation_policy': 'developer'}
-        self.assertEqual(paths.startup_values(saved, None)['validation_policy'], 'developer')
-        self.assertEqual(paths.startup_values(saved, Path('/source'))['validation_policy'], 'developer')
-        self.assertEqual(paths.startup_values(saved, Path('/different'))['validation_policy'], 'managed')
+                 'validation_policy': 'managed'}
+        self.assertEqual(paths.startup_values(saved, None)['validation_policy'], 'managed')
+        self.assertEqual(paths.startup_values(saved, Path('/source'))['validation_policy'], 'managed')
+        self.assertEqual(paths.startup_values(saved, Path('/different'))['validation_policy'], 'developer')
 
-    def test_new_media_context_resets_developer_even_when_restoring_prior_context(self):
+    def test_returning_media_restores_its_explicit_policy(self):
         import hashlib
         import json
         import tempfile
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
+            directory = Path(temporary).resolve()
             (directory / 'manager-manifest.json').write_text(json.dumps({'format_version': 2, 'complete': True}))
             context = hashlib.sha256(('\0'.join([str(directory), ''])).encode()).hexdigest()
-            saved = {'_media_context': 'a' * 64, 'validation_policy': 'developer',
+            saved = {'_media_context': 'a' * 64, 'validation_policy': 'managed',
                      '_contexts': {context: {'source_root': '/source', 'source_selection': 'explicit',
-                                            'profile': 'dev', 'validation_policy': 'developer'}}}
+                                            'profile': 'dev', 'validation_policy': 'managed'}}}
             with patch.object(paths.sys, 'frozen', True, create=True), \
                  patch.object(paths.sys, 'executable', str(directory / 'manager.exe')):
                 self.assertEqual(paths.startup_values(saved, None)['validation_policy'], 'managed')

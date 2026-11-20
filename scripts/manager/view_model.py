@@ -21,7 +21,7 @@ DEFAULT_VALUES = {
     "bundle_host_python": False, "bundle_host_node": False, "bundle_import": "",
     "output": "", "env_file": "", "manager_distribution": "",
     "source_selection": "automatic",
-    "validation_policy": "managed",
+    "validation_policy": "developer",
 }
 SOURCE_ACTIONS = {"provision", "ensure", "test-sources", "bundle"}
 CHECK_LABELS = {

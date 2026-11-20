@@ -66,8 +66,8 @@ class ControllerTests(unittest.TestCase):
 
     def test_missing_policy_is_explicit_in_worker_snapshot(self):
         task_id = self.start('start')
-        self.assertEqual(self.sessions[-1].request['validation_policy'], 'managed')
-        self.assertEqual(self.controller.tasks[task_id].snapshot()['values']['validation_policy'], 'managed')
+        self.assertEqual(self.sessions[-1].request['validation_policy'], 'developer')
+        self.assertEqual(self.controller.tasks[task_id].snapshot()['values']['validation_policy'], 'developer')
 
     def test_worker_snapshot_drops_obsolete_gui_migration_settings(self):
         task_id = self.start('ensure', migrate=True, migration_policy='confirm')

@@ -138,7 +138,7 @@ def needs_preparation(project, args, *, before_lock=False, observed_runtime=None
         observed_runtime.update(home=home, checks=[dict(row) for row in checks], verify=not developer,
                                 **runtime_options, **runtime_paths)
     if not before_lock:
-        args.progress('Geliştirici modu — bağımlılık kayıtları denetleniyor' if developer else
+        args.progress('Bağımlılık kurulum kayıtları denetleniyor' if developer else
                       'Kurulu Python ve frontend bağımlılıklarının dosyaları doğrulanıyor')
     state = {}
     options = {'validation_policy': 'developer'} if developer else {}

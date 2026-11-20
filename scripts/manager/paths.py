@@ -62,17 +62,17 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
                             if mode != 'corporate':
                                 values.update(python_index_url='', npm_registry_url='')
                     if previous != context:
-                        values['validation_policy'] = 'managed'
+                        values['validation_policy'] = history.get(context, {}).get('validation_policy', 'developer')
                     values.update(_media_context=context, _contexts=history)
         except (OSError, ValueError, AttributeError):
             pass  # No claim of verified readiness until worker inspection.
     if explicit_root is not None:
         if str(explicit_root) != values.get('source_root'):
-            values['validation_policy'] = 'managed'
+            values['validation_policy'] = 'developer'
         values['source_root'] = str(explicit_root)
         values['source_selection'] = 'explicit'
-    if values.get('validation_policy', 'managed') not in ('managed', 'developer'):
-        values['validation_policy'] = 'managed'
+    if values.get('validation_policy', 'developer') not in ('managed', 'developer'):
+        values['validation_policy'] = 'developer'
     return values
 
 

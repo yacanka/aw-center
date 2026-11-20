@@ -32,7 +32,7 @@ def _metadata_inspection(args, home, path, emit):
     emit({'type': 'profile', 'profile': args.profile, 'status': status, 'tools': tools,
           'source_root': str(args.source_root),
           'validation_policy': 'developer', 'checks': [],
-          'detail': 'Geliştirici modu — hızlı kontrol. Yalnız profil kayıtları okundu; bağımlılıklar ve şema açılışta denetlenir.'})
+          'detail': 'Hızlı kontrol. Yalnız profil kayıtları okundu; bağımlılıklar ve şema açılışta denetlenir.'})
 
 
 def inspect_profile(args, emit):

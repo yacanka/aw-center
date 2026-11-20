@@ -197,7 +197,7 @@ class ManagerWindow:
         self._inspection_job = self.root.after(250, inspect)
 
     def _source_changed(self):
-        self.variables['validation_policy'].set('managed')
+        self.variables['validation_policy'].set('developer')
         self.variables['source_selection'].set('explicit' if self.variables['source_root'].get().strip() else 'automatic')
         self._detected_sources.clear()
         self._update_source_path()
@@ -516,12 +516,9 @@ class ManagerWindow:
         source_info = ttk.Frame(parent, style='Manager.TFrame')
         source_info.grid(row=1, column=0, sticky='ew', pady=(0, 12))
         source_info.columnconfigure(0, weight=1)
-        self.source_path_label = self._label(source_info, textvariable=self.source_path_var,
-                                             style='Manager.Muted.TLabel')
-        self.source_path_label.grid(row=0, column=0, sticky='ew')
         self.validation_selector = ttk.Checkbutton(
-            source_info, text='Geliştirici modu — hızlı kontrol',
-            variable=self.variables['validation_policy'], onvalue='developer', offvalue='managed',
+            source_info, text='Kapsamlı denetimleri çalıştır',
+            variable=self.variables['validation_policy'], onvalue='managed', offvalue='developer',
             style='Manager.TCheckbutton')
         self.validation_selector.grid(row=1, column=0, sticky='w', pady=(8, 0))
         self._controls.append(self.validation_selector)
@@ -540,6 +537,8 @@ class ManagerWindow:
         source = ttk.Frame(paths, style="Manager.Panel.TFrame")
         source.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         source.columnconfigure(1, weight=1)
+        self.source_path_label = self._label(source, textvariable=self.source_path_var, style='Manager.Muted.TLabel')
+        self.source_path_label.grid(row=3, column=0, columnspan=3, sticky='ew')
         self._entry(source, 1, "source_root", "Proje kaynak dizini", tab=self.run_tab, picker="directory", stacked=True)
         self._label(source, "Kayıtlı kurulumu kullanmak için boş bırakın. Git deposunu seçmek depodaki sürümü seçer; kurulu prod'u otomatik güncellemez.",
                     style="Manager.Muted.TLabel").grid(row=2, column=0, columnspan=3, sticky="ew")
@@ -605,7 +604,7 @@ class ManagerWindow:
         self._set_advanced(not self.advanced_var.get())
 
     def _profile_changed(self):
-        self.variables['validation_policy'].set('managed')
+        self.variables['validation_policy'].set('developer')
         self._update_source_path()
         self._refresh()
         self._schedule_inspection()
@@ -661,7 +660,7 @@ class ManagerWindow:
             color = style.lookup("TEntry", style_option)
             if color:
                 self.report_text.configure(**{option: color})
-        bar = ttk.Frame(parent, style="Manager.Panel.TFrame")
+        bar = self.report_actions = ttk.Frame(parent, style="Manager.Panel.TFrame")
         bar.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         ttk.Button(bar, text="Güvenli raporu kopyala", command=self._copy_report).grid(row=0, column=0, sticky="w")
         self.report_open_button = ttk.Button(bar, text="Tarayıcıda aç", command=self._open_ready, state="disabled")
@@ -673,17 +672,18 @@ class ManagerWindow:
         self.action_buttons = {"start": ttk.Button(self.banner_actions, text="Başlat", style="Manager.Primary.TButton",
                                                    command=self._primary_action)}
         self.action_buttons["start"].grid(row=0, column=0)
-        for parent, row, names in ((self.advanced_frame, 13, ("doctor",)),
-                                   (self.source_tab.body, 3, ("test-sources", "bundle"))):
-            actions = ttk.Frame(parent, style="Manager.Panel.TFrame")
-            actions.grid(row=row, column=0, columnspan=3, sticky="e", pady=(16, 0))
-            for column, action in enumerate(names):
-                style = "Manager.Primary.TButton" if action in {"start", "test-sources"} else "Manager.TButton"
-                button = ttk.Button(actions, text=_ACTION_LABELS[action], style=style,
-                                    command=lambda selected=action: self._dispatch(selected))
-                button.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
-                actions.columnconfigure(column, weight=1)
-                self.action_buttons[action] = button
+        doctor = ttk.Button(self.report_actions, text=_ACTION_LABELS['doctor'], command=lambda: self._dispatch('doctor'))
+        doctor.grid(row=0, column=3, padx=(12, 0))
+        self.action_buttons['doctor'] = doctor
+        actions = ttk.Frame(self.source_tab.body, style="Manager.Panel.TFrame")
+        actions.grid(row=3, column=0, columnspan=3, sticky="e", pady=(16, 0))
+        for column, action in enumerate(("test-sources", "bundle")):
+            style = "Manager.Primary.TButton" if action == "test-sources" else "Manager.TButton"
+            button = ttk.Button(actions, text=_ACTION_LABELS[action], style=style,
+                                command=lambda selected=action: self._dispatch(selected))
+            button.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
+            actions.columnconfigure(column, weight=1)
+            self.action_buttons[action] = button
 
     def _build_error(self, parent):
         self.error_frame = ttk.LabelFrame(parent, text="İşlem sonucu / çözüm", padding=10)
@@ -953,9 +953,9 @@ class ManagerWindow:
         policy = self.variables['validation_policy'].get()
         active = self.task_states.states.get(current['task_id'])
         active_policy = active.last_values.get('validation_policy', 'managed') if active else policy
-        label = 'Geliştirici modu — hızlı kontrol' if active_policy == 'developer' else 'Yönetilen mod — tam doğrulama'
+        label = 'Hızlı kontrol' if active_policy == 'developer' else 'Kapsamlı denetim'
         if active_policy != policy:
-            label += ' · Seçim: ' + ('Geliştirici modu' if policy == 'developer' else 'Yönetilen mod')
+            label += ' · Seçim: ' + ('Hızlı kontrol' if policy == 'developer' else 'Kapsamlı denetim')
         self.summary_context_var.set(' · '.join(filter(None, (label, self.summary_context_var.get()))))
 
     def set_busy(self, busy: bool):

@@ -424,20 +424,20 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         window.state.last_values['source_selection'] = 'explicit'
         window.handle_event({'type': 'ready', 'task_id': 'dev', 'url': 'http://127.0.0.1:5173/app/'})
         self.assertEqual(window._profile_presentation()['action'], 'open')
-        window.variables['validation_policy'].set('developer')
+        window.variables['validation_policy'].set('managed')
         self.assertEqual(window._profile_presentation()['action'], 'ensure')
-        self.assertEqual(window.state.last_values['validation_policy'], 'managed')
+        self.assertEqual(window.state.last_values['validation_policy'], 'developer')
         window._update_summary()
-        self.assertIn('Yönetilen mod', window.summary_context_var.get())
+        self.assertIn('Hızlı kontrol', window.summary_context_var.get())
 
-    def test_source_and_profile_changes_reset_developer_choice(self):
+    def test_source_and_profile_changes_reset_full_validation(self):
         window = self.window
         window._update_controls = Mock()
         window._schedule_inspection = Mock()
         for callback in (window._source_changed, window._profile_changed):
-            window.variables['validation_policy'].set('developer')
+            window.variables['validation_policy'].set('managed')
             callback()
-            self.assertEqual(window.variables['validation_policy'].get(), 'managed')
+            self.assertEqual(window.variables['validation_policy'].get(), 'developer')
 
     def test_detected_source_display_tracks_inspection_and_explicit_override(self):
         window = self.window
@@ -578,7 +578,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.stops = []
         self.window = ManagerWindow(root, lambda action, values: self.actions.append((action, values)), lambda: self.stops.append(self.window.selected_task_id()), lambda: None, source_root="C:/source")
 
-    def test_developer_selector_accepts_detected_source_and_resets_on_context_change(self):
+    def test_full_validation_selector_accepts_detected_source_and_resets_on_context_change(self):
         window = self.window
         self.assertEqual(str(window.validation_selector['state']), 'normal')
         self.assertEqual(window.action_buttons['doctor'].cget('text'), 'Tam doğrula')
@@ -586,18 +586,18 @@ class NativeWindowSmokeTests(unittest.TestCase):
         window.variables['source_root'].set('')
         self.assertEqual(str(window.validation_selector['state']), 'normal')
         window.validation_selector.invoke()
-        self.assertEqual(window.form_values()['validation_policy'], 'developer')
-        self.assertIn('Geliştirici modu — hızlı kontrol', window.summary_context_var.get())
-        window.variables['source_root'].set('C:/other')
         self.assertEqual(window.form_values()['validation_policy'], 'managed')
+        self.assertIn('Kapsamlı denetim', window.summary_context_var.get())
+        window.variables['source_root'].set('C:/other')
+        self.assertEqual(window.form_values()['validation_policy'], 'developer')
         window.validation_selector.invoke()
         window.variables['profile'].set('prod')
-        self.assertEqual(window.form_values()['validation_policy'], 'managed')
+        self.assertEqual(window.form_values()['validation_policy'], 'developer')
         self.assertEqual(str(window.validation_selector['state']), 'normal')
         window.validation_selector.invoke()
-        self.assertEqual(window.form_values()['validation_policy'], 'developer')
-        window.validation_selector.invoke()
         self.assertEqual(window.form_values()['validation_policy'], 'managed')
+        window.validation_selector.invoke()
+        self.assertEqual(window.form_values()['validation_policy'], 'developer')
 
     def test_simple_mockup_uses_horizontal_basic_fields_and_custom_tabs(self):
         window = self.window
@@ -653,20 +653,21 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.root.update()
         self.assertEqual(window.selected_task_id(), 'old')
 
-    def test_source_and_developer_mode_are_visible_without_advanced_settings(self):
+    def test_main_screen_hides_technical_source_and_shows_validation_choice(self):
         window = self.window
         self.root.geometry('700x560')
         self.root.deiconify()
         self.root.update()
         self.assertFalse(window.advanced_var.get())
-        for control in (window.source_path_label, window.validation_selector, window.action_buttons['start']):
+        self.assertFalse(window.source_path_label.winfo_viewable())
+        for control in (window.validation_selector, window.action_buttons['start']):
             self.assertTrue(control.winfo_viewable())
             self.assertLessEqual(control.winfo_rooty() + control.winfo_height(),
                                  window.run_tab.canvas.winfo_rooty() + window.run_tab.canvas.winfo_height())
         window.validation_selector.invoke()
         window.action_buttons['start'].invoke()
         self.assertEqual(self.actions[-1][0], 'ensure')
-        self.assertEqual(self.actions[-1][1]['validation_policy'], 'developer')
+        self.assertEqual(self.actions[-1][1]['validation_policy'], 'managed')
 
     def test_main_progress_follows_profile_when_another_report_is_selected(self):
         window = self.window
@@ -892,8 +893,8 @@ class NativeWindowSmokeTests(unittest.TestCase):
 
     def test_actions_belong_to_their_tabs_and_stop_remains_global(self):
         window = self.window
-        for action in ("start", "doctor"):
-            self.assertTrue(str(window.action_buttons[action]).startswith(str(window.run_tab) + "."), action)
+        for action, tab in (("start", window.run_tab), ("doctor", window.report_tab)):
+            self.assertTrue(str(window.action_buttons[action]).startswith(str(tab) + "."), action)
         self.assertNotIn('provision', window.action_buttons)
         for action in ("test-sources", "bundle"):
             self.assertTrue(str(window.action_buttons[action]).startswith(str(window.source_tab) + "."), action)

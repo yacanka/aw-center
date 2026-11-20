@@ -170,10 +170,15 @@ def _read_preferences(path, private_paths, *, legacy=False):
         if len(content) > _LIMIT:
             raise PreferencesError('decode', 'too_large', legacy=legacy)
         document = json.loads(content)
-        if (not isinstance(document, dict) or document.get('version') not in {1, 2} or
+        if (not isinstance(document, dict) or document.get('version') not in {1, 2, 3} or
                 not isinstance(document.get('values'), dict)):
             raise ValueError
-        return {**_safe_values(document['values']), **_context_values(document)}
+        values = {**_safe_values(document['values']), **_context_values(document)}
+        if document['version'] < 3:
+            # Earlier releases saved managed even without an operator opt-in.
+            for selection in (values, *values.get('_contexts', {}).values()):
+                selection.pop('validation_policy', None)
+        return values
     except (ValueError, UnicodeError, RecursionError):
         raise PreferencesError('decode', 'invalid_format', legacy=legacy) from None
 
@@ -182,7 +187,7 @@ def save_preferences(home: Path, values: dict) -> None:
     """Atomically replace only supported inputs; never read selected file contents."""
     try:
         contexts = _context_values(values)
-        content = json.dumps({'version': 2 if contexts else 1, 'values': _safe_values(values), **contexts},
+        content = json.dumps({'version': 3, 'values': _safe_values(values), **contexts},
                              ensure_ascii=False).encode('utf-8')
     except UnicodeError:
         raise PreferencesError('encode', 'invalid_format') from None

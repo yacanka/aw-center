@@ -72,8 +72,8 @@ class DeveloperStartupTests(unittest.TestCase):
              patch('scripts.launcher.installation.require_windows'):
             inspection.inspect_profile(self.args(action='inspect'), events.append)
         self.assertEqual(events[-1]['status'], 'stopped')
-        self.assertIn('Geliştirici', events[-1]['detail'])
-        self.assertIn('hızlı kontrol', events[-1]['detail'])
+        self.assertEqual(events[-1]['validation_policy'], 'developer')
+        self.assertIn('Hızlı kontrol', events[-1]['detail'])
         self.assertNotIn('başlatılmaya hazır', events[-1]['detail'])
 
     def test_uninstalled_inspection_does_not_probe_tool_choices(self):
