@@ -20,11 +20,13 @@ from .watcher_views import import_watcher_issue, watcher_status
 from .watcher_assessment import assess_watcher_pdf
 from .watcher_preferences import watcher_preferences
 
-from . import template_views
+from . import meeting_views, template_views
 from .views import JiraSessionView
 from .user_content_views import saved_lists
 
 urlpatterns = [
+    path("meeting-minutes/jobs/", meeting_views.read_minutes),
+    path("meeting-minutes/<uuid:draft_id>/actions/", meeting_views.meeting_actions),
     path("document-templates/", template_views.document_templates),
     path("document-templates/inspect/", template_views.inspect_document_template),
     path("document-templates/<uuid:template_id>/", template_views.document_template),

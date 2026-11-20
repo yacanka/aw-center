@@ -51,6 +51,13 @@ EXECUTOR_CATALOG = (
         timeout_seconds=900,
     ),
     ExecutorMetadata(
+        kind="jira.read_meeting_minutes",
+        dotted_path="integrations.jira.meeting_jobs.execute_meeting_minutes",
+        queue=LOCAL_QUEUE,
+        upload_policy=WORD_DOCUMENT_POLICY,
+        timeout_seconds=180,
+    ),
+    ExecutorMetadata(
         kind="jira.create_template_document",
         dotted_path="integrations.jira.template_jobs.execute_template_document",
         queue=LOCAL_QUEUE,

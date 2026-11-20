@@ -39,7 +39,9 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
   })
   const eligible = computed(() => {
     const job = selectedJob()
-    return job.kind === 'word.analyze' && job.status === 'succeeded'
+    return (
+      ['word.analyze', 'jira.read_meeting_minutes'].includes(job.kind) && job.status === 'succeeded'
+    )
   })
   const locked = computed(() => ['publishing', 'published'].includes(draft.value?.status || ''))
   const publishable = computed(() =>
@@ -69,7 +71,7 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
     () => dirty.value && draft.value?.version !== editingVersion.value
   )
 
-  watch(() => selectedJob().id, loadExistingDraft, { immediate: true, flush: 'sync' })
+  watch([() => selectedJob().id, eligible], loadExistingDraft, { immediate: true, flush: 'sync' })
   onBeforeUnmount(() => {
     disposed = true
     selectionRevision++
@@ -343,6 +345,11 @@ export function useJiraIssueDraft(selectedJob: () => Job) {
     projectsLoading,
     publicationJob,
     selectedProjectSlugs,
+    refreshPublication: async () => {
+      const current = draft.value
+      if (current?.status === 'publishing')
+        await run(() => fetchJiraIssueDraft(current.id), setDraft, 'Publication status refreshed.')
+    },
     prepareDraft,
     saveDraft,
     keepEditsAfterConflict,

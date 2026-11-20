@@ -52,7 +52,15 @@
         <template v-else>{{ draft.jira_issue_key }}</template>
         .
       </n-alert>
-      <n-alert v-if="publicationJob" type="info" :bordered="false">
+      <MeetingActions
+        v-if="job.kind === 'jira.read_meeting_minutes' && draft.status === 'published'"
+        :key="draft.id"
+        :draft-id="draft.id"
+      />
+      <n-button v-if="draft.status === 'publishing'" :loading="busy" @click="refreshPublication"
+        >Refresh publication status</n-button
+      >
+      <n-alert v-if="publicationJob && draft.status === 'publishing'" type="info" :bordered="false">
         Publication is running as job {{ publicationJob.id }}. Follow progress in Job Center.
       </n-alert>
       <n-alert v-if="hasSaveConflict" type="warning" title="The saved draft changed">
@@ -203,6 +211,7 @@
 import { formatTurkishDateTime } from '@/shared/utils/time'
 import { useJiraIssueDraft } from '@/features/integrations/jira/composables/useJiraIssueDraft'
 import type { Job } from '@/features/jobs/api/jobs'
+import MeetingActions from '@/features/integrations/jira/components/MeetingActions.vue'
 import JiraDraftPreflightPanel from './JiraDraftPreflightPanel.vue'
 
 const props = defineProps<{ job: Job }>()
@@ -228,6 +237,7 @@ const {
   projectsLoading,
   publicationJob,
   selectedProjectSlugs,
+  refreshPublication,
   prepareDraft,
   saveDraft,
   keepEditsAfterConflict,

@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import JiraConnection from '@/features/integrations/jira/components/JiraConnection.vue'
 import Unauthorized from '@/features/session/pages/Unauthorized.vue'
 import DCCCreator from '@/features/integrations/jira/pages/DCCCreator.vue'
+import MeetingMinutes from './MeetingMinutes.vue'
 import Watcher from '@/features/integrations/jira/pages/Watcher.vue'
 import SubtaskGenerator from '@/features/integrations/jira/pages/SubtaskGenerator.vue'
 import ExcelSubtaskGenerator from '@/features/integrations/jira/pages/ExcelSubtaskGenerator.vue'
@@ -27,11 +28,15 @@ async function initialize(): Promise<void> {
   try {
     await projectCatalog.load()
     if (!canAccessDcc.value) return
+    const requestedTab = route.query.jira_tab
     if (
       canCreateDcc.value &&
-      (route.query.jira_tab === 'subtask' || route.query.jira_tab === 'excelSubtask')
+      typeof requestedTab === 'string' &&
+      ['watcher', 'jira', 'minutes', 'subtask', 'excelSubtask'].includes(requestedTab)
     ) {
-      activeTab.value = route.query.jira_tab
+      activeTab.value = requestedTab
+    } else if (typeof route.query.minutes_job === 'string' && canCreateDcc.value) {
+      activeTab.value = 'minutes'
     } else if (typeof route.query.subtask_job === 'string' && canCreateDcc.value) {
       activeTab.value = 'subtask'
     } else if (typeof route.query.excel_subtask_job === 'string' && canCreateDcc.value) {
@@ -51,7 +56,13 @@ async function initialize(): Promise<void> {
 /** Keep tab navigation local to this visit; the JIRA session is shared by all tools. */
 function handleTabChange(tab: string): void {
   activeTab.value = tab
-  if (route.query.subtask_job || route.query.excel_subtask_job) {
+  if (
+    tab === 'minutes' ||
+    route.query.jira_tab ||
+    route.query.minutes_job ||
+    route.query.subtask_job ||
+    route.query.excel_subtask_job
+  ) {
     void router.replace({ query: { ...route.query, jira_tab: tab } })
   }
 }
@@ -78,6 +89,9 @@ onMounted(initialize)
       <n-tab-pane name="watcher" tab="Watcher">
         <n-divider style="margin: 0 0 10px" />
         <Watcher />
+      </n-tab-pane>
+      <n-tab-pane v-if="canCreateDcc" name="minutes" tab="Meeting Minutes">
+        <MeetingMinutes />
       </n-tab-pane>
       <n-tab-pane v-if="canCreateDcc" name="jira" tab="DCC Creator">
         <n-divider style="margin: 0 0 10px" />

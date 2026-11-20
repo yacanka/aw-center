@@ -10,21 +10,25 @@ from jobs.handoffs import verify_artifact_integrity
 from jobs.models import JobStatus
 from word.analysis_contracts import ANALYSIS_CHECKS
 
+from .meeting_jobs import MEETING_JOB_KIND
+
 MAX_REPORT_BYTES = 1024 * 1024
 
 
 def build_draft_content(job):
-    """Return bounded summary and description from one verified analysis job."""
+    """Return bounded summary and description from a verified draft source."""
 
-    report = load_analysis_report(job)
+    report = load_draft_report(job)
+    if job.kind == MEETING_JOB_KIND:
+        return report["summary"], report["description"]
     checks = validate_report_checks(report.get("checks"))
     summary = f"Review document analysis: {job.input_name}"[:255]
     description = render_description(job, checks)
     return summary, description[:30000]
 
 
-def load_analysis_report(job):
-    """Load an owned analysis artifact only after state and integrity checks."""
+def load_draft_report(job):
+    """Load an owned draft-source artifact only after state and integrity checks."""
 
     validate_source_job(job)
     try:
@@ -50,16 +54,16 @@ def read_verified_report(job):
 
 
 def validate_source_job(job):
-    """Require a successful private document-analysis output."""
+    """Require a successful supported private report."""
 
     valid = (
-        job.kind == "word.analyze"
+        job.kind in {"word.analyze", MEETING_JOB_KIND}
         and job.status == JobStatus.SUCCEEDED
         and bool(job.output_file)
         and bool(job.output_sha256)
     )
     if not valid:
-        raise ValidationError({"source_job_id": "Select a completed document-analysis job."})
+        raise ValidationError({"source_job_id": "Select a completed analysis or meeting-minutes job."})
 
 
 def decode_report(payload):
