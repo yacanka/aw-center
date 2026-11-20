@@ -38,7 +38,7 @@ def authorized_guides(user) -> tuple[GuideEntry, ...]:
         for project in compliance_projects:
             entries.append(replace(
                 template, id=f"compliance-project-{project.slug}",
-                title=f"Compliance Docs — {project.name}", path=f"/compdocs/{project.slug}",
+                title=f"Certification documents — {project.name}", path=f"/compdocs/{project.slug}",
                 purpose="Browse and manage the selected project's compliance document register.",
                 inputs=("Selected project and document filters.",),
                 outputs=("Filtered register, document details and permitted exports.",),

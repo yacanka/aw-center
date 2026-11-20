@@ -1,3 +1,4 @@
+import { dashboardSummary } from '../src/features/compliance/models/compdocDashboard.fixtures'
 import { expect, test, type Page } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
@@ -90,35 +91,67 @@ for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width, height: 900 })
       await routeShellApi(page, theme, true)
       await page.goto('/app/home')
-      const compliance = page
+      await page
         .locator('.n-menu-item-content')
-        .filter({ hasText: /^Compliance Docs$/ })
-      if (width < 900) await compliance.hover()
-      else await compliance.click()
-
-      const entry = (label: string) =>
-        page
-          .locator('.n-menu-item-content, .n-dropdown-option-body')
-          .filter({ hasText: new RegExp(`^${label}$`) })
-      for (const label of ['Özgür', 'Gökbey', 'Havasoj', 'Hürkuş 2', 'Hürjet', 'BKM', 'MMU']) {
-        await expect(entry(label)).toBeVisible()
+        .filter({ hasText: /^Certification Dashboard$/ })
+        .click()
+      for (const name of [
+        'GÖKBEY',
+        'KAAN',
+        'HÜRKUŞ-2',
+        'HÜRJET',
+        'ASOJ-STC1',
+        'ASOJ-STC2',
+        'Özgür',
+        'BKM'
+      ]) {
+        await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
       }
-      await expect(entry('Bağımsız')).toHaveCount(0)
-      if (width < 900) await entry('Özgür').hover()
-      else await entry('Özgür').click()
-      for (const label of ['AESA', 'Blok 30', 'Blok 40/50', 'HYS']) {
-        await expect(entry(label)).toBeVisible()
-      }
-      await expect(page.locator('.fade-in-height-expand-transition-enter-active')).toHaveCount(0)
       await page.screenshot({
-        path: testInfo.outputPath('compliance-menu.png'),
+        path: testInfo.outputPath('certification-projects.png'),
         animations: 'disabled'
       })
-      await entry('HYS').click()
-      await expect(page).toHaveURL(/\/app\/compdocs\/hys$/)
+      await page.getByRole('button', { name: 'Özgür', exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.getByRole('link', { name: 'HYS', exact: true }).click()
+      await expect(page).toHaveURL(/compdocs\/hys\/dashboard$/)
+      await page.getByRole('link', { name: 'Proje dokümanları' }).click()
+      await expect(page).toHaveURL(/compdocs\/hys$/)
+      await page.getByRole('link', { name: 'Proje grafikleri' }).click()
+      await expect(page).toHaveURL(/compdocs\/hys\/dashboard$/)
     })
   }
 }
+
+test('project selection retries a failed catalog and handles an empty catalog', async ({
+  page
+}) => {
+  await routeShellApi(page, 'light')
+  let available = false
+  await page.route('**/api/projects/', (route) =>
+    route.fulfill(
+      available ? { json: [] } : { status: 503, json: { detail: 'Catalog unavailable' } }
+    )
+  )
+  await page.goto('/app/compdocs/home')
+  const retry = page.getByRole('button', { name: 'Tekrar dene' })
+  await expect(retry).toBeVisible()
+  available = true
+  await retry.click()
+  await expect(page.getByText('Erişebileceğiniz proje bulunmuyor.')).toBeVisible()
+})
+
+test('a restricted project URL requests no analytics', async ({ page }) => {
+  await routeShellApi(page, 'light')
+  const analytics: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/compliance-documents/dashboard/')) analytics.push(request.url())
+  })
+  await page.goto('/app/compdocs/mmu/dashboard')
+  await expect(page.getByText('Bu projeye erişiminiz yok.')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Proje dokümanları' })).toHaveCount(0)
+  expect(analytics).toEqual([])
+})
 
 async function routeShellApi(
   page: Page,
@@ -164,6 +197,9 @@ async function routeShellApi(
               }
             ]
       })
+    }
+    if (path.endsWith('/compliance-documents/dashboard/')) {
+      return route.fulfill({ json: dashboardSummary('hys') })
     }
     if (path === '/api/attention/') {
       return route.fulfill({

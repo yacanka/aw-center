@@ -147,6 +147,12 @@ export const routes: RouteRecordRaw[] = [
         component: lazyRoute(() => import('@/features/compliance/pages/Home.vue'))
       },
       {
+        name: 'certificationProject',
+        path: ':project/dashboard',
+        props: true,
+        component: lazyRoute(() => import('@/features/compliance/pages/CertificationProject.vue'))
+      },
+      {
         name: 'compdocsSettings',
         path: 'settings',
         component: lazyRoute(() => import('@/features/compliance/pages/CompDocSettings.vue'))

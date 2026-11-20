@@ -214,6 +214,9 @@ void projectCatalog.load().catch(() => undefined)
   </n-alert>
 
   <template v-if="catalogReady && canView">
+    <router-link :to="{ name: 'certificationProject', params: { project } }"
+      >Proje grafikleri</router-link
+    >
     <CompDocTableToolbar
       :project="project"
       :can-import="canImport"

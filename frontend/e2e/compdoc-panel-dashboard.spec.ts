@@ -94,6 +94,7 @@ for (const theme of ['light', 'dark'] as const) {
       })
 
       await page.goto('/app/compdocs/home')
+      await page.getByRole('button', { name: 'Özgür', exact: true }).click()
       const card = page.locator('.panel-breakdown')
       const rows = card.locator('tbody tr')
       await expect(rows).toHaveCount(2)
@@ -240,7 +241,7 @@ for (const theme of ['light', 'dark'] as const) {
       await statusCanvas.scrollIntoViewIfNeeded()
       const { width: chartWidth, height: chartHeight } = (await statusCanvas.boundingBox())!
       await statusCanvas.click({ position: { x: chartWidth / 2, y: chartHeight / 2 } })
-      await expect(page).toHaveURL(/\/app\/compdocs\/home$/)
+      await expect(page).toHaveURL(/\/app\/compdocs\/ozgur\/dashboard$/)
       const arc = {
         x: chartWidth / 2,
         y: chartHeight / 2 - Math.min(chartWidth, chartHeight) * 0.4
@@ -263,7 +264,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(() => listQueries.length).toBeGreaterThan(requestsBeforeReload)
       expect(listQueries[requestsBeforeReload].get('dashboard_delivery')).toBe('delayed')
       await page.goBack()
-      await expect(page).toHaveURL(/\/app\/compdocs\/home$/)
+      await expect(page).toHaveURL(/\/app\/compdocs\/ozgur\/dashboard$/)
       await tabs.getByRole('tab', { name: 'ATA based' }).click()
       await expect(rows).toHaveCount(3)
       await rows.first().dblclick()

@@ -6,10 +6,8 @@ const searchRow = async (d,term) => {
   await seen(workspaceRows(d).first())
 }
 export const dashboard = {
-  id:'compliance-dashboard', title:'Belge portföyü ve öncelikler', route:'/app/compdocs/home', beats:[
+  id:'compliance-dashboard', title:'Belge portföyü ve öncelikler', route:project+'/dashboard', beats:[
     beat('Proje özet göstergeleri','Atlas projesinde kaç belgenin açık olduğunu, geciken işleri ve risk sinyallerini aynı ekranda görüyoruz.',async d=>{
-      const selector=D(d).locator('[aria-label="Compliance dashboard project"]').first()
-      await choose(d,selector,/Atlas Demo/)
       await seen(D(d).locator('.metrics .n-statistic'))
     }),
     beat('Panel ve ATA kırılımı','Panel ve ATA kırılımı, hangi ekibin hangi belgelerden sorumlu olduğunu gösteriyor.',async d=>{

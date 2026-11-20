@@ -551,26 +551,32 @@ test('dashboard cancels a pending analytics request before its response complete
 })
 
 test('dashboard isolates paginated table state and stale project responses', async () => {
-  const [applicationHome, complianceHome, routes, menu, composable, dashboard] = await Promise.all([
-    readFile(new URL('../src/app/pages/Home.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/features/compliance/pages/Home.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/app/router/routes.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/app/services/mainMenu.ts', import.meta.url), 'utf8'),
-    readFile(
-      new URL('../src/features/compliance/composables/dashboard.ts', import.meta.url),
-      'utf8'
-    ),
-    readFile(
-      new URL('../src/features/compliance/components/ComplianceDashboard.vue', import.meta.url),
-      'utf8'
-    )
-  ])
+  const [applicationHome, complianceHome, projectDashboard, routes, menu, composable, dashboard] =
+    await Promise.all([
+      readFile(new URL('../src/app/pages/Home.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../src/features/compliance/pages/Home.vue', import.meta.url), 'utf8'),
+      readFile(
+        new URL('../src/features/compliance/pages/CertificationProject.vue', import.meta.url),
+        'utf8'
+      ),
+      readFile(new URL('../src/app/router/routes.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../src/app/services/mainMenu.ts', import.meta.url), 'utf8'),
+      readFile(
+        new URL('../src/features/compliance/composables/dashboard.ts', import.meta.url),
+        'utf8'
+      ),
+      readFile(
+        new URL('../src/features/compliance/components/ComplianceDashboard.vue', import.meta.url),
+        'utf8'
+      )
+    ])
 
   assert.match(applicationHome, /ActionCenter/)
   assert.doesNotMatch(applicationHome, /ComplianceDashboard/)
-  assert.match(complianceHome, /ComplianceDashboard/)
+  assert.match(complianceHome, /certificationCards/)
+  assert.match(projectDashboard, /ComplianceDashboard/)
   assert.match(routes, /name: 'compdocsHome',[\s\S]*path: 'home'/)
-  assert.match(menu, /menuItem\('Home', '\/compdocs\/home', 'compdocsHome'/)
+  assert.match(menu, /menuItem\('Certification Dashboard', '\/compdocs\/home', 'compdocsHome'/)
   assert.match(composable, /activeController\?\.abort\(\)/)
   assert.match(composable, /sequence === requestSequence/)
   assert.match(dashboard, /focusedAnalytics\.total/)

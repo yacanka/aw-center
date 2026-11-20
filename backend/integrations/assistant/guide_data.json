@@ -509,9 +509,9 @@
   },
   {
     "id": "compliance-home",
-    "title": "Compliance Docs Home",
+    "title": "Certification Dashboard",
     "path": "/compdocs/home",
-    "purpose": "Review the authorized compliance dashboard.",
+    "purpose": "Select a project to review its certification charts and documents.",
     "inputs": [
       "Authorized project selection"
     ],
@@ -519,7 +519,7 @@
       "Compliance dashboard"
     ],
     "steps": [
-      "Open dashboard and navigate to an authorized project register."
+      "Select a project card and, when prompted, a subproject. Open Proje dokümanları from the charts to view its document register."
     ],
     "limitations": [
       "Requires enabled compliance-capable project and domain role; assistant cannot read live records."

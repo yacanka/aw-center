@@ -9,7 +9,6 @@ import {
   Document24Regular,
   Door20Regular,
   Edit24Regular,
-  EyeTracking24Regular,
   FormNew24Regular,
   Glasses24Regular,
   Home24Regular,
@@ -21,11 +20,7 @@ import {
 } from '@vicons/fluent'
 import { Pdf } from '@/app/stores/iconStore'
 import JiraIcon from '@/app/components/icons/JiraIcon.vue'
-import {
-  COMPLIANCE_PROJECT_GROUPS,
-  COMPLIANCE_STANDALONE_PROJECTS,
-  type ProjectRegistryItem
-} from '@/features/projects/models/projectRegistry'
+import type { ProjectRegistryItem } from '@/features/projects/models/projectRegistry'
 import type { IUser } from '@/features/session/models/auth'
 import { filterNavigationByAccess } from '@/features/session/services/accessPolicy'
 
@@ -93,7 +88,7 @@ function workflowOptions(
     options.splice(
       1,
       0,
-      groupItem('Compliance Docs', '/compdocs', 'projects', Book24Regular, projectItems(projects))
+      menuItem('Certification Dashboard', '/compdocs/home', 'compdocsHome', Book24Regular)
     )
   }
   const jiraPosition = projects.length ? 3 : 2
@@ -111,45 +106,6 @@ function workflowOptions(
 
 function administrationOptions(): ProjectMenuOption[] {
   return [menuItem('Users', '/users', 'users', People24Regular)]
-}
-
-function projectItems(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
-  return [
-    menuItem('Home', '/compdocs/home', 'compdocsHome', Home24Regular),
-    menuItem('Doc Analyzer', '/compdocs/docAnalyzer', 'docAnalyzer', EyeTracking24Regular),
-    menuItem(
-      'Cover Page Creator',
-      '/compdocs/coverpagecreator',
-      'coverpagecreator',
-      Document24Regular
-    ),
-    { key: 'divider2', type: 'divider', name: 'projectDivider' },
-    ...groupedComplianceProjectItems(projects)
-  ]
-}
-
-function groupedComplianceProjectItems(projects: ProjectRegistryItem[]): ProjectMenuOption[] {
-  const bySlug = new Map(projects.map((project) => [project.slug, project]))
-  const itemsFor = (slugs: readonly string[]): ProjectMenuOption[] =>
-    slugs.flatMap((slug) => {
-      const project = bySlug.get(slug)
-      return project ? [projectMenuItem(project)] : []
-    })
-  const groups = COMPLIANCE_PROJECT_GROUPS.flatMap((group) => {
-    const children = itemsFor(group.slugs)
-    return children.length
-      ? [
-          groupItem(
-            group.label,
-            `compliance-group-${group.key}`,
-            group.key,
-            Book24Regular,
-            children
-          )
-        ]
-      : []
-  })
-  return [...groups, ...itemsFor(COMPLIANCE_STANDALONE_PROJECTS)]
 }
 
 function doorsGroup(): ProjectMenuOption {
@@ -179,15 +135,6 @@ function groupItem(
 
 function menuItem(label: string, key: string, name: string, icon: Component): ProjectMenuOption {
   return { label, key, name, icon: renderIcon(icon) }
-}
-
-function projectMenuItem(project: ProjectRegistryItem): ProjectMenuOption {
-  return {
-    label: project.name,
-    key: `/compdocs/${project.slug}`,
-    name: project.slug,
-    disabled: false
-  }
 }
 
 function renderIcon(iconAsset: Component) {

@@ -20,7 +20,7 @@ function leaves(options: ProjectMenuOption[]): string[] {
 }
 
 describe('assistant canonical navigation', () => {
-  it('covers exactly the effective menu for an authorized superuser', () => {
+  it('covers the effective menu and the tools linked from Certification Dashboard', () => {
     const menu = leaves(
       createMainMenuOptions(
         [
@@ -36,7 +36,7 @@ describe('assistant canonical navigation', () => {
         true
       )
     )
-    const expected = menu.filter((path) => path !== '/compdocs/aesa').sort()
+    const expected = [...menu, '/compdocs/docAnalyzer', '/compdocs/coverpagecreator'].sort()
     expect(guideRows.map((entry) => entry.path).sort()).toEqual(expected)
     expect(new Set(guideRows.map((entry) => entry.id)).size).toBe(guideRows.length)
     for (const entry of guideRows) expect(resolveAssistantPath(entry.path, router)).toBe(entry.path)

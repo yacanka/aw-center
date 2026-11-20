@@ -5,18 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardPanel } from '../models/compdocDashboard'
 import { dashboardSummary } from '../models/compdocDashboard.fixtures'
 
-const mocks = vi.hoisted(() => ({ fetch: vi.fn(), load: vi.fn(), push: vi.fn(), warning: vi.fn() }))
+const mocks = vi.hoisted(() => ({ fetch: vi.fn(), push: vi.fn(), warning: vi.fn() }))
 vi.mock('@/features/compliance/api/compdocDashboard', () => ({
   fetchCompdocDashboard: mocks.fetch
-}))
-vi.mock('@/features/projects/stores/projectCatalog', () => ({
-  useProjectCatalogStore: () => ({
-    load: mocks.load,
-    complianceProjects: [
-      { name: 'OZGUR', slug: 'ozgur' },
-      { name: 'AESA', slug: 'aesa' }
-    ]
-  })
 }))
 vi.mock('@/features/session/stores/session', () => ({
   useSessionStore: () => ({ getPreferences: { theme: 'light' } })
@@ -96,13 +87,12 @@ describe('compliance dashboard scope', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     localStorage.clear()
-    mocks.load.mockResolvedValue(undefined)
     mocks.fetch.mockImplementation(async (project) => dashboardSummary(project))
   })
   afterEach(() => wrappers.splice(0).forEach((wrapper) => wrapper.unmount()))
 
   async function dashboard(mode = 'ata') {
-    const wrapper = mount(ComplianceDashboard, { global: { stubs } })
+    const wrapper = mount(ComplianceDashboard, { props: { project: 'ozgur' }, global: { stubs } })
     wrappers.push(wrapper)
     await flushPromises()
     if (wrapper.findComponent(CompDocPanelDashboard).exists())
@@ -398,11 +388,10 @@ describe('compliance dashboard scope', () => {
           resolveOld = resolve
         })
     )
-    const tabs = wrapper.findComponent(stubs.NSelect)
-    tabs.vm.$emit('update:value', 'aesa')
+    await wrapper.setProps({ project: 'aesa' })
     await flushPromises()
     expect(wrapper.findComponent(CompDocTimelineDashboard).exists()).toBe(false)
-    tabs.vm.$emit('update:value', 'ozgur')
+    await wrapper.setProps({ project: 'ozgur' })
     await flushPromises()
     expect(wrapper.findComponent(CompDocTimelineDashboard).props('documentCount')).toBe(3)
     resolveOld(dashboardSummary('aesa'))

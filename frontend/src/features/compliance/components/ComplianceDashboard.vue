@@ -1,14 +1,4 @@
 <template>
-  <n-form-item label="Project" class="dashboard-project">
-    <n-select
-      :value="activeProject"
-      :options="projectOptions"
-      filterable
-      aria-label="Compliance dashboard project"
-      @update:value="loadProject"
-    />
-  </n-form-item>
-
   <n-alert v-if="error" type="error" title="Dashboard could not be loaded" class="dashboard-alert">
     {{ error }}
     <n-button v-if="activeProject" size="small" @click="loadProject(activeProject)">Retry</n-button>
@@ -126,6 +116,7 @@ import CompDocRiskDashboard from './CompDocRiskDashboard.vue'
 import CompDocStatusDashboard from './CompDocStatusDashboard.vue'
 import CompDocTimelineDashboard from './CompDocTimelineDashboard.vue'
 
+const props = defineProps<{ project: string }>()
 const {
   activeProject,
   breakdownMode,
@@ -133,13 +124,12 @@ const {
   error,
   loading,
   loadProject,
-  projectOptions,
   summary,
   focusedAnalytics,
   selectedPanel,
   togglePanel,
   clearPanel
-} = useCompdocDashboard()
+} = useCompdocDashboard(() => props.project)
 const themeVars = useThemeVars()
 const catRows = computed(() => {
   const colors = themeVars.value
@@ -223,10 +213,6 @@ function sliceRoute(query: Record<string, string>): RouteLocationRaw {
 </script>
 
 <style scoped>
-.dashboard-project {
-  width: min(100%, 360px);
-}
-
 .moc-distribution {
   border-top: 1px solid v-bind('themeVars.dividerColor');
   padding-top: 12px;
