@@ -474,7 +474,11 @@ Manager'ın pip/npm kurulumu, offline paket hazırlığı ve `launcher.py setup`
 
 Uygulamanın HTTPS entegrasyonları da Windows CA/ROOT, OpenSSL ve Requests'in genel güven köklerini birlikte kullanır. Her entegrasyonun mevcut sertifika ayarı o servisin güvenine eklenir; kurulum kaynakları için seçilen CA dosyası entegrasyon ayarlarını değiştirmez. Özel CA seçilmediğinde mevcut Requests ortam CA ayarları da varsayılan güvene eklenebilir. Bir servise seçilen CA diğer servislerin oturumlarına taşınmaz.
 
-Çevrimdışı kurulum için Windows x64 ve mevcut dependency lock'larıyla hazırlanmış kurulum paketi gerekir. Paket içindeki dependency manifest'i, Python wheel'leri ve npm cache doğrulanır. Yönetici üzerinden paket hazırlama işlemi, erişebilen bir Windows makinede mevcut kurulum bundle akışını kullanır. Yalnız `runtimes/` dizinini seçmek çevrimdışı uygulama kurulumunu tamamlamaz.
+Çevrimdışı kurulum için Windows x64 ve mevcut dependency lock'larıyla hazırlanmış kurulum paketi gerekir. Paket içindeki dependency manifest'i, Python wheel'leri ve npm cache doğrulanır. Yönetici üzerinden paket hazırlama işlemi, erişebilen bir Windows makinede mevcut kurulum bundle akışını kullanır. **Kaynaklar → Çevrimdışı paket seç…** ile paketin kökünü veya içindeki
+`source`, `runtimes`, `dependencies`, `dependencies/wheels` ya da
+`dependencies/npm-cache` klasörünü seçebilirsiniz. Seçim çevrimdışı modu açar.
+Ana ekranda **AW Center’ı aç** ile kurulumu başlatın. Ayrı taşınmış bir runtime
+klasörü, bağımlılık manifesti ve paket dosyaları olmadan kurulum için yetersizdir.
 
 Wheel hazırlığı CPython 3.11 yama sürümlerinin koşullu pinlerini birlikte toplar;
 örneğin yalnız 3.11.0–3.11.2 için gereken `async-timeout` yeni Python ile hazırlanan

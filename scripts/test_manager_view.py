@@ -439,6 +439,19 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
             callback()
             self.assertEqual(window.variables['validation_policy'].get(), 'developer')
 
+    def test_offline_root_updates_current_selection_without_exposing_path_in_report(self):
+        window = self.window
+        window.variables['source_mode'].set('offline')
+        window.variables['offline_dir'].set('/package/dependencies/wheels')
+        event = {'type': 'status', 'message': 'Çevrimdışı paket klasörü bulundu.',
+                 'selected_offline_dir': '/package/dependencies/wheels', 'offline_root': '/package'}
+        window.handle_event(event)
+        self.assertEqual(window.variables['offline_dir'].get(), '/package')
+        self.assertNotIn('/package', window.state.report())
+        window.variables['offline_dir'].set('/other')
+        window.handle_event(event)
+        self.assertEqual(window.variables['offline_dir'].get(), '/other')
+
     def test_detected_source_display_tracks_inspection_and_explicit_override(self):
         window = self.window
         window._update_controls = Mock()

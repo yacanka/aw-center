@@ -124,10 +124,11 @@ def _errors_with_remedy():
     from scripts.launcher.system_node import SystemNodeError
     from scripts.launcher.system_python import SystemPythonError
     from scripts.launcher.toolchain import RuntimeValidationError
+    from .paths import OfflinePackageError
     from .payload import ProductionSourceNotPrepared
 
     from .bundle_preparation import BundleInputsError
-    return (BundleInputsError, ArtifactDownloadError, BundleHostRuntimeError, DependencyIntegrityError, EnvironmentImportError, FrontendBuildError,
+    return (OfflinePackageError, BundleInputsError, ArtifactDownloadError, BundleHostRuntimeError, DependencyIntegrityError, EnvironmentImportError, FrontendBuildError,
             ManagerBuildError, PackageCacheError, PackageCommandError, PackageProxyConfigError, PackageTimeoutError, PackageTrustError,
             PermissionCheckError, ProductionSourceNotPrepared, ResourceLockError, RuntimeValidationError,
             StartupReadinessError, SystemNodeError, SystemPythonError, TLSFileError, VirtualEnvironmentError,
@@ -161,6 +162,8 @@ def _failure_reason(error):
         (('venv farklı',), 'venv_python_mismatch', 'Mevcut .venv seçilen Python’a bağlı değil; otomatik değiştirilmedi. Ayrı temiz kaynak dizini kullanın.'),
         (('uygun sistem python',), 'system_python_missing', 'Uygun sistem Python 3.11 x64 bulunamadı; Python komutu / yolu alanına python veya python.exe yolunu girin ya da “Python çalışma zamanını kur” seçeneğini işaretleyin.'),
         (('yalnız windows',), 'windows_required', 'Bu kurulum işlemi Windows x64 gerektirir.'),
+        (('does not match the current dependency locks', 'do not match the current lock files'), 'offline_locks_incompatible', 'Paketin Python veya npm bağımlılık kilitleri bu kaynak sürümüyle uyuşmuyor.'),
+        (('targets a different os', 'target a different os'), 'offline_target_incompatible', 'Paketin işletim sistemi, mimarisi veya Python sürümü bu kurulumla uyuşmuyor.'),
         (('sha-256', 'checksum', 'hash', 'integrity', 'differ', 'değişmiş'), 'integrity_failed', 'Dosya bütünlüğü doğrulanamadı; değiştirilmiş paket kullanılmadı.'),
         (('tls', 'certificate', 'certification', 'ssl'), 'tls_failed', 'TLS sertifikası veya güvenli bağlantı doğrulanamadı.'),
         (('python artifact unavailable',), 'python_runtime_missing', 'Doğrulanmış Python runtime arşivi bulunamadı.'),
@@ -232,6 +235,8 @@ def execute(request, emit, admin_provider, stop):
     except Exception as error:
         code, reason = _failure_reason(error)
         remedies = {
+            'offline_locks_incompatible': 'Bu kaynak sürümüyle hazırlanmış çevrimdışı paketi seçin.',
+            'offline_target_incompatible': 'Windows x64 ve CPython 3.11 için hazırlanmış paketi seçin.',
             'profile_metadata_missing': 'Kayıtlı ortam ve yedekteki profil dosyasının aynı kuruluma ait olduğunu doğrulayın. Mevcut anahtarları koruyun.',
             'process_output_invalid': 'Güncel Manager ile yeniden deneyin; mevcut ortam ve tamamlanan kurulum aşamaları korunur.',
             'system_access_denied': 'Bu kaynak dizinini kullanan diğer AW Center işlemlerini kapatıp yeniden deneyin. Devam ederse klasör yazma izinlerini ve güvenlik yazılımının kaydını kontrol edin; ortamı silmeyin.',
@@ -420,6 +425,19 @@ def _dispatch(action, args, emit):
     return _dispatch_claimed(action, args, emit)
 
 
+def _select_offline_package(args, emit):
+    """Only operations consuming media require it to still be mounted."""
+    if args.source_mode != 'offline' or not args.offline_dir:
+        return
+    from .paths import offline_package_root
+    selected = args.offline_dir
+    args.offline_dir = offline_package_root(selected)
+    if (args.offline_dir / 'install-manifest.json').is_file():
+        args.runtime_dirs = (args.offline_dir,)
+    emit({'type': 'status', 'message': 'Çevrimdışı paket klasörü bulundu.',
+          'selected_offline_dir': str(selected), 'offline_root': str(args.offline_dir)})
+
+
 def _dispatch_claimed(action, args, emit):
     if action == 'inspect':
         from .inspection import inspect_profile
@@ -427,6 +445,7 @@ def _dispatch_claimed(action, args, emit):
         return
     if action == 'test-sources':
         from .source_checks import run
+        _select_offline_package(args, emit)
         run(args, emit)
         return
     project = _project_for(action, args)
@@ -513,8 +532,7 @@ def _run_lifecycle(project, action, args, emit, *, ensured=False):
             if args.env_file:
                 from scripts.launcher.installation_env import read_selected_environment
                 read_selected_environment(project, args.profile, args.env_file)
-            if getattr(sys, 'frozen', False):
-                args.runtime_dirs = (Path(sys.executable).parent,)
+            _select_offline_package(args, emit)
             emit({'type': 'checks', 'checks': provision(project, args)})
         args.progress('Uygulama ve worker süreçleri başlatılıyor')
         def ready(profile):

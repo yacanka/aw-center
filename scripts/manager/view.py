@@ -488,7 +488,8 @@ class ManagerWindow:
         self._field_tabs[key] = tab
         self._controls.append(entry)
         if picker:
-            button = ttk.Button(parent, text="Seç…", command=lambda: self._pick(key, picker))
+            caption = "Çevrimdışı paket seç…" if key == "offline_dir" else "Seç…"
+            button = ttk.Button(parent, text=caption, command=lambda: self._pick(key, picker))
             button.grid(row=row, column=2, sticky="ew", padx=(8, 0), pady=7)
             self._pickers[key] = button
             self._field_rows[key].append(button)
@@ -623,7 +624,7 @@ class ManagerWindow:
         fields.grid(row=1, column=0, sticky="ew", pady=(16, 0))
         for row, (key, label, picker) in enumerate((
             ("repository", "Arşiv deposu / yerel dizin", "directory"),
-            ("offline_dir", "Offline depo seç", "directory"),
+            ("offline_dir", "Çevrimdışı paket klasörü", "directory"),
             ("bundle_import", "Runtime arşivi · Dosyadan ekle", "archive"),
             ("python_index_url", "Python paket indeksi (pip)", None),
             ("npm_registry_url", "JavaScript paket deposu (npm)", None),
@@ -742,6 +743,8 @@ class ManagerWindow:
             value = filedialog.askopenfilename(**options, filetypes=patterns[kind])
         if value:
             self.variables[key].set(value)
+            if key == "offline_dir":
+                self.variables["source_mode"].set("offline")
 
     def _dispatch(self, action, values=None):
         try:
@@ -777,7 +780,8 @@ class ManagerWindow:
             current = self.form_values()
             if current['profile'] == values.get('profile', 'dev'):
                 values = current
-        elif action == 'bundle' or (state.error_field and self.variables['profile'].get() == values.get('profile', 'dev')):
+        elif action == 'bundle' or ((action == 'test-sources' or state.error_field)
+                                    and self.variables['profile'].get() == values.get('profile', 'dev')):
             values = self.form_values()
         self._dispatch(action, values)
 
@@ -1014,6 +1018,11 @@ class ManagerWindow:
         self.report_text.yview_moveto(position)
 
     def handle_event(self, event: dict):
+        if (event.get('type') == 'status' and isinstance(event.get('offline_root'), str)
+                and isinstance(event.get('selected_offline_dir'), str)
+                and self.variables['source_mode'].get() == 'offline'
+                and Path(self.variables['offline_dir'].get()) == Path(event['selected_offline_dir'])):
+            self.variables['offline_dir'].set(event['offline_root'])
         if event.get('type') == 'error' and event.get('task_id') is None:
             self.task_states.general.last_values['profile'] = self.variables['profile'].get()
         self.task_states.handle_event(event)

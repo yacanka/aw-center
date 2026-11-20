@@ -46,6 +46,71 @@ class SourceCheckTests(unittest.TestCase):
         self.proxies = {}
         self.bypass = False
 
+    def test_offline_subfolders_select_the_same_package_for_dependencies_and_runtimes(self):
+        from scripts.manager.operations import _select_offline_package, arguments
+        root = self.root.resolve() / 'external media'
+        for folder in ('source', 'runtimes', 'dependencies/wheels', 'dependencies/npm-cache'):
+            (root / folder).mkdir(parents=True)
+        (root / 'dependencies/manifest.json').write_text('{}')
+        (root / 'install-manifest.json').write_text('{}')
+        for folder in ('', 'source', 'runtimes', 'dependencies', 'dependencies/wheels', 'dependencies/npm-cache'):
+            for action in ('ensure', 'test-sources'):
+                with self.subTest(folder=folder, action=action):
+                    args = arguments({'action': action, 'source_mode': 'offline', 'offline_dir': str(root / folder)})
+                    _select_offline_package(args, lambda event: None)
+                    self.assertEqual(args.offline_dir, root)
+                    self.assertEqual(args.runtime_dirs, (root,))
+
+    def test_standalone_offline_repo_and_incomplete_selection(self):
+        from scripts.manager.paths import offline_package_root
+        from scripts.launcher.model import LauncherError
+        standalone = self.root.resolve() / 'offline-repo'
+        wheels = standalone / 'wheels'
+        wheels.mkdir(parents=True)
+        with self.assertRaises(LauncherError) as failure:
+            offline_package_root(wheels)
+        self.assertEqual(failure.exception.field, 'offline_dir')
+        (standalone / 'manifest.json').write_text('{}')
+        self.assertEqual(offline_package_root(wheels), standalone)
+
+    def test_offline_package_errors_reach_the_operator_without_network_fallback(self):
+        from scripts.launcher.model import Scope
+        from scripts.launcher.offline_manifest import lock_metadata, target_metadata
+        root = self.root.resolve() / 'package'
+        wheels = root / 'dependencies/wheels'
+        wheels.mkdir(parents=True)
+        (root / 'install-manifest.json').write_text('{}')
+        (wheels.parent / 'npm-cache').mkdir()
+        manifest = {'format_version': 1, 'target': target_metadata(), 'locks': lock_metadata(self.project, Scope()),
+                    'artifacts': []}
+        selection = {'action': 'test-sources', 'source_root': str(self.root), 'source_mode': 'offline',
+                     'offline_dir': str(wheels)}
+        path = wheels.parent / 'manifest.json'
+        for data, expected in ((None, 'offline_manifest_missing'), ({**manifest, 'locks': {}}, 'offline_locks_incompatible'),
+                               ({**manifest, 'artifacts': [{'path': 'missing.whl'}]}, 'integrity_failed')):
+            with self.subTest(expected=expected), patch('scripts.manager.source_checks._remote_checks') as remote:
+                if data is not None:
+                    path.write_text(json.dumps(data))
+                events = []
+                worker.execute(selection, events.append, lambda: None, threading.Event())
+                self.assertEqual(next(event['code'] for event in events if event['type'] == 'error'), expected)
+                self.assertFalse(events[-1]['ok'])
+                remote.assert_not_called()
+
+    def test_incomplete_package_identifies_the_missing_component(self):
+        from scripts.manager.paths import OfflinePackageError, offline_package_root
+        root = self.root.resolve()
+        dependencies = root / 'dependencies'
+        dependencies.mkdir()
+        (dependencies / 'manifest.json').write_text('{}')
+        (root / 'install-manifest.json').write_text('{}')
+        for component in ('wheels', 'npm-cache'):
+            with self.assertRaises(OfflinePackageError) as failure:
+                offline_package_root(root)
+            self.assertEqual(failure.exception.code, 'offline_component_missing')
+            self.assertIn(component, str(failure.exception))
+            (dependencies / component).mkdir()
+
     def open_response(self, request, **kwargs):
         url = request.full_url
         body = b'fixture-package'

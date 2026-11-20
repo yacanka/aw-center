@@ -51,7 +51,7 @@ def prepared_outputs(source, profile):
 
 
 def click_and_stop(source, environment, profile, *, password=None, executable=None, when_ready=None,
-                   validation_policy='managed'):
+                   validation_policy='managed', offline_package=None):
     """Drive real Tk buttons, private IPC and contained worker; intercept the browser handoff."""
     from scripts.manager.controller import ManagerController
     evidence = StartupEvidence(validation_policy=validation_policy)
@@ -64,7 +64,13 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
             if self.view.variables['profile'].get() != profile:
                 self.view.variables['profile'].set(profile)
             self.view.variables['source_selection'].set('explicit')
-            self.view.variables['validation_policy'].set(validation_policy)
+            if offline_package is None:
+                self.view.variables['validation_policy'].set(validation_policy)
+            else:
+                assert self.view.variables['validation_policy'].get() == validation_policy
+                with patch('scripts.manager.view.filedialog.askdirectory', return_value=str(offline_package)):
+                    self.view._pickers['offline_dir'].invoke()
+                assert self.view.variables['source_mode'].get() == 'offline'
             self.view.request_admin = lambda _id, send: send(
                 {'username': 'U12345', 'password': password} if password else None)
             self.view.confirm_stop = lambda: True
@@ -430,6 +436,24 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_ke
         options = {name: Path(saved[name]) for name in ('python_executable', 'node_executable') if saved.get(name)}
         checks = inspect_toolchain(home, **options)
         self.assertTrue(all(check['status'] == 'ready' for check in checks), checks)
+
+    def test_cold_start_from_external_wheels_folder(self):
+        profiles, choices = acceptance_matrix(os.environ)
+        if 'dev' not in profiles or False not in choices:
+            self.skipTest('Covered by the dev managed-tools matrix entry')
+        with tempfile.TemporaryDirectory(prefix='awc-external-') as temporary:
+            directory = Path(temporary).resolve()
+            source = self.copy_clean_source(self.executable, directory)
+            external = directory / self.executable.name
+            shutil.copy2(self.executable, external)
+            shutil.copytree(self.executable.parent / '_internal', directory / '_internal')
+            host = socket.gethostbyname(socket.gethostname())
+            programs = acceptance_programs(external, directory, source, self.python, self.node)
+            with deny_external_network(host, programs):
+                result = click_and_stop(source, self.environment(directory, network=True), 'dev',
+                    executable=external, password=secrets.token_urlsafe(48), validation_policy='developer',
+                    offline_package=self.executable.parent / 'dependencies/wheels')
+            self.assertFalse(any(result.source_attempts.values()))
 
     def test_dev_prod_system_and_managed_tools_with_real_network_denial(self):
         # Forced managed runs complement discovery's missing-tools unit tests.

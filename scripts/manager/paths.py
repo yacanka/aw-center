@@ -7,6 +7,8 @@ import json
 import uuid
 import hashlib
 
+from scripts.launcher.model import LauncherError
+
 
 _GLOBAL_CONNECTION_FIELDS = frozenset({'host', 'backend_port', 'frontend_port'})
 
@@ -74,6 +76,46 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
     if values.get('validation_policy', 'developer') not in ('managed', 'developer'):
         values['validation_policy'] = 'developer'
     return values
+
+
+class OfflinePackageError(LauncherError):
+    field = 'offline_dir'
+    remedy = 'ZIP dosyasının tamamını çıkarın ve dependencies/manifest.json içeren paket kökünü veya manifest.json içeren bağımlılık klasörünü seçin.'
+
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(message)
+
+
+def offline_package_root(selected: Path) -> Path:
+    """Recognize only documented layouts, without walking or hashing the package."""
+    from scripts.launcher.installation_permissions import require_unlinked
+
+    require_unlinked(selected)
+    missing = OfflinePackageError('offline_manifest_missing', 'Seçilen klasörde çevrimdışı bağımlılık manifesti bulunamadı.')
+    if not selected.is_dir():
+        raise missing
+
+    root = selected
+    if selected.name.casefold() in {'wheels', 'npm-cache'} and (selected.parent / 'manifest.json').is_file():
+        root = selected.parent
+    if root.name.casefold() in {'source', 'dependencies', 'runtimes'}:
+        parent = root.parent
+        if any((parent / marker).is_file() for marker in ('install-manifest.json', 'manager-manifest.json')):
+            root = parent
+
+    manifest = root / 'dependencies/manifest.json'
+    if not manifest.is_file() and not (root / 'install-manifest.json').is_file():
+        manifest = root / 'manifest.json'
+    require_unlinked(manifest)
+    if not manifest.is_file():
+        raise missing
+    if (root / 'install-manifest.json').is_file():
+        for component in ('wheels', 'npm-cache'):
+            if not (manifest.parent / component).is_dir():
+                raise OfflinePackageError('offline_component_missing',
+                                          f'Çevrimdışı pakette dependencies/{component} klasörü eksik.')
+    return root
 
 
 def default_source_root() -> Path:
