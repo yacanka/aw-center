@@ -236,8 +236,12 @@ class InitialAdminTransportTests(unittest.TestCase):
 
     def test_private_json_input_is_bounded_and_output_contains_no_credentials(self):
         from scripts.launcher.installation_probe import provision_admin_json
+        # Launcher contract tests also run before Django is installed.
+        class Rejection(Exception):
+            error_list = [SimpleNamespace(code='password_too_common')]
         service = mock.Mock(return_value=True)
-        with mock.patch.dict(sys.modules, {'users.initial_admin': SimpleNamespace(create_initial_admin=service)}):
+        with mock.patch.dict(sys.modules, {'users.initial_admin': SimpleNamespace(create_initial_admin=service),
+                                           'django.core.exceptions': SimpleNamespace(ValidationError=Rejection)}):
             for value in ('not-json', '{"username":"U12345","password":"x","extra":1}', 'x' * 16385):
                 self.assertEqual(provision_admin_json(StringIO(value)),
                                  {'status': 'error', 'code': 'invalid_admin_input'})
@@ -245,9 +249,29 @@ class InitialAdminTransportTests(unittest.TestCase):
             self.assertEqual(provision_admin_json(StringIO('{"username":"U12345","password":"transport-fixture"}')),
                              {'status': 'created'})
             service.assert_called_once_with('U12345', 'transport-fixture')
+            service.side_effect = Rejection('private-diagnostic-fixture')
+            self.assertEqual(provision_admin_json(StringIO('{"username":"U12345","password":"transport-fixture"}')),
+                             {'status': 'error', 'code': 'password_too_common'})
             service.side_effect = RuntimeError('private-diagnostic-fixture')
             self.assertEqual(provision_admin_json(StringIO('{"username":"U12345","password":"transport-fixture"}')),
-                             {'status': 'error', 'code': 'invalid_admin_input'})
+                             {'status': 'error', 'code': 'backend_unavailable'})
+
+    def test_password_rejection_retries_only_the_admin_step(self):
+        from scripts.launcher import installation
+        credential = {'username': 'U12345', 'password': 'transport-fixture-only'}
+        provider = mock.Mock(return_value=credential)
+        args = SimpleNamespace(no_admin=False, admin_provider=provider, admin_confirmed=mock.Mock())
+        responses = [subprocess.CompletedProcess([], 1, '{"status":"error","code":"password_too_common"}'),
+                     subprocess.CompletedProcess([], 0, '{"status":"created"}')]
+        with tempfile.TemporaryDirectory() as temporary, \
+             mock.patch.object(installation, 'backend_inspection', return_value={'admin_exists': False}) as inspect, \
+             mock.patch.object(installation, 'profile_environment', return_value={}), \
+             mock.patch.object(installation, 'controlled_run', side_effect=responses) as run:
+            installation._initial_admin(create_project(Path(temporary)), {}, args, {})
+        self.assertEqual(provider.call_args_list, [mock.call(), mock.call('password_too_common')])
+        self.assertTrue(all(call.args[0][-1] == 'initial-admin-json' for call in run.call_args_list))
+        inspect.assert_called_once()
+        args.admin_confirmed.assert_called_once_with()
 
     def test_existing_administrator_never_requests_gui_credentials(self):
         from scripts.launcher.installation import _initial_admin

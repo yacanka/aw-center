@@ -8,15 +8,20 @@ Pencerenin açılması uygulamanın hazır olduğu anlamına gelmez. Güncel tam
 
 ## Sade yönetim ekranı
 
-**Geliştirme** seçiliyken **AW Center’ı aç** düğmesine basın. Hazır bir ortamda
-alan doldurmanız gerekmez. Manager Django, Vite ve worker süreçlerini başlatır
-ve uygulama hazır olduğunda tarayıcıyı açar. İlk kurulumda eksik paketleri
-hazırlar ve aktif yönetici yoksa kullanıcı adı ve parola ister.
+Yeni bilgisayarda **Bu bilgisayarda kullan** veya **Ekibim için sunucu kur**
+seçeneklerinden birini seçin. Yerel kullanım doğrudan başlar. Ekip sunucusu
+için sabit IP adresini girip sertifika ve özel anahtar dosyalarını seçin.
+Aktif yönetici hesabı yoksa ilk hesap bilgileri istenir. Parola kabul
+edilmezse aynı formda karşılanmayan kural gösterilir. Kullanıcı adınız korunur.
 
-**Üretim** ilk kurulumda sabit IPv4 adresi, TLS sertifikası ve TLS özel anahtarı
-ister. Kayıtlı üretim profili bu değerleri sonraki açılışlarda kullanır.
+İlk başarılı açılıştan sonra masaüstündeki **AW Center** simgesine çift tıklayın.
+Manager son kullanılan kurulumu açar. Başlatma sürüyorsa ilerlemeyi, sunucu
+hazırsa tarayıcıyı görürsünüz. Tarayıcı açıldığında Manager görev çubuğuna
+küçülür. Ekip üyeleriniz için Manager penceresindeki **Ekip bağlantısını kopyala**
+düğmesini kullanın. Çalışan uygulamanın ayarlarına görev çubuğundan veya
+`AWCenterManager.exe --settings` ile erişebilirsiniz.
 
-Ana ekran profil seçimini, durumunu ve ana eylemi gösterir.
+Ana ekran durumu ve ana eylemi gösterir. Profili değiştirmek için **Ayarlar** düğmesini açın.
 İlerleme ana ekranda seçili profilin açılışını takip eder;
 başka bir raporu seçmek bu ilerlemeyi değiştirmez. **Ayrıntılar** görünümünde
 mevcut işlemler, geçmiş raporlar, bildirimler ve seçili işlemi durdurma bulunur.
@@ -34,7 +39,7 @@ düzeltilemeyen gerçek hatalar kullanıcı girdisi gerektirmeye devam eder.
 
 ## Hızlı açılış
 
-Günlük kullanımda hızlı açılış varsayılandır. **Gelişmiş ayarları göster**
+Günlük kullanımda hızlı açılış varsayılandır. **Ayarlar**
 altında kaynak yolunu değiştirebilir veya **Açılışta kapsamlı denetimleri
 çalıştır** seçeneğini açabilirsiniz. Bu seçim aynı kaynak ve profilde hatırlanır.
 
@@ -61,7 +66,7 @@ bilgisini değiştirmeden doğrudan `node_modules` içeriğini düzenlediyseniz
 `frontend/` içinden `node scripts/build-mermaid-renderer.mjs --dev --force`
 çalıştırın. Production build ve test hazırlığı her zaman renderer'ı derler.
 
-İsteğe bağlı kaynak, bağlantı, araç ve `.env` alanları **Gelişmiş ayarları göster**
+İsteğe bağlı kaynak, bağlantı, araç ve `.env` alanları **Ayarlar**
 altındadır. Kayıtlı değerler olsa da bu panel başlangıçta kapalıdır. Kaynaklar ve
 Ayrıntılar görünümleri isteğe bağlıdır. Geliştirmede frontend portu, üretimde
 TLS alanları ve üretim açıklaması gösterilir. Çevrimdışı modda ağ deposu
@@ -100,8 +105,9 @@ olur. Bir alan düzeltilebiliyorsa kısa hata açıklamasının altında aynı a
 giriş alanı gösterilir; sekme değişmez ve gelişmiş panel kendiliğinden açılmaz.
 **Yeniden dene / Ctrl+R** düzeltmeyi kullanıp aynı akışı sürdürür. Başka profilin
 raporu deneniyorsa o işlemin kayıtlı profili ve ayarları korunur. Alanı olmayan
-hataların açıklaması ve tam teknik raporu Ayrıntılar'da tutulur. Başlatmada
-tarayıcı bir kez açılır. Durdurulan görevin canlı bağlantısı kaldırılır.
+hataların açıklaması ve tam teknik raporu Ayrıntılar'da tutulur. Teknik yardım gerektiğinde **Destek bilgisini kopyala** yalnızca hata kodunu
+ve işlemin kısa açıklamasını kopyalar. Tarayıcı açılamazsa **Tarayıcıda aç**
+veya **Adresi kopyala** düğmesini kullanın. Başlatmada tarayıcı bir kez açılır. Durdurulan görevin canlı bağlantısı kaldırılır.
 
 Aktif işlem varken **X** görev çubuğuna küçültür. **Çıkış**, mevcut onaylı güvenli
 durdurma akışını çalıştırır; süreçler temizlendikten sonra kapanır. Aktif işlem
@@ -245,10 +251,9 @@ olmaya devam eder.
 Gereken güvenli SQLite migration'ı doğrulanmış yedekten sonra otomatik çalışır.
 Kaynağı belirsiz yarım migration veya gerçek erişim hatası ayrıca bildirilir.
 
-Manager ve hazırlık işlemleri terminal açmaz. İlk sunucu sürecinde tek terminal
-açılır; backend/frontend/worker çıktıları orada izlenir. Terminali kapatmak
-sahipli sunucu ve worker süreçlerini durdurur, Manager açık kalır. Bu davranışın
-Windows kabul testi platforma özgüdür.
+Manager üzerinden başlatılan sunucu arka planda çalışır. Durumu görev
+çubuğundaki Manager penceresinden izleyebilir, **Durdur** düğmesiyle sunucuyu
+ve ona bağlı süreçleri birlikte durdurabilirsiniz.
 
 ## Geliştirme ve üretim
 

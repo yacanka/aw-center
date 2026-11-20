@@ -145,6 +145,15 @@ def _context_values(values):
         if isinstance(key, str) and re.fullmatch(r'[0-9a-f]{64}', key) and isinstance(value, dict)}}
 
 
+def _desktop_values(values):
+    result = {}
+    if values.get('_startup_profile') in ('dev', 'prod'):
+        result['_startup_profile'] = values['_startup_profile']
+    if values.get('_shortcut_created') is True:
+        result['_shortcut_created'] = True
+    return result
+
+
 def load_preferences(home: Path) -> dict:
     """Read settings without creating profiles or interpreting any saved command."""
     path = home / 'manager.json'
@@ -176,7 +185,7 @@ def _read_preferences(path, private_paths, *, legacy=False):
         if (not isinstance(document, dict) or document.get('version') not in {1, 2, 3} or
                 not isinstance(document.get('values'), dict)):
             raise ValueError
-        values = {**_safe_values(document['values']), **_context_values(document)}
+        values = {**_safe_values(document['values']), **_context_values(document), **_desktop_values(document)}
         if document['version'] < 3:
             # Earlier releases saved managed even without an operator opt-in.
             for selection in (values, *values.get('_contexts', {}).values()):
@@ -190,7 +199,7 @@ def save_preferences(home: Path, values: dict) -> None:
     """Atomically replace only supported inputs; never read selected file contents."""
     try:
         contexts = _context_values(values)
-        content = json.dumps({'version': 3, 'values': _safe_values(values), **contexts},
+        content = json.dumps({'version': 3, 'values': _safe_values(values), **contexts, **_desktop_values(values)},
                              ensure_ascii=False).encode('utf-8')
     except UnicodeError:
         raise PreferencesError('encode', 'invalid_format') from None

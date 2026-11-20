@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import queue
 import threading
+import time
 import uuid
 import webbrowser
 
@@ -24,6 +25,9 @@ class ManagerTask:
     result: dict | None = None
     cancel_requested: bool = False
     browser_opened: bool = False
+    ready_url: str = ''
+    opening_browser: bool = False
+    last_open: float = float('-inf')
     resource_values: dict = field(default_factory=dict)
     events: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=256))
     form_values: dict | None = None
@@ -38,7 +42,7 @@ class ManagerTask:
 
 
 class ManagerController:
-    def __init__(self, root, view_factory, source_root, *, session_factory=None, browser_opener=None):
+    def __init__(self, root, view_factory, source_root, *, session_factory=None, browser_opener=None, inspect_on_open=True):
         self.root = root
         self.source_root = str(source_root)
         self.events = queue.Queue()
@@ -48,15 +52,52 @@ class ManagerController:
         self.closing = self.closed = False
         self.inspection_ids = {}
         self.restarts = {}
+        self.on_desktop_ready = None
+        self.window_generation = 0
         self.view = view_factory(root, self.action, self.stop, self.window_close, source_root=source_root)
         self.view.on_open = self.open_browser
         self.view.on_exit = self.close
         self.view.on_inspect = self.inspect_selected
-        root.after_idle(self.inspect_selected)
+        if inspect_on_open:
+            root.after_idle(self.inspect_selected)
         root.after(100, self.poll)
 
-    def inspect_selected(self):
+    def show_window(self):
+        self.window_generation += 1
+        self.root.deiconify()
+        self.root.lift()
+
+    def show_settings(self):
+        self.show_window()
+        self.view.tabs.select(self.view.run_tab)
+        self.view._set_advanced(True)
+
+    def desktop_open(self, profile=None):
+        """Handle a shortcut activation without changing a running server."""
+        if self.closing:
+            return
+        selected = self.view.variables['profile']
+        profile = profile or selected.get()
+        if profile != selected.get():
+            selected.set(profile)
+        self.view.tabs.select(self.view.run_tab)
+        for task in reversed(list(self.tasks.values())):
+            if task.values['profile'] != profile or task.action not in {'ensure', 'start', 'provision'}:
+                continue
+            if task.active and task.status == 'ready' and task.ready_url:
+                self.open_browser(task.ready_url, task.id)
+                return
+            if task.active or task.status == 'failed':
+                self.show_window()
+                return
+            break
+        self.show_window()
+        self.view._dispatch('ensure')
+
+    def inspect_selected(self, profile=None):
         values = self.view.form_values()
+        if profile is not None:
+            values = self.view.form_values_for(profile)
         if not isinstance(values, dict) or self.closing:
             return
         profile = values.get('profile', 'dev')
@@ -149,8 +190,10 @@ class ManagerController:
         return task_id
 
     def _general_error(self, code, message):
-        self.view.handle_event({'type': 'error', 'code': code, 'message': message,
-            'remedy': 'Bağımsız işlemleri kullanabilirsiniz. Çakışan işlem için görev listesinden ilgili işi durdurun veya tamamlanmasını bekleyin.'})
+        event = {'type': 'error', 'code': code, 'message': message}
+        if code in {'task_conflict', 'task_capacity'}:
+            event['remedy'] = 'Görev listesinden ilgili işlemin tamamlanmasını bekleyin veya işlemi durdurun.'
+        self.view.handle_event(event)
 
     def _publish_tasks(self, selected_id=None):
         completed = [task.id for task in self.tasks.values() if not task.active]
@@ -267,21 +310,45 @@ class ManagerController:
                     self.closed = True
                     self.root.destroy()
             return
+        if kind == '_browser_result':
+            task.opening_browser = False
+            if task.status != 'ready' or self.closing:
+                return
+            if event['opened']:
+                self._render(task, {'type': 'browser_opened'})
+                if self.window_generation == event['generation']:
+                    self.root.iconify()
+            else:
+                task.last_open = float('-inf')  # An explicit retry can run immediately.
+                self.show_window()
+                if self.view.variables['profile'].get() != task.values['profile']:
+                    self.view.variables['profile'].set(task.values['profile'])
+                self.view.tabs.select(self.view.run_tab)
+                self._render(task, {'type': 'browser_failed'})
+            return
         if kind == 'resources':
             if event.get('action') in {'start', 'provision'} and isinstance(event.get('source_root'), str):
                 task.resource_values = {**task.values, 'source_root': event['source_root']}
                 task.claims = claims_for(event['action'], task.resource_values)
             return
+        if kind == 'error' or (kind == 'health' and task.status == 'ready' and not event.get('healthy')):
+            self.show_window()
+        if kind == 'admin_complete':
+            self.view.dismiss_admin(task.id)
+            return
         if kind == 'input' and event.get('kind') == 'admin':
             if self.closing or task.cancel_requested:
                 self.stop(task.id)
             else:
-                self.view.request_admin(task.id, lambda value: self._admin_response(task.id, value))
+                self.show_window()
+                options = {'rejection': event['rejection']} if 'rejection' in event else {}
+                self.view.request_admin(task.id, lambda value: self._admin_response(task.id, value), **options)
             return
         if kind == 'done':
             task.result = event
             task.status = 'finishing'
         elif kind == 'ready':
+            task.ready_url = _ready_url(event.get('url'))
             task.status = 'stopping' if task.cancel_requested else 'ready'
             # Provision is now a running server: no setup writes remain.
             task.claims = claims_for('start', task.resource_values or task.values)
@@ -292,7 +359,9 @@ class ManagerController:
         self._render(task, event)
         if kind == 'ready' and not self.closing and not task.cancel_requested and not task.browser_opened:
             task.browser_opened = True
-            self.open_browser(event.get('url'), task.id)
+            if self.on_desktop_ready and task.ready_url:
+                self.on_desktop_ready(task.values['profile'])
+            self.open_browser(task.ready_url, task.id)
 
     def _admin_response(self, task_id, value):
         task = self.tasks.get(task_id)
@@ -309,14 +378,19 @@ class ManagerController:
 
     def open_browser(self, url, task_id=None):
         url = _ready_url(url)
-        if not url or self.closing:
+        task = self.tasks.get(task_id)
+        if not url or self.closing or not task or task.status != 'ready' or url != task.ready_url:
             return
+        if task.opening_browser or time.monotonic() - task.last_open < 1:
+            return
+        task.opening_browser = True
+        task.last_open = time.monotonic()
+        generation = self.window_generation
         def launch():
             try:
                 opened = self.browser_opener(url)
             except Exception:
                 opened = False
-            if opened is False:
-                self.events.put({'type': 'status', 'task_id': task_id,
-                    'message': 'Uygulama hazır; tarayıcı açılamadı. Adresi rapordan kopyalayabilirsiniz.'})
+            self.events.put({'type': '_browser_result', 'task_id': task_id,
+                             'opened': opened is not False, 'generation': generation})
         threading.Thread(target=launch, name='awcenter-browser', daemon=True).start()

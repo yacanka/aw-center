@@ -81,9 +81,12 @@ def main(argv=None):
         except Exception:
             stop.set()  # Loss of the owning GUI never leaves a running server.
     threading.Thread(target=controls, daemon=True).start()
-    def admin_provider():
+    def admin_provider(rejection=None):
         awaiting_admin.set()
-        emit({'type': 'input', 'kind': 'admin'})
+        prompt = {'type': 'input', 'kind': 'admin'}
+        if rejection:
+            prompt['rejection'] = rejection
+        emit(prompt)
         while True:
             if stop.is_set():
                 raise OperationCancelled()

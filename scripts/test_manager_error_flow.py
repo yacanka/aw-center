@@ -57,6 +57,39 @@ class ErrorFieldStateTests(unittest.TestCase):
 class InlineErrorFlowTests(unittest.TestCase):
     setUp = fixtures.NativeWindowSmokeTests.setUp
 
+    def test_missing_certificate_has_actionable_picker_and_preserves_other_fields(self):
+        window = self.window
+        window.variables['profile'].set('prod')
+        window.variables['host'].set('192.0.2.10')
+        window.variables['tls_key_file'].set('C:/private/server.key')
+        window.update_tasks([{'id': 'server', 'action': 'ensure', 'profile': 'prod', 'status': 'failed',
+                              'values': {'profile': 'prod'}}], selected_id='server')
+        window.handle_event({'task_id': 'server', 'type': 'error', 'code': 'production_settings_required',
+                             'message': 'TLS sertifikası eksik.', 'field': 'tls_cert_file'})
+        self.root.update()
+        self.assertEqual(window.error_remedy_var.get(), 'Sunucu sertifikanızın dosyasını seçin.')
+        self.assertEqual(window.error_picker.cget('text'), 'Sertifikayı seç')
+        with patch('scripts.manager.view.filedialog.askopenfilename', return_value='C:/private/server.pem'):
+            window.error_picker.invoke()
+        window.retry_button.invoke()
+        self.assertEqual(self.actions[-1][1]['tls_cert_file'], 'C:/private/server.pem')
+        self.assertEqual(self.actions[-1][1]['tls_key_file'], 'C:/private/server.key')
+        self.assertEqual(self.actions[-1][1]['host'], '192.0.2.10')
+
+    def test_unknown_error_support_copies_only_visible_operation_and_code(self):
+        window = self.window
+        window.update_tasks([
+            {'id': 'server', 'action': 'ensure', 'profile': 'dev', 'status': 'failed', 'values': {}},
+            {'id': 'other', 'action': 'doctor', 'profile': 'prod', 'status': 'done', 'values': {}},
+        ], selected_id='other')
+        window.handle_event({'task_id': 'server', 'type': 'error', 'code': 'operation_failed',
+                             'message': 'Private C:/operator/file with token=fixture'})
+        self.root.update()
+        self.assertIn('Sistem yöneticinizden', window.error_remedy_var.get())
+        with patch.object(self.root, 'clipboard_clear'), patch.object(self.root, 'clipboard_append') as copy:
+            window.support_button.invoke()
+        copy.assert_called_once_with('operation_failed\nAW Center açılırken işlem tamamlanamadı.')
+
     def test_offline_ca_error_reuses_the_picker_without_leaving_the_main_screen(self):
         window = self.window
         self.root.deiconify()
@@ -103,6 +136,7 @@ class InlineErrorFlowTests(unittest.TestCase):
         self.root.update()
         self.assertEqual(window.tabs.select(), str(window.run_tab))
         self.assertTrue(window.error_entry.winfo_viewable())
+        self.assertEqual(window.error_remedy_var.get(), 'Paket adresini düzeltin.')
         window.error_entry.delete(0, 'end')
         window.error_entry.insert(0, 'https://packages.example/simple')
         window.retry_button.invoke()

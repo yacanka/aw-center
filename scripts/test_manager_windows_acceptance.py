@@ -60,22 +60,12 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
     evidence = StartupEvidence(validation_policy=expected_policy, profile=profile)
     errors = []
     warm = password is None
-    expected_status = {'developer': 'stopped', 'managed': 'unverified'}[expected_policy] if warm else 'not_installed'
+    settings = validation_policy is not None or offline_package is not None
 
     class DrivenController(ManagerController):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs, browser_opener=evidence.open_browser)
-            if self.view.variables['profile'].get() != profile:
-                self.view.variables['profile'].set(profile)
             assert self.view.variables['source_selection'].get() == 'automatic'
-            if validation_policy and self.view.variables['validation_policy'].get() != validation_policy:
-                self.view.advanced_button.invoke()
-                self.view.validation_selector.invoke()
-            assert self.view.variables['validation_policy'].get() == expected_policy
-            if offline_package is not None:
-                with patch('scripts.manager.view.filedialog.askdirectory', return_value=str(offline_package)):
-                    self.view._pickers['offline_dir'].invoke()
-                assert self.view.variables['source_mode'].get() == 'offline'
             self.view.request_admin = lambda _id, send: send(
                 {'username': 'U12345', 'password': password} if password else None)
             self.view.confirm_stop = lambda: True
@@ -97,11 +87,29 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
 
         def drive(self):
             try:
-                self.wait_for(lambda: not self.busy and self.view._profile_presentation()['status'] != 'inspecting', 300)
-                assert self.view._profile_presentation()['status'] == expected_status
-                evidence.begin()
-                self.view.action_buttons['start'].invoke()
-                assert any(task.action == 'ensure' for task in self.tasks.values()), 'Primary action did not dispatch ensure'
+                if settings:
+                    self.wait_for(lambda: self.view.advanced_var.get(), 30)
+                    assert not any(task.action == 'ensure' for task in self.tasks.values())
+                    if self.view.variables['profile'].get() != profile:
+                        self.view.variables['profile'].set(profile)
+                    if validation_policy and self.view.variables['validation_policy'].get() != validation_policy:
+                        self.view.validation_selector.invoke()
+                    if offline_package is not None:
+                        with patch('scripts.manager.view.filedialog.askdirectory', return_value=str(offline_package)):
+                            self.view._pickers['offline_dir'].invoke()
+                        assert self.view.variables['source_mode'].get() == 'offline'
+                    evidence.begin()
+                    self.view.action_buttons['start'].invoke()
+                elif not warm:
+                    self.wait_for(lambda: self.root.children.get('profile_chooser') and self.root.children[
+                        'profile_chooser'].winfo_children()[0].children[profile].winfo_viewable(), 300)
+                    dialog = self.root.children['profile_chooser']
+                    button = dialog.winfo_children()[0].children[profile]
+                    evidence.begin()
+                    button.invoke()
+                self.wait_for(lambda: any(task.action == 'ensure' for task in self.tasks.values()), 300)
+                assert self.view.variables['profile'].get() == profile
+                assert self.view.variables['validation_policy'].get() == expected_policy
                 self.wait_for(lambda: evidence.browser_calls or evidence.failed, 1200 if warm else 3600)
                 evidence.check(warm=warm)
                 if when_ready:
@@ -119,18 +127,22 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
     from scripts.manager import main
     with ExitStack() as context:
         context.enter_context(patch.dict(os.environ, environment, clear=True))
+        desktop = Path(environment['LOCALAPPDATA']).parent / 'Desktop'
+        desktop.mkdir(exist_ok=True)
+        context.enter_context(patch('scripts.manager.desktop._desktop_directory', return_value=desktop))
         context.enter_context(patch('scripts.manager.controller.ManagerController', DrivenController))
         startup_error = context.enter_context(patch.object(main, '_startup_error'))
         preferences_warning = context.enter_context(patch.object(main, '_preferences_warning'))
         if executable:
             # Run this revision's Tk controller against the unmodified frozen worker.
-            runtime = SimpleNamespace(frozen=True, executable=str(executable))
+            runtime = SimpleNamespace(frozen=True, executable=str(executable), platform='win32')
             context.enter_context(patch('scripts.manager.paths.sys', runtime))
             context.enter_context(patch('scripts.manager.transport.sys', runtime))
+            context.enter_context(patch('scripts.manager.desktop.sys', runtime))
         entry = str(source / 'AWCenterManager.pyw')
         # Match a double-click: a new installation uses the adjacent checkout,
         # and a warm portable launch resolves the private profile's saved source.
-        context.enter_context(patch.object(sys, 'argv', [entry]))
+        context.enter_context(patch.object(sys, 'argv', [entry, '--settings'] if settings else [entry]))
         try:
             runpy.run_path(entry, run_name='__main__')
         except SystemExit as finished:
@@ -140,6 +152,7 @@ def click_and_stop(source, environment, profile, *, password=None, executable=No
         if errors:
             raise errors[0]
         assert result == 0 and not startup_error.called and not preferences_warning.called
+        assert (desktop / 'AW Center.lnk').is_file()
     return evidence
 
 

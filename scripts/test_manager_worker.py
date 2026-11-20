@@ -110,6 +110,9 @@ def dispatch(action, args, emit):
     credentials = args.admin_provider()
     if credentials != {'username': 'U12345', 'password': 'example-test-password'}:
         raise AssertionError('Administrator reply was not preserved')
+    if args.admin_provider('password_too_common') != credentials:
+        raise AssertionError('Administrator retry was not preserved')
+    args.admin_confirmed()
     emit({'type': 'status', 'message': 'Administrator reply accepted'})
 
 with patch.object(operations, '_dispatch', side_effect=dispatch):
@@ -132,9 +135,15 @@ with patch.object(operations, '_dispatch', side_effect=dispatch):
                     child.stdin.write(b'{"type":"migration","value":true}\n')
                     child.stdin.write(json.dumps(reply).encode('utf-8') + b'\n')
                     child.stdin.flush()
+                    cancelled = reply.get('value') is None
+                    if not cancelled:
+                        self.assertEqual(json.loads(child.stdout.readline()), {
+                            'type': 'input', 'kind': 'admin', 'rejection': 'password_too_common'})
+                        child.stdin.write(json.dumps(reply).encode('utf-8') + b'\n')
+                        child.stdin.flush()
+                        self.assertEqual(json.loads(child.stdout.readline()), {'type': 'admin_complete'})
                     self.assertEqual(child.wait(timeout=5), 0)
                     events = [json.loads(line) for line in child.stdout]
-                    cancelled = reply.get('value') is None
                     self.assertEqual(events[-1], {'type': 'done', 'ok': True,
                                                  **({'cancelled': True} if cancelled else {})})
                     self.assertNotIn('example-test-password', json.dumps(events))

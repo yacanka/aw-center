@@ -43,6 +43,7 @@ class StartupEvidence:
         self.locked_branches = []
         self.source_attempts = dict.fromkeys(('python_packages', 'npm_packages', 'runtime'), 0)
         self.failed = False
+        self.failure_code = None
 
     def begin(self, now=None):
         self.started = self.phase_started = time.monotonic() if now is None else now
@@ -86,6 +87,9 @@ class StartupEvidence:
             self.ready_count += 1
         elif kind == 'error' or (kind == 'done' and not event.get('ok')):
             self.failed = True
+            code = event.get('code')
+            if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,99}', code):
+                self.failure_code = code
         if kind == 'done':
             self._finish_phase(now)
 
@@ -102,7 +106,7 @@ class StartupEvidence:
                     browser_after_ready=self.browser_order_ok, click_to_browser_ms=self.browser_ms)
 
     def check(self, *, warm):
-        assert not self.failed, 'The lifecycle returned an error'
+        assert not self.failed, f'Manager lifecycle failed ({self.failure_code or "no error code"})'
         assert self.ready_count == self.browser_calls == 1 and self.browser_order_ok, self.summary()
         assert self.locked_branches == (['start'] if warm else ['provision']), self.summary()
         assert self.prompts == (0 if warm else 1), self.summary()

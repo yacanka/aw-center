@@ -168,6 +168,11 @@ class ControllerTests(unittest.TestCase):
         callback({'username': 'U12345', 'password': 'not-a-real-password'})
         self.assertEqual(len(self.sessions[0].sent), 1)
         self.assertEqual(self.sessions[1].sent, [])
+        self.event(setup, type='input', kind='admin', rejection='password_too_common')
+        self.assertEqual(self.view.request_admin.call_args.args[0], setup)
+        self.assertEqual(self.view.request_admin.call_args.kwargs, {'rejection': 'password_too_common'})
+        self.event(setup, type='admin_complete')
+        self.view.dismiss_admin.assert_called_once_with(setup)
 
     def test_close_cancels_all_and_waits_for_all_cleanup(self):
         first, second = self.start('start'), self.start('test-sources')
@@ -179,6 +184,35 @@ class ControllerTests(unittest.TestCase):
         self.root.destroy.assert_not_called()
         self.event(second, type='_closed')
         self.root.destroy.assert_called_once()
+
+    def test_shortcut_reopens_only_the_owned_healthy_server(self):
+        self.view.variables = {'profile': Mock()}
+        self.view.variables['profile'].get.return_value = 'dev'
+        task_id = self.start('ensure')
+        self.controller.desktop_open()
+        self.view._dispatch.assert_not_called()
+        self.view._primary_action.assert_not_called()
+        url = 'http://127.0.0.1:5173/app/'
+        with patch.object(self.controller, 'open_browser') as launch:
+            self.event(task_id, type='ready', url=url)
+            self.controller.desktop_open()
+            launch.assert_called_with(url, task_id)
+        self.assertFalse(self.sessions[0].stopped)
+        self.assertEqual(len(self.sessions), 1)
+
+    def test_browser_failure_keeps_server_alive_and_returns_to_manager(self):
+        self.view.variables = {'profile': Mock()}
+        self.view.variables['profile'].get.return_value = 'dev'
+        task_id = self.start('ensure')
+        self.browser.return_value = False
+        self.controller._handle_event({'task_id': task_id, 'type': 'ready', 'url': 'http://localhost/app/'})
+        result = self.controller.events.get(timeout=1)
+        self.controller._handle_event(result)
+        self.assertEqual(self.view.handle_event.call_args.args[0]['type'], 'browser_failed')
+        self.root.deiconify.assert_called()
+        self.root.iconify.assert_not_called()
+        self.assertEqual(self.controller.tasks[task_id].status, 'ready')
+        self.assertFalse(self.sessions[0].stopped)
 
     def test_blocked_browser_does_not_block_other_events(self):
         gate, started = threading.Event(), threading.Event()

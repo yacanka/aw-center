@@ -26,14 +26,17 @@ class OperationCancelled(LauncherError):
 
 
 @contextmanager
-def operation_control(stop_event):
+def operation_control(stop_event, *, hide_server_window=False):
     """Enable cooperative cancellation inside an already contained GUI worker."""
     previous = getattr(_control, "stop", None)
+    previous_hidden = getattr(_control, "hide_server_window", False)
+    _control.hide_server_window = hide_server_window
     _control.stop = stop_event
     try:
         yield
     finally:
         _control.stop = previous
+        _control.hide_server_window = previous_hidden
 
 
 def check_cancelled() -> None:
@@ -50,7 +53,8 @@ def server_console():
     policy. The Manager's private stdin and saved JSON output channel remain
     independent of the server console, and all children retain Job ownership.
     """
-    if os.name != 'nt' or getattr(_control, 'server_console', None) is not None:
+    if (os.name != 'nt' or getattr(_control, 'hide_server_window', False) or
+            getattr(_control, 'server_console', None) is not None):
         yield
         return
     previous_output = getattr(_control, 'server_output', None)

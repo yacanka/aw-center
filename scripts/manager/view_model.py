@@ -132,8 +132,12 @@ def validate_admin(username: str, password: str, confirmation: str) -> dict[str,
     # Mirror users.username_policy without importing Django before provisioning.
     if not re.fullmatch(r"[A-Za-zÇĞİÖŞÜçğıöşü][0-9]{5}", username):
         raise FormError("username", "Kullanıcı adı bir harf ve ardından tam beş rakam olmalıdır (örnek: U12345).")
-    if not 8 <= len(password) <= 128 or password.isdigit() or "\x00" in password:
-        raise FormError("password", "Parola 8–128 karakter olmalı ve yalnız rakamlardan oluşmamalıdır.")
+    if not 8 <= len(password) <= 128:
+        raise FormError("password", "8 ile 128 karakter arasında bir parola girin.")
+    if password.isdigit():
+        raise FormError("password", "Parola yalnız rakamlardan oluşamaz. Bir harf de ekleyin.")
+    if "\x00" in password:
+        raise FormError("password", "Parola görünmeyen bir boş karakter içeriyor. Parolayı yeniden yazın.")
     if password != confirmation:
         raise FormError("confirmation", "Parola tekrarı eşleşmiyor.")
     return {"username": username, "password": password}
@@ -206,6 +210,7 @@ class ManagerState:
         self.healthy = True
         self.finished_at = None
         self.last_health = ''
+        self.browser_notice = ''
 
     def record_action(self, action: str, values: dict) -> None:
         self.last_action = action
@@ -217,6 +222,7 @@ class ManagerState:
         self.phase = ""
         self.error_message = self.error_remedy = self.error_code = self.ready_url = ""
         self.error_field = ""
+        self.browser_notice = ''
         self.checks = []
         self.status = "İşlem başlatılıyor."
         self._append(f"İşlem: {action}; profil: {self.last_values['profile']}; kaynak: {self.last_values['source_mode']}; doğrulama: {self.last_values['validation_policy']}")
@@ -242,12 +248,14 @@ class ManagerState:
                 self._append(safe_text(event.get('message', '')))
             self.healthy = healthy
             self.last_health = safe_text(event.get('message', ''))
-            self.status = safe_text(event.get('message', ''))
+            self.status = self.browser_notice if healthy and self.browser_notice else self.last_health
         elif kind == "error":
             field = event.get('field')
             self.error_field = field if isinstance(field, str) and field in DEFAULT_VALUES else ''
             self.error_message = safe_text(event.get("message", "İşlem tamamlanamadı."))
-            self.error_remedy = safe_text(event.get("remedy", "Kaynakları ve durum raporunu inceleyip yeniden deneyin."))
+            fallback = ("Aşağıdaki alanı düzeltip yeniden deneyin." if self.error_field else
+                        "Sistem yöneticinizden yardım isteyin. Destek bilgisini kopyala düğmesiyle hata kodunu paylaşabilirsiniz.")
+            self.error_remedy = safe_text(event.get("remedy", fallback))
             self.error_code = safe_text(event.get("code", ""), limit=100)
             self.status = "İşlem tamamlanamadı. Aşağıdaki çözüm adımını uygulayın."
             if self.error_code == "bundle_waiting_for_files":
@@ -255,6 +263,13 @@ class ManagerState:
             self._append(f"Hata ({self.error_code}): {self.error_message}\nÇözüm: {self.error_remedy}")
         elif kind == "checks":
             self._handle_checks(event.get("checks"))
+        elif kind == 'browser_failed':
+            self.status = "AW Center çalışıyor. Tarayıcıda aç düğmesine basın veya bağlantıyı kopyalayın."
+            self.browser_notice = self.status
+            self._append(self.status)
+        elif kind == 'browser_opened':
+            self.browser_notice = ''
+            self.status = "AW Center çalışıyor."
         elif kind == "ready":
             self.ready_url = _ready_url(event.get("url"))
             if self.ready_url:

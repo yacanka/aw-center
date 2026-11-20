@@ -200,21 +200,35 @@ def _initialize_schema(project: Project, profile: dict, args, tool_env: dict) ->
 def _initial_admin(project: Project, profile: dict, args, tool_env: dict) -> None:
     if args.no_admin or backend_inspection(project, profile).get("admin_exists"):
         return
+    from .installation_probe import ADMIN_INPUT_ERRORS
     provider = getattr(args, "admin_provider", None)
-    options = {}
-    operation = "initial-admin"
-    if provider is not None:
-        credentials = provider()
+    command = [str(project.python), "-m", "scripts.launcher.installation_probe"]
+    options = {"cwd": project.root, "env": environment({**tool_env, **profile_environment(profile)}),
+               "check": False, "safe_boundary": True}
+    if provider is None:
+        if controlled_run([*command, "initial-admin"], **options).returncode:
+            raise LauncherError("İlk yönetici oluşturulamadı; mevcut hesaplar değiştirilmedi.")
+        return
+    rejection = None
+    while True:
+        credentials = provider(rejection) if rejection else provider()
         if (not isinstance(credentials, dict) or set(credentials) != {"username", "password"}
                 or any(not isinstance(value, str) or not value for value in credentials.values())):
             raise LauncherError("İlk yönetici bilgileri sağlanmadı; mevcut hesaplar değiştirilmedi.")
-        operation = "initial-admin-json"
-        options = {"input": json.dumps(credentials), "text": True, "capture_output": True, "timeout": 60}
-    result = controlled_run([str(project.python), "-m", "scripts.launcher.installation_probe", operation],
-                            cwd=project.root, env=environment({**tool_env, **profile_environment(profile)}),
-                            check=False, safe_boundary=True, **options)
-    if result.returncode:
-        raise LauncherError("İlk yönetici oluşturulamadı; mevcut hesaplar değiştirilmedi.")
+        result = controlled_run([*command, "initial-admin-json"], input=json.dumps(credentials),
+                                text=True, capture_output=True, timeout=60, **options)
+        del credentials
+        if result.returncode == 0:
+            if confirmed := getattr(args, "admin_confirmed", None):
+                confirmed()
+            return
+        try:
+            reply = json.loads(result.stdout or '')
+        except ValueError:
+            reply = None
+        rejection = reply.get('code') if isinstance(reply, dict) and reply.get('status') == 'error' else None
+        if not isinstance(rejection, str) or rejection not in ADMIN_INPUT_ERRORS:
+            raise LauncherError("İlk yönetici hesabı kaydedilemedi.")
 
 
 def _select_assets(project: Project, profile: dict, source: Path | None, requested: str | None) -> dict:

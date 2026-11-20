@@ -110,6 +110,15 @@ class ManagerServerConsoleTests(unittest.TestCase):
             self.assertIs(call.kwargs['stderr'], self.console)
             self.assertEqual(call.kwargs['stdin'], subprocess.PIPE)
 
+    def test_desktop_server_runs_hidden_and_contained(self):
+        with self.patches(lambda *_, **__: self.launch()), process.operation_control(
+                threading.Event(), hide_server_window=True):
+            installation._start_profile(self.project, 'dev')
+        self.kernel.AllocConsole.assert_not_called()
+        self.assertTrue(self.spawn.call_args.kwargs['creationflags'] & 0x08000000)
+        self.assertEqual(self.spawn.call_args.kwargs['stdout'], subprocess.DEVNULL)
+        self.child.stdin.write.assert_called_once_with(b'go\n')
+
     def test_preflight_failure_never_allocates_a_console(self):
         with self.patches(lambda *args, **kwargs: self.fail('runtime started')), \
              patch.object(installation, '_django', side_effect=LauncherError('schema check failed')):
@@ -172,7 +181,7 @@ class ManagerServerConsoleTests(unittest.TestCase):
         self.kernel.AllocConsole.assert_not_called()
 
     @unittest.skipUnless(os.name == 'nt', 'Requires native Windows console attachment, UTF-8 and Job Objects')
-    def test_native_windowless_worker_attaches_one_console_and_preserves_private_pipes(self):
+    def test_native_desktop_worker_stays_hidden_and_preserves_private_pipes(self):
         import json
         import textwrap
         program = textwrap.dedent('''\
@@ -182,22 +191,22 @@ class ManagerServerConsoleTests(unittest.TestCase):
             kernel = ctypes.WinDLL('kernel32')
             kernel.GetConsoleWindow.restype = ctypes.c_void_p
             channel, control_input = sys.stdout, sys.stdin
-            sys.stdout = sys.stderr = io.StringIO()
-            assert not kernel.GetConsoleWindow()
-            with process.operation_control(threading.Event()), process.server_console():
-                assert not kernel.GetConsoleWindow()
+            sys.stdout = io.StringIO()
+            initial_window = kernel.GetConsoleWindow()
+            with process.operation_control(threading.Event(), hide_server_window=True), process.server_console():
+                assert kernel.GetConsoleWindow() == initial_window
                 child = process.start([sys.executable, '-c',
                     'import time; print("Türkçe sunucu çıktısı", flush=True); time.sleep(30)'], Path.cwd())
                 try:
                     window = kernel.GetConsoleWindow()
-                    channel.write(json.dumps({'attached': bool(window),
-                        'utf8': kernel.GetConsoleOutputCP() == 65001,
+                    channel.write(json.dumps({'same_console': window == initial_window,
+                        'hidden': not window or not ctypes.windll.user32.IsWindowVisible(ctypes.c_void_p(window)),
                         'stdin_unchanged': sys.stdin is control_input,
                         'input': control_input.buffer.read().decode('utf-8')}) + '\\n')
                     channel.flush()
                 finally:
                     process.terminate([child])
-            channel.write(json.dumps({'detached': not kernel.GetConsoleWindow()}) + '\\n')
+            channel.write(json.dumps({'restored': kernel.GetConsoleWindow() == initial_window}) + '\\n')
             channel.flush()
         ''')
         console_python = str(Path(sys.executable).with_name('python.exe'))
@@ -206,8 +215,8 @@ class ManagerServerConsoleTests(unittest.TestCase):
                                    timeout=45, creationflags=subprocess.CREATE_NO_WINDOW)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual([json.loads(line) for line in completed.stdout.splitlines()],
-                         [{'attached': True, 'utf8': True, 'stdin_unchanged': True,
-                           'input': 'private control input'}, {'detached': True}])
+                         [{'same_console': True, 'hidden': True, 'stdin_unchanged': True,
+                           'input': 'private control input'}, {'restored': True}])
 
 
 if __name__ == '__main__':

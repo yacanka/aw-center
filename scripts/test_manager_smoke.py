@@ -70,6 +70,34 @@ class ManagerSmokeTests(unittest.TestCase):
             self.assertEqual(main.main(['--root', 'C:/explicit']), 0)
         self.assertEqual(self.controller_factory.call_args.args[2], Path('C:/explicit'))
 
+    def test_successful_profile_warm_opens_with_its_own_fields_and_skips_inspection(self):
+        preferences = importlib.import_module('scripts.manager.preferences')
+        saved = {'profile': 'dev', '_startup_profile': 'prod', 'host': 'localhost',
+                 'prod_host': '192.0.2.8', 'env_file': 'dev.env', 'prod_env_file': 'prod.env',
+                 'validation_policy': 'managed'}
+        self.root.mainloop.side_effect = None
+        self.controller_factory.return_value.view.form_values.return_value = {}
+        with patch.object(preferences, 'load_preferences', return_value=saved), \
+             patch.object(preferences, 'save_preferences'), \
+             patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')):
+            self.assertEqual(main.main([]), 0)
+        self.assertFalse(self.controller_factory.call_args.kwargs['inspect_on_open'])
+        values = self.controller_factory.call_args.args[1].keywords['initial_values']
+        self.assertEqual((values['profile'], values['host'], values['env_file']),
+                         ('prod', '192.0.2.8', 'prod.env'))
+        self.assertEqual((values['dev_host'], values['dev_env_file']), ('localhost', 'dev.env'))
+        self.assertEqual(values['validation_policy'], 'managed')
+
+    def test_secondary_settings_exits_before_opening_tk_or_reading_preferences(self):
+        tkinter = importlib.import_module('tkinter')
+        with patch('scripts.manager.desktop.acquire_instance', return_value=None) as acquire, \
+             patch('scripts.manager.preferences.load_preferences') as load:
+            self.assertEqual(main.main(['--settings']), 0)
+        acquire.assert_called_once_with(settings=True)
+        self.controller_factory.assert_not_called()
+        tkinter.Tk.assert_not_called()
+        load.assert_not_called()
+
     def test_load_failure_shows_safe_detailed_status_and_still_saves_on_close(self):
         preferences = importlib.import_module('scripts.manager.preferences')
         self.root.mainloop.side_effect = None

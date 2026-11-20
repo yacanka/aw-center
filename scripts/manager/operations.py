@@ -172,7 +172,7 @@ def _failure_reason(error):
         (('npm', 'frontend paket'), 'npm_packages_missing', 'Kilitli frontend paketleri seçilen kaynaklardan edinilemedi.'),
         (('acl', 'owner', 'different user', 'başka bir'), 'storage_unavailable', 'Özel kurulum alanının sahibi, izinleri veya işlem kilidi doğrulanamadı.'),
         (('migration', 'şema'), 'schema_unavailable', 'Veritabanı şeması hazır değil; migration ve yedek durumunu kontrol edin.'),
-        (('yönetici', 'administrator'), 'administrator_failed', 'İlk yönetici oluşturulamadı; kullanıcı adı ve parola kurallarını kontrol edin.'),
+        (('yönetici', 'administrator'), 'administrator_failed', 'İlk yönetici hesabı oluşturulamadı.'),
         (('profile', 'profil', 'localappdata'), 'profile_unavailable', 'Profil veya ayrı dev/prod yapılandırması doğrulanamadı.'),
         (('süre sınırı', 'timeout'), 'operation_timeout', 'İşlem süre sınırında tamamlanamadı.'),
         (('source', 'kaynak', 'manifest'), 'source_unavailable', 'Kaynak paketi, envanter veya depo ayarları doğrulanamadı.'),
@@ -213,6 +213,7 @@ def execute(request, emit, admin_provider, stop):
         from .paths import default_source_root
         args.source_root = request.get('source_root') or str(default_source_root())
         args.admin_provider = admin_provider
+        args.admin_confirmed = lambda: emit({'type': 'admin_complete'})
         args.manager_repair_venv = True
         def progress(label):
             nonlocal phase
@@ -220,7 +221,7 @@ def execute(request, emit, admin_provider, stop):
             phase = label
             emit({'type': 'phase', 'message': label})
         args.progress = progress
-        with operation_control(stop):
+        with operation_control(stop, hide_server_window=True):
             check_cancelled()
             if request['action'] in {'ensure', 'start', 'provision'}:
                 from scripts.launcher.startup_metrics import startup_work
@@ -235,6 +236,8 @@ def execute(request, emit, admin_provider, stop):
     except Exception as error:
         code, reason = _failure_reason(error)
         remedies = {
+            'operation_failed': 'Sistem yöneticinizden yardım isteyin. Destek bilgisini kopyala düğmesiyle hata kodunu paylaşabilirsiniz.',
+            'administrator_failed': 'Sistem yöneticinizden yardım isteyin. Destek bilgisini kopyala düğmesiyle hesap oluşturma hatasını paylaşabilirsiniz.',
             'offline_locks_incompatible': 'Bu kaynak sürümüyle hazırlanmış çevrimdışı paketi seçin.',
             'offline_target_incompatible': 'Windows x64 ve CPython 3.11 için hazırlanmış paketi seçin.',
             'profile_metadata_missing': 'Kayıtlı ortam ve yedekteki profil dosyasının aynı kuruluma ait olduğunu doğrulayın. Mevcut anahtarları koruyun.',

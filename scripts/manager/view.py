@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import tkinter as tk
 from tkinter import filedialog, font, messagebox, ttk
 from threading import Thread
@@ -182,7 +183,6 @@ class ManagerWindow:
         self.variables["source_mode"].trace_add("write", lambda *_: self._update_controls())
         self.variables["install_python"].trace_add("write", lambda *_: self._update_controls())
         self.variables["install_node"].trace_add("write", lambda *_: self._update_controls())
-        root.bind("<Configure>", self._layout_changed, add=True)
         root.bind("<Control-r>", lambda _event: self._retry())
         for number, tab in enumerate((self.run_tab, self.source_tab, self.report_tab), start=1):
             root.bind(f"<Control-Key-{number}>", lambda _event, selected=tab: self.tabs.select(selected))
@@ -238,6 +238,12 @@ class ManagerWindow:
             for profile, overrides in self._profile_overrides.items():
                 inputs = values if profile == self._editing_profile else overrides
                 values.update({f'{profile}_{key}': inputs[key] for key in PROFILE_OVERRIDE_FIELDS})
+        return values
+
+    def form_values_for(self, profile):
+        values = self.form_values()
+        if profile != values['profile']:
+            values.update(self._profile_overrides[profile], profile=profile)
         return values
 
     @property
@@ -418,10 +424,12 @@ class ManagerWindow:
         self._build_report(self.report_tab)
         self._build_actions()
         self._build_error(shell)
+        self._navigation_buttons = []
         for column, (label, panel) in enumerate((('Ana ekran', self.run_tab), ('Kaynaklar', self.source_tab), ('Ayrıntılar', self.report_tab)), 2):
             button = ttk.Button(header, text=label, command=lambda target=panel: self.tabs.select(target),
                                 style='Manager.Footer.TButton')
             button.grid(row=0, column=column, padx=(8, 0))
+            self._navigation_buttons.append(button)
             if panel is self.report_tab:
                 self.details_button = button
         footer = ttk.Frame(shell, padding=(30, 8, 30, 10), style="Manager.TFrame")
@@ -471,6 +479,7 @@ class ManagerWindow:
         if hasattr(self, "report_text") and selected == str(self.report_tab):
             self._render_report()
         if hasattr(self, 'action_buttons'):
+            self._update_settings(self._profile_presentation()['status'])
             self._refresh()
 
     def _open_task_report(self, event):
@@ -523,6 +532,8 @@ class ManagerWindow:
         self.banner_stop_button = ttk.Button(self.banner_actions, text="Durdur", command=self._stop_profile,
                                              style="Manager.TButton", state="disabled")
         self.banner_stop_button.grid(row=0, column=1, padx=(8, 0))
+        self.copy_address_button = ttk.Button(self.banner_actions, command=self._copy_ready_address)
+        self.copy_address_button.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
         profile = ttk.Frame(summary, style="Manager.Segment.TFrame", padding=3)
         profile.grid(row=0, column=2, rowspan=2, sticky="ne")
         for column, (value, label) in enumerate((("dev", "Geliştirme"), ("prod", "Üretim"))):
@@ -562,13 +573,13 @@ class ManagerWindow:
         self.tls_frame.grid(row=4, column=0, columnspan=3, sticky='ew')
         self._entry(self.tls_frame, 0, 'tls_cert_file', 'TLS sertifikası', tab=self.run_tab, picker='certificate')
         self._entry(self.tls_frame, 1, 'tls_key_file', 'TLS özel anahtarı', tab=self.run_tab, picker='key')
-        self.advanced_button = ttk.Button(parent, text="Gelişmiş ayarları göster", command=self._toggle_advanced,
+        self.advanced_button = ttk.Button(parent, text="Ayarlar", command=self._toggle_advanced,
                                           style="Manager.Link.TButton")
         self.advanced_button.grid(row=2, column=0, sticky="w", pady=(0, 12))
         self.advanced_frame = ttk.Frame(paths, style="Manager.Panel.TFrame")
         self.advanced_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self._build_advanced(self.advanced_frame)
-        self._optional_rows = (source, self._fields['backend_port'].master, connection_help, self.advanced_frame)
+        self._optional_rows = (profile, source, self._fields['backend_port'].master, connection_help, self.advanced_frame)
 
     def _build_advanced(self, parent):
         self.validation_selector = ttk.Checkbutton(
@@ -604,13 +615,15 @@ class ManagerWindow:
 
     def _set_advanced(self, expanded: bool):
         self.advanced_var.set(expanded)
-        self.advanced_button.configure(text="Gelişmiş ayarları gizle" if expanded else "Gelişmiş ayarları göster")
+        self.advanced_button.configure(text="Ayarları kapat" if expanded else "Ayarlar")
         self._update_settings(self._profile_presentation()['status'])
 
     def _update_settings(self, status):
         expanded = self.advanced_var.get()
         new_production = self.variables['profile'].get() == 'prod' and status == 'not_installed'
         self.run_settings.grid() if expanded or new_production else self.run_settings.grid_remove()
+        for button in self._navigation_buttons:
+            button.grid() if expanded or self.tabs.select() != str(self.run_tab) else button.grid_remove()
         for widget in self._optional_rows:
             widget.grid() if expanded else widget.grid_remove()
 
@@ -707,11 +720,21 @@ class ManagerWindow:
             self.action_buttons[action] = button
 
     def _build_error(self, parent):
-        self.error_frame = ttk.LabelFrame(parent, text="İşlem sonucu / çözüm", padding=10)
+        self.error_frame = ttk.LabelFrame(parent, text="İşlem tamamlanamadı", padding=10)
         self.error_frame.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         self.error_frame.columnconfigure(0, weight=1)
-        self._label(self.error_frame, textvariable=self.error_var, style="Manager.TLabel").grid(row=0, column=0, sticky="ew")
-        self._label(self.error_frame, textvariable=self.error_remedy_var, style="Manager.Muted.TLabel").grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        # Keep the controls reachable at large system font sizes. The entire
+        # explanation remains selectable and scrollable even on a small screen.
+        description = ttk.Frame(self.error_frame)
+        description.grid(row=0, column=0, sticky='ew')
+        description.columnconfigure(0, weight=1)
+        self.error_text = tk.Text(description, height=3, width=1, wrap='word', state='disabled',
+                                  font=self._body_font, borderwidth=0, highlightthickness=0,
+                                  background=self._palette['background'], foreground=self._palette['foreground'])
+        self.error_text.grid(row=0, column=0, sticky='ew')
+        scroll = ttk.Scrollbar(description, command=self.error_text.yview, orient='vertical')
+        scroll.grid(row=0, column=1, sticky='ns')
+        self.error_text.configure(yscrollcommand=scroll.set)
         self.error_field_frame = ttk.Frame(self.error_frame)
         self.error_field_frame.grid(row=2, column=0, sticky='ew', pady=(8, 0))
         self.error_field_frame.columnconfigure(1, weight=1)
@@ -726,7 +749,49 @@ class ManagerWindow:
         bar.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         self.retry_button = ttk.Button(bar, text="Yeniden dene", command=self._retry)
         self.retry_button.grid(row=0, column=0, sticky="w")
+        self.support_button = ttk.Button(bar, text="Destek bilgisini kopyala", command=self._copy_support)
+        self.support_button.grid(row=0, column=1, padx=(8, 0))
         self.error_frame.grid_remove()
+
+    def _set_error_description(self, state):
+        message, remedy = state.error_message, state.error_remedy
+        if state.error_code in {'production_settings_required', 'tls_file_missing', 'tls_file_unavailable'}:
+            instructions = {
+                'tls_cert_file': ('Sunucu sertifikası eksik.', 'Sunucu sertifikanızın dosyasını seçin.'),
+                'tls_key_file': ('Sertifikanın özel anahtarı eksik.', 'Sunucu sertifikanıza ait özel anahtar dosyasını seçin.'),
+                'host': ('Sunucunun ağ adresi eksik.', 'Sunucunun sabit IPv4 adresini girin.'),
+            }
+            message, remedy = instructions.get(state.error_field, (message, remedy))
+        if state.error_code in {'manager_action_failed', 'operation_failed'}:
+            message = 'AW Center işlemi tamamlayamadı.'
+            remedy = 'Sistem yöneticinizden yardım isteyin. Destek bilgisini kopyala düğmesiyle hata kodunu paylaşabilirsiniz.'
+        if (message, remedy) != (self.error_var.get(), self.error_remedy_var.get()):
+            self.error_var.set(message)
+            self.error_remedy_var.set(remedy)
+            self.error_text.configure(state='normal')
+            self.error_text.delete('1.0', 'end')
+            self.error_text.insert('1.0', message + '\n' + remedy)
+            self.error_text.configure(state='disabled')
+            self.error_text.yview_moveto(0)
+
+    def _copy_support(self):
+        state = self._visible_state()
+        if not state or not state.error_message:
+            return
+        # Free-form event text and the report may contain paths or internal host
+        # names. Support needs only the machine code and the affected operation.
+        code = state.error_code if re.fullmatch(r'[a-z][a-z0-9_]{0,99}', state.error_code) else 'manager_error'
+        description = {'ensure': 'AW Center açılırken işlem tamamlanamadı.',
+                       'start': 'AW Center başlatılamadı.', 'provision': 'AW Center kurulumu tamamlanamadı.',
+                       'doctor': 'Ortam kontrolü tamamlanamadı.', 'bundle': 'Çevrimdışı paket hazırlanamadı.',
+                       'test-sources': 'Paket kaynakları kontrol edilemedi.'}.get(state.last_action, 'İşlem tamamlanamadı.')
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(f'{code}\n{description}')
+        except tk.TclError:
+            self.status_var.set(f'Panoya erişilemedi. Sistem yöneticinize {code} kodunu bildirin.')
+            return
+        self.status_var.set('Hata kodu ve kısa açıklama panoya kopyalandı.')
 
     def _update_error_field(self, state):
         field = state.error_field if state else ''
@@ -737,11 +802,13 @@ class ManagerWindow:
             self.error_field_frame.grid_remove()
             return
         self.error_field_label.configure(text=self._field_titles[field])
-        self.error_remedy_var.set('Aşağıdaki alanı düzeltip Yeniden dene’ye basın.')
         self.error_entry.configure(textvariable=self.variables[field])
         self.error_field_frame.grid()
         if field in self._pickers:
-            self.error_picker.configure(command=self._pickers[field].invoke)
+            caption = {'tls_cert_file': 'Sertifikayı seç', 'ca_file': 'Sertifikayı seç',
+                       'tls_key_file': 'Özel anahtarı seç', 'offline_dir': 'Paket klasörünü seç',
+                       'env_file': 'Ayar dosyasını seç'}.get(field, self._pickers[field].cget('text'))
+            self.error_picker.configure(text=caption, command=self._pickers[field].invoke)
             self.error_picker.grid()
         else:
             self.error_picker.grid_remove()
@@ -837,6 +904,18 @@ class ManagerWindow:
             return
         self.status_var.set("Güvenli durum raporu panoya kopyalandı.")
 
+    def _copy_ready_address(self):
+        url = self.task_states.profile_presentation(self.variables['profile'].get())['url']
+        if not url:
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(url)
+        except tk.TclError:
+            self.status_var.set(f"Adresi tarayıcınıza yazın: {url}")
+            return
+        self.status_var.set("Bağlantı kopyalandı.")
+
     def _open_ready(self):
         presentation = self._profile_presentation()
         url = presentation['url']
@@ -858,24 +937,6 @@ class ManagerWindow:
         width = max(120, event.width)
         if int(event.widget.cget("wraplength")) != width:
             event.widget.configure(wraplength=width)
-
-    def _layout_changed(self, event):
-        if event.widget is self.root:
-            state = self._visible_state()
-            if state and state.error_message:
-                self.error_var.set(self._error_summary(state.error_message))
-                if not self._error_editing_field:
-                    self.error_remedy_var.set(self._error_summary(state.error_remedy))
-
-    def _error_summary(self, message=None):
-        """Keep recovery controls visible; the report retains the complete error."""
-        state = self._visible_state()
-        message = (state.error_message if state else '') if message is None else message
-        summary = message.splitlines()[0][:100]
-        width = max(240, self.root.winfo_width() - 100)
-        while summary and self._section_font.measure(summary + "…") > width:
-            summary = summary[:-1]
-        return summary + ("…" if summary != message else "")
 
     def _update_controls(self):
         selected = self.task_states.tasks.get(self.selected_task_id(), {})
@@ -921,6 +982,11 @@ class ManagerWindow:
         self.banner_stop_button.configure(state="normal" if profile_state['task_id'] else "disabled")
         self.banner_stop_button.grid() if profile_state['task_id'] else self.banner_stop_button.grid_remove()
         self.retry_button.configure(state="normal" if visible and visible.last_action else "disabled")
+        if profile_state['url']:
+            self.copy_address_button.configure(text='Ekip bağlantısını kopyala' if profile == 'prod' else 'Adresi kopyala')
+            self.copy_address_button.grid()
+        else:
+            self.copy_address_button.grid_remove()
         self.report_open_button.configure(state="normal" if profile_state['url'] else "disabled")
         self.action_buttons['start'].configure(text=profile_state['label'],
             state="normal" if profile_state['action'] else "disabled")
@@ -1010,9 +1076,7 @@ class ManagerWindow:
             self._progress_running = progressing
         self.status_var.set(state.status if state else '')
         if state and state.error_message:
-            # Full sanitized error/remedy/code remain in the selectable report.
-            self.error_var.set(self._error_summary(state.error_message))
-            self.error_remedy_var.set(self._error_summary(state.error_remedy))
+            self._set_error_description(state)
             self.error_frame.grid()
             self._update_error_field(state)
         else:
@@ -1118,10 +1182,19 @@ class ManagerWindow:
         count = sum(task["status"] in ManagerTaskStates.ACTIVE_STATUSES for task in self.task_states.tasks.values())
         return messagebox.askyesno("Tüm çalışan işlemleri durdur", f"Pencere kapatıldığında tüm çalışan işlemler ({count}) ve onlara bağlı süreçler güvenli biçimde durdurulacak. Devam etmek istiyor musunuz?", parent=self.root, default="no")
 
-    def request_admin(self, task_id: str, callback: Callable[[dict[str, str] | None], None]) -> None:
+    def request_admin(self, task_id: str, callback: Callable[[dict[str, str] | None], None],
+                      *, rejection: str | None = None) -> None:
         """Collect credentials without blocking polling or other task interactions."""
+        from scripts.launcher.installation_probe import ADMIN_INPUT_ERRORS
         if task_id in self._admin_dialogs:
-            self._admin_dialogs[task_id]["dialog"].lift()
+            pending = self._admin_dialogs[task_id]
+            if isinstance(rejection, str) and rejection in ADMIN_INPUT_ERRORS:
+                pending['callback'] = callback
+                pending['submit'].state(['!disabled'])
+                for field in pending['fields'].values():
+                    field.state(['!disabled'])
+                pending['show_error'](*ADMIN_INPUT_ERRORS[rejection])
+            pending["dialog"].lift()
             return
         dialog = tk.Toplevel(self.root)
         task = self.task_states.tasks.get(task_id, {})
@@ -1133,31 +1206,51 @@ class ManagerWindow:
         body = ttk.Frame(dialog, padding=16)
         body.grid(sticky="ew")
         body.columnconfigure(1, weight=1)
-        ttk.Label(body, text="İlk yönetici hesabını oluşturun. Kullanıcı adı bir harf ve beş rakamdır (örnek: U12345). Parola rapora veya profil dosyasına yazılmaz.", wraplength=500).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+        ttk.Label(body, text="AW Center’a giriş yapmak için ilk yönetici hesabınızı oluşturun. Kullanıcı adında bir harf ve ardından beş rakam kullanın (ör. U12345). Parolanız 8–128 karakter olmalı. Yalnız rakamlardan oluşan, yaygın veya kullanıcı adınıza benzeyen parolalar kabul edilmez.", wraplength=500).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
         variables = {key: tk.StringVar(dialog) for key in ("username", "password", "confirmation")}
-        self._admin_dialogs[task_id] = {"dialog": dialog, "variables": variables, "callback": callback}
+        pending = self._admin_dialogs[task_id] = {"dialog": dialog, "variables": variables, "callback": callback}
         fields = {}
         for row, (key, label) in enumerate((("username", "Kullanıcı adı"), ("password", "Parola"), ("confirmation", "Parola tekrarı")), start=1):
-            ttk.Label(body, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=6)
+            ttk.Label(body, text=label).grid(row=row*2, column=0, sticky="w", padx=(0, 12), pady=6)
             entry = ttk.Entry(body, textvariable=variables[key], width=36, show="*" if key != "username" else "")
-            entry.grid(row=row, column=1, sticky="ew", pady=6)
+            entry.grid(row=row*2, column=1, sticky="ew", pady=6)
             fields[key] = entry
-        ttk.Label(body, text="8–128 karakter; yalnız rakam kullanmayın. Uygulamanın parola güvenliği denetimleri de uygulanır.", wraplength=500).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
         error_var = tk.StringVar(dialog)
-        ttk.Label(body, textvariable=error_var, wraplength=500).grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        error_label = ttk.Label(body, textvariable=error_var, wraplength=420)
+
+        def show_error(field, message):
+            error_var.set(message)
+            error_label.grid(row=fields[field].grid_info()['row'] + 1, column=1, sticky='w')
+            fields[field].focus_set()
+
         def submit():
+            if submit_button.instate(['disabled']):
+                return
             try:
                 result = validate_admin(*(variables[key].get() for key in ("username", "password", "confirmation")))
             except FormError as error:
-                error_var.set(str(error))
-                fields[error.field].focus_set()
+                show_error(error.field, str(error))
                 return
-            self._finish_admin(task_id, result)
+            variables['password'].set('')
+            variables['confirmation'].set('')
+            for entry in fields.values():
+                entry.state(['disabled'])
+            submit_button.state(['disabled'])
+            error_var.set('Hesap oluşturuluyor…')
+            error_label.grid(row=7, column=1, sticky='w')
+            try:
+                pending['callback'](result)
+            except Exception:
+                self._finish_admin(task_id, None, notify=False)
+                self.handle_event({'task_id': task_id, 'type': 'error', 'code': 'admin_reply_failed',
+                                   'message': 'Yönetici bilgileri iletilemedi.'})
 
         buttons = ttk.Frame(body)
-        buttons.grid(row=6, column=0, columnspan=2, sticky="e", pady=(12, 0))
+        buttons.grid(row=8, column=0, columnspan=2, sticky="e", pady=(12, 0))
         ttk.Button(buttons, text="İptal", command=lambda: self._finish_admin(task_id, None)).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(buttons, text="Yönetici oluştur", command=submit).grid(row=0, column=1)
+        submit_button = ttk.Button(buttons, text="Yönetici oluştur", command=submit)
+        submit_button.grid(row=0, column=1)
+        pending.update(fields=fields, submit=submit_button, show_error=show_error)
         dialog.protocol("WM_DELETE_WINDOW", lambda: self._finish_admin(task_id, None))
         dialog.bind("<Escape>", lambda _event: self._finish_admin(task_id, None))
         dialog.bind("<Return>", lambda _event: submit())

@@ -81,7 +81,7 @@ def startup_values(saved: dict, explicit_root: Path | None) -> dict:
         except (OSError, ValueError, AttributeError):
             pass  # No claim of verified readiness until worker inspection.
     if explicit_root is not None:
-        if str(explicit_root) != values.get('source_root'):
+        if not values.get('source_root') or explicit_root != Path(values['source_root']):
             values['validation_policy'] = 'developer'
         values['source_root'] = str(explicit_root)
         values['source_selection'] = 'explicit'

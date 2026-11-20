@@ -294,6 +294,7 @@ class HeadlessWindowBehaviorTests(unittest.TestCase):
         self.window._advanced_fields = self.window.__class__._advanced_fields
         self.window.advanced_var = tk.BooleanVar(interpreter, value=False)
         self.window.advanced_frame = Mock()
+        self.window._navigation_buttons = []
         self.window._optional_rows = (self.window.advanced_frame,)
         self.window.run_settings = Mock()
         self.window.advanced_button = Mock()
@@ -671,7 +672,7 @@ class NativeWindowSmokeTests(unittest.TestCase):
         self.root.update()
         self.assertEqual(window.selected_task_id(), 'old')
 
-    def test_main_screen_switches_profiles_and_only_requests_new_production_inputs(self):
+    def test_settings_select_profile_and_home_requests_only_required_inputs(self):
         from tkinter import ttk
 
         window = self.window
@@ -687,12 +688,16 @@ class NativeWindowSmokeTests(unittest.TestCase):
                     if isinstance(widget, ttk.Entry) and widget.winfo_viewable()}
 
         for profile in ('dev', 'prod'):
-            self.assertTrue(profiles[profile].winfo_viewable())
+            self.assertFalse(profiles[profile].winfo_viewable())
         self.assertEqual(visible_inputs(), set())
         self.assertFalse(window.validation_selector.winfo_viewable())
         self.assertTrue(window.action_buttons['start'].winfo_viewable())
 
+        window.advanced_button.invoke()
+        self.root.update()
+        self.assertTrue(all(button.winfo_viewable() for button in profiles.values()))
         profiles['prod'].invoke()
+        window.advanced_button.invoke()
         window.handle_event({'type': 'profile', 'profile': 'prod', 'status': 'not_installed'})
         self.assertEqual(visible_inputs(), {'host', 'tls_cert_file', 'tls_key_file'})
         self.assertFalse(window.advanced_var.get())
@@ -1104,6 +1109,20 @@ class NativeWindowSmokeTests(unittest.TestCase):
         values["username"].set("U12345")
         submit.invoke()
         self.assertEqual(replies, [{"username": "U12345", "password": " safe-test-value-246 "}])
+        self.assertEqual(values["password"].get(), "")
+        self.assertEqual(values["confirmation"].get(), "")
+        self.assertTrue(submit.instate(['disabled']))
+        self.window.request_admin("task-1", replies.append, rejection="password_too_common")
+        self.assertIs(self.window._admin_dialogs["task-1"], pending)
+        self.assertEqual(values["username"].get(), "U12345")
+        labels = [child for child in body.winfo_children() if isinstance(child, ttk.Label) and child.cget('textvariable')]
+        self.assertEqual(body.getvar(str(labels[0].cget('textvariable'))),
+                         'Bu parola çok yaygın. Tahmin edilmesi daha zor bir parola seçin.')
+        values["password"].set("second-test-password")
+        values["confirmation"].set("second-test-password")
+        submit.invoke()
+        self.assertEqual(replies[1], {"username": "U12345", "password": "second-test-password"})
+        self.window.dismiss_admin("task-1")
         self.assertTrue(all(variable.get() == "" for variable in values.values()))
         self.assertNotIn("task-1", self.window._admin_dialogs)
 

@@ -22,8 +22,7 @@ def _dpi_awareness():
             pass
 
 
-def _startup_error():
-    message = 'AW Center penceresi açılamadı. ZIP paketinin tamamını yerel bir klasöre çıkarıp AWCenterManager.exe dosyasını yeniden açın.'
+def _startup_error(message='AW Center penceresi açılamadı. ZIP paketinin tamamını yerel bir klasöre çıkarıp AWCenterManager.exe dosyasını yeniden açın.'):
     if os.name == 'nt':
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, message, 'AW Center', 0x10)
@@ -72,19 +71,31 @@ def main(argv=None):
         return worker_main(values)
     parser = argparse.ArgumentParser(description='AW Center Windows yönetim arayüzü')
     parser.add_argument('--root', type=Path)
+    parser.add_argument('--settings', action='store_true', help='Uygulamayı başlatmadan ayarları aç')
     parser.add_argument('--smoke-test', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(values)
     root = None
+    owner = None
     callback_error_count = 0
     smoke_ready = False
     smoke_metadata = _smoke_metadata()
     try:
+        if not args.smoke_test:
+            from .desktop import acquire_instance
+            try:
+                owner = acquire_instance(settings=args.settings)
+            except OSError:
+                _startup_error('AW Center açık olan Manager penceresine bağlanamadı. Görev çubuğundaki '
+                               'Manager’ı kullanın veya uygulamayı aynı Windows hesabıyla ve aynı izinlerle açın.')
+                return 1
+            if owner is None:
+                return 0
         _dpi_awareness()
         import tkinter as tk
         from .controller import ManagerController
         from .paths import default_source_root, startup_values
         from .view import ManagerWindow
-        from .preferences import PreferencesError, load_preferences, preferences_home, save_preferences
+        from .preferences import PreferencesError, load_preferences, preferences_home
         initial_values = {}
         preferences_directory = None
         preferences_failed = None
@@ -108,8 +119,23 @@ def main(argv=None):
                     'message': 'Arayüz işlemi tamamlanamadı.', 'remedy': 'İşlemi yeniden deneyin. Devam eden görev varsa önce Durdur düğmesini kullanın.'})
         root.report_callback_exception = callback_error
         initial_values = startup_values(initial_values, args.root)
+        warm_open = not (args.settings or args.smoke_test) and bool(initial_values.get('_startup_profile'))
+        if warm_open:
+            from .view_model import PROFILE_OVERRIDE_FIELDS
+            selected = initial_values['_startup_profile']
+            edited = initial_values.get('profile', 'dev')
+            if selected != edited:
+                for key in PROFILE_OVERRIDE_FIELDS:
+                    initial_values[f'{edited}_{key}'] = initial_values.get(key, '')
+                    initial_values[key] = initial_values.get(f'{selected}_{key}', '')
+                initial_values['profile'] = selected
         source_root = Path(initial_values.get('source_root') or default_source_root())
-        controller = ManagerController(root, partial(ManagerWindow, initial_values=initial_values), source_root)
+        controller = ManagerController(root, partial(ManagerWindow, initial_values=initial_values), source_root,
+                                       inspect_on_open=not warm_open)
+        if owner is not None:
+            from .desktop_startup import DesktopStartup
+            desktop = DesktopStartup(controller, owner, preferences_directory, initial_values)
+            desktop.start(args.settings)
         if preferences_failed:
             controller.view.handle_event({'type': 'status',
                 'message': preferences_failed.message('load')})
@@ -124,11 +150,9 @@ def main(argv=None):
                     root.destroy()
             root.after(300, complete_smoke)
         root.mainloop()
-        if not args.smoke_test:
+        if owner is not None:
             try:
-                metadata = {key: initial_values[key] for key in ('_media_context', '_contexts') if key in initial_values}
-                save_preferences(preferences_directory or preferences_home(),
-                                 {**metadata, **controller.view.form_values(include_profiles=True)})
+                desktop.finish()
             except PreferencesError as error:
                 _preferences_warning(error)
         if args.smoke_test:
@@ -145,6 +169,9 @@ def main(argv=None):
         else:
             _startup_error()
         return 1
+    finally:
+        if owner is not None:
+            owner.close()
 
 
 if __name__ == '__main__':
