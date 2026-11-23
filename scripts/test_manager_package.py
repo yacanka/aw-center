@@ -99,6 +99,7 @@ class PackageTests(unittest.TestCase):
         self.builder.write_portable_archive(source, output, {'source_fingerprint': 'a' * 64, 'runtimes': {}})
         checksum = output.with_suffix(output.suffix + '.sha256')
         self.assertEqual(checksum.read_text(encoding='ascii').split()[0], hashlib.sha256(output.read_bytes()).hexdigest())
+        self.assertFalse(output.with_suffix(output.suffix + '.inventory.json').exists())
         with zipfile.ZipFile(output) as archive:
             manifest = json.loads(archive.read('manager-manifest.json'))
             inventory = manifest['artifacts']
@@ -140,6 +141,8 @@ class PackageTests(unittest.TestCase):
         self.assertNotIn('pwsh', workflow.casefold())
         self.assertNotIn('powershell', workflow.casefold())
         self.assertIn('scripts/build_manager.py', workflow)
+        self.assertIn('/AWCenterManager-windows-x64.zip.sha256', workflow)
+        self.assertNotIn('/AWCenterManager-windows-x64.zip.inventory.json', workflow)
         self.assertIn('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE', workflow)
         self.assertIn('scripts.test_manager_package', workflow)
 

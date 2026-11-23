@@ -34,4 +34,4 @@ Prod dağıtımında **Frontend’i derle** düğmesiyle statik arayüzü hazır
 
 ## Windows paketi
 
-Windows x64 üzerinde CPython 3.11 ve Tk ile repository kökünden `python scripts/build_manager.py --output AWCenterManager-windows-x64.zip` komutunu çalıştırın. Derleyici yeni bir ZIP ve checksum envanteri üretir. Paketleme ve dağıtım doğrulamaları günlük Manager çalıştırmasından bağımsızdır.
+Windows x64 üzerinde CPython 3.11 ve Tk ile repository kökünden `python scripts/build_manager.py --output AWCenterManager-windows-x64.zip` komutunu çalıştırın. Derleyici ZIP’i ve arşivin SHA-256 değerini içeren `.sha256` dosyasını üretir. Dosya bazında bütünlük manifesti ZIP’in içinde bulunur. Paketleme ve dağıtım doğrulamaları günlük Manager çalıştırmasından bağımsızdır.

@@ -31,6 +31,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 *.zip
+/artifacts/**/AWCenterManager-windows-x64.zip.inventory.json
 
 # Test / coverage / type-check caches
 .coverage

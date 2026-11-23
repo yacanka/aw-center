@@ -84,20 +84,20 @@ def prepare_runtime_payload(directory: Path, settings: SourceSettings) -> dict:
     return metadata
 
 
-def _archive_outputs(output: Path) -> tuple[Path, Path, Path]:
-    return output, output.with_suffix(output.suffix + '.sha256'), output.with_suffix(output.suffix + '.inventory.json')
+def _archive_checksum_path(output: Path) -> Path:
+    return output.with_suffix(output.suffix + '.sha256')
 
 
 def _require_new_output(output: Path) -> None:
     require_unlinked(output)
     if output.suffix.lower() != '.zip':
         raise LauncherError('Manager output must have the .zip extension')
-    if any(path.exists() for path in _archive_outputs(output)):
-        raise LauncherError('Manager archive, checksum and inventory outputs must not exist')
+    if output.exists() or _archive_checksum_path(output).exists():
+        raise LauncherError('Manager archive and checksum outputs must not exist')
 
 
 def write_portable_archive(directory: Path, output: Path, metadata: dict) -> None:
-    """Publish a ZIP plus SHA-256 and a complete portable byte inventory."""
+    """Publish a ZIP with an integrity manifest and a checksum for the archive."""
     output = Path(output).absolute()
     _require_new_output(output)
     if (directory / MANAGER_MANIFEST).exists():
@@ -120,11 +120,8 @@ def write_portable_archive(directory: Path, output: Path, metadata: dict) -> Non
             info.external_attr = 0o100644 << 16
             with path.open('rb') as stream, archive.open(info, 'w', force_zip64=True) as destination:
                 shutil.copyfileobj(stream, destination)
-    checksum, inventory = _archive_outputs(output)[1:]
-    with checksum.open('x', encoding='ascii') as stream:
+    with _archive_checksum_path(output).open('x', encoding='ascii') as stream:
         stream.write(file_sha256(output) + '  ' + output.name + '\n')
-    with inventory.open('x', encoding='utf-8') as stream:
-        stream.write(serialized)
 
 
 def _run_build(command: list[str], *, cwd: Path, env: dict, timeout: int = 900) -> None:
