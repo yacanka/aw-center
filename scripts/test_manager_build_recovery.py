@@ -85,7 +85,7 @@ class BuildRecoveryTests(unittest.TestCase):
         self.assertNotIn('https://pypi.org/simple', command)
         self.assertIn('--no-index', pip_commands[1][0])
         self.assertIn('install', pip_commands[1][0])
-        self.assertEqual((self.destination / 'source/launcher.py').read_bytes(),
+        self.assertEqual((self.destination / 'launcher.py').read_bytes(),
                          (self.project.root / 'launcher.py').read_bytes())
 
     def test_offline_recovery_never_contacts_an_index_or_publishes_partial_distribution(self):

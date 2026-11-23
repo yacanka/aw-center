@@ -32,6 +32,7 @@ MANAGER_SOURCE_FILES = (
     'packaging/manager.spec', 'packaging/manager-requirements.txt',
     'backend/users/initial_admin.py',
     'scripts/launcher/system_python.py',
+    'scripts/launcher/cert_pair.py',
     'scripts/launcher/installation_env.py',
     'scripts/launcher/installation_local_config.py',
     'scripts/launcher/probe_budget.py', 'scripts/launcher/runtime_selection.py',
@@ -40,6 +41,7 @@ MANAGER_SOURCE_FILES = (
     'scripts/launcher/installation_backup.py', 'scripts/launcher/installation_connection.py',
     *(f'scripts/manager/{name}.py' for name in (
         '__init__', 'main', 'controller', 'worker', 'transport', 'payload', 'view', 'view_model', 'view_theme',
+        'profile_diagnostics', 'profile_state', 'profile_tasks', 'profile_window', 'profile_runtime', 'profile_resources',
         'paths', 'task_policy', 'operations', 'source_checks', 'source_probe', 'source_packages',
         'preferences', 'desktop', 'desktop_startup', 'distribution', 'bundle_preparation', 'inspection', 'ensure')),
 )

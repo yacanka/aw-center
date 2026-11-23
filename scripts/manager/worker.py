@@ -98,7 +98,11 @@ def main(argv=None):
                 return result
             except queue.Empty:
                 continue
-    execute(request, emit, admin_provider, stop)
+    if isinstance(request, dict) and 'profile_action' in request:
+        from .profile_tasks import execute_profile
+        execute_profile(request, emit, admin_provider, stop)
+    else:
+        execute(request, emit, admin_provider, stop)
     return 0
 
 

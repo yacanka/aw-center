@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-from functools import partial
 import json
 import os
 from pathlib import Path
@@ -26,15 +25,6 @@ def _startup_error(message='AW Center penceresi açılamadı. ZIP paketinin tama
     if os.name == 'nt':
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, message, 'AW Center', 0x10)
-    elif sys.stderr is not None:
-        print(message, file=sys.stderr)
-
-
-def _preferences_warning(error):
-    message = error.message('save')
-    if os.name == 'nt':
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(None, message, 'AW Center — form ayarları', 0x30)
     elif sys.stderr is not None:
         print(message, file=sys.stderr)
 
@@ -70,7 +60,6 @@ def main(argv=None):
         values.remove('--manager-worker')
         return worker_main(values)
     parser = argparse.ArgumentParser(description='AW Center Windows yönetim arayüzü')
-    parser.add_argument('--root', type=Path)
     parser.add_argument('--settings', action='store_true', help='Uygulamayı başlatmadan ayarları aç')
     parser.add_argument('--smoke-test', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(values)
@@ -92,53 +81,24 @@ def main(argv=None):
                 return 0
         _dpi_awareness()
         import tkinter as tk
-        from .controller import ManagerController
-        from .paths import default_source_root, startup_values
-        from .view import ManagerWindow
-        from .preferences import PreferencesError, load_preferences, preferences_home
-        initial_values = {}
-        preferences_directory = None
-        preferences_failed = None
-        if not args.smoke_test:
-            try:
-                preferences_directory = preferences_home()
-                initial_values = load_preferences(preferences_directory)
-            except PreferencesError as error:
-                preferences_failed = error
+        from .paths import worker_directory
+        from .profile_window import ProfileWindow
         root = tk.Tk()
-        controller = None
-        # Keep callback exceptions visible without a disappearing console or raw
-        # traceback that could contain operator data.
         def callback_error(*_):
             nonlocal callback_error_count
             callback_error_count += 1
-            if args.smoke_test:
-                return
-            if controller is not None:
-                controller.view.handle_event({'type': 'error', 'code': 'ui_failed',
-                    'message': 'Arayüz işlemi tamamlanamadı.', 'remedy': 'İşlemi yeniden deneyin. Devam eden görev varsa önce Durdur düğmesini kullanın.'})
+            if not args.smoke_test:
+                _startup_error('Arayüz işlemi tamamlanamadı.')
         root.report_callback_exception = callback_error
-        initial_values = startup_values(initial_values, args.root)
-        warm_open = not (args.settings or args.smoke_test) and bool(initial_values.get('_startup_profile'))
-        if warm_open:
-            from .view_model import PROFILE_OVERRIDE_FIELDS
-            selected = initial_values['_startup_profile']
-            edited = initial_values.get('profile', 'dev')
-            if selected != edited:
-                for key in PROFILE_OVERRIDE_FIELDS:
-                    initial_values[f'{edited}_{key}'] = initial_values.get(key, '')
-                    initial_values[key] = initial_values.get(f'{selected}_{key}', '')
-                initial_values['profile'] = selected
-        source_root = Path(initial_values.get('source_root') or default_source_root())
-        controller = ManagerController(root, partial(ManagerWindow, initial_values=initial_values), source_root,
-                                       inspect_on_open=not warm_open)
+        window = ProfileWindow(root, worker_directory())
+        root.protocol('WM_DELETE_WINDOW', window.close)
         if owner is not None:
-            from .desktop_startup import DesktopStartup
-            desktop = DesktopStartup(controller, owner, preferences_directory, initial_values)
-            desktop.start(args.settings)
-        if preferences_failed:
-            controller.view.handle_event({'type': 'status',
-                'message': preferences_failed.message('load')})
+            def poll_activation():
+                action = owner.poll()
+                if action:
+                    window.activate(settings=action == 'settings')
+                root.after(100, poll_activation)
+            root.after(100, poll_activation)
         if args.smoke_test:
             def complete_smoke():
                 nonlocal smoke_metadata, smoke_ready
@@ -150,11 +110,6 @@ def main(argv=None):
                     root.destroy()
             root.after(300, complete_smoke)
         root.mainloop()
-        if owner is not None:
-            try:
-                desktop.finish()
-            except PreferencesError as error:
-                _preferences_warning(error)
         if args.smoke_test:
             smoke_ready = smoke_ready and callback_error_count == 0
             args.smoke_test.write_text(json.dumps({**smoke_metadata, 'ready': smoke_ready,

@@ -12,6 +12,8 @@
 
 - Compliance dashboard’daki “Accumulated pending days” kartı #126 kapsamında `SHOW_PENDING_DAYS = false` ile geçici olarak gizlidir. Gelecekte geri açılabilmesi için grafik kodunu, yardımcılarını, testlerini ve backend `pending_days` hesabı/API sözleşmesini silme; burndown ve Flow performance görünür kalır.
 
+- Masaüstü Manager Local/Prod profillerini kendi kaynak klasöründe çalıştırır. Manager’da paket denetimi ve kurulumu Kaynaklar eylemidir. Prod başlatma kontrolleri birbirinden bağımsızdır ve varsayılan olarak kapalıdır. Aşağıdaki zorunlu üretim kapıları bağımsız `launcher.py prod` komutunda geçerlidir. Manager tüm kurulu CPython yorumlayıcılarını venv için seçtirebilir. Projenin resmî destek ve CI hedefi 3.11.x olarak kalır.
+
 ## Arayüz ve tema sözleşmesi
 
 - Mevcut arayüz Naive UI temelli, ortak uygulama kabuğu içinde sade, okunabilir ve responsive iş ekranlarından oluşur. Yeni veya güncellenen sayfalar bu görsel bağlamı korur; bağımsız renk paleti, font veya ayrı tasarım konsepti oluşturma.

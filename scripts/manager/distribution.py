@@ -9,16 +9,28 @@ import tempfile
 from scripts.launcher.installation_bundle import _json_object, _verify_inventory, install_inventory
 from scripts.launcher.installation_permissions import require_unlinked
 from scripts.launcher.model import LauncherError
-from .payload import verify_source_payload
+from .payload import SOURCE_MANIFEST, _validate_manifest, verify_source_payload
 
 MANIFEST = 'manager-manifest.json'
 
 
+def distribution_source(directory, inventory):
+    """Read the build-time source inventory in current or older media."""
+    if not (directory / SOURCE_MANIFEST).is_file():
+        return verify_source_payload(directory / 'source')
+    manifest = _json_object(directory / SOURCE_MANIFEST)
+    packaged = {entry['path']: entry for entry in inventory}
+    if any(packaged.get(entry['path']) != entry for entry in _validate_manifest(manifest)):
+        raise LauncherError('Dağıtılan uygulama kaynağı eksik veya değiştirilmiş.')
+    return manifest
+
+
 def seal_distribution(directory: Path, *, complete=False, host_runtimes=None) -> dict:
-    source = verify_source_payload(directory / 'source')
+    inventory = install_inventory(directory, exclude=(MANIFEST,), source_state=True)
+    source = distribution_source(directory, inventory)
     manifest = {'format_version': 2, 'target': 'windows-x64', 'python': '3.11',
                 'complete': complete, 'source_fingerprint': source['fingerprint'],
-                'artifacts': install_inventory(directory, exclude=(MANIFEST,), source_state=True)}
+                'artifacts': inventory}
     if host_runtimes is not None:
         manifest['offline_start'] = True
     if host_runtimes:
@@ -37,7 +49,7 @@ def verify_distribution(directory: Path) -> dict:
     _verify_inventory(directory, manifest.get('artifacts'), exclude=(MANIFEST,), source_state=True)
     if not (directory / 'AWCenterManager.exe').is_file() or not (directory / '_internal').is_dir():
         raise LauncherError('Manager EXE veya gömülü runtime eksik.')
-    source = verify_source_payload(directory / 'source')
+    source = distribution_source(directory, manifest['artifacts'])
     if source['fingerprint'] != manifest.get('source_fingerprint'):
         raise LauncherError('Manager ve dağıtılan kaynak kimlikleri uyuşmuyor.')
     return manifest
@@ -45,7 +57,8 @@ def verify_distribution(directory: Path) -> dict:
 
 def copy_manager(distribution: Path, destination: Path) -> None:
     manifest = verify_distribution(distribution)
-    if verify_source_payload(destination / 'source')['fingerprint'] != manifest['source_fingerprint']:
+    source = destination if (destination / SOURCE_MANIFEST).is_file() else destination / 'source'
+    if verify_source_payload(source)['fingerprint'] != manifest['source_fingerprint']:
         raise LauncherError('Aynı sürümden üretilmiş Windows Manager paketi seçin.')
     for name in ('AWCenterManager.exe', '_internal'):
         target = destination / name

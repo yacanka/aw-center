@@ -31,6 +31,7 @@ export default defineConfig(({ mode }) => {
           }
         : undefined,
     base: mode == 'development' ? './' : '/core/',
+    server: process.env.AWCENTER_VITE_RELOAD === '0' ? { hmr: false, watch: null } : {},
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url))

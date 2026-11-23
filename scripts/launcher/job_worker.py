@@ -22,11 +22,25 @@ def start_job_workers(
     include_doors_if_enabled: bool = False,
     heartbeat_dir: Path | None = None,
     protect_credentials: bool = False,
+    isolate_integrations: bool = False,
 ) -> list[subprocess.Popen]:
     """Start the repository's durable worker when its command is available."""
 
     with starting_processes() as workers:
         auxiliary_env = {**extra_env, "NUMARATOR_API_KEY": ""}
+        if isolate_integrations:
+            # Notification and cleanup do not authenticate to vendor services.
+            # Explicit empties suppress both inherited and dotenv fallbacks.
+            if extra_env.get("AWCENTER_MAIL_TRANSPORT") == "django":
+                auxiliary_env["EMAIL_HOST_USER"] = extra_env.get("EMAIL_HOST_USER") or extra_env.get("AWCENTER_USERNAME", "")
+                auxiliary_env["EMAIL_HOST_PASSWORD"] = extra_env.get("EMAIL_HOST_PASSWORD") or extra_env.get("AWCENTER_PASSWORD", "")
+            for key in ("AWCENTER_USERNAME", "AWCENTER_PASSWORD", "AI_API_TOKEN",
+                        "DOORS_USERNAME", "DOORS_PASSWORD", "DOCPROOF_USERNAME", "DOCPROOF_PASSWORD",
+                        "TEAMCENTER_USERNAME", "TEAMCENTER_PASSWORD", "TEAMCENTER_JSESSIONID",
+                        "TEAMCENTER_XSRF_TOKEN", "JIRA_SESSION_ENCRYPTION_KEY"):
+                auxiliary_env[key] = ""
+            for provider in ("DOORS", "DOCPROOF", "TEAMCENTER", "JIRA", "NUMARATOR"):
+                auxiliary_env[provider + "_ENABLED"] = "False"
         if (project.backend / WORKER_COMMAND_PATH).is_file():
             command = [project.python, "manage.py", "run_job_worker", "--poll-interval", "1"]
             if include_doors_if_enabled:

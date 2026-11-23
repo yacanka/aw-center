@@ -188,9 +188,18 @@ class DistributionTests(unittest.TestCase):
             distribution.prepare_full_manager(self.project, output, SourceSettings(),
                                               None if without_distribution else self.media)
             self.assertTrue(distribution.verify_distribution(output)['complete'])
+            self.assertTrue((output / 'backend/manage.py').is_file())
+            self.assertTrue((output / 'frontend/package.json').is_file())
+            self.assertFalse((output / 'source').exists())
             expected_exe = b'fresh frozen manager' if without_distribution else b'manager fixture'
             self.assertEqual((output / 'AWCenterManager.exe').read_bytes(), expected_exe)
             self.assertTrue((output / '_internal/python311.dll').is_file())
+            (output / '.venv').mkdir()
+            (output / '.venv' / 'pyvenv.cfg').write_text('local environment')
+            (output / 'backend' / '.env').write_text('SECRET_KEY=local')
+            used_media = distribution.verify_distribution(output)
+            self.assertFalse(any(entry['path'] in {'.venv/pyvenv.cfg', 'backend/.env'}
+                                 for entry in used_media['artifacts']))
         for name, payload in payloads.items():
             self.assertEqual((output / 'runtimes' / catalog[name].filename).read_bytes(), payload)
         if existing_cache:

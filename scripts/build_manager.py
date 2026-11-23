@@ -216,7 +216,7 @@ def freeze_manager(project: Project, destination: Path, settings: SourceSettings
     with tempfile.TemporaryDirectory(prefix='awcenter-manager-freeze-') as temporary:
         work = Path(temporary).resolve()
         portable = work / 'portable'
-        source = portable / 'source'
+        source = portable
         prepare_source_payload(project, source)
         if any(not (source / name).is_file() for name in MANAGER_SOURCE_FILES):
             raise LauncherError('Desktop manager source is incomplete')
@@ -245,12 +245,12 @@ def freeze_manager(project: Project, destination: Path, settings: SourceSettings
         frozen = work / 'dist' / 'AWCenterManager'
         if not (frozen / 'AWCenterManager.exe').is_file() or not (frozen / '_internal').is_dir():
             raise ManagerBuildError()
+        verify_source_payload(source)
         for path in frozen.iterdir():
             require_unlinked(path)
             if path.name not in {'AWCenterManager.exe', '_internal'}:
                 raise LauncherError('Frozen manager output contains an unexpected root file')
             shutil.move(str(path), portable / path.name)
-        verify_source_payload(source)
         seal_distribution(portable)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(portable), destination)

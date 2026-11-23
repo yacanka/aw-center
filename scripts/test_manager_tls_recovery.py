@@ -21,7 +21,11 @@ class TlsRecoveryTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        environment = patch.dict(os.environ, {'LOCALAPPDATA': str(self.root)}, clear=True)
+        isolated = {'LOCALAPPDATA': str(self.root)}
+        if os.name == 'nt':
+            # Windows cryptography needs the system provider to seed real test keys.
+            isolated['SystemRoot'] = os.environ['SystemRoot']
+        environment = patch.dict(os.environ, isolated, clear=True)
         environment.start()
         self.addCleanup(environment.stop)
         self.home = self.root / 'AWCenter'

@@ -27,21 +27,29 @@ def read_selected_environment(project, name: str, source: Path) -> dict[str, str
     config files; all consumed runtime secrets still use the private profile ACL.
     """
     source = Path(source).absolute()
+    if name == 'prod' and source.resolve().is_relative_to(project.root.resolve()):
+        raise EnvironmentImportError('env_source_location_invalid')
+    return read_application_environment(source, managed_import=True)
+
+
+def read_application_environment(source: Path, *, managed_import=False) -> dict[str, str]:
+    """Read literal application settings independently of a managed profile."""
     try:
-        require_unlinked(source)
+        if managed_import:
+            require_unlinked(source)
         info = source.stat()
         if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_ENV_BYTES:
             raise EnvironmentImportError('env_file_invalid')
-        if name == 'prod' and source.resolve().is_relative_to(project.root.resolve()):
-            raise EnvironmentImportError('env_source_location_invalid')
         with source.open(encoding='utf-8-sig') as stream:
             content = stream.read(MAX_ENV_BYTES + 1)
         if len(content) > MAX_ENV_BYTES:
             raise EnvironmentImportError('env_file_invalid')
         values = parse_environment(content)
         forbidden = [key for key in values if key in _CONTROL_KEYS or key.startswith(_CONTROL_PREFIXES)]
-        if forbidden:
+        if forbidden and managed_import:
             raise EnvironmentImportError('env_process_setting_forbidden', keys=forbidden)
+        for key in forbidden:
+            del values[key]
         return values
     except (OSError, UnicodeError, ValueError):
         raise EnvironmentImportError('env_file_invalid') from None

@@ -36,7 +36,9 @@ def _instance_name() -> str:
     sid = ctypes.cast(data, ctypes.POINTER(_POINTER))[0]
     advapi.GetLengthSid.argtypes = [_POINTER]
     sid_bytes = ctypes.string_at(sid, advapi.GetLengthSid(sid))
-    return 'Local\\AWCenterManager.' + hashlib.sha256(sid_bytes).hexdigest()
+    from .paths import worker_directory
+    directory = os.path.normcase(str(worker_directory().resolve())).encode('utf-8')
+    return 'Local\\AWCenterManager.' + hashlib.sha256(sid_bytes + b'\0' + directory).hexdigest()
 
 
 def _kernel():

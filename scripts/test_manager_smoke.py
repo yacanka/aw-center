@@ -34,108 +34,32 @@ class ManagerSmokeTests(unittest.TestCase):
         tkinter.Tk = Mock(return_value=self.root)
         tkinter.ttk = SimpleNamespace(Style=Mock(return_value=self.style))
         tkinter.font = SimpleNamespace(nametofont=Mock(return_value=self.default_font))
-        view = ModuleType('scripts.manager.view')
-        view.ManagerWindow = Mock()
+        view = ModuleType('scripts.manager.profile_window')
+        self.window = view.ProfileWindow = Mock()
         self.patches = ExitStack()
         self.addCleanup(self.patches.close)
-        self.patches.enter_context(patch.dict('sys.modules', {'tkinter': tkinter, 'scripts.manager.view': view}))
+        self.patches.enter_context(patch.dict('sys.modules', {'tkinter': tkinter, 'scripts.manager.profile_window': view}))
         self.patches.enter_context(patch.object(main, '_dpi_awareness'))
         self.controller_factory = self.patches.enter_context(patch('scripts.manager.controller.ManagerController'))
         self.callbacks = []
         self.root.after.side_effect = lambda _delay, callback: self.callbacks.append(callback)
         self.root.mainloop.side_effect = lambda: self.callbacks.pop()()
 
-    def test_normal_restart_loads_inputs_and_saves_latest_form_on_close(self):
-        preferences = importlib.import_module('scripts.manager.preferences')
+    def test_normal_open_uses_own_directory_without_starting_a_task(self):
+        from scripts.manager.paths import worker_directory
         self.root.mainloop.side_effect = None
-        view = self.controller_factory.return_value.view
-        view.form_values.return_value = {'profile': 'dev', 'python_command': 'python'}
-        with patch.object(preferences, 'load_preferences', return_value={
-                'source_root': 'C:/saved/source', 'python_command': 'py -3.11'}), \
-             patch.object(preferences, 'save_preferences') as save, \
-             patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')):
+        with patch('scripts.manager.desktop.acquire_instance') as acquire:
             self.assertEqual(main.main([]), 0)
-        self.assertEqual(self.controller_factory.call_args.args[2], Path('C:/saved/source'))
-        factory = self.controller_factory.call_args.args[1]
-        self.assertEqual(factory.keywords['initial_values']['python_command'], 'py -3.11')
-        save.assert_called_once_with(Path('/private/manager'), {'profile': 'dev', 'python_command': 'python'})
+        self.window.assert_called_once_with(self.root, worker_directory())
+        self.window.return_value.action.assert_not_called()
+        self.controller_factory.assert_not_called()
+        acquire.return_value.close.assert_called_once()
 
-    def test_explicit_root_overrides_remembered_source(self):
-        preferences = importlib.import_module('scripts.manager.preferences')
-        self.root.mainloop.side_effect = None
-        self.controller_factory.return_value.view.form_values.return_value = {}
-        with patch.object(preferences, 'load_preferences', return_value={'source_root': 'C:/saved'}), \
-             patch.object(preferences, 'save_preferences'), \
-             patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')):
-            self.assertEqual(main.main(['--root', 'C:/explicit']), 0)
-        self.assertEqual(self.controller_factory.call_args.args[2], Path('C:/explicit'))
-
-    def test_successful_profile_warm_opens_with_its_own_fields_and_skips_inspection(self):
-        preferences = importlib.import_module('scripts.manager.preferences')
-        saved = {'profile': 'dev', '_startup_profile': 'prod', 'host': 'localhost',
-                 'prod_host': '192.0.2.8', 'env_file': 'dev.env', 'prod_env_file': 'prod.env',
-                 'validation_policy': 'managed'}
-        self.root.mainloop.side_effect = None
-        self.controller_factory.return_value.view.form_values.return_value = {}
-        with patch.object(preferences, 'load_preferences', return_value=saved), \
-             patch.object(preferences, 'save_preferences'), \
-             patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')):
-            self.assertEqual(main.main([]), 0)
-        self.assertFalse(self.controller_factory.call_args.kwargs['inspect_on_open'])
-        values = self.controller_factory.call_args.args[1].keywords['initial_values']
-        self.assertEqual((values['profile'], values['host'], values['env_file']),
-                         ('prod', '192.0.2.8', 'prod.env'))
-        self.assertEqual((values['dev_host'], values['dev_env_file']), ('localhost', 'dev.env'))
-        self.assertEqual(values['validation_policy'], 'managed')
-
-    def test_secondary_settings_exits_before_opening_tk_or_reading_preferences(self):
-        tkinter = importlib.import_module('tkinter')
-        with patch('scripts.manager.desktop.acquire_instance', return_value=None) as acquire, \
-             patch('scripts.manager.preferences.load_preferences') as load:
+    def test_secondary_settings_signals_existing_window(self):
+        with patch('scripts.manager.desktop.acquire_instance', return_value=None) as acquire:
             self.assertEqual(main.main(['--settings']), 0)
         acquire.assert_called_once_with(settings=True)
-        self.controller_factory.assert_not_called()
-        tkinter.Tk.assert_not_called()
-        load.assert_not_called()
-
-    def test_load_failure_shows_safe_detailed_status_and_still_saves_on_close(self):
-        preferences = importlib.import_module('scripts.manager.preferences')
-        self.root.mainloop.side_effect = None
-        error = preferences.PreferencesError('decode', 'invalid_format', legacy=True)
-        self.controller_factory.return_value.view.form_values.return_value = {'python_command': 'python'}
-        with patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')), \
-             patch.object(preferences, 'load_preferences', side_effect=error), \
-             patch.object(preferences, 'save_preferences') as save:
-            self.assertEqual(main.main([]), 0)
-        event = self.controller_factory.return_value.view.handle_event.call_args.args[0]
-        self.assertEqual(event['message'], error.message('load'))
-        save.assert_called_once_with(Path('/private/manager'), {'python_command': 'python'})
-
-    def test_save_failure_displays_details_instead_of_startup_error(self):
-        preferences = importlib.import_module('scripts.manager.preferences')
-        self.root.mainloop.side_effect = None
-        error = preferences.PreferencesError('replace', 'file_locked')
-        with patch.object(preferences, 'preferences_home', return_value=Path('/private/manager')), \
-             patch.object(preferences, 'load_preferences', return_value={}), \
-             patch.object(preferences, 'save_preferences', side_effect=error), \
-             patch.object(main, '_preferences_warning') as warning, patch.object(main, '_startup_error') as startup:
-            self.assertEqual(main.main([]), 0)
-        warning.assert_called_once_with(error)
-        startup.assert_not_called()
-
-    def test_real_user_preferences_survive_close_and_reopen(self):
-        self.root.mainloop.side_effect = None
-        directory = Path(self.temporary.name).resolve()
-        values = {'profile': 'dev', 'python_command': 'python', 'source_root': 'C:/source', 'migrate': True}
-        self.controller_factory.return_value.view.form_values.return_value = values
-        with patch.dict(os.environ, {'LOCALAPPDATA': str(directory)}):
-            self.assertEqual(main.main([]), 0)
-            self.assertEqual(main.main([]), 0)
-        restored = self.controller_factory.call_args.args[1].keywords['initial_values']
-        self.assertEqual(restored['python_command'], 'python')
-        self.assertFalse(restored.get('migrate', False))
-        self.assertTrue((directory / 'AWCenterManager/manager.json').is_file())
-        self.assertFalse((directory / 'AWCenter').exists())
+        self.window.assert_not_called()
 
     def run_smoke(self):
         status = main.main(['--smoke-test', str(self.result_path)])

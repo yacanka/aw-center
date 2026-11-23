@@ -159,16 +159,22 @@ def install_inventory(directory: Path, *, exclude: tuple[str, ...] = (), source_
     directory = Path(directory).absolute()
     _safe_path(directory, directory)
     artifacts = []
+    flat = source_state and (directory / 'manager-source-manifest.json').is_file()
+    source = directory if flat else directory / 'source'
+    distribution_folders = {'_internal', 'runtimes', 'dependencies', 'assets'}
     for current, directories, files in os.walk(directory, followlinks=False):
-        in_source = source_state and Path(current).relative_to(directory).parts[:1] == ('source',)
+        parts = Path(current).relative_to(directory).parts
+        in_source = source_state and Path(current).is_relative_to(source)
+        if flat and parts and parts[0] in distribution_folders:
+            in_source = False
         if in_source:
             directories[:] = [name for name in directories if name not in SOURCE_EXCLUSIONS and
-                              not _generated_source((Path(current) / name).relative_to(directory / 'source'))]
+                              not _generated_source((Path(current) / name).relative_to(source))]
         for name in directories:
             _safe_path(directory, Path(current) / name)
         for name in files:
             candidate = Path(current) / name
-            if in_source and not _source_packageable(candidate, directory / 'source'):
+            if in_source and not _source_packageable(candidate, source):
                 continue
             path = _safe_path(directory, candidate)
             relative = path.relative_to(directory).as_posix()
@@ -677,14 +683,13 @@ def prepare_install_bundle(project: Project, output: Path, settings, assets=None
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.awcenter-bundle-', dir=output.parent) as temporary:
         staging = Path(temporary) / 'bundle'
-        staging.mkdir()
         settings.report('Paket kaynakları ve Manager dosyaları kopyalanıyor')
         if manager_distribution is None:
             copy_install_source(project, staging / 'source')
         else:
             from scripts.manager.payload import prepare_source_payload
             from scripts.manager.distribution import copy_manager
-            prepare_source_payload(project, staging / 'source')
+            prepare_source_payload(project, staging)
             copy_manager(Path(manager_distribution), staging)
         from .installation_sources import fetch_artifact
         runtimes = staging / 'runtimes'
@@ -770,7 +775,7 @@ def verify_install_bundle(project: Project, directory: Path) -> dict:
             raise LauncherError('installation runtime artifact is unavailable') from None
         if digest != artifact.sha256:
             raise LauncherError('installation runtime checksum verification failed')
-    source = directory / 'source'
+    source = directory if (directory / 'manager-source-manifest.json').is_file() else directory / 'source'
     source_project = Project(source, source / 'backend/manage.py', source / 'frontend/package.json', source / 'requirements.txt')
     if lock_metadata(source_project, Scope()) != manifest['locks']:
         raise LauncherError('bundled source dependency locks differ from the manifest')

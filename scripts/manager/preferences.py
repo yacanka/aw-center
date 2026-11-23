@@ -19,6 +19,13 @@ _LIMIT = 128 * 1024
 _PREFERENCE_DEFAULTS = DEFAULT_VALUES | {
     f'{profile}_{key}': '' for profile in ('dev', 'prod') for key in PROFILE_OVERRIDE_FIELDS
 }
+PROFILE_FORM_DEFAULTS = {
+    'host': '', 'backend_port': '', 'frontend_port': '', 'env_file': '', 'python_command': '',
+    'live_reload': True, 'tls_cert_file': '', 'tls_key_file': '', 'deploy_check': False,
+    'migration_check': False, 'collectstatic': False, 'verify_frontend': False,
+    'source_mode': 'online', 'python_index_url': '', 'npm_registry_url': '',
+    'wheels_dir': '', 'npm_cache_dir': '',
+}
 _STAGES = {
     'location': 'Kullanıcı kayıt konumunu belirleme',
     'path': 'Bağlantı / reparse noktası denetimi',
@@ -103,9 +110,9 @@ def preferences_home() -> Path:
     return Path(local) / 'AWCenterManager'
 
 
-def _safe_values(values: dict) -> dict:
+def _safe_values(values: dict, defaults=None) -> dict:
     result = {}
-    for key, default in _PREFERENCE_DEFAULTS.items():
+    for key, default in (defaults or _PREFERENCE_DEFAULTS).items():
         value = values.get(key)
         # Imported bundle selection is specific to one operation.
         if key == 'bundle_import' or type(value) is not type(default):
@@ -147,6 +154,14 @@ def _context_values(values):
 
 def _desktop_values(values):
     result = {}
+    if values.get('_last_form') in ('dev', 'prod'):
+        result['_last_form'] = values['_last_form']
+    forms = values.get('_profile_forms')
+    if isinstance(forms, dict):
+        result['_profile_forms'] = {
+            name: _safe_values(form, PROFILE_FORM_DEFAULTS) for name, form in forms.items()
+            if name in ('dev', 'prod') and isinstance(form, dict)
+        }
     if values.get('_startup_profile') in ('dev', 'prod'):
         result['_startup_profile'] = values['_startup_profile']
     if values.get('_shortcut_created') is True:

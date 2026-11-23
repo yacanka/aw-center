@@ -93,8 +93,7 @@ class PackageTests(unittest.TestCase):
         (source / '_internal').mkdir(parents=True)
         (source / 'AWCenterManager.exe').write_bytes(b'Windows executable fixture')
         (source / '_internal/python311.dll').write_bytes(b'embedded Python fixture')
-        (source / 'source').mkdir()
-        (source / 'source/launcher.py').write_text('# fixture', encoding='utf-8')
+        (source / 'launcher.py').write_text('# fixture', encoding='utf-8')
         (source / 'runtimes').mkdir()
         output = self.root / 'AWCenterManager-windows-x64.zip'
         self.builder.write_portable_archive(source, output, {'source_fingerprint': 'a' * 64, 'runtimes': {}})
@@ -241,7 +240,7 @@ class NativeWindowsPackageTests(unittest.TestCase):
         for mode in ('offline', 'restricted', 'corporate', 'online'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix='awcenter-manager-source-') as temporary:
                 directory = Path(temporary).resolve()
-                request = {'action': 'test-sources', 'source_root': str(executable.parent / 'source'),
+                request = {'action': 'test-sources', 'source_root': str(executable.parent),
                            'profile': 'dev', 'source_mode': mode}
                 child, events = self.start_worker(executable, directory, request, network=False)
                 received = []
@@ -255,10 +254,10 @@ class NativeWindowsPackageTests(unittest.TestCase):
                 self.assertFalse((directory / 'local').exists(), 'Source checks must not install runtimes')
 
     def copy_clean_source(self, executable, directory):
-        from scripts.manager.payload import _copy_verified_source, verify_source_payload
-        original = executable.parent / 'source'
+        from scripts.manager.payload import _copy_verified_source, SOURCE_MANIFEST
+        original = executable.parent
         target = directory / 'source'
-        _copy_verified_source(original, target, verify_source_payload(original))
+        _copy_verified_source(original, target, json.loads((original / SOURCE_MANIFEST).read_text(encoding='utf-8')))
         return target
 
     @staticmethod

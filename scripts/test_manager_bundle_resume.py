@@ -137,10 +137,10 @@ class ResumablePreparationTests(unittest.TestCase):
 
     def test_used_media_never_transfers_local_environment(self):
         output = self.prepare()
-        (output / 'source/backend/.env').write_text('private local settings')
+        (output / 'backend/.env').write_text('private local settings')
         other = self.prepare(output='other')
         self.assertNotEqual(output, other)
-        self.assertFalse((other / 'source/backend/.env').exists())
+        self.assertFalse((other / 'backend/.env').exists())
         self.wheels.assert_called_once()
         self.npm.assert_called_once()
 

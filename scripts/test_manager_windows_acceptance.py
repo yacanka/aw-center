@@ -31,9 +31,116 @@ def acceptance_matrix(environment):
     return (profile,), (tools == 'system',)
 
 
-def record_sample(result, distribution, profile, tools, attempt):
+def _wait(root, predicate, timeout):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        root.update()
+        time.sleep(.025)
+    if not predicate():
+        raise AssertionError('Timed out waiting for the Manager action')
+
+
+def drive_form(case, source, environment, profile, *, cold, password, values,
+               executable=None, when_ready=None):
+    """Drive the public entry and real Tk actions, intercepting only operator input/browser."""
+    from scripts.manager import main, profile_window
+    results = {'actions': [], 'prompts': 0, 'browser_calls': 0}
+    failures = []
+
+    class DrivenWindow(profile_window.ProfileWindow):
+        def __init__(self, root, project):
+            super().__init__(root, project)
+            case.assertEqual(self.source.resolve(), source.resolve())
+            root.mainloop = self.drive
+
+        def _prompt_admin(self, reply):
+            results['prompts'] += 1
+            reply.put(('U12345', password) if cold and results['prompts'] == 1 else None)
+
+        def _browser(self):
+            case.assertTrue(self.ready_url)
+            results['browser_calls'] += 1
+
+        def click(self, action, timeout=300, *, allow_failure=False):
+            results['actions'].append(action)
+            self.buttons[action].invoke()
+            case.assertIsNotNone(self.task, f'{action} button did not dispatch')
+            _wait(self.root, lambda: self.task is None, timeout)
+            if not allow_failure:
+                case.assertFalse(self.last_error, self.last_error)
+            return self.log.get('1.0', 'end')
+
+        def drive(self):
+            try:
+                case.assertIsNone(self.task, 'Opening a saved profile auto-started a worker')
+                if cold:
+                    case.assertIsNone(self.profile)
+                    self.buttons[profile].invoke()
+                    for key, value in values.items():
+                        self.variables[key].set(value)
+                    self._resource_mode()
+                    self.set_env(self.variables['env_file'].get())
+                    # An absent runtime is itself a meaningful pre-install check result.
+                    report = self.click('check', allow_failure=True)
+                    case.assertTrue('eksik' in report.casefold() or 'bulunamadı' in report.casefold())
+                    self.click('install', timeout=3600)
+                    report = self.click('check')
+                    case.assertIn('Python · kilitli paketler kurulu.', report)
+                    case.assertIn('Frontend · kilitli paketler kurulu.', report)
+                    if profile == 'prod':
+                        self.click('tls')
+                        self.click('build', timeout=1800)
+                        case.assertTrue(Path(values['tls_cert_file']).is_file())
+                        case.assertTrue((source / 'frontend/dist/index.html').is_file())
+                case.assertEqual(self.profile, profile)
+                self.buttons['run'].invoke()
+                results['actions'].append('run')
+                _wait(self.root, lambda: bool(self.ready_url) or self.task is None, 1800)
+                case.assertTrue(self.ready_url, self.last_error or self.status.get())
+                case.assertEqual(results['prompts'], int(cold))
+                case.assertEqual(results['browser_calls'], 1)
+                if when_ready:
+                    when_ready(self.ready_url)
+                self.buttons['stop'].invoke()
+                _wait(self.root, lambda: self.task is None, 90)
+                case.assertFalse(self.last_error, self.last_error)
+                results['actions'].append('stop')
+            except Exception as error:
+                failures.append(error)
+            finally:
+                if self.task:
+                    self.stop()
+                    _wait(self.root, lambda: self.task is None, 90)
+                self.close()
+
+    with ExitStack() as context:
+        context.enter_context(patch.dict(os.environ, environment, clear=True))
+        context.enter_context(patch('scripts.manager.paths.worker_directory', return_value=source))
+        context.enter_context(patch('scripts.manager.transport.worker_directory', return_value=source))
+        if executable:
+            runtime = SimpleNamespace(frozen=True, executable=str(executable))
+            context.enter_context(patch('scripts.manager.transport.sys', runtime))
+        context.enter_context(patch.object(profile_window, 'ProfileWindow', DrivenWindow))
+        context.enter_context(patch.object(profile_window.messagebox, 'askokcancel', return_value=True))
+        startup_error = context.enter_context(patch.object(main, '_startup_error'))
+        entry = str(source / 'AWCenterManager.pyw')
+        context.enter_context(patch.object(sys, 'argv', [entry]))
+        try:
+            runpy.run_path(entry, run_name='__main__')
+        except SystemExit as finished:
+            exit_code = finished.code
+        else:
+            raise AssertionError('The windowed entrypoint did not complete')
+        if failures:
+            raise failures[0]
+        case.assertEqual(exit_code, 0)
+        startup_error.assert_not_called()
+    return results
+
+
+def record_sample(sample, distribution, profile, tools, attempt):
     sample = dict(distribution=distribution, profile=profile, tools=tools, attempt=attempt,
-                  windows=platform.version(), **result.summary())
+                  windows=platform.version(), **sample)
     print('[native evidence] ' + json.dumps(sample), flush=True)
     destination = os.environ.get('AWCENTER_ACCEPTANCE_EVIDENCE')
     if destination:
@@ -41,119 +148,6 @@ def record_sample(result, distribution, profile, tools, attempt):
         directory.mkdir(parents=True, exist_ok=True)
         name = f'{distribution}-{profile}-{tools}-{attempt}.json'
         (directory / name).write_text(json.dumps(sample, indent=2), encoding='utf-8')
-
-
-def prepared_outputs(source, profile, *, started=False):
-    outputs = [source / folder / '.awcenter-packages.json' for folder in ('.venv', 'frontend/node_modules')]
-    if profile == 'prod':
-        outputs.append(source / 'frontend/dist/index.html')
-    elif started:
-        outputs.append(source / 'frontend/.cache/mermaid/renderer.js')
-    return [(hashlib.sha256(path.read_bytes()).digest(), path.stat().st_mtime_ns) for path in outputs]
-
-
-def click_and_stop(source, environment, profile, *, password=None, executable=None, when_ready=None,
-                   validation_policy=None, offline_package=None):
-    """Drive real Tk buttons, private IPC and contained worker; intercept the browser handoff."""
-    from scripts.manager.controller import ManagerController
-    expected_policy = validation_policy or 'developer'
-    evidence = StartupEvidence(validation_policy=expected_policy, profile=profile)
-    errors = []
-    warm = password is None
-    settings = validation_policy is not None or offline_package is not None
-
-    class DrivenController(ManagerController):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs, browser_opener=evidence.open_browser)
-            assert self.view.variables['source_selection'].get() == 'automatic'
-            self.view.request_admin = lambda _id, send: send(
-                {'username': 'U12345', 'password': password} if password else None)
-            self.view.confirm_stop = lambda: True
-            self.root.mainloop = self.drive
-
-        def _handle_event(self, event):
-            task = self.tasks.get(event.get('task_id'))
-            if task and task.action == 'ensure':
-                evidence.observe(event)
-            super()._handle_event(event)
-
-        def wait_for(self, predicate, seconds):
-            deadline = time.monotonic() + seconds
-            while not predicate():
-                if time.monotonic() >= deadline:
-                    raise AssertionError('Timed out waiting for native desktop lifecycle')
-                self.root.update()
-                time.sleep(0.02)
-
-        def drive(self):
-            try:
-                if settings:
-                    self.wait_for(lambda: self.view.advanced_var.get(), 30)
-                    assert not any(task.action == 'ensure' for task in self.tasks.values())
-                    if self.view.variables['profile'].get() != profile:
-                        self.view.variables['profile'].set(profile)
-                    if validation_policy and self.view.variables['validation_policy'].get() != validation_policy:
-                        self.view.validation_selector.invoke()
-                    if offline_package is not None:
-                        with patch('scripts.manager.view.filedialog.askdirectory', return_value=str(offline_package)):
-                            self.view._pickers['offline_dir'].invoke()
-                        assert self.view.variables['source_mode'].get() == 'offline'
-                    evidence.begin()
-                    self.view.action_buttons['start'].invoke()
-                elif not warm:
-                    self.wait_for(lambda: self.root.children.get('profile_chooser') and self.root.children[
-                        'profile_chooser'].winfo_children()[0].children[profile].winfo_viewable(), 300)
-                    dialog = self.root.children['profile_chooser']
-                    button = dialog.winfo_children()[0].children[profile]
-                    evidence.begin()
-                    button.invoke()
-                self.wait_for(lambda: any(task.action == 'ensure' for task in self.tasks.values()), 300)
-                assert self.view.variables['profile'].get() == profile
-                assert self.view.variables['validation_policy'].get() == expected_policy
-                self.wait_for(lambda: evidence.browser_calls or evidence.failed, 1200 if warm else 3600)
-                evidence.check(warm=warm)
-                if when_ready:
-                    when_ready(evidence.ready_url)
-                self.view.banner_stop_button.invoke()
-                self.wait_for(lambda: not any(task.active and task.action == 'ensure' for task in self.tasks.values()), 90)
-                assert all(task.status == 'cancelled' for task in self.tasks.values() if task.action == 'ensure')
-                evidence.check(warm=warm)
-            except Exception as error:
-                errors.append(error)
-            finally:
-                self.close()
-                self.wait_for(lambda: self.closed, 90)
-
-    from scripts.manager import main
-    with ExitStack() as context:
-        context.enter_context(patch.dict(os.environ, environment, clear=True))
-        desktop = Path(environment['LOCALAPPDATA']).parent / 'Desktop'
-        desktop.mkdir(exist_ok=True)
-        context.enter_context(patch('scripts.manager.desktop._desktop_directory', return_value=desktop))
-        context.enter_context(patch('scripts.manager.controller.ManagerController', DrivenController))
-        startup_error = context.enter_context(patch.object(main, '_startup_error'))
-        preferences_warning = context.enter_context(patch.object(main, '_preferences_warning'))
-        if executable:
-            # Run this revision's Tk controller against the unmodified frozen worker.
-            runtime = SimpleNamespace(frozen=True, executable=str(executable), platform='win32')
-            context.enter_context(patch('scripts.manager.paths.sys', runtime))
-            context.enter_context(patch('scripts.manager.transport.sys', runtime))
-            context.enter_context(patch('scripts.manager.desktop.sys', runtime))
-        entry = str(source / 'AWCenterManager.pyw')
-        # Match a double-click: a new installation uses the adjacent checkout,
-        # and a warm portable launch resolves the private profile's saved source.
-        context.enter_context(patch.object(sys, 'argv', [entry, '--settings'] if settings else [entry]))
-        try:
-            runpy.run_path(entry, run_name='__main__')
-        except SystemExit as finished:
-            result = finished.code
-        else:
-            raise AssertionError('The windowed entrypoint did not complete')
-        if errors:
-            raise errors[0]
-        assert result == 0 and not startup_error.called and not preferences_warning.called
-        assert (desktop / 'AW Center.lnk').is_file()
-    return evidence
 
 
 class ContainmentTests(unittest.TestCase):
@@ -300,331 +294,122 @@ class ContainmentTests(unittest.TestCase):
             self.assertIn(Path('/system/python.exe'), programs)
 
 
+def connection_inputs(profile, host):
+    bind = host if profile == 'prod' else '127.0.0.1'
+    with socket.socket() as backend, socket.socket() as frontend:
+        backend.bind((bind, 0))
+        frontend.bind((bind, 0))
+        return {'host': bind, 'backend_port': str(backend.getsockname()[1]),
+                'frontend_port': str(frontend.getsockname()[1])}
+
+
+def exercise_profile(case, source, directory, environment, profile, values, programs, host, *,
+                     executable=None, offline=False, tool_label='system'):
+    from contextlib import nullcontext
+
+    password = secrets.token_urlsafe(48)
+    distribution = 'packaged' if executable else 'source'
+    origin = ('https://' if profile == 'prod' else 'http://') + values['host'] + ':' + values['backend_port']
+    frontend = origin if profile == 'prod' else 'http://' + values['host'] + ':' + values['frontend_port']
+    certificate = values.get('tls_cert_file')
+    previous_job = []
+
+    def live(url):
+        case.assertEqual(url, frontend + '/app/')
+        session = LiveAcceptance(origin, certificate, frontend)
+        job = session.exercise(password)
+        if previous_job:
+            job_id, digest = previous_job[0]
+            with session.request('/api/jobs/' + job_id + '/download/') as response:
+                case.assertEqual(hashlib.sha256(response.read()).hexdigest(), digest)
+        previous_job.append(job)
+
+    for attempt in range(2):
+        # Cover the actual EXE, selected Python, Node and future .venv before any
+        # offline install, and deny network even for a previously online restart.
+        network = deny_external_network(host, programs) if offline or attempt else nullcontext()
+        with network:
+            result = drive_form(case, source, environment, profile, cold=attempt == 0, password=password,
+                                values=values, executable=executable, when_ready=live)
+        record_sample(result, distribution, profile, tool_label, attempt)
+        if attempt:
+            case.assertEqual(result['actions'], ['run', 'stop'])
+        for port in (values['backend_port'], values['frontend_port']) if profile == 'dev' else (values['backend_port'],):
+            with socket.socket() as probe:
+                probe.settimeout(1)
+                case.assertNotEqual(probe.connect_ex((values['host'], int(port))), 0)
+    case.assertEqual(len(previous_job), 2)
+
+
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_ACCEPTANCE_SOURCE_CHECKOUT'),
-                     'Requires an explicitly disposable clean Windows checkout')
+                     'Requires an explicitly disposable Windows checkout and firewall control')
 class NativeSourceAcceptance(unittest.TestCase):
     environment = fixtures.NativeWindowsPackageTests.environment
 
-    def test_default_source_button_provisions_from_empty_cache_then_opens_offline(self):
-        source = Path(__file__).resolve().parents[1]
-        self.assertEqual(source, Path(os.environ['AWCENTER_ACCEPTANCE_SOURCE_CHECKOUT']).resolve())
-        self.assertEqual(Path.cwd().resolve(), source)
-        for path in (source / '.venv', source / '.runtime', source / 'frontend/node_modules',
-                     source / 'frontend/dist', source / 'install-manifest.json', source.parent / 'install-manifest.json'):
-            self.assertFalse(path.exists(), 'Source acceptance requires a clean checkout without offline media')
+    def test_source_check_install_and_two_starts(self):
+        from scripts.manager.operations import _project_from_layout
+        from scripts.manager.payload import prepare_source_payload
+
+        checkout = Path(os.environ['AWCENTER_ACCEPTANCE_SOURCE_CHECKOUT']).resolve()
+        self.assertEqual(checkout, Path(__file__).resolve().parents[1])
         python = Path(sys.executable).resolve()
         node = Path(shutil.which('node')).resolve()
         host = socket.gethostbyname(socket.gethostname())
-        password = secrets.token_urlsafe(48)
-        with tempfile.TemporaryDirectory(prefix='awc-source-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='awc-src-') as temporary:
             directory = Path(temporary).resolve()
+            source = directory / 'source'
+            prepare_source_payload(_project_from_layout(checkout), source)
             environment = self.environment(directory, network=True)
             environment['PATH'] = os.pathsep.join((str(python.parent), str(node.parent), environment['PATH']))
-            home = directory / 'local/AWCenter'
-            self.assertFalse(home.exists())
-            cold = click_and_stop(source, environment, 'dev', password=password)
-            record_sample(cold, 'source', 'dev', 'automatic', 0)
-            for kind, counter in (('python', 'python_packages'), ('npm', 'npm_packages')):
-                self.assertGreater(cold.source_attempts[counter], 0)
-                self.assertTrue(any((home / 'cache/packages' / kind).glob('*/manifest.json')))
-            saved = json.loads((home / 'config/dev.profile.json').read_text(encoding='utf-8'))
-            self.assertEqual(Path(saved['python_executable']).resolve(), python)
-            self.assertEqual(Path(saved['node_executable']).resolve(), node)
-            before = prepared_outputs(source, 'dev', started=True)
+            values = {**connection_inputs('dev', host), 'source_mode': 'online', 'python_command': str(python)}
             programs = acceptance_programs(None, directory, source, python, node)
-            with deny_external_network(host, programs):
-                NativeOfflineAcceptance.assert_runtime_network_denied(self, saved, source, home)
-                for attempt in range(1, 4):
-                    warm = click_and_stop(source, environment, 'dev', when_ready=(lambda url: LiveAcceptance(
-                        f"http://127.0.0.1:{saved['backend_port']}", frontend_origin=url.removesuffix('/app/')).exercise(password))
-                        if attempt == 1 else None)
-                    record_sample(warm, 'source', 'dev', 'automatic', attempt)
-                    self.assertEqual(prepared_outputs(source, 'dev', started=True), before)
-                for attempt in range(1, 4):
-                    warm = click_and_stop(source, environment, 'dev', validation_policy='managed')
-                    record_sample(warm, 'source-managed-validation', 'dev', 'automatic', attempt)
-                    self.assertEqual(prepared_outputs(source, 'dev', started=True), before)
+            exercise_profile(self, source, directory, environment, 'dev', values, programs, host)
 
 
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('AWCENTER_RUN_MANAGER_WINDOWS_SMOKE') == '1',
                      'Requires the packaged native Windows acceptance job')
 class NativeOfflineAcceptance(unittest.TestCase):
-    setUp = fixtures.NativeWindowsPackageTests.setUp
     environment = fixtures.NativeWindowsPackageTests.environment
-    stop_worker = staticmethod(fixtures.NativeWindowsPackageTests.stop_worker)
-    next_event = fixtures.NativeWindowsPackageTests.next_event
     copy_clean_source = fixtures.NativeWindowsPackageTests.copy_clean_source
-    provision_request = staticmethod(fixtures.NativeWindowsPackageTests.provision_request)
 
-    def start_worker(self, *args, **kwargs):
-        child, events = fixtures.NativeWindowsPackageTests.start_worker(self, *args, **kwargs)
-        self.case_processes.callback(self.stop_worker, child)
-        return child, events
-
-    @classmethod
-    def setUpClass(cls):
-        cls.executable = Path(os.environ['AWCENTER_MANAGER_EXE']).resolve()
+    def test_packaged_check_install_and_two_starts_with_external_network_denied(self):
+        from scripts.launcher.installation_sources import SourceSettings
         from scripts.manager.distribution import verify_distribution
-        assert verify_distribution(cls.executable.parent).get('complete') is True
-        cls.node = shutil.which('node')
-        assert cls.node, 'The system-tools matrix requires a compatible system Node'
-        cls.python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        from scripts.manager.profile_resources import _install_tool
 
-    def certificate(self, directory, host):
-        # Only this disposable test helper gets cryptography; no global install.
-        libraries = directory / 'test-libraries'
-        result = subprocess.run([str(self.python), '-m', 'pip', '--isolated', 'install', '--no-index',
-            '--find-links', str(self.executable.parent / 'dependencies/wheels'), '--target', str(libraries),
-            'cryptography'], capture_output=True, timeout=120)
-        self.assertEqual(result.returncode, 0, 'Offline TLS test fixture dependencies are incomplete')
-        script = '''import datetime, ipaddress, pathlib, sys
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-directory, host = pathlib.Path(sys.argv[1]), sys.argv[2]
-key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-name = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, 'AWC acceptance')])
-now = datetime.datetime.now(datetime.timezone.utc)
-cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
-        .serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(days=1))
-        .not_valid_after(now+datetime.timedelta(days=30))
-        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(host))]), False)
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), True).sign(key, hashes.SHA256()))
-(directory/'cert.pem').write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-(directory/'key.pem').write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
-'''
-        result = subprocess.run([str(self.python), '-c', script, str(directory), host],
-            env={**os.environ, 'PYTHONPATH': str(libraries)}, capture_output=True, timeout=30)
-        self.assertEqual(result.returncode, 0, 'TLS fixture creation failed')
-        from scripts.launcher.installation_permissions import secure_path
-        for name in ('cert.pem', 'key.pem'):
-            secure_path(directory / name)
-
-    def run_until_ready(self, directory, request, password, evidence=None):
-        child, events = self.start_worker(self.executable, directory, request, network=True)
-        deadline = time.monotonic() + 1200
-        admin = False
-        while True:
-            event = self.next_event(child, events, deadline)
-            if evidence is not None:
-                evidence.observe(event)
-            self.assertFalse(password in json.dumps(event), 'Worker event exposed an administrator credential')
-            if event['type'] == 'input':
-                self.assertEqual(event.get('kind'), 'admin')
-                self.assertFalse(admin, 'The first administrator was requested twice')
-                admin = True
-                child.stdin.write((json.dumps({'type': 'admin', 'value': {'username': 'U12345', 'password': password}}) + '\n').encode())
-                child.stdin.flush()
-            if event['type'] in {'error', 'done'}:
-                self.fail('Native lifecycle ended before readiness: ' + event.get('code', 'worker_stopped'))
-            if event['type'] == 'ready':
-                return child, events, admin
-
-    def stop_cleanly(self, child, events, host, ports):
-        child.stdin.write(b'{"type":"cancel"}\n')
-        child.stdin.flush()
-        deadline = time.monotonic() + 90
-        while True:
-            event = self.next_event(child, events, deadline)
-            if event['type'] == 'done':
-                self.assertTrue(event['ok'])
-                self.assertTrue(event['cancelled'])
-                break
-        child.wait(timeout=30)
-        for port in ports:
-            with socket.socket() as probe:
-                probe.settimeout(1)
-                self.assertNotEqual(probe.connect_ex((host, port)), 0)
-
-    def assert_runtime_network_denied(self, saved, actual_source, home):
-        from scripts.launcher.installation_sources import load_catalog
-        from scripts.launcher.toolchain import _directory
-        node = saved.get('node_executable')
-        if not node:
-            artifact = load_catalog()['node']
-            node = _directory(home, artifact) / artifact.executable
-        probes = (
-            [str(actual_source / '.venv/Scripts/python.exe'), '-I', '-B', '-c',
-             "import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(int(s.connect_ex(('1.1.1.1',443)) == 0))"],
-            [str(node), '-e', "const s=require('net').connect(443,'1.1.1.1'); s.on('connect',()=>process.exit(1)); s.on('error',()=>process.exit(0)); s.setTimeout(2000,()=>{s.destroy();process.exit(0)});"],
-        )
-        for command in probes:
-            result = subprocess.run(command, capture_output=True, timeout=10)
-            self.assertEqual(result.returncode, 0, 'Application runtime bypassed OS network denial')
-
-    def assert_prepared_integrity(self, source, saved, home):
-        # Report only source-relative filenames and fixed tool check labels,
-        # never file contents, environment values or private profile fields.
-        from scripts.manager.payload import SOURCE_MANIFEST, _source_inventory
-        from scripts.launcher.toolchain import inspect_toolchain
-        expected = json.loads((source / SOURCE_MANIFEST).read_text(encoding='utf-8'))['artifacts']
-        expected = {entry['path']: entry for entry in expected}
-        actual = {entry['path']: entry for entry in _source_inventory(source)}
-        changed = sorted(name for name in expected.keys() | actual.keys()
-                         if expected.get(name) != actual.get(name))
-        self.assertEqual(changed, [], 'Prepared source inventory changed after normal use')
-        options = {name: Path(saved[name]) for name in ('python_executable', 'node_executable') if saved.get(name)}
-        checks = inspect_toolchain(home, **options)
-        self.assertTrue(all(check['status'] == 'ready' for check in checks), checks)
-
-    def test_cold_start_from_external_wheels_folder(self):
-        profiles, choices = acceptance_matrix(os.environ)
-        if 'dev' not in profiles or False not in choices:
-            self.skipTest('Covered by the dev managed-tools matrix entry')
-        with tempfile.TemporaryDirectory(prefix='awc-external-') as temporary:
-            directory = Path(temporary).resolve()
-            source = self.copy_clean_source(self.executable, directory)
-            external = directory / self.executable.name
-            shutil.copy2(self.executable, external)
-            shutil.copytree(self.executable.parent / '_internal', directory / '_internal')
-            host = socket.gethostbyname(socket.gethostname())
-            programs = acceptance_programs(external, directory, source, self.python, self.node)
-            with deny_external_network(host, programs):
-                result = click_and_stop(source, self.environment(directory, network=True), 'dev',
-                    executable=external, password=secrets.token_urlsafe(48),
-                    offline_package=self.executable.parent / 'dependencies/wheels')
-            self.assertFalse(any(result.source_attempts.values()))
-
-    def test_dev_prod_system_and_managed_tools_with_real_network_denial(self):
-        # Forced managed runs complement discovery's missing-tools unit tests.
-        # A genuinely clean standard-user machine is also a release field gate.
+        original = Path(os.environ['AWCENTER_MANAGER_EXE']).resolve()
+        self.assertTrue(verify_distribution(original.parent)['complete'])
+        python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+        node = Path(shutil.which('node')).resolve()
         host = socket.gethostbyname(socket.gethostname())
-        self.assertFalse(host.startswith('127.'), 'Production acceptance needs an assigned IPv4')
+        self.assertFalse(host.startswith('127.'))
         profiles, tools = acceptance_matrix(os.environ)
         for profile in profiles:
             for system in tools:
-                with self.subTest(profile=profile, system_tools=system), tempfile.TemporaryDirectory(prefix='awc-offline-') as temporary, ExitStack() as processes:
-                    self.case_processes = processes
-                    print(f'[native] offline profile={profile}, system_tools={system}', flush=True)
-                    directory = Path(temporary).resolve()
-                    source = self.copy_clean_source(self.executable, directory)
-                    request = self.provision_request(source, 'offline')
-                    request.update(action='ensure', profile=profile, offline_dir=str(self.executable.parent),
-                                   install_python=not system, install_node=not system)
-                    if profile == 'dev':
-                        request.pop('backend_port', None)
-                        request.pop('frontend_port', None)
+                with self.subTest(profile=profile, system=system), tempfile.TemporaryDirectory(prefix='awc-pkg-') as temp:
+                    directory = Path(temp).resolve()
+                    source = self.copy_clean_source(original, directory)
+                    executable = source / original.name
+                    shutil.copy2(original, executable)
+                    shutil.copytree(original.parent / '_internal', source / '_internal')
+                    shutil.copytree(original.parent / 'runtimes', source / 'runtimes')
+                    environment = self.environment(directory, network=True)
+                    programs = [executable, *acceptance_programs(None, directory, source, python, node)]
+                    package = original.parent / 'dependencies'
+                    values = {**connection_inputs(profile, host), 'source_mode': 'offline',
+                              'wheels_dir': str(package / 'wheels'), 'npm_cache_dir': str(package / 'npm-cache')}
                     if system:
-                        request.update(python_command=str(self.python), node_command=self.node)
+                        environment['PATH'] = os.pathsep.join((str(python.parent), str(node.parent), environment['PATH']))
+                        values['python_command'] = str(python)
+                    else:
+                        # The form supports choosing a specific installed interpreter.
+                        # Install that fixture from the verified bundled runtime while offline.
+                        settings = SourceSettings(mode='offline', runtime_dirs=(source,))
+                        with deny_external_network(host, programs), patch.dict(os.environ, environment, clear=True):
+                            values['python_command'] = str(_install_tool('python', settings))
                     if profile == 'prod':
-                        self.certificate(directory, host)
-                        request.update(host=host, tls_cert_file=str(directory / 'cert.pem'), tls_key_file=str(directory / 'key.pem'))
-                    password = secrets.token_urlsafe(48)
-                    if profile == 'dev' and not system:
-                        # Reproduce a checkout carrying a system-Python venv
-                        # before the user selects the managed interpreter.
-                        created = subprocess.run(
-                            [str(self.python), '-m', 'venv', '--without-pip', str(source / '.venv')],
-                            cwd=source, env=self.environment(directory, network=True),
-                            capture_output=True, timeout=60,
-                        )
-                        self.assertEqual(created.returncode, 0, 'Synthetic prior venv could not be created')
-                        (source / '.venv' / 'prior-environment.txt').write_text('preserve', encoding='utf-8')
-                    programs = acceptance_programs(self.executable, directory, source, self.python, self.node)
-                    with deny_external_network(host, programs):
-                        for address in ('1.1.1.1', '8.8.8.8'):
-                            with self.assertRaises(OSError):
-                                socket.create_connection((address, 443), timeout=2)
-                        if profile == 'dev' and not system:
-                            partial_evidence = StartupEvidence()
-                            partial, partial_events = self.start_worker(self.executable, directory, request, network=True)
-                            deadline = time.monotonic() + 1200
-                            while True:
-                                event = self.next_event(partial, partial_events, deadline)
-                                partial_evidence.observe(event)
-                                self.assertNotIn(event['type'], {'error', 'done'})
-                                # The worker waits for input here. Earlier phase messages
-                                # race the next filesystem mutation on the CI host.
-                                if event['type'] == 'input' and event.get('kind') == 'admin':
-                                    break
-                            partial.stdin.write(b'{"type":"cancel"}\n')
-                            partial.stdin.flush()
-                            while event['type'] != 'done':
-                                event = self.next_event(partial, partial_events, deadline)
-                                partial_evidence.observe(event)
-                            self.assertTrue(event.get('cancelled'))
-                            partial.wait(timeout=30)
-                            before_resume = prepared_outputs(source, 'dev')
-                            record_sample(partial_evidence, 'packaged-cancelled-worker', profile, 'managed', 0)
-                        first = StartupEvidence()
-                        child, events, admin = self.run_until_ready(directory, request, password, first)
-                        distribution = 'packaged-resumed-worker' if profile == 'dev' and not system else 'packaged-first-worker'
-                        record_sample(first, distribution, profile, 'system' if system else 'managed', 0)
-                        self.assertTrue(admin)
-                        if profile == 'dev' and not system:
-                            self.assertEqual(prepared_outputs(source, 'dev'), before_resume,
-                                             'Resume repeated an already verified dependency install')
-                            preserved = list((source / '.runtime/venv-backups').rglob('prior-environment.txt'))
-                            self.assertEqual(len(preserved), 1)
-                            self.assertEqual(preserved[0].read_text(encoding='utf-8'), 'preserve')
-                        private = directory / 'local/AWCenter'
-                        saved = json.loads((private / 'config' / (profile + '.profile.json')).read_text(encoding='utf-8'))
-                        origin = f"https://{host}:{saved['backend_port']}" if profile == 'prod' else f"http://127.0.0.1:{saved['backend_port']}"
-                        certificate = directory / 'cert.pem' if profile == 'prod' else None
-                        frontend = origin if profile == 'prod' else f"http://127.0.0.1:{saved['frontend_port']}"
-                        job_id, digest = LiveAcceptance(origin, certificate, frontend).exercise(password)
-                        private = directory / 'local/AWCenter'
-                        saved = json.loads((private / 'config' / (profile + '.profile.json')).read_text(encoding='utf-8'))
-                        self.assertEqual(bool(saved.get('python_executable')), system)
-                        self.assertEqual(bool(saved.get('node_executable')), system)
-                        duplicate, duplicate_events = self.start_worker(self.executable, directory,
-                            {**request, 'action': 'start'}, network=True)
-                        deadline = time.monotonic() + 30
-                        while True:
-                            event = self.next_event(duplicate, duplicate_events, deadline)
-                            self.assertNotEqual(event['type'], 'ready')
-                            if event['type'] == 'done':
-                                self.assertFalse(event['ok'])
-                                break
-                        duplicate.wait(timeout=30)
-                        actual_source = Path(saved['source_root'])
-                        self.assert_runtime_network_denied(saved, actual_source, private)
-                        # Match AWCenter.cmd's immutable-runtime startup policy.
-                        # A bare interpreter would itself create stdlib .pyc
-                        # files before the CLI can reject the competing lease.
-                        cli = subprocess.run([str(actual_source / '.venv/Scripts/python.exe'), '-B', '-X', 'utf8',
-                            str(actual_source / 'launcher.py'), 'start', '--profile', profile],
-                            cwd=actual_source, env=self.environment(directory, network=True),
-                            capture_output=True, timeout=30)
-                        self.assertNotEqual(cli.returncode, 0, 'CLI bypassed the live profile lease')
-                        self.assertTrue('Başka bir işlem' in cli.stderr.decode('utf-8'),
-                                        'CLI did not reject the live profile lease')
-                        env = private / 'config' / (profile + '.env')
-                        identity = hashlib.sha256(env.read_bytes()).hexdigest()
-                        ports = [saved['backend_port']] + ([saved['frontend_port']] if profile == 'dev' else [])
-                        bind = host if profile == 'prod' else '127.0.0.1'
-                        self.stop_cleanly(child, events, bind, ports)
-                        self.assert_prepared_integrity(actual_source, saved, private)
-                        request['action'] = 'ensure'
-                        if profile == 'prod' and not system:
-                            child, events, admin = self.run_until_ready(directory, request, password)
-                            self.stop_worker(child)  # Abrupt owner death must reap the entire tree.
-                            child, events, admin = self.run_until_ready(directory, request, password)
-                            self.assertFalse(admin)
-                            self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
-                            self.stop_cleanly(child, events, bind, ports)
-                        def verify_persisted_output(url):
-                            self.assertEqual(url, frontend + '/app/')
-                            live = LiveAcceptance(origin, certificate, frontend)
-                            live.exercise(password)
-                            with live.request('/api/jobs/' + job_id + '/download/') as response:
-                                self.assertEqual(hashlib.sha256(response.read()).hexdigest(), digest)
-
-                        before = prepared_outputs(actual_source, profile, started=True)
-                        for attempt in range(1, 4):
-                            result = click_and_stop(source, self.environment(directory, network=True), profile,
-                                executable=self.executable, when_ready=verify_persisted_output if attempt == 1 else None)
-                            record_sample(result, 'packaged', profile, 'system' if system else 'managed', attempt)
-                            self.assertEqual(prepared_outputs(actual_source, profile, started=True), before)
-                            self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
-                            for port in ports:
-                                with socket.socket() as probe:
-                                    probe.settimeout(1)
-                                    self.assertNotEqual(probe.connect_ex((bind, port)), 0)
-                        for attempt in range(1, 4):
-                            result = click_and_stop(source, self.environment(directory, network=True), profile,
-                                executable=self.executable, validation_policy='managed')
-                            record_sample(result, 'packaged-managed-validation', profile,
-                                          'system' if system else 'managed', attempt)
-                            self.assertEqual(prepared_outputs(actual_source, profile, started=True), before)
-                            self.assertEqual(hashlib.sha256(env.read_bytes()).hexdigest(), identity)
+                        values.update(tls_cert_file=str(directory / 'tls/server.crt'),
+                                      tls_key_file=str(directory / 'tls/server.key'))
+                    exercise_profile(self, source, directory, environment, profile, values, programs,
+                                     host, executable=executable, offline=True,
+                                     tool_label='system' if system else 'managed')
