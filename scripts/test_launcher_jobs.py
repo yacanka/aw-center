@@ -42,6 +42,23 @@ def add_auxiliary_worker_commands(project: Project) -> None:
 class LauncherJobWorkerTests(unittest.TestCase):
     """Ensure every launcher runtime mode consumes durable queues."""
 
+    def test_supervised_notification_gets_a_startup_marker_and_keeps_the_legacy_heartbeat(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = create_project(root)
+            add_worker_command(project)
+            add_auxiliary_worker_commands(project)
+            markers = root / 'markers'
+            with mock.patch('scripts.launcher.job_worker.start') as start:
+                start_job_workers(project, {}, heartbeat_dir=markers)
+
+            job, notification, cleanup = start.call_args_list
+            key = 'AWCENTER_NOTIFICATION_READY_FILE'
+            self.assertEqual(notification.kwargs['extra_env'].get(key), str(markers / 'notification-ready'))
+            self.assertEqual(notification.args[0][-2:], ['--heartbeat-file', str(markers / 'notification')])
+            self.assertNotIn(key, job.kwargs['extra_env'])
+            self.assertNotIn(key, cleanup.kwargs['extra_env'])
+
     @mock.patch("scripts.launcher.runtime.supervise")
     @mock.patch("scripts.launcher.job_worker.start")
     @mock.patch("scripts.launcher.runtime.start")

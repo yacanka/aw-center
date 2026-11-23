@@ -1,15 +1,20 @@
 """Run the periodic Compliance Documents notification scanner."""
 
-import signal
 import logging
+import os
+import signal
 from pathlib import Path
 from threading import Event
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db import DatabaseError
 
+from compliance.models import NotificationLog
 from compliance.notifications import scan_notifications
 from integrations.jira.reminder_notifications import process_dcc_reminder_deliveries
+from integrations.jira.workflow_models import JiraReminderDelivery
+from users.models import PasswordResetDelivery
 from users.password_reset_notifications import process_password_reset_deliveries
 
 LOGGER = logging.getLogger(__name__)
@@ -40,6 +45,9 @@ class Command(BaseCommand):
         heartbeat_file = options["heartbeat_file"]
         if heartbeat_file:
             Path(heartbeat_file).unlink(missing_ok=True)
+        ready_file = os.environ.get("AWCENTER_NOTIFICATION_READY_FILE")
+        if ready_file:
+            self._signal_startup(Path(ready_file))
         while not self.stop_event.is_set():
             succeeded = self._run_scan(options["project"])
             if succeeded and heartbeat_file:
@@ -47,6 +55,16 @@ class Command(BaseCommand):
             if options["once"]:
                 return
             self.stop_event.wait(max(10, options["poll_interval"]))
+
+    def _signal_startup(self, ready_file):
+        ready_file.unlink(missing_ok=True)
+        # Use read-only probes so startup doesn't wait for queued deliveries or SMTP.
+        try:
+            for queue in (PasswordResetDelivery, JiraReminderDelivery, NotificationLog):
+                queue.objects.exists()
+        except DatabaseError:
+            raise CommandError("Notification queue database is unavailable. Check its schema and access.") from None
+        ready_file.touch()
 
     def _run_scan(self, project):
         try:

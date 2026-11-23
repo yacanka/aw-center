@@ -10,8 +10,9 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
-from .model import LauncherError
+from .job_worker import worker_has_startup_marker
 from .local_tls import local_server_context
+from .model import LauncherError
 from .process import check_cancelled
 from .runtime import public_url
 
@@ -151,7 +152,7 @@ def wait_until_ready(
             pending.append('frontend HTTP')
         for name, label in (('job', 'iş worker kimliği'), ('notification', 'bildirim worker'),
                             ('cleanup', 'temizlik worker')):
-            if not (heartbeat_dir / name).is_file():
+            if not worker_has_startup_marker(heartbeat_dir, name):
                 pending.append(label)
         if not worker_check():
             pending.append('worker heartbeat')

@@ -136,6 +136,17 @@ class ProfileRuntimeTests(unittest.TestCase):
         self.assertEqual(vite.kwargs['extra_env']['AWCENTER_VITE_RELOAD'], '0')
         self.notify.assert_called_once_with('ready', 'http://localhost:5173/app/')
 
+    def test_prod_readiness_accepts_startup_marker_before_notification_scan(self):
+        markers = self.root / 'markers'
+        markers.mkdir()
+        for name in ('job', 'notification-ready', 'cleanup'):
+            (markers / name).touch()
+        children = [Mock(**{'poll.return_value': None}) for _ in range(4)]
+        with patch.object(runner, 'probe_http', return_value=True), \
+             patch.object(runner.time, 'monotonic', side_effect=(0, 0, 90)), \
+             patch.object(runner.time, 'sleep'):
+            runner._ready(children, 'https://127.0.0.1', 'server.crt', None, markers, Mock())
+
     def test_startup_diagnostic_returns_missing_module_and_withholds_other_output(self):
         failure = subprocess.CompletedProcess([], 1, '', "ModuleNotFoundError: No module named 'django'\npassword=private")
         with patch.object(runner.process, 'controlled_run', return_value=failure):

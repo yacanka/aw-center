@@ -2,12 +2,16 @@
 
 from datetime import timedelta
 from io import StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import uuid
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.db import OperationalError, connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -283,6 +287,37 @@ class ComplianceNotificationTests(TestCase):
         self.assertEqual(reminder.status, JiraReminderDelivery.Status.SENT)
         self.assertEqual(NotificationLog.objects.get().status, NotificationLog.Status.SENT)
         self.assertEqual(len(mail.outbox), 2)
+
+    def test_worker_signals_startup_before_smtp_and_heartbeats_after_the_scan(self):
+        with TemporaryDirectory() as temporary:
+            ready = Path(temporary) / "notification-ready"
+            heartbeat = Path(temporary) / "notification"
+            observed = []
+
+            def smtp_timeout(*args, **kwargs):
+                observed.append((ready.is_file(), heartbeat.is_file()))
+                raise TimeoutError
+
+            with patch.dict("os.environ", {"AWCENTER_NOTIFICATION_READY_FILE": str(ready)}), \
+                 patch("compliance.notifications.send_html_email", side_effect=smtp_timeout):
+                call_command("run_compdoc_notification_worker", once=True, heartbeat_file=str(heartbeat),
+                             stdout=StringIO(), stderr=StringIO())
+
+            self.assertEqual(observed, [(True, False)])
+            self.assertTrue(heartbeat.is_file())
+            self.assertEqual(NotificationLog.objects.get().error_code, "MAIL_DELIVERY_TIMEOUT")
+
+    def test_worker_does_not_signal_startup_when_the_notification_database_is_unavailable(self):
+        with TemporaryDirectory() as temporary:
+            ready = Path(temporary) / "notification-ready"
+            ready.touch()
+            with patch.dict("os.environ", {"AWCENTER_NOTIFICATION_READY_FILE": str(ready)}), \
+                 patch.object(connection, "cursor", side_effect=OperationalError("fixture detail")):
+                with self.assertRaisesMessage(CommandError, "Notification queue database is unavailable") as caught:
+                    call_command("run_compdoc_notification_worker", once=True,
+                                 stdout=StringIO(), stderr=StringIO())
+            self.assertFalse(ready.exists())
+            self.assertNotIn("fixture detail", str(caught.exception))
 
     def test_timeout_after_lease_expiry_leaves_claim_recoverable(self):
         materialize_profile_events(self.profile)

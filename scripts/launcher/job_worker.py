@@ -13,6 +13,15 @@ NOTIFICATION_COMMAND_PATH = (
     "compliance/management/commands/run_compdoc_notification_worker.py"
 )
 CLEANUP_COMMAND_PATH = "jobs/management/commands/run_job_cleanup_worker.py"
+NOTIFICATION_READY_MARKER = "notification-ready"
+NOTIFICATION_HEARTBEAT_MARKER = "notification"
+
+
+def worker_has_startup_marker(directory: Path, name: str) -> bool:
+    """Accept the legacy notification heartbeat when running older sources."""
+    if name == NOTIFICATION_HEARTBEAT_MARKER and (directory / NOTIFICATION_READY_MARKER).is_file():
+        return True
+    return (directory / name).is_file()
 
 
 def start_job_workers(
@@ -51,9 +60,14 @@ def start_job_workers(
             workers.append(start(command, project.backend, extra_env=worker_env))
         if (project.backend / NOTIFICATION_COMMAND_PATH).is_file():
             command = [project.python, "manage.py", "run_compdoc_notification_worker"]
+            notification_env = auxiliary_env
             if heartbeat_dir is not None:
-                command += ["--heartbeat-file", str(heartbeat_dir / "notification")]
-            workers.append(start(command, project.backend, extra_env=auxiliary_env))
+                command += ["--heartbeat-file", str(heartbeat_dir / NOTIFICATION_HEARTBEAT_MARKER)]
+                notification_env = {
+                    **auxiliary_env,
+                    "AWCENTER_NOTIFICATION_READY_FILE": str(heartbeat_dir / NOTIFICATION_READY_MARKER),
+                }
+            workers.append(start(command, project.backend, extra_env=notification_env))
         if (project.backend / CLEANUP_COMMAND_PATH).is_file():
             command = [
                 project.python,

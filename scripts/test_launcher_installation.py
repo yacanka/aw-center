@@ -30,6 +30,19 @@ class InstallationParserTests(unittest.TestCase):
 
 
 class ManagedReadinessTests(unittest.TestCase):
+    def test_notification_startup_marker_is_enough_before_the_first_scan_finishes(self):
+        from scripts.launcher.installation_readiness import wait_until_ready
+
+        with tempfile.TemporaryDirectory() as temporary:
+            markers = Path(temporary)
+            for name in ('job', 'notification-ready', 'cleanup'):
+                (markers / name).touch()
+            process = mock.Mock()
+            process.poll.return_value = None
+            profile = {'name': 'prod', 'host': '127.0.0.1', 'backend_port': 8443}
+            with mock.patch('scripts.launcher.installation_readiness.probe_http', return_value=True):
+                wait_until_ready([process], profile, markers, worker_check=lambda: True, timeout=0)
+
     def test_dev_checks_live_and_vite_without_production_artifact(self):
         from scripts.launcher.installation_readiness import wait_until_ready
 

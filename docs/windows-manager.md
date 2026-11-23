@@ -30,6 +30,8 @@ Proje klasöründe hazır bir `.venv` varsa varsayılan ortam odur. Listeden kur
 
 Prod dağıtımında **Frontend’i derle** düğmesiyle statik arayüzü hazırlayın. **Gelişmiş ayarlar** altında Django dağıtım kontrolü, bekleyen migration kontrolü, statik dosyaları toplama ve frontend çıktısını doğrulama ayrı ayrı seçilebilir. Dördü de ilk kullanımda kapalıdır. Seçtiğiniz adım başarısız olursa başlatma durur ve hata ekranda gösterilir.
 
+Bildirim worker’ı kuyruk tablolarına erişince açılış için hazır sayılır. Bekleyen bildirimler ve SMTP gönderimleri worker’da arka planda işlenir.
+
 **Durdur** Manager’ın başlattığı sunucuyu ve worker süreçlerini kapatır. Terminalde kullanılan `launcher.py prod` kendi dağıtım kontrollerini çalıştırmaya devam eder.
 
 ## Windows paketi

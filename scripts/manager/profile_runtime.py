@@ -19,7 +19,7 @@ from scripts.launcher.installation_local_config import IDENTITY_KEYS, _database_
 from scripts.launcher.installation_permissions import secure_path
 from scripts.launcher.installation_readiness import probe_http
 from scripts.launcher.installation_state import private_directory, process_environment
-from scripts.launcher.job_worker import start_job_workers
+from scripts.launcher.job_worker import start_job_workers, worker_has_startup_marker
 from scripts.launcher.model import LauncherError
 from .profile_state import claim_storage, sqlite_path as _sqlite_path, sqlite_url as _sqlite_url
 
@@ -265,7 +265,7 @@ def _ready(children, origin, certificate, frontend, heartbeats, diagnose):
                           diagnose() or 'Kaynaklar sekmesinde Python paketlerini ve seçili .env ayarlarını kontrol edin.')
                 raise LauncherError(f'{label} başlangıç sırasında kapandı (kod {child.returncode}). {remedy}')
         pending = [label for name, label in zip(('job', 'notification', 'cleanup'), names[-3:])
-                   if not (heartbeats / name).is_file()]
+                   if not worker_has_startup_marker(heartbeats, name)]
         if not probe_http(origin + '/health/live/', certificate):
             pending.append(names[0])
         if frontend and not probe_http(frontend + '/app/'):
