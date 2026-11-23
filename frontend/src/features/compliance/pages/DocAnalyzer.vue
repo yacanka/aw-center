@@ -2,8 +2,11 @@
   <n-card title="Compliance Document Analyzer">
     <n-space vertical size="large">
       <n-alert type="info" :bordered="false">
-        Analysis uses private local semantic models. Full evidence remains in an owner-authorized
-        JSON artifact; Job Center shows a content-free score summary.
+        Analysis uses private local semantic models. You can download the full evidence as a private
+        JSON result.
+        <template v-if="session.getUser.dashboard_only !== true">
+          Job Center shows a content-free score summary.
+        </template>
       </n-alert>
       <n-upload
         ref="uploadForm"
@@ -80,6 +83,7 @@
         :job="job"
         :cancelling="cancelling"
         :downloading="downloading"
+        :hide-job-center="session.getUser.dashboard_only"
         @cancel="cancel"
         @download="download"
         @open="openJobCenter"
@@ -97,7 +101,10 @@ import { usePageJob } from '@/features/jobs/composables/usePageJob'
 import { formatApiError } from '@/shared/api/apiError'
 import { customAnalysisCheckValue } from '@/features/tools/api/documentAnalysis'
 import { createDocumentAnalysisJob } from '@/features/jobs/api/jobs'
+import { useSessionStore } from '@/features/session/stores/session'
 import { selectedUploadFile } from '@/shared/utils/uploads'
+
+const session = useSessionStore()
 
 const defaultCheckOptions = [
   { value: 'compliance_documents', label: 'Compliance document list' },

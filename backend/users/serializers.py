@@ -8,6 +8,7 @@ from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
 from rest_framework.serializers import CharField, ListField, ModelSerializer, Serializer
 
+from .dashboard_role import DASHBOARD_USER_GROUP
 from .models import UserPreferences
 from .email_policy import accounts_for_email, email_identity_write, validate_email_identity
 from .password_reset_notifications import enqueue_password_reset
@@ -35,11 +36,15 @@ class PermissionSerializer(ModelSerializer):
 class GroupSerializer(ModelSerializer):
     permissions = PermissionSerializer(many=True, read_only=True)
     permission_ids = ListField(child=serializers.IntegerField(), required=False, write_only=True)
+    is_builtin = serializers.SerializerMethodField()
 
     class Meta:
         model = Group
-        fields = ["id", "name", "permissions", "permission_ids"]
+        fields = ["id", "name", "permissions", "permission_ids", "is_builtin"]
         read_only_fields = ["id", "permissions"]
+
+    def get_is_builtin(self, group):
+        return group.name == DASHBOARD_USER_GROUP
 
     def validate_permission_ids(self, value):
         existing_count = Permission.objects.filter(id__in=value).count()

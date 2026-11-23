@@ -3,8 +3,11 @@
     <n-card title="Cover Page Creator from Excel" class="app-page-container">
       <n-space vertical size="large">
         <n-alert type="info" :bordered="false">
-          The workbook is checked before queueing. Output is created in private storage and remains
-          available from Job Center according to the retention policy.
+          The workbook is checked before queueing. The output is private and remains available for
+          the retention period.
+          <template v-if="session.getUser.dashboard_only !== true">
+            You can also download it from Job Center.
+          </template>
         </n-alert>
         <n-grid responsive="self" item-responsive cols="12" x-gap="12" y-gap="12">
           <n-grid-item v-for="column in requiredColumns" :key="column" span="0:12 520:6 900:3">
@@ -35,6 +38,7 @@
           :job="job"
           :cancelling="cancelling"
           :downloading="downloading"
+          :hide-job-center="session.getUser.dashboard_only"
           @cancel="cancel"
           @download="download"
           @open="openJobCenter"
@@ -51,8 +55,11 @@ import PageJobStatus from '@/features/jobs/components/PageJobStatus.vue'
 import { usePageJob } from '@/features/jobs/composables/usePageJob'
 import { inspectExcelColumns } from '@/features/tools/api/excelTools'
 import { createCoverPageJob } from '@/features/jobs/api/jobs'
+import { useSessionStore } from '@/features/session/stores/session'
 import { formatApiError } from '@/shared/api/apiError'
 import { selectedUploadFile } from '@/shared/utils/uploads'
+
+const session = useSessionStore()
 
 const requiredColumns = [
   'Cover Page Number',

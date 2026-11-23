@@ -40,6 +40,9 @@ export function isCriticalRole(group: IGroup): boolean {
 }
 
 export function roleDescription(group: IGroup): string {
+  if (group.is_builtin && group.name === 'Dashboard User') {
+    return 'Certification Dashboard only. Project roles are assigned separately.'
+  }
   const permissions = group.permissions || []
   const critical = permissions.filter(
     (permission) =>

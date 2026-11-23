@@ -10,9 +10,10 @@
                 <n-spin size="small" />
                 <span>Preparing AW Center...</span>
               </div>
+              <CertificationLayout v-else-if="isDashboardOnly" />
               <AuthenticatedLayout v-else />
             </UiFeedbackBridge>
-            <PwaInstallPrompt />
+            <PwaInstallPrompt v-if="!isDashboardOnly" />
           </n-loading-bar-provider>
         </n-notification-provider>
       </n-message-provider>
@@ -30,8 +31,12 @@ import { useSessionStore } from '@/features/session/stores/session'
 import { applyPreferredTheme, resolvePreferredTheme } from './services/theme'
 
 const AuthenticatedLayout = defineAsyncComponent(() => import('@/app/layouts/ProtectedLayout.vue'))
+const CertificationLayout = defineAsyncComponent(
+  () => import('@/app/layouts/CertificationLayout.vue')
+)
 const userStore = useSessionStore()
 const route = useRoute()
+const isDashboardOnly = computed(() => userStore.getUser.dashboard_only === true)
 const activeThemeName = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const activeTheme = computed(() => (activeThemeName.value === 'dark' ? darkTheme : lightTheme))
 const themeOverrides: GlobalThemeOverrides = {
@@ -44,7 +49,7 @@ watchEffect(() => {
   applyPreferredTheme(userStore.getPreferences)
 })
 const isSessionInitializing = computed(
-  () => route.meta.public !== true && !userStore.isSessionInitialized
+  () => route.meta.public !== true && !userStore.isAuthenticated
 )
 const isPublicPage = computed(() => route.meta.public === true)
 </script>

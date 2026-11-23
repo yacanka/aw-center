@@ -36,7 +36,11 @@ export const useSessionStore = defineStore('session', {
   },
   actions: {
     setAuthenticatedUser(user: IUser): void {
-      if (this.status !== 'authenticated' || this.user?.id !== user.id) clearSessionScope()
+      const workspaceChanged =
+        (this.user?.dashboard_only === true) !== (user.dashboard_only === true)
+      if (this.status !== 'authenticated' || this.user?.id !== user.id || workspaceChanged) {
+        clearSessionScope()
+      }
       this.user = user
       this.status = 'authenticated'
     },

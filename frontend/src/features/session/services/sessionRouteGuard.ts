@@ -21,6 +21,11 @@ export interface SessionRouteState {
   bootstrap: (force?: boolean) => Promise<SessionStatus>
 }
 
+/** Return the authenticated landing route for the user's workspace. */
+export function authenticatedHomeRoute(user: IUser): { name: string } {
+  return { name: user.dashboard_only === true ? 'compdocsHome' : 'home' }
+}
+
 /** Resolve navigation only after protected-route session bootstrap has completed. */
 export async function resolveSessionRoute(
   target: SessionRouteTarget,
@@ -28,7 +33,13 @@ export async function resolveSessionRoute(
 ): Promise<true | { name: string; query?: Record<string, string> }> {
   if (target.meta.public) {
     if (target.name === 'login') await session.bootstrap(true)
-    return target.name === 'login' && session.isAuthenticated ? { name: 'home' } : true
+    if (
+      session.isAuthenticated &&
+      (target.name === 'login' || session.getUser.dashboard_only === true)
+    ) {
+      return authenticatedHomeRoute(session.getUser)
+    }
+    return true
   }
 
   await session.bootstrap(true)
@@ -36,6 +47,9 @@ export async function resolveSessionRoute(
   const decision = resolveRouteAccess(resolvePolicy(target.meta), user)
   if (decision === 'login') {
     return { name: 'login', query: { redirect: target.fullPath } }
+  }
+  if (user?.dashboard_only === true && target.meta.certification !== true) {
+    return authenticatedHomeRoute(user)
   }
   if (decision === 'forbidden') {
     return { name: 'unauthorized', query: { from: target.fullPath } }

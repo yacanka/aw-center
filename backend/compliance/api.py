@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Max, OuterRef, Q, Subquery
+from django.db.models.fields.json import KeyTextTransform
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -23,10 +24,12 @@ from jobs.models import Job, JobStatus
 from orgs.access_policy import has_project_role, require_project_role
 from orgs.models import Project, ProjectRoleAssignment
 from projects.registry import PROJECT_DEFINITIONS
+from users.dashboard_role import is_dashboard_user
 
 from .status_catalog import create_status, delete_status, status_options, status_payload
 from .compdoc_import import REQUIRED_IMPORT_FIELDS
 from .dashboard import UNISSUED_BUCKETS, build_dashboard, filter_dashboard_slice
+from .dashboard_access import DASHBOARD_DOORS_MODULE_KEY
 from .doors_imports import (
     create_doors_confirmation,
     default_mapping,
@@ -953,7 +956,7 @@ class DoorsImportSourceView(ProjectComplianceMixin, APIView):
     minimum_role = ProjectRoleAssignment.Role.EDITOR
 
     def get(self, request, project_slug, job_id):
-        job = _doors_import_job(request, job_id)
+        job = _doors_import_job(request, self.project, job_id)
         source = load_doors_source(job)
         mapping = default_mapping(self.project, source)
         return Response(
@@ -983,7 +986,7 @@ class DoorsImportPreviewView(ProjectComplianceMixin, APIView):
         serializer = DoorsImportInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
-        job = _doors_import_job(request, values["job_id"])
+        job = _doors_import_job(request, self.project, values["job_id"])
         source = load_doors_source(job)
         mapping = validate_mapping(values["mapping"], source["columns"])
         plan = prepare_doors_plan(job, self.project, request, mapping)
@@ -1016,7 +1019,7 @@ class DoorsImportConfirmView(ProjectComplianceMixin, APIView):
         serializer = DoorsImportInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
-        job = _doors_import_job(request, values["job_id"])
+        job = _doors_import_job(request, self.project, values["job_id"])
         source = load_doors_source(job)
         mapping = validate_mapping(values["mapping"], source["columns"])
         fingerprint = verify_doors_confirmation(
@@ -1248,13 +1251,14 @@ def _parse_query_boolean(value, field):
     raise serializers.ValidationError({field: "Use true or false."})
 
 
-def _doors_import_job(request, job_id):
-    job = get_object_or_404(
-        Job,
-        pk=job_id,
-        owner=request.user,
-        kind="doors.run_dxl",
-    )
+def _doors_import_job(request, project, job_id):
+    jobs = Job.objects.filter(owner=request.user, kind="doors.run_dxl")
+    if is_dashboard_user(request.user):
+        mapped_modules = DoorsImportMapping.objects.filter(project=project).values("module_path")
+        jobs = jobs.alias(dashboard_module=KeyTextTransform(DASHBOARD_DOORS_MODULE_KEY, "parameters")).filter(
+            dashboard_module__in=mapped_modules,
+        )
+    job = get_object_or_404(jobs, pk=job_id)
     if job.status != JobStatus.SUCCEEDED:
         raise serializers.ValidationError(
             {"job_id": "The DOORS export job has not completed successfully."},

@@ -1,4 +1,5 @@
 import time
+from collections.abc import Mapping
 
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Group, Permission
@@ -13,6 +14,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .dashboard_role import DASHBOARD_USER_GROUP, is_dashboard_user
 from .permissions import GroupPermission, UserPermission
 from .models import get_user_preferences
 from .password_reset_notifications import pad_password_reset_response
@@ -144,6 +146,12 @@ class GroupView(APIView):
     def _group_queryset(self):
         return Group.objects.prefetch_related("permissions__content_type")
 
+    def _group_for_write(self, pk):
+        group = get_object_or_404(self._group_queryset(), pk=pk)
+        if group.name == DASHBOARD_USER_GROUP:
+            raise PermissionDenied("The built-in Dashboard User role cannot be changed or deleted.")
+        return group
+
     def get(self, request, pk=None):
         if pk:
             group = get_object_or_404(self._group_queryset(), pk=pk)
@@ -162,14 +170,14 @@ class GroupView(APIView):
         return Response(GroupSerializer(group).data, status=status.HTTP_201_CREATED)
 
     def patch(self, request, pk):
-        group = get_object_or_404(self._group_queryset(), pk=pk)
+        group = self._group_for_write(pk)
         serializer = GroupSerializer(group, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         group = serializer.save()
         return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
 
     def delete(self, request, pk):
-        group = get_object_or_404(self._group_queryset(), pk=pk)
+        group = self._group_for_write(pk)
         group.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -226,6 +234,9 @@ class UserPreferencesView(APIView):
         return Response(serializer.data)
 
     def patch(self, request):
+        if (is_dashboard_user(request.user) and isinstance(request.data, Mapping)
+                and set(request.data) - {"theme"}):
+            raise PermissionDenied("Dashboard User can only update the theme preference.")
         serializer = UserPreferencesSerializer(request.user.preferences, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()

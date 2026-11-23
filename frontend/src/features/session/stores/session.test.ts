@@ -141,4 +141,20 @@ describe('session store', () => {
     expect(dcc.jiraConnection.user).toBeNull()
     expect(session.getUser.username).toBe('publisher')
   })
+
+  it('clears cached feature state if the current identity becomes dashboard-only', () => {
+    const session = useSessionStore()
+    const jira = useJiraStore()
+    session.setAuthenticatedUser(currentUser)
+    jira.jiraConnection = {
+      state: 'connected',
+      user: { username: 'operator', display_name: 'Operator' },
+      expires_at: '2099-01-01T00:00:00Z'
+    }
+
+    session.setAuthenticatedUser({ ...currentUser, dashboard_only: true })
+
+    expect(jira.jiraConnection.state).toBe('disconnected')
+    expect(session.getUser.dashboard_only).toBe(true)
+  })
 })

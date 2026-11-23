@@ -5,7 +5,42 @@ import {
 } from '@/features/session/services/sessionRouteGuard'
 import type { SessionStatus } from '@/features/session/stores/session'
 
+const dashboardSession: SessionRouteState = {
+  status: 'authenticated',
+  isAuthenticated: true,
+  getUser: { id: 9, is_active: true, is_staff: true, dashboard_only: true },
+  bootstrap: async () => 'authenticated'
+}
+
 describe('session route guard', () => {
+  it('sends an existing Dashboard User session from login to the certification home', async () => {
+    await expect(
+      resolveSessionRoute(
+        { name: 'login', fullPath: '/login', meta: { public: true } },
+        dashboardSession
+      )
+    ).resolves.toEqual({ name: 'compdocsHome' })
+  })
+
+  it('redirects a Dashboard User away from other AW Center modules', async () => {
+    await expect(
+      resolveSessionRoute({ name: 'jobs', fullPath: '/jobs', meta: {} }, dashboardSession)
+    ).resolves.toEqual({ name: 'compdocsHome' })
+  })
+
+  it('allows a Dashboard User to reopen a certification project deep link', async () => {
+    await expect(
+      resolveSessionRoute(
+        {
+          name: 'certificationProject',
+          fullPath: '/compdocs/aksungur/dashboard',
+          meta: { certification: true }
+        },
+        dashboardSession
+      )
+    ).resolves.toBe(true)
+  })
+
   it('awaits protected-route bootstrap before making the access decision', async () => {
     const session: SessionRouteState = {
       status: 'unknown',

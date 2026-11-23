@@ -7,6 +7,7 @@ from django.core.validators import MaxLengthValidator
 from django.db import IntegrityError
 from django.http import HttpResponseRedirect
 
+from .dashboard_role import DASHBOARD_USER_GROUP
 from .models import PasswordResetDelivery, UserInvitation, UserPreferences
 from .email_policy import EMAIL_UNAVAILABLE, is_email_identity_conflict, validate_email_identity
 from .password_policy import MAX_PASSWORD_LENGTH
@@ -170,7 +171,11 @@ admin.site.unregister(Group)
 
 @admin.register(Group)
 class CustomGroupAdmin(SuperuserAuthWriteAdminMixin, GroupAdmin):
-    pass
+    def has_change_permission(self, request, obj=None):
+        return getattr(obj, "name", None) != DASHBOARD_USER_GROUP and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return getattr(obj, "name", None) != DASHBOARD_USER_GROUP and super().has_delete_permission(request, obj)
 
 
 admin.site.login_form = ConstrainedAdminAuthenticationForm

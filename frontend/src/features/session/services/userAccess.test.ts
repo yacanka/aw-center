@@ -43,3 +43,9 @@ it('explains critical roles from their permissions rather than their names', () 
   expect(roleDescription({ permissions: [change] })).toContain('Sensitive access')
   expect(roleDescription({ permissions: [] })).toContain('Project roles are listed separately')
 })
+
+it('explains that Dashboard User is limited to certification and needs project access', () => {
+  const dashboardRole = { name: 'Dashboard User', is_builtin: true, permissions: [] }
+  expect(roleDescription(dashboardRole)).toContain('Certification Dashboard only')
+  expect(roleDescription(dashboardRole)).toContain('Project roles are assigned separately')
+})

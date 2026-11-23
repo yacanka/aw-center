@@ -16,7 +16,7 @@
         {{ job.recovery_hint }}
       </n-alert>
       <n-flex justify="end">
-        <n-button @click="$emit('open')">Show in Job Center</n-button>
+        <n-button v-if="!hideJobCenter" @click="$emit('open')"> Show in Job Center </n-button>
         <n-button v-if="job.can_cancel" type="error" :loading="cancelling" @click="$emit('cancel')">
           Cancel
         </n-button>
@@ -43,6 +43,7 @@ const props = withDefaults(
     cancelling: boolean
     downloading: boolean
     downloadLabel?: string
+    hideJobCenter?: boolean
   }>(),
   { downloadLabel: 'Download result' }
 )

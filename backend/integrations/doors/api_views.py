@@ -11,8 +11,10 @@ from rest_framework.response import Response
 
 from automations.catalog import JSON_OPERATION_POLICY
 from awcenter.api_errors import error_response
+from compliance.dashboard_access import DASHBOARD_DOORS_MODULE_KEY, dashboard_doors_modules
 from jobs.api import job_creation_response
 from jobs.services import create_job
+from users.dashboard_role import is_dashboard_user
 
 from .serializers import (
     ModuleSerializer,
@@ -192,11 +194,21 @@ def enqueue_job(request, serializer_class, kind, title, operation=None):
     payload = dict(serializer.validated_data)
     if operation:
         payload["operation"] = operation
-    return enqueue_validated_job(request, payload, kind, title)
+    parameters = {}
+    if operation == "export_module" and is_dashboard_user(request.user):
+        module_path = payload["module_path"]
+        if not dashboard_doors_modules(request.user).filter(module_path=module_path).exists():
+            return error_response(
+                "Choose a DOORS module already mapped to a compliance project you can edit.",
+                code="PROJECT_ROLE_REQUIRED",
+                response_status=403,
+            )
+        parameters[DASHBOARD_DOORS_MODULE_KEY] = module_path
+    return enqueue_validated_job(request, payload, kind, title, parameters=parameters)
 
 
 def enqueue_validated_job(
-    request, payload, kind, title, *, reconcile_on_lease_loss=False
+    request, payload, kind, title, *, parameters=None, reconcile_on_lease_loss=False
 ):
     """Persist an already validated JSON automation payload."""
 
@@ -227,7 +239,7 @@ def enqueue_validated_job(
         request.user,
         kind,
         title,
-        {},
+        parameters or {},
         upload,
         idempotency_key=idempotency_key,
         request_id=getattr(request, "request_id", ""),

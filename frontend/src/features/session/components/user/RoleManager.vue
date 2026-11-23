@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { NButton, NModal, NInput, NCheckbox, NAlert, NEmpty, useThemeVars } from 'naive-ui'
 import { useUserAdministrationController } from '@/features/session/composables/userAdministrationController'
 import type { IGroup } from '@/features/session/models/auth'
+import { roleDescription } from '@/features/session/services/userAccess'
 import RoleBadge from './RoleBadge.vue'
 import PermissionLabel from './PermissionLabel.vue'
 const themeVars = useThemeVars()
@@ -84,8 +85,9 @@ async function reload() {
     <div class="role-grid">
       <article v-for="group in store.getGroups" :key="group.id">
         <RoleBadge :group="group" />
-        <p>{{ group.permissions?.length || 0 }} permissions</p>
-        <div class="role-actions">
+        <p v-if="group.is_builtin">{{ roleDescription(group) }}</p>
+        <p v-else>{{ group.permissions?.length || 0 }} permissions</p>
+        <div v-if="!group.is_builtin" class="role-actions">
           <n-button size="small" :disabled="!ready" @click="edit(group)">Edit role</n-button
           ><n-button size="small" quaternary type="error" :disabled="!ready" @click="remove(group)"
             >Delete</n-button

@@ -5,6 +5,7 @@ declare module 'vue-router' {
   interface RouteMeta {
     public?: boolean
     access?: RouteAccessPolicy
+    certification?: boolean
   }
 }
 

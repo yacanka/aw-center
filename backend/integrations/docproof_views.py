@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from awcenter.api_errors import error_response
+from compliance.dashboard_access import dashboard_can_search_document
 from integrations.docproof import (
     REQUEST_TIMEOUT_SECONDS,
     base_url,
@@ -17,6 +18,7 @@ from integrations.docproof import (
     search_document_issue,
     search_issue_number,
 )
+from users.dashboard_role import is_dashboard_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +30,16 @@ def search(request):
     document_number = request.query_params.get("document_no")
     if not document_number:
         return Response({"detail": "Document number required."}, status=400)
-    return search_response(normalize_document_number(document_number))
+    normalized = normalize_document_number(document_number)
+    if is_dashboard_user(request.user) and not dashboard_can_search_document(
+        request.user, document_number, normalized,
+    ):
+        return error_response(
+            "The document is unavailable in your compliance projects.",
+            code="PROJECT_ROLE_REQUIRED",
+            response_status=403,
+        )
+    return search_response(normalized)
 
 
 def search_response(document_number: str) -> Response:

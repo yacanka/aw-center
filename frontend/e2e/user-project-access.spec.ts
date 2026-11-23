@@ -18,6 +18,13 @@ for (const theme of ['light', 'dark'] as const) {
           body = { theme, has_particles: false }
         } else if (path === '/api/projects/') {
           body = []
+        } else if (path === '/api/users/groups/') {
+          body = {
+            count: 1,
+            next: null,
+            previous: null,
+            results: [{ id: 10, name: 'Dashboard User', is_builtin: true, permissions: [] }]
+          }
         } else if (path === '/api/users/') {
           body = {
             count: 1,
@@ -52,6 +59,11 @@ for (const theme of ['light', 'dark'] as const) {
         return route.fulfill({ json: body })
       })
       await page.goto('/app/users')
+      const systemRole = page.locator('article').filter({ hasText: 'Dashboard User' })
+      await expect(
+        systemRole.getByText('Project roles are assigned separately.', { exact: false })
+      ).toBeVisible()
+      await expect(systemRole.getByRole('button', { name: /Edit role|Delete/ })).toHaveCount(0)
       const directory = page.locator(width === 390 ? '.mobile-directory' : '.desktop-directory')
       await expect(
         directory.getByText('Test project · Compliance documents · manager (project disabled)')

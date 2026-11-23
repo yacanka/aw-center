@@ -144,22 +144,26 @@ export const routes: RouteRecordRaw[] = [
       {
         name: 'compdocsHome',
         path: 'home',
+        meta: { certification: true },
         component: lazyRoute(() => import('@/features/compliance/pages/Home.vue'))
       },
       {
         name: 'certificationProject',
         path: ':project/dashboard',
+        meta: { certification: true },
         props: true,
         component: lazyRoute(() => import('@/features/compliance/pages/CertificationProject.vue'))
       },
       {
         name: 'compdocsSettings',
         path: 'settings',
+        meta: { certification: true },
         component: lazyRoute(() => import('@/features/compliance/pages/CompDocSettings.vue'))
       },
       {
         name: 'compdocs',
         path: ':project',
+        meta: { certification: true },
         component: lazyRoute(() => import('@/features/compliance/pages/CompDocTable.vue'))
       }
     ]
@@ -167,11 +171,13 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/compdocs/coverpagecreator',
     name: 'coverpagecreator',
+    meta: { certification: true },
     component: lazyRoute(() => import('@/features/compliance/pages/CoverPageCreator.vue'))
   },
   {
     path: '/compdocs/docAnalyzer',
     name: 'docAnalyzer',
+    meta: { certification: true },
     component: lazyRoute(() => import('@/features/compliance/pages/DocAnalyzer.vue'))
   },
   {

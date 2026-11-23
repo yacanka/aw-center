@@ -9,6 +9,7 @@ import { applyPreferredTheme } from '@/app/services/theme'
 import LoginTagline from '@/features/session/components/LoginTagline.vue'
 import PasswordRecovery from '@/features/session/components/user/PasswordRecovery.vue'
 import { safePostLoginPath } from '@/features/session/services/accessPolicy'
+import { authenticatedHomeRoute } from '@/features/session/services/sessionRouteGuard'
 import { takePasswordResetCapability } from '@/features/session/services/passwordResetCapability'
 import { USERNAME_MESSAGE, USERNAME_PATTERN } from '@/features/session/services/usernamePolicy'
 
@@ -47,12 +48,16 @@ async function handleLogin() {
   if (!authenticatedUser) return
 
   applyPreferredTheme(userStore.getPreferences)
-  await router.replace(safePostLoginPath(route.query.redirect))
+  await router.replace(
+    authenticatedUser.dashboard_only === true
+      ? authenticatedHomeRoute(authenticatedUser)
+      : safePostLoginPath(route.query.redirect)
+  )
 }
 
 async function retrySessionBootstrap(): Promise<void> {
   const status = await userStore.bootstrap(true)
-  if (status === 'authenticated') await router.replace({ name: 'home' })
+  if (status === 'authenticated') await router.replace(authenticatedHomeRoute(userStore.getUser))
 }
 
 function openPasswordRecovery(): void {

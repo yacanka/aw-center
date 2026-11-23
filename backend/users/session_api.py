@@ -11,11 +11,13 @@ from rest_framework.views import APIView
 
 from integrations.jira.sessions import clear_jira_session
 
+from .dashboard_role import is_dashboard_user
 from .login_serializer import LoginSerializer
 from .throttles import LoginAccountThrottle, LoginAddressThrottle
 
 
 def session_user_payload(user):
+    dashboard_only = is_dashboard_user(user)
     return {
         "id": user.pk,
         "username": user.get_username(),
@@ -24,7 +26,8 @@ def session_user_payload(user):
         "last_name": user.last_name,
         "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
-        "permissions": sorted(user.get_all_permissions()),
+        "permissions": [] if dashboard_only else sorted(user.get_all_permissions()),
+        "dashboard_only": dashboard_only,
     }
 
 

@@ -5,6 +5,20 @@ project-role-protected `GET /api/projects/<slug>/compliance-documents/dashboard/
 `compliance.dashboard` owns the read-only aggregation of canonical documents and
 sequence-ordered `WorkflowEvent` records. Table pagination does not limit analytics.
 
+## Dashboard User
+
+Assign the built-in **Dashboard User** role from the Users screen to open a
+dedicated Certification Dashboard workspace at sign-in. Assign each user's
+Compliance project roles separately to control which projects and actions they
+can access. The workspace includes the project dashboard, Compliance Documents,
+and the Doc Analyzer and Cover Page Creator tools linked from the project picker.
+The server enforces this scope even when the account has other AW Center roles.
+For DOORS imports, a Dashboard User with Compliance edit access can use modules
+already mapped to their projects. DocProof lookups use document numbers from
+projects the user can read.
+
+## Dashboard response
+
 The response preserves `project`, `total`, `archived`, `overdue` and canonical
 `status_counts`. Added fields include `chart_status_counts`, `timeline`,
 `performance`, `pending_days`, `risk`, `data_quality`, `generated_at` and `panels`.

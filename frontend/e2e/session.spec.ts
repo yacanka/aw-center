@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { dashboardSummary } from '../src/features/compliance/models/compdocDashboard.fixtures'
 
 const unresolvedComponents = new WeakMap<Page, string[]>()
 const pageErrors = new WeakMap<Page, string[]>()
@@ -89,6 +90,106 @@ test('login sends Django CSRF and enters the protected shell', async ({ page }) 
   await expect(page).toHaveURL(/\/app\/jobs$/)
   expect(submittedCsrf).toBe('playwright-csrf')
 })
+
+for (const [theme, width] of [
+  ['light', 1440],
+  ['dark', 390]
+] as const) {
+  test(`Dashboard User signs in to the certification workspace in ${theme} at ${width}px`, async ({
+    page
+  }) => {
+    let authenticated = false
+    const unrelatedRequests: string[] = []
+    await page.setViewportSize({ width, height: 850 })
+    await page.route('**/api/**', async (route) => {
+      const path = new URL(route.request().url()).pathname
+      switch (path) {
+        case '/api/session/': {
+          const method = route.request().method()
+          if (method === 'POST') authenticated = true
+          if (method === 'DELETE') {
+            authenticated = false
+            return route.fulfill({ status: 204 })
+          }
+          return json(
+            route,
+            authenticated
+              ? {
+                  ...authenticatedSession,
+                  user: { ...authenticatedSession.user, dashboard_only: true }
+                }
+              : anonymousSession
+          )
+        }
+        case '/api/users/preferences/':
+          return json(route, { theme })
+        case '/api/projects/':
+          return json(route, [
+            {
+              slug: 'ozgur',
+              name: 'Özgür',
+              capabilities: ['compliance'],
+              roles: { compliance: 'viewer', organization: null, jira: null }
+            }
+          ])
+        case '/api/projects/ozgur/compliance-documents/dashboard/':
+          return json(route, dashboardSummary('ozgur'))
+        case '/api/tools/word/analysis-checks/':
+          return json(route, [])
+        case '/api/jobs/dashboard-analysis/':
+          return json(route, {
+            ...completedJob(),
+            id: 'dashboard-analysis',
+            kind: 'word.analyze',
+            title: 'Private analysis',
+            message: 'Analysis complete.',
+            output_name: 'analysis.json',
+            download_url: '/api/jobs/dashboard-analysis/download/'
+          })
+        case '/api/jobs/dashboard-analysis/download/':
+          return json(route, { findings: [] })
+        default:
+          unrelatedRequests.push(path)
+          return route.fulfill({ status: 403, json: { detail: 'Dashboard access only.' } })
+      }
+    })
+
+    await page.goto('/app/login?redirect=/jobs')
+    await page.getByRole('textbox', { name: 'Username' }).fill('u12345')
+    await page.getByLabel('Password', { exact: true }).fill('fixture-password')
+    await page.getByRole('button', { name: 'Login', exact: true }).click()
+
+    await expect(page).toHaveURL('/app/compdocs/home')
+    await expect(page.getByRole('heading', { name: 'Certification Dashboard' })).toBeVisible()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await expect(page.locator('.protected-sider')).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: /Quick command|Open AW Center Assistant/ })
+    ).toHaveCount(0)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
+      )
+    ).toBe(true)
+    await page.getByRole('button', { name: 'Özgür', exact: true }).click()
+    await expect(page).toHaveURL('/app/compdocs/ozgur/dashboard')
+    await expect(page.getByText('Panel breakdown', { exact: true })).toBeVisible()
+
+    await page.goto('/app/compdocs/docAnalyzer?analysis_job=dashboard-analysis')
+    const [analysisDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Download result' }).click()
+    ])
+    expect(analysisDownload.suggestedFilename()).toBe('analysis.json')
+    await expect(page.getByText('Job Center', { exact: false })).toHaveCount(0)
+
+    await page.goto('/app/jobs')
+    await expect(page).toHaveURL('/app/compdocs/home')
+    await page.getByRole('button', { name: 'Çıkış yap' }).click()
+    await expect(page).toHaveURL('/app/login')
+    expect(unrelatedRequests).toEqual([])
+  })
+}
 
 test('login rejects usernames outside the six-character format', async ({ page }) => {
   let loginRequests = 0

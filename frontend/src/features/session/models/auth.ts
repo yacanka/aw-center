@@ -26,6 +26,7 @@ export interface IPreferences {
 export interface IGroup {
   id?: number
   name?: string
+  is_builtin?: boolean
   permissions?: IPermission[]
   [key: string]: unknown
 }
@@ -57,6 +58,7 @@ export interface IUser {
   is_active?: boolean
   is_staff?: boolean
   is_superuser?: boolean
+  dashboard_only?: boolean
   permissions?: IPermission[]
   user_permissions?: number[]
   groups?: number[]
