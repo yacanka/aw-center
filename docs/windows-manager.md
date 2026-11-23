@@ -26,7 +26,7 @@ Proje klasöründe hazır bir `.venv` varsa varsayılan ortam odur. Listeden kur
 
 ## Çalıştırma
 
-Çalıştır ilk kez kullanılacak bir SQLite dosyası için yönetici kullanıcı adı ve parolasını ister, şemayı hazırlar ve sunucuyu başlatır. Dosya zaten varsa doğrudan kullanılır. Var olan veritabanının sürüm yükseltmesi ayrı bir bakım işlemidir.
+Çalıştır ilk kez kullanılacak bir SQLite dosyası için yönetici kullanıcı adı ve parolasını ister, şemayı hazırlar ve sunucuyu başlatır. Mevcut bir veritabanını güncellemek için Local veya Prod profilinde **Sunucu → İsteğe bağlı ayarlar → Bekleyen migration’ları uygula** seçeneğini işaretleyip **Çalıştır** düğmesine basın. Seçenek varsayılan olarak kapalıdır ve her profil için ayrı kaydedilir. Bekleyen migration varsa Manager önce veritabanı ve özel dosyaların yedeğini doğrular. Migration veya son kontrol başarısız olursa sunucu ve worker’lar başlatılmaz.
 
 Prod dağıtımında **Frontend’i derle** düğmesiyle statik arayüzü hazırlayın. **Gelişmiş ayarlar** altında Django dağıtım kontrolü, bekleyen migration kontrolü, statik dosyaları toplama ve frontend çıktısını doğrulama ayrı ayrı seçilebilir. Dördü de ilk kullanımda kapalıdır. Seçtiğiniz adım başarısız olursa başlatma durur ve hata ekranda gösterilir.
 

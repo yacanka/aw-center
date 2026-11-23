@@ -14,6 +14,7 @@ import time
 
 from scripts.launcher import installation_profiles as profiles
 from scripts.launcher import process, runtime
+from scripts.launcher.installation_backup import has_unresolved_migration, run_backed_up_migrations
 from scripts.launcher.installation_env import read_application_environment
 from scripts.launcher.installation_local_config import IDENTITY_KEYS, _database_identity, _identity_file, _read_keys
 from scripts.launcher.installation_permissions import secure_path
@@ -155,10 +156,10 @@ def _identity(project, home, database, settings, stored):
             settings[key] = known[key]
 
 
-def _command(command, cwd, settings, label, *, payload=None, timeout=180, failure=None):
+def _command(command, cwd, settings, label, *, payload=None, timeout=180, failure=None, safe_boundary=False):
     outcome = process.controlled_run([str(item) for item in command], cwd=cwd,
                 env=process.environment(settings), input=payload, text=True, encoding='utf-8', errors='replace',
-                capture_output=True, timeout=timeout)
+                capture_output=True, timeout=timeout, safe_boundary=safe_boundary)
     if outcome.returncode:
         detail = failure(outcome) if failure else ''
         raise LauncherError(label + (' ' + detail if detail else ''))
@@ -189,7 +190,7 @@ def _django(project, settings, args, *, timeout=180):
                 return 'Bekleyen migration: ' + ', '.join(pending)
         return django_failure(args[0], outcome.stderr, settings)
     _command([*command, *args], project.backend, env, f'Django komutu başarısız: {" ".join(args)}.',
-             timeout=timeout, failure=failure)
+             timeout=timeout, failure=failure, safe_boundary=args == ['migrate', '--noinput'])
 
 
 def _first_database(project, database, settings, ask, notify):
@@ -228,6 +229,27 @@ def _first_database(project, database, settings, ask, notify):
             os.link(stage, database)
         except FileExistsError:
             raise LauncherError('Başka bir işlem veritabanını oluşturdu. Yeniden başlatın.') from None
+
+
+def _migrate_existing_database(project, profile, database, settings, notify):
+    from scripts.launcher.installation import backend_inspection
+
+    media = (project.backend / settings['PRIVATE_MEDIA_ROOT']).resolve()
+    inspection_env = {**settings, **process.non_notification_environment(), 'NUMARATOR_API_KEY': ''}
+
+    def cancelled():
+        process.check_cancelled()
+        return False
+
+    notify('phase', 'Veritabanı migration durumu denetleniyor.')
+    run_backed_up_migrations(
+        project, profile,
+        lambda: backend_inspection(project, profile, configuration=inspection_env),
+        lambda: _django(project, settings, ['migrate', '--noinput'], timeout=1800),
+        lambda: _django(project, settings, ['migrate', '--check']),
+        lambda message: notify('phase', message),
+        storage=(database, media), cancelled=cancelled, timeout=1800,
+    )
 
 
 def _gates(project, values, settings, notify):
@@ -376,8 +398,20 @@ def execute(action, values, notify, ask):
             raise LauncherError('Backend ve frontend portları farklı olmalıdır.')
         runtime.require_port(connection['host'], connection['frontend_port'])
     claim_storage(project, values['profile'], database, settings['PRIVATE_MEDIA_ROOT'])
-    _identity(project, profiles.installation_home(), database, settings, stored)
-    _first_database(project, database, settings, ask, notify)
+    home = profiles.installation_home()
+    _identity(project, home, database, settings, stored)
+    migration_profile = {'name': values['profile'], 'installation_home': str(home),
+                         'source_root': str(project.root)}
+    if values.get('migrate_on_start') is True and database.is_file():
+        if values.get('env_file'):
+            migration_profile['env_file'] = str(Path(values['env_file']).expanduser().absolute())
+        elif stored:
+            migration_profile['env_file'] = str(home / 'config' / (values['profile'] + '.env'))
+        _migrate_existing_database(project, migration_profile, database, settings, notify)
+    else:
+        if has_unresolved_migration(migration_profile):
+            raise LauncherError('Önceki migration tamamlanamadı. Yedek ve migration durumunu kontrol edin.')
+        _first_database(project, database, settings, ask, notify)
     if values['profile'] == 'prod':
         _gates(project, values, settings, notify)
     _serve(project, values, connection, settings, notify)

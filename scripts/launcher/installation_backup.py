@@ -251,13 +251,14 @@ def _verify_backup(directory, manifest, check):
 
 
 def run_backed_up_migrations(project, profile, inspect_backend, migrate, postcheck,
-                             progress=None, *, cancelled=None, timeout=120, before_migrate=None):
+                             progress=None, *, cancelled=None, timeout=120, before_migrate=None, storage=None):
     """Prepare a verified snapshot then invoke zero-argument migration callbacks.
 
     Returns a sanitized receipt dict, with ``backup_directory`` when applicable.
     ``inspect_backend`` returns installation_probe metadata; ``postcheck`` raises
     on a failed check. Optional ``before_migrate`` runs after snapshot verification,
     before the durable migration-start marker; its cancellation propagates intact. Callbacks must themselves enforce cancellation/time bounds.
+    Desktop profiles may pass their resolved SQLite and private media paths as ``storage``.
     No rollback, fake migration, schema repair or secret persistence is performed.
     """
     deadline = time.monotonic() + timeout
@@ -276,27 +277,35 @@ def run_backed_up_migrations(project, profile, inspect_backend, migrate, postche
     require_private(home)
     if profile['name'] not in {'dev', 'prod'}:
         raise LauncherError('Unknown migration profile')
-    environment = read_profile_environment(profile)
-    url = environment.get('DATABASE_URL', '')
-    if not url.startswith('sqlite:///'):
-        raise LauncherError('Automatic migration requires isolated SQLite storage')
-    database = Path(url[len('sqlite:///'):])
-    media = Path(environment['PRIVATE_MEDIA_ROOT'])
+    environment_file = Path(profile['env_file']) if profile.get('env_file') else None
+    if storage is None:
+        environment = read_profile_environment(profile)
+        url = environment.get('DATABASE_URL', '')
+        if not url.startswith('sqlite:///'):
+            raise LauncherError('Automatic migration requires isolated SQLite storage')
+        database = Path(url[len('sqlite:///'):])
+        media = Path(environment['PRIVATE_MEDIA_ROOT'])
+    else:
+        database, media = storage
+
+    def environment_hash():
+        file_hash = _hash(environment_file, check) if environment_file is not None else None
+        return file_hash if storage is None else _digest_json([str(database), str(media), file_hash])
+
     if not database.is_absolute() or not media.is_absolute() or media == database or database.is_relative_to(media):
         raise LauncherError('Unsafe migration storage paths')
     require_unlinked(database)
     require_unlinked(media)
     backup_root = home / 'backups'
-    environment_file = Path(profile['env_file'])
     if (media.is_relative_to(backup_root) or backup_root.is_relative_to(media)
-            or database.is_relative_to(backup_root) or environment_file.is_relative_to(media)
-            or database == environment_file or project.root.is_relative_to(media)):
+            or database.is_relative_to(backup_root) or project.root.is_relative_to(media)
+            or environment_file is not None and (environment_file.is_relative_to(media) or database == environment_file)):
         raise LauncherError('Migration storage overlaps a protected namespace')
     if Path(profile['source_root']).resolve() != project.root.resolve():
         raise LauncherError('Migration source identity mismatch')
     _reject_journals(database)
     state = inspect_backend()
-    binding = {'profile_sha256': _digest_json(profile), 'environment_sha256': _hash(Path(profile['env_file']), check),
+    binding = {'profile_sha256': _digest_json(profile), 'environment_sha256': environment_hash(),
                'source_sha256': _source_hash(project, check)}
     backups = home / 'backups' / profile['name']
     for path in (home / 'backups', backups):
@@ -358,7 +367,7 @@ def run_backed_up_migrations(project, profile, inspect_backend, migrate, postche
                 before_migrate()
             confirmation_pending = False
             check()
-            if (binding['environment_sha256'] != _hash(Path(profile['env_file']), check)
+            if (binding['environment_sha256'] != environment_hash()
                     or binding['source_sha256'] != _source_hash(project, check)
                     or _identity(database) != receipt['database_identity']
                     or database.stat().st_size != 0
@@ -400,7 +409,7 @@ def run_backed_up_migrations(project, profile, inspect_backend, migrate, postche
             if (inventory != _media_inventory(media, check) or original_hash != _hash(database, check)
                     or _identity(database) != receipt['database_identity']):
                 raise LauncherError('Source data changed during migration snapshot')
-            if binding != {'profile_sha256': _digest_json(profile), 'environment_sha256': _hash(Path(profile['env_file']), check), 'source_sha256': _source_hash(project, check)}:
+            if binding != {'profile_sha256': _digest_json(profile), 'environment_sha256': environment_hash(), 'source_sha256': _source_hash(project, check)}:
                 raise LauncherError('Migration inputs changed during snapshot')
             _write_json(directory / 'manifest.json', manifest)
             receipt['manifest_sha256'] = _digest_json(manifest)
@@ -415,7 +424,7 @@ def run_backed_up_migrations(project, profile, inspect_backend, migrate, postche
             # while the SQLite reservation still excludes concurrent writers.
             if (inventory != _media_inventory(media, check) or original_hash != _hash(database, check)
                     or _identity(database) != receipt['database_identity']
-                    or binding['environment_sha256'] != _hash(Path(profile['env_file']), check)
+                    or binding['environment_sha256'] != environment_hash()
                     or binding['source_sha256'] != _source_hash(project, check)
                     or inspect_backend().get('migration_plan') != state.get('migration_plan')):
                 raise LauncherError('Migration inputs changed during confirmation')

@@ -236,6 +236,9 @@ class ProfileWindow:
         self.env_note = tk.StringVar(self.root)
         ttk.Label(optional, textvariable=self.env_note, wraplength=490).grid(
             row=1, column=0, columnspan=4, sticky='w')
+        ttk.Checkbutton(optional, text='Bekleyen migration’ları uygula',
+                        variable=self.variables['migrate_on_start']).grid(
+            row=2, column=0, columnspan=4, sticky='w', pady=3)
         self._field(required, 0, 'host', 'Sunucu adresi' if self.profile == 'dev' else 'Sabit IPv4')
         self._field(required, 1, 'backend_port', 'Backend portu' if self.profile == 'dev' else 'HTTPS portu')
         ttk.Label(required, text='Python').grid(row=3, column=0, sticky='w')
@@ -247,7 +250,7 @@ class ProfileWindow:
         if self.profile == 'dev':
             self._field(required, 2, 'frontend_port', 'Frontend portu')
             ttk.Checkbutton(optional, text='Canlı yenileme (Django ve Vite)',
-                            variable=self.variables['live_reload']).grid(row=2, column=0, columnspan=3, sticky='w', pady=3)
+                            variable=self.variables['live_reload']).grid(row=3, column=0, columnspan=3, sticky='w', pady=3)
             return
         self._field(required, 4, 'tls_cert_file', 'TLS sertifikası', 'file')
         self._field(required, 5, 'tls_key_file', 'TLS özel anahtarı', 'file')
@@ -259,13 +262,13 @@ class ProfileWindow:
                   wraplength=450).grid(row=6, column=0, columnspan=3, sticky='w')
         self.advanced_open = tk.BooleanVar(self.root, value=False)
         checks = ttk.Frame(optional)
-        checks.grid(row=3, column=0, columnspan=4, sticky='w', padx=10)
+        checks.grid(row=4, column=0, columnspan=4, sticky='w', padx=10)
         for row, (key, title) in enumerate(CHECKS):
             ttk.Checkbutton(checks, text=title, variable=self.variables[key]).grid(row=row, column=0, sticky='w')
         checks.grid_remove()
         ttk.Checkbutton(optional, text='Gelişmiş ayarlar', variable=self.advanced_open,
                         command=lambda: checks.grid() if self.advanced_open.get() else checks.grid_remove()
-                        ).grid(row=2, column=0, columnspan=4, sticky='w')
+                        ).grid(row=3, column=0, columnspan=4, sticky='w')
 
     def _resources(self, frame):
         modes = ttk.Frame(frame)

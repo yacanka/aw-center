@@ -59,6 +59,47 @@ class ProfileRuntimeTests(unittest.TestCase):
         self.assertEqual(serve.call_args.args[3]['SECRET_KEY'], 'existing-db-key')
         self.assertEqual(database.read_bytes(), b'preserved data')
 
+    def test_selected_migration_precedes_checks_and_server_in_both_profiles(self):
+        steps = Mock()
+        with patch.object(runner.runtime, 'require_port'), \
+             patch.object(runner, '_migrate_existing_database', steps.migrate, create=True), \
+             patch.object(runner, '_gates', steps.gates), patch.object(runner, '_serve', steps.serve), \
+             patch.object(ssl, 'SSLContext'):
+            for profile, expected in [('dev', ['migrate', 'serve']), ('prod', ['migrate', 'gates', 'serve'])]:
+                with self.subTest(profile=profile):
+                    steps.reset_mock()
+                    database = self.root / (profile + '.sqlite3')
+                    database.touch()
+                    env = self.project.backend / (profile + '.env')
+                    env.write_text(f'DATABASE_URL={runner._sqlite_url(database)}\nSECRET_KEY=fixture\n')
+                    runner.execute('run', {**self.values, 'profile': profile, 'env_file': str(env),
+                                           'migrate_on_start': True, 'migration_check': True}, self.notify, self.ask)
+                    self.assertEqual([call[0] for call in steps.mock_calls], expected)
+                    self.assertEqual(steps.migrate.call_args.args[2], database)
+        self.ask.assert_not_called()
+
+    def test_failed_selected_migration_prevents_server_start(self):
+        database = self.project.backend / 'existing.sqlite3'
+        database.touch()
+        env = self.project.backend / 'local.env'
+        env.write_text('DATABASE_URL=sqlite:///existing.sqlite3\nSECRET_KEY=fixture\n')
+        with patch.object(runner.runtime, 'require_port'), patch.object(runner, '_serve') as serve, \
+             patch.object(runner, '_migrate_existing_database', create=True, side_effect=LauncherError('migration failed')):
+            with self.assertRaisesRegex(LauncherError, 'migration failed'):
+                runner.execute('run', {**self.values, 'env_file': str(env), 'migrate_on_start': True},
+                               self.notify, self.ask)
+        serve.assert_not_called()
+
+    def test_selected_migration_initializes_a_new_database_once(self):
+        with patch.object(runner.runtime, 'require_port'), patch.object(runner, '_serve'), \
+             patch.object(runner, '_command'), patch.object(runner, '_django') as django, \
+             patch.object(runner, '_migrate_existing_database', create=True) as migrate:
+            runner.execute('run', {**self.values, 'migrate_on_start': True}, self.notify, self.ask)
+        self.ask.assert_called_once()
+        self.assertEqual(django.call_args.args[2], ['migrate', '--noinput'])
+        django.assert_called_once()
+        migrate.assert_not_called()
+
     def test_empty_selected_value_remains_locked_and_control_keys_do_not_reach_children(self):
         path = self.project.backend / 'application.env'
         path.write_text('IPV4_ADDRESS=\nDEV_FRONTEND_PORT=unused\nAWCENTER_ENV_FILE=some-other-file\nPATH=untrusted\n')
@@ -202,6 +243,46 @@ class ProfileRuntimeTests(unittest.TestCase):
 @unittest.skipUnless(importlib.util.find_spec('django') and importlib.util.find_spec('cryptography'),
                      'requires the installed AW Center application dependencies')
 class ProfileFirstStartIntegrationTests(unittest.TestCase):
+    def test_run_upgrades_existing_sqlite_and_preserves_the_verified_backup(self):
+        from scripts.manager.profile_resources import ProfileProject
+
+        source = Path(__file__).resolve().parents[1]
+        project = ProfileProject(source, source / 'backend/manage.py', source / 'frontend/package.json',
+                                 source / 'requirements.txt', Path(sys.prefix))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            home = root / 'installation'
+            database = root / 'existing data.sqlite3'
+            database.touch()
+            runner.secure_path(database)
+            media = runner.private_directory(root / 'private files')
+            artifact = media / 'template.docx'
+            artifact.write_bytes(b'fixture')
+            runner.secure_path(artifact)
+            env = root / 'selected.env'
+            env.write_text(f'DATABASE_URL={runner._sqlite_url(database)}\n'
+                           f'PRIVATE_MEDIA_ROOT="{media.as_posix()}"\nSECRET_KEY=fixture\n')
+            values = {'profile': 'dev', 'source_root': str(source), 'env_file': str(env),
+                      'migrate_on_start': True}
+
+            with patch.object(runner.profiles, 'installation_home', return_value=home), \
+                 patch('scripts.manager.profile_resources.selected_project', return_value=project), \
+                 patch.object(runner.runtime, 'require_port'), patch.object(runner, '_serve') as serve:
+                settings, *_ = runner._settings(project, values, runner.effective_connection(values), runner._selected(values))
+                runner._django(project, settings, ['migrate', 'integrations', '0002', '--noinput'])
+                ask = Mock()
+                runner.execute('run', values, Mock(), ask)
+
+            ask.assert_not_called()
+            serve.assert_called_once()
+            directory, = (home / 'backups' / 'dev').iterdir()
+            self.assertEqual(json.loads((directory / 'receipt.json').read_text())['status'], 'verified')
+            self.assertEqual((directory / 'private_media' / artifact.name).read_bytes(), b'fixture')
+            query = "SELECT count(*) FROM django_migrations WHERE app = 'integrations' AND name = '0003_jira_document_templates'"
+            with closing(sqlite3.connect(database)) as updated, closing(sqlite3.connect(directory / 'database.sqlite3')) as backup:
+                self.assertEqual(updated.execute(query).fetchone()[0], 1)
+                self.assertEqual(backup.execute(query).fetchone()[0], 0)
+
     def test_actual_migrations_initial_admin_ipc_reopen_and_tls_pair(self):
         from scripts.manager.profile_resources import ProfileProject
 

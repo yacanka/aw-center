@@ -8,6 +8,16 @@ from scripts.manager import preferences
 
 
 class ProfileStorageTests(unittest.TestCase):
+    def test_migration_selection_is_saved_per_profile(self):
+        from scripts.manager.profile_window import _profile_drafts
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / 'preferences'
+            preferences.save_preferences(home, {'_profile_forms': {'dev': {'migrate_on_start': True}}})
+            forms = _profile_drafts(preferences.load_preferences(home))
+            self.assertTrue(forms['dev']['migrate_on_start'])
+            self.assertFalse(forms['prod']['migrate_on_start'])
+
     def test_nested_drafts_only_keep_supported_non_secret_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory) / 'preferences'
@@ -96,6 +106,29 @@ class ProfileWindowTests(unittest.TestCase):
         notify('done', '')
         self.window.drain()
         self.assertIsNone(self.window.task)
+
+    def test_both_profiles_pass_the_migration_checkbox_to_run(self):
+        from tkinter import ttk
+
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+
+        for profile in ('dev', 'prod'):
+            with self.subTest(profile=profile):
+                self.window.select(profile)
+                checkbox, = [widget for widget in descendants(self.window.body)
+                             if isinstance(widget, ttk.Checkbutton)
+                             and widget.cget('text') == 'Bekleyen migration’ları uygula']
+                self.assertFalse(self.window.variables['migrate_on_start'].get())
+                checkbox.invoke()
+                self.window.action('run')
+                action, values, notify, _ask = self.run_task.call_args.args
+                self.assertEqual(action, 'run')
+                self.assertIs(values['migrate_on_start'], True)
+                notify('done', '')
+                self.window.drain()
 
     def test_resource_mode_exposes_its_fields_and_full_results_survive_completion(self):
         self.window.select('prod')

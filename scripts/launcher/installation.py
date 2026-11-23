@@ -62,13 +62,14 @@ def source_settings(args, project: Project | None = None) -> SourceSettings:
                           ca_file=Path(getattr(args, "ca_file", None) or saved["ca_file"]) if getattr(args, "ca_file", None) or saved.get("ca_file") else None)
 
 
-def backend_inspection(project: Project, profile: dict, *, startup_only=False) -> dict:
+def backend_inspection(project: Project, profile: dict, *, startup_only=False, configuration=None) -> dict:
     """Read a bounded, declared JSON result; do not expose stderr or raw configuration."""
     if not project.python.is_file():
         return {"schema": "error", "admin_exists": None, "diagnostics": []}
     # Previously installed releases understand the same inspect command and
     # return the full compatible result when they do not recognize this hint.
-    values = environment({**profile_environment(profile), "PYTHONDONTWRITEBYTECODE": "1",
+    selected = profile_environment(profile) if configuration is None else configuration
+    values = environment({**selected, "PYTHONDONTWRITEBYTECODE": "1",
                           "AWCENTER_MANAGER_STARTUP_INSPECTION": "1" if startup_only else "0"})
     try:
         result = controlled_run([str(project.python), "-m", "scripts.launcher.installation_probe", "inspect"],

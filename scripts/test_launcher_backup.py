@@ -59,6 +59,14 @@ class BackupTests(unittest.TestCase):
         self.assertEqual((directory / 'private_media' / 'artifact').read_bytes(), b'private artifact')
         self.assertNotIn('secret-never-manifest', (directory / 'manifest.json').read_text())
 
+    def test_resolved_storage_can_be_used_without_a_profile_env_file(self):
+        self.profile.pop('env_file')
+        receipt = self.run_migration(storage=(self.db, self.media))
+        self.assertEqual(receipt['status'], 'verified')
+        directory = Path(receipt['backup_directory'])
+        self.assertEqual((directory / 'private_media' / 'artifact').read_bytes(), b'private artifact')
+        self.assertNotIn('secret-never-manifest', (directory / 'manifest.json').read_text())
+
     def test_unknown_existing_database_rejected(self):
         with sqlite3.connect(self.db) as connection:
             connection.execute("INSERT INTO django_migrations VALUES ('legacy', '0001_old')")

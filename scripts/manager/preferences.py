@@ -22,7 +22,7 @@ _PREFERENCE_DEFAULTS = DEFAULT_VALUES | {
 PROFILE_FORM_DEFAULTS = {
     'host': '', 'backend_port': '', 'frontend_port': '', 'env_file': '', 'python_command': '',
     'live_reload': True, 'tls_cert_file': '', 'tls_key_file': '', 'deploy_check': False,
-    'migration_check': False, 'collectstatic': False, 'verify_frontend': False,
+    'migrate_on_start': False, 'migration_check': False, 'collectstatic': False, 'verify_frontend': False,
     'source_mode': 'online', 'python_index_url': '', 'npm_registry_url': '',
     'wheels_dir': '', 'npm_cache_dir': '',
 }
