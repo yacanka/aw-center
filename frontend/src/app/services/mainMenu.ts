@@ -92,12 +92,7 @@ function workflowOptions(
     )
   }
   const jiraPosition = projects.length ? 3 : 2
-  options.splice(
-    jiraPosition,
-    0,
-    ...(dccAvailable ? [menuItem('JIRA', '/jira', 'jira', JiraIcon)] : []),
-    menuItem('JIRA Documents', '/jira/documents', 'jiraDocuments', Document24Regular)
-  )
+  options.splice(jiraPosition, 0, jiraGroup(dccAvailable))
   if (organizationAvailable) {
     options.push(menuItem('Organization', '/organization', 'organization', PeopleAudience24Regular))
   }
@@ -106,6 +101,13 @@ function workflowOptions(
 
 function administrationOptions(): ProjectMenuOption[] {
   return [menuItem('Users', '/users', 'users', People24Regular)]
+}
+
+function jiraGroup(dccAvailable: boolean): ProjectMenuOption {
+  return groupItem('JIRA', 'jiraGroup', 'jiraGroup', JiraIcon, [
+    ...(dccAvailable ? [menuItem('Workspace', '/jira', 'jira', JiraIcon)] : []),
+    menuItem('Documents', '/jira/documents', 'jiraDocuments', Document24Regular)
+  ])
 }
 
 function doorsGroup(): ProjectMenuOption {

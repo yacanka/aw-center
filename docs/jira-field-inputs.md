@@ -26,7 +26,7 @@ Referans: https://developer.atlassian.com/server/jira/platform/jira-rest-api-exa
 
 ## Word şablonlarında JIRA alanlarını kullanma
 
-**JIRA Documents** ekranı `/app/jira/documents` adresindedir. Şablon yayımlayacak kullanıcıya veya gruba `integrations.manage_jira_document_templates` iznini verin. Belge üretmek için AW Center oturumu ve ilgili kaydı okuyabilen bir JIRA bağlantısı yeterlidir.
+**JIRA → Documents** ekranı `/app/jira/documents` adresindedir. Şablon yayımlayacak kullanıcıya veya gruba `integrations.manage_jira_document_templates` iznini verin. Belge üretmek için AW Center oturumu ve ilgili kaydı okuyabilen bir JIRA bağlantısı yeterlidir.
 
 Şablon tablosunu `integrations/0003_jira_document_templates` migration'ı oluşturur. Tablo hazır ve katalog boşsa **No published templates** görünür. Kütüphane veritabanı güncellemesi istiyorsa, yöneticinin çalışan profilin veritabanındaki bekleyen migration'ları uygulaması gerekir.
 

@@ -455,7 +455,7 @@
   },
   {
     "id": "jira-documents",
-    "title": "JIRA Documents",
+    "title": "Documents",
     "path": "/jira/documents",
     "purpose": "Generate a Word document from a published template and a JIRA issue.",
     "inputs": [
@@ -475,6 +475,7 @@
     ],
     "keywords": [
       "jira",
+      "jira documents",
       "şablon",
       "template",
       "belge",

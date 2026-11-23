@@ -128,7 +128,8 @@ test('JIRA credential is exchanged once and all other consumers use opaque conne
 test('JIRA is the canonical navigation and route name', async () => {
   const [routes, menu] = await Promise.all([readFile(routesUrl, 'utf8'), readFile(menuUrl, 'utf8')])
 
-  assert.match(menu, /menuItem\('JIRA', '\/jira', 'jira'/)
+  assert.match(menu, /groupItem\('JIRA', 'jiraGroup', 'jiraGroup'/)
+  assert.match(menu, /menuItem\('Workspace', '\/jira', 'jira'/)
   assert.match(routes, /path: '\/jira',[\s\S]*name: 'jira'/)
   assert.doesNotMatch(routes, /path: '\/dcc'/)
   assert.match(routes, /features\/integrations\/jira\/pages\/Jira\.vue/)

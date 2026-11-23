@@ -82,6 +82,22 @@ async function lookup(page: Page, key: string) {
   await page.getByRole('button', { name: 'Look up issue' }).click()
 }
 
+test('opens Documents from JIRA and shows an empty template library without project roles', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await shell(page, 'light')
+  await page.route(templatesPath, (route) => route.fulfill({ json: { templates: [] } }))
+  await page.goto('/app/home')
+  await page.getByRole('menuitem', { name: 'JIRA', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'Workspace', exact: true })).toHaveCount(0)
+  await page.getByRole('menuitem', { name: 'Documents', exact: true }).click()
+  await expect(page).toHaveURL(/\/app\/jira\/documents$/)
+  await page.getByText('Template library', { exact: true }).click()
+  await expect(page.getByText('No published templates.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New template' })).toHaveCount(0)
+})
+
 for (const theme of ['light', 'dark']) {
   for (const width of [390, 1440]) {
     test(`generate a document without project roles in ${theme} at ${width}px`, async ({

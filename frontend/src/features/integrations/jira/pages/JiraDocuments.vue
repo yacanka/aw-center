@@ -5,7 +5,7 @@ import JiraTemplateLibrary from '../components/JiraTemplateLibrary.vue'
 </script>
 <template>
   <n-flex justify="center">
-    <n-card title="JIRA Documents" class="app-page-container">
+    <n-card title="Documents" class="app-page-container">
       <n-tabs type="line" default-value="generate">
         <n-tab-pane name="generate" tab="Generate document">
           <JiraConnection><JiraDocumentGeneration /></JiraConnection>

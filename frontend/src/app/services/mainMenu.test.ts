@@ -18,23 +18,32 @@ describe('project-aware main navigation', () => {
     expect(menuKeys(createMainMenuOptions([], {}))).not.toContain('/mermaid')
   })
   it('keeps project domains hidden until the authorized catalog is ready', () => {
-    const keys = menuKeys(createMainMenuOptions([], user, false, false))
+    const options = createMainMenuOptions([], user, false, false)
+    const keys = menuKeys(options)
 
     expect(keys).not.toContain('/settings')
     expect(keys).not.toContain('/compdocs/home')
     expect(keys).not.toContain('/organization')
     expect(keys).not.toContain('/jira')
     expect(keys).toContain('/jira/documents')
+    expect(options.find((option) => option.label === 'JIRA')?.children).toMatchObject([
+      { key: '/jira/documents', label: 'Documents' }
+    ])
     expect(menuKeys(createMainMenuOptions([], {}))).not.toContain('/jira/documents')
   })
 
   it('shows only domains backed by validated catalog roles', () => {
-    const keys = menuKeys(createMainMenuOptions([project], user, true, true))
+    const options = createMainMenuOptions([project], user, true, true)
+    const keys = menuKeys(options)
 
     expect(keys).toContain('/compdocs/home')
     expect(keys).not.toContain('/compdocs/ozgur')
     expect(keys).toContain('/organization')
     expect(keys).toContain('/jira')
+    expect(options.find((option) => option.label === 'JIRA')?.children).toMatchObject([
+      { key: '/jira', label: 'Workspace' },
+      { key: '/jira/documents', label: 'Documents' }
+    ])
   })
 })
 
