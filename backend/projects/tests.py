@@ -45,6 +45,8 @@ class ProjectRegistryTests(TestCase):
                 "navy",
                 "bkm",
                 "mmu",
+                "aksungur",
+                "iha",
             },
         )
         self.assertIsInstance(PROJECT_DEFINITIONS, MappingProxyType)

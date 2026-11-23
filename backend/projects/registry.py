@@ -25,6 +25,8 @@ PROJECT_DEFINITIONS = MappingProxyType({
     "gokbey_sivil": _definition("gokbey_sivil", dcc_controller="gokbey_variant_dcc"),
     "hurkus": _definition("hurkus", capabilities=("jira",), dcc_controller="hurkus_dcc"),
     "hurjet": _definition("hurjet"),
+    "aksungur": _definition("aksungur", capabilities=("compliance",)),
+    "iha": _definition("iha", capabilities=("compliance",)),
     **{
         slug: _definition(slug, capabilities=("compliance", "organization"))
         for slug in ("havasoj_stc1", "havasoj_stc2", "hyeu", "hurkus_aviyonik", "hjt", "hsp", "navy", "bkm", "mmu")

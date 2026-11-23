@@ -1,6 +1,11 @@
 import { dashboardSummary } from '../src/features/compliance/models/compdocDashboard.fixtures'
 import { expect, test, type Page } from '@playwright/test'
 
+const newComplianceProjects = [
+  ['aksungur', 'AKSUNGUR'],
+  ['iha', 'İHA']
+] as const
+
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [320, 1440]) {
     test(`quick command reserves shell space in ${theme} at ${width}px`, async ({
@@ -177,6 +182,22 @@ for (const theme of ['light', 'dark'] as const) {
   }
 }
 
+for (const [slug, name] of newComplianceProjects) {
+  test(`${name} opens its dashboard and compliance documents`, async ({ page }) => {
+    await routeShellApi(page, 'light', true)
+    await page.goto('/app/compdocs/home')
+    await page.getByRole('button', { name, exact: true }).click()
+    await expect(page).toHaveURL(`/app/compdocs/${slug}/dashboard`)
+    await expect(
+      page.getByRole('heading', { name: `${name} · Certification Dashboard` })
+    ).toBeVisible()
+    await expect(page.getByText('Panel breakdown', { exact: true })).toBeVisible()
+    await page.getByRole('link', { name: 'Proje dokümanları' }).click()
+    await expect(page).toHaveURL(`/app/compdocs/${slug}`)
+    await expect(page.getByText('No Data', { exact: true })).toBeVisible()
+  })
+}
+
 test('project selection retries a failed catalog and handles an empty catalog', async ({
   page
 }) => {
@@ -252,11 +273,12 @@ async function routeShellApi(
             ]
       })
     }
-    if (path.endsWith('/compliance-documents/dashboard/')) {
-      return route.fulfill({ json: dashboardSummary('hys') })
+    const complianceProject = /^\/api\/projects\/([^/]+)\/compliance-documents\//.exec(path)?.[1]
+    if (complianceProject && path.endsWith('/compliance-documents/dashboard/')) {
+      return route.fulfill({ json: dashboardSummary(complianceProject) })
     }
-    if (path.endsWith('/compliance-documents/fields/')) {
-      return route.fulfill({ json: { schema_version: 4, project: 'hys', fields: [] } })
+    if (complianceProject && path.endsWith('/compliance-documents/fields/')) {
+      return route.fulfill({ json: { schema_version: 4, project: complianceProject, fields: [] } })
     }
     if (path === '/api/attention/') {
       return route.fulfill({
@@ -287,11 +309,15 @@ function complianceProjects() {
     ['hsp', 'HSP'],
     ['navy', 'Navy'],
     ['bkm', 'BKM'],
-    ['mmu', 'MMU']
-  ].map(([slug, name]) => ({
-    slug,
-    name,
-    capabilities: ['compliance', 'organization'],
-    roles: { compliance: 'viewer', organization: 'viewer', jira: null }
-  }))
+    ['mmu', 'MMU'],
+    ...newComplianceProjects
+  ].map(([slug, name]) => {
+    const hasOrganization = !newComplianceProjects.some(([project]) => project === slug)
+    return {
+      slug,
+      name,
+      capabilities: hasOrganization ? ['compliance', 'organization'] : ['compliance'],
+      roles: { compliance: 'viewer', organization: hasOrganization ? 'viewer' : null, jira: null }
+    }
+  })
 }

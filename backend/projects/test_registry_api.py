@@ -94,6 +94,34 @@ class ProjectRegistryApiTests(TestCase):
                 self.assertEqual([item["value"] for item in statuses.data], ["unknown"])
                 assignment.delete()
 
+    def test_aksungur_and_iha_use_their_own_compliance_role_for_documents_and_dashboard(self):
+        self.client.force_authenticate(self.user)
+        for slug in ("aksungur", "iha"):
+            with self.subTest(slug=slug):
+                documents_url = f"/api/projects/{slug}/compliance-documents/"
+                dashboard_url = f"{documents_url}dashboard/"
+                self.assertEqual(self.client.get(documents_url).status_code, 403)
+                self.assertEqual(self.client.get(dashboard_url).status_code, 403)
+
+                ProjectRoleAssignment.objects.create(
+                    project=Project.objects.get(slug=slug),
+                    domain=ProjectRoleAssignment.Domain.COMPLIANCE,
+                    role=ProjectRoleAssignment.Role.VIEWER,
+                    user=self.user,
+                )
+
+                self.assertEqual(self.client.get(documents_url).status_code, 200)
+                dashboard = self.client.get(dashboard_url)
+                self.assertEqual(dashboard.status_code, 200)
+                self.assertEqual(dashboard.data["project"], slug)
+                self.assertEqual(dashboard.data["total"], 0)
+
+        catalog = {item["slug"]: item for item in self.client.get("/api/projects/").data}
+        self.assertEqual(set(catalog), {"aksungur", "iha"})
+        for item in catalog.values():
+            self.assertEqual(item["capabilities"], ["compliance"])
+            self.assertEqual(item["roles"], {"compliance": "viewer", "organization": None, "jira": None})
+
     def test_hurjet_is_exposed_through_the_dynamic_project_catalog(self):
         ProjectRoleAssignment.objects.create(
             project=self.hurjet,

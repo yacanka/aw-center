@@ -26,6 +26,8 @@ class ProjectRegistryDatabaseAlignmentTests(TestCase):
             "navy": "Navy",
             "bkm": "BKM",
             "mmu": "MMU",
+            "aksungur": "AKSUNGUR",
+            "iha": "İHA",
         }
         for slug, name in expected.items():
             with self.subTest(slug=slug):
