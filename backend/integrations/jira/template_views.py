@@ -1,9 +1,11 @@
 """Central JIRA document templates. Publication is independent of project roles."""
 
 import io
+import sqlite3
 from collections.abc import Mapping
 from functools import wraps
 
+from django.db import OperationalError, ProgrammingError
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers
@@ -43,6 +45,13 @@ def template_payload(template):
 def catalog(user):
     query = JiraDocumentTemplate.objects.all()
     return query if user.has_perm(PUBLISH) else query.filter(archived=False)
+
+
+def is_missing_template_table(error):
+    cause = error.__cause__
+    if isinstance(cause, sqlite3.OperationalError):
+        return str(cause) == f"no such table: {JiraDocumentTemplate._meta.db_table}"
+    return getattr(cause, "sqlstate", None) == "42P01"  # PostgreSQL undefined_table
 
 
 def template_api(methods):
@@ -87,7 +96,18 @@ def write(request, current=None):
 def document_templates(request):
     if request.method == "POST":
         return write(request)
-    return Response({"templates": list(catalog(request.user).values(*PUBLIC_FIELDS))})
+    query = catalog(request.user).values(*PUBLIC_FIELDS)
+    try:
+        templates = list(query)
+    except (OperationalError, ProgrammingError) as error:
+        if not is_missing_template_table(error):
+            raise
+        return error_response(
+            "The template library is unavailable until the database is updated.",
+            "JIRA_DOCUMENT_TEMPLATE_SCHEMA_UNAVAILABLE",
+            response_status=503,
+        )
+    return Response({"templates": templates})
 
 
 @template_api(["GET", "PATCH"])

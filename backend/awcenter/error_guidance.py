@@ -57,6 +57,9 @@ _EXACT_GUIDANCE = {
     "DOCPROOF_UNAVAILABLE": ErrorGuidance(
         True, "Check DocProof availability and retry the revision check."
     ),
+    "JIRA_DOCUMENT_TEMPLATE_SCHEMA_UNAVAILABLE": ErrorGuidance(
+        False, "Ask an administrator to apply the pending database migrations, then refresh the library."
+    ),
     "COMPDOC_DOCPROOF_UNAVAILABLE": ErrorGuidance(
         True, "Check DocProof availability and retry the document check."
     ),

@@ -1,5 +1,6 @@
 """End-to-end catalog contracts with disposable documents and a stubbed JIRA issue."""
 
+import sqlite3
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import OperationalError, connection
 from django.test import override_settings
 from docx import Document
 from rest_framework.test import APIClient
@@ -50,6 +52,31 @@ class DocumentTemplateCatalogTests(JobTestCase):
             }, format="multipart")
         self.assertEqual(response.status_code, 201, response.data)
         return CATALOG + str(response.data["id"]) + "/"
+
+    def test_empty_catalog_is_available_without_a_jira_session(self):
+        for user in (self.user, self.other_user):
+            with self.subTest(user=user.pk):
+                self.client.force_authenticate(user)
+                response = self.client.get(CATALOG)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data, {"templates": []})
+
+    def test_missing_template_table_reports_required_database_update(self):
+        table = JiraDocumentTemplate._meta.db_table
+
+        def missing_template_table(execute, sql, params, many, context):
+            if table in sql:
+                cause = sqlite3.OperationalError(f"no such table: {table}")
+                raise OperationalError(str(cause)) from cause
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(missing_template_table):
+            response = self.client.get(CATALOG)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], "JIRA_DOCUMENT_TEMPLATE_SCHEMA_UNAVAILABLE")
+        self.assertFalse(response.data["retryable"])
+        self.assertNotIn(table, str(response.data))
 
     def test_permission_scope_and_private_source(self):
         path = self.publish()
