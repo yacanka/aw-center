@@ -273,20 +273,20 @@ class BundleSafetyTests(unittest.TestCase):
             self.assertTrue((output / 'runtimes/python.zip').is_file())
             self.assertTrue((output / 'runtimes/ffmpeg.zip').is_file())
             self.assertTrue((output / 'assets/approved-v1/document-templates/cover.docx').is_file())
-            (output / 'source/.venv').mkdir()
-            (output / 'source/.venv/generated').write_bytes(b'venv state')
-            (output / 'source/backend/db.sqlite3').write_bytes(b'local business state')
-            (output / 'source/frontend/node_modules').mkdir()
-            (output / 'source/frontend/node_modules/generated.js').write_text('dependency')
+            (output / '.venv').mkdir()
+            (output / '.venv/generated').write_bytes(b'venv state')
+            (output / 'backend/db.sqlite3').write_bytes(b'local business state')
+            (output / 'frontend/node_modules').mkdir()
+            (output / 'frontend/node_modules/generated.js').write_text('dependency')
 
             self.bundle.verify_install_bundle(self.project, output)
-            code = output / 'source/backend/manage.py'
+            code = output / 'backend/manage.py'
             original = code.read_text()
             code.write_text('tampered source')
             with self.assertRaises(LauncherError):
                 self.bundle.verify_install_bundle(self.project, output)
             code.write_text(original)
-            injected = output / 'source/backend/injected.py'
+            injected = output / 'backend/injected.py'
             injected.write_text('unlisted source code')
             with self.assertRaises(LauncherError):
                 self.bundle.verify_install_bundle(self.project, output)
