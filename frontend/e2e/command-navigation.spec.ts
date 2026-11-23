@@ -141,10 +141,37 @@ for (const theme of ['light', 'dark'] as const) {
       })
       await dialog.getByRole('link', { name: 'HYS', exact: true }).click()
       await expect(page).toHaveURL(/compdocs\/hys\/dashboard$/)
-      await page.getByRole('link', { name: 'Proje dokümanları' }).click()
+      const projectSelection = page.getByRole('link', { name: 'Proje seçimi' })
+      const projectDocuments = page.getByRole('link', { name: 'Proje dokümanları' })
+      await expect(projectSelection).toBeVisible()
+      await expect(projectDocuments).toBeVisible()
+      if (width === 390) {
+        const selectionBounds = (await projectSelection.boundingBox())!
+        const documentsBounds = (await projectDocuments.boundingBox())!
+        expect(selectionBounds.height).toBeGreaterThanOrEqual(44)
+        expect(Math.abs(selectionBounds.y - documentsBounds.y)).toBeLessThanOrEqual(1)
+      }
+      await expect(page.getByText('Panel breakdown', { exact: true })).toBeVisible()
+      await page.screenshot({
+        path: testInfo.outputPath('certification-project-navigation.png'),
+        animations: 'disabled'
+      })
+      await projectDocuments.click()
       await expect(page).toHaveURL(/compdocs\/hys$/)
-      await page.getByRole('link', { name: 'Proje grafikleri' }).click()
+      const projectCharts = page.getByRole('link', { name: 'Proje grafikleri' })
+      await expect(projectCharts).toBeVisible()
+      if (width === 390) {
+        expect((await projectCharts.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+      }
+      await expect(page.getByText('No Data', { exact: true })).toBeVisible()
+      await page.screenshot({
+        path: testInfo.outputPath('certification-documents-navigation.png'),
+        animations: 'disabled'
+      })
+      await projectCharts.click()
       await expect(page).toHaveURL(/compdocs\/hys\/dashboard$/)
+      await projectSelection.press('Enter')
+      await expect(page).toHaveURL(/compdocs\/home$/)
     })
   }
 }
@@ -226,6 +253,9 @@ async function routeShellApi(
     }
     if (path.endsWith('/compliance-documents/dashboard/')) {
       return route.fulfill({ json: dashboardSummary('hys') })
+    }
+    if (path.endsWith('/compliance-documents/fields/')) {
+      return route.fulfill({ json: { schema_version: 4, project: 'hys', fields: [] } })
     }
     if (path === '/api/attention/') {
       return route.fulfill({

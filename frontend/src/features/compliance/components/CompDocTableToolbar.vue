@@ -3,6 +3,7 @@ import {
   Add24Regular,
   Branch24Regular,
   ChannelAdd24Regular,
+  ChartMultiple24Regular,
   DataBarVertical24Regular,
   DatabaseLink20Regular,
   DocumentArrowDown20Regular,
@@ -84,7 +85,24 @@ function updatePageSize(value: number | null) {
         Checked {{ progress.completed }}/{{ progress.total }}
       </n-text>
     </n-flex>
-    <n-flex>
+    <n-flex align="center">
+      <router-link
+        :to="{ name: 'certificationProject', params: { project } }"
+        v-slot="{ href, navigate }"
+        custom
+      >
+        <n-button
+          tag="a"
+          type="primary"
+          secondary
+          class="project-charts-link"
+          :href="href"
+          @click="navigate"
+        >
+          <template #icon><ChartMultiple24Regular aria-hidden="true" /></template>
+          Proje grafikleri
+        </n-button>
+      </router-link>
       <n-button ghost color="#65B25D" @click="emit('export')">
         <template #icon
           ><n-icon size="24"><DocumentArrowDown20Regular /></n-icon
@@ -150,6 +168,10 @@ function updatePageSize(value: number | null) {
 
   .toolbar-filters > :deep(*) {
     max-width: 100%;
+  }
+
+  .project-charts-link {
+    min-height: 44px;
   }
 }
 </style>
