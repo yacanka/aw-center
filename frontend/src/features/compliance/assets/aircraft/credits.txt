@@ -1,0 +1,26 @@
+Certification Dashboard hava aracı görselleri
+
+Kaynak görsellerdeki hava araçları ImageGen ile şeffaf arka plana ayrıldı ve WebP olarak boyutlandırıldı. Görseller ilgili proje ailesini temsil eder.
+
+GÖKBEY — T625, Star
+https://www.star.com.tr/savunma/planlanan-gun-yaklasiyor-t625-gokbey-icin-geri-sayim-basladi-haber-1896561/
+
+KAAN — “IMG-TAI-TFX.jpg”, Dimir, Wikimedia Commons
+https://commons.wikimedia.org/wiki/File:IMG-TAI-TFX.jpg
+Şeffaf uyarlama (kaan.webp) da CC BY-SA 4.0 lisanslıdır.
+https://creativecommons.org/licenses/by-sa/4.0/
+
+HÜRKUŞ-2 — Temsili kırmızı-beyaz HÜRKUŞ, ShiftDelete.Net
+https://shiftdelete.net/hurkus-2-ilk-ucusunu-basariyla-gerceklestirdi
+
+HÜRJET — Turkish Aerospace, Air Data News
+https://www.airdatanews.com/airbus-and-turkish-aerospace-sign-agreement-to-pursue-production-of-hurjet-for-spain/
+
+ASOJ-STC1 — Temsili HAVA SOJ çizimi, DonanımHaber
+https://www.donanimhaber.com/hava-soj-un-test-ucusu-goruntusu-paylasildi--156382
+
+ASOJ-STC2 — Temsili HAVA SOJ fotoğrafı, Haber Global
+https://haberglobal.com/yazarlar/turkiyenin-savunma-esigi-hava-soj-ucagi-dunya-medyasinda-514117
+
+Özgür — ÖZGÜR F-16, Aviacionline
+https://www.aviacionline.com/project-ozgur-turkey-starts-modernizing-its-f-16-with-indigenous-technology

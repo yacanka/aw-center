@@ -105,14 +105,40 @@ for (const theme of ['light', 'dark'] as const) {
         'Özgür',
         'BKM'
       ]) {
-        await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
+        const card = page.getByRole('button', { name, exact: true })
+        await expect(card).toBeVisible()
+        if (name === 'BKM') continue
+
+        const artwork = card.locator('img')
+        await expect(artwork).toHaveAttribute('alt', '')
+        await expect
+          .poll(() =>
+            artwork.evaluate((image: HTMLImageElement) => {
+              if (!image.complete || !image.naturalWidth) return false
+              const canvas = document.createElement('canvas')
+              const context = canvas.getContext('2d')!
+              context.drawImage(image, 0, 0, 1, 1, 0, 0, 1, 1)
+              return context.getImageData(0, 0, 1, 1).data[3] === 0
+            })
+          )
+          .toBe(true)
       }
+      const hasHorizontalOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+      )
+      expect(hasHorizontalOverflow).toBe(false)
+      await page.mouse.move(0, 0)
       await page.screenshot({
         path: testInfo.outputPath('certification-projects.png'),
         animations: 'disabled'
       })
       await page.getByRole('button', { name: 'Özgür', exact: true }).click()
       const dialog = page.getByRole('dialog')
+      await expect(dialog).toHaveCSS('opacity', '1')
+      await page.screenshot({
+        path: testInfo.outputPath('certification-project-picker.png'),
+        animations: 'disabled'
+      })
       await dialog.getByRole('link', { name: 'HYS', exact: true }).click()
       await expect(page).toHaveURL(/compdocs\/hys\/dashboard$/)
       await page.getByRole('link', { name: 'Proje dokümanları' }).click()
