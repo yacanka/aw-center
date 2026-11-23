@@ -109,11 +109,10 @@ for (const theme of ['light', 'dark'] as const) {
         'ASOJ-STC1',
         'ASOJ-STC2',
         'Özgür',
-        'BKM'
+        'AKSUNGUR'
       ]) {
         const card = page.getByRole('button', { name, exact: true })
         await expect(card).toBeVisible()
-        if (name === 'BKM') continue
 
         const artwork = card.locator('img')
         await expect(artwork).toHaveAttribute('alt', '')
@@ -129,6 +128,18 @@ for (const theme of ['light', 'dark'] as const) {
           )
           .toBe(true)
       }
+      const bkm = page.getByRole('button', { name: 'BKM', exact: true })
+      const bkmPhoto = bkm.locator('img')
+      await expect(bkm).toBeVisible()
+      await expect(bkmPhoto).toHaveAttribute('alt', '')
+      await expect(bkmPhoto).toHaveAttribute('src', /bkm-.*\.webp$/)
+      await expect
+        .poll(() => bkmPhoto.evaluate((image: HTMLImageElement) => image.naturalWidth))
+        .toBeGreaterThan(0)
+      const iha = page.getByRole('button', { name: 'İHA', exact: true })
+      await expect(iha).toBeVisible()
+      await expect(iha.locator('img')).toHaveCount(0)
+      await expect(page.getByRole('link', { name: 'Görsel kaynakları' })).toHaveCount(0)
       const hasHorizontalOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
       )

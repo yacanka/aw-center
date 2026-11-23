@@ -1,6 +1,16 @@
 Certification Dashboard hava aracı görselleri
 
-Kaynak görsellerdeki hava araçları ImageGen ile şeffaf arka plana ayrıldı ve WebP olarak boyutlandırıldı. Görseller ilgili proje ailesini temsil eder.
+Önceki kart görselleri ImageGen ile şeffaf arka plana ayrıldı ve WebP olarak boyutlandırıldı. Görseller ilgili proje ailesini temsil eder.
+
+AKSUNGUR — Türk Havacılık ve Uzay Sanayii, resmî basın fotoğrafı
+https://www.tusas.com/medya-merkezi/haberler/aksungur-1000-ucus-saatini-tamamladi
+https://www.tusas.com/Content/images/uploads/originals/AKSUNGUR%20_TUSAS.jpg
+Fotoğrafın gökyüzü arka planı şeffaflaştırıldı ve görsel WebP olarak boyutlandırıldı.
+
+BKM — Barış Kartalı (HİK), Türk Havacılık ve Uzay Sanayii, resmî ürün galerisi
+https://www.tusas.com/urunler/ucak/modernizasyon/baris-kartali-hik
+https://www.tusas.com/content/images/uploads/originals/baris-g1-en%2C1377.jpg
+Fotoğraf kart oranına göre kırpıldı ve WebP biçimine dönüştürüldü.
 
 GÖKBEY — T625, Star
 https://www.star.com.tr/savunma/planlanan-gun-yaklasiyor-t625-gokbey-icin-geri-sayim-basladi-haber-1896561/

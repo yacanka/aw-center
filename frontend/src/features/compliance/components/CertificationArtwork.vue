@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Document24Regular } from '@vicons/fluent'
+import aksungur from '../assets/aircraft/aksungur.webp'
+import bkm from '../assets/aircraft/bkm.webp'
 import gokbey from '../assets/aircraft/gokbey.webp'
 import kaan from '../assets/aircraft/kaan.webp'
 import hurkus from '../assets/aircraft/hurkus.webp'
@@ -11,6 +13,8 @@ import ozgur from '../assets/aircraft/ozgur.webp'
 defineProps<{ family: string }>()
 
 const aircraft = new Map([
+  ['aksungur', aksungur],
+  ['bkm', bkm],
   ['gokbey', gokbey],
   ['kaan', kaan],
   ['hurkus', hurkus],
@@ -23,13 +27,21 @@ const aircraft = new Map([
 
 <template>
   <span class="artwork" aria-hidden="true">
-    <img v-if="aircraft.has(family)" :src="aircraft.get(family)" alt="" decoding="async" />
+    <img
+      v-if="aircraft.has(family)"
+      :src="aircraft.get(family)"
+      :class="{ 'artwork-photo': family === 'bkm' }"
+      alt=""
+      decoding="async"
+    />
     <n-icon v-else size="clamp(1.6rem, 5cqw, 3rem)"><Document24Regular /></n-icon>
   </span>
 </template>
 
 <style scoped>
 .artwork {
+  --artwork-frame-inset: 13%;
+  --artwork-frame-radius: clamp(16px, 4cqw, 48px);
   position: relative;
   isolation: isolate;
   display: grid;
@@ -42,10 +54,10 @@ const aircraft = new Map([
 .artwork::before {
   position: absolute;
   z-index: -1;
-  inset: 0 13%;
+  inset: 0 var(--artwork-frame-inset);
   content: '';
   border: 2px solid var(--frame-border);
-  border-radius: clamp(16px, 4cqw, 48px);
+  border-radius: var(--artwork-frame-radius);
   background: var(--board-surface);
   box-shadow: 0 6px 16px var(--board-shadow);
 }
@@ -57,5 +69,13 @@ const aircraft = new Map([
   min-height: 0;
   object-fit: contain;
   filter: drop-shadow(0 5px 5px var(--board-shadow));
+}
+
+.artwork .artwork-photo {
+  width: calc(100% - (2 * var(--artwork-frame-inset)) - 4px);
+  height: calc(100% - 4px);
+  border-radius: calc(var(--artwork-frame-radius) - 2px);
+  object-fit: cover;
+  filter: none;
 }
 </style>

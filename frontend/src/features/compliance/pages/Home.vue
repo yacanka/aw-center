@@ -5,7 +5,6 @@ import { useThemeVars } from 'naive-ui'
 import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import { certificationCards } from '../models/certificationProjects'
 import CertificationArtwork from '../components/CertificationArtwork.vue'
-import artworkCredits from '../assets/aircraft/credits.txt?url&no-inline'
 
 const catalog = useProjectCatalogStore()
 const router = useRouter()
@@ -54,7 +53,6 @@ load()
   <n-flex v-if="cards.length" class="tools">
     <router-link :to="{ name: 'docAnalyzer' }">Doc Analyzer</router-link>
     <router-link :to="{ name: 'coverpagecreator' }">Cover Page Creator</router-link>
-    <a :href="artworkCredits" target="_blank" rel="noopener">Görsel kaynakları</a>
   </n-flex>
   <n-modal
     :show="!!selected"
