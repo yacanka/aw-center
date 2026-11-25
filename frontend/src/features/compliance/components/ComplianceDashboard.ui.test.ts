@@ -6,12 +6,6 @@ import type { DashboardPanel } from '../models/compdocDashboard'
 import { dashboardSummary } from '../models/compdocDashboard.fixtures'
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), push: vi.fn(), warning: vi.fn() }))
-vi.mock('@/features/compliance/api/compdocDashboard', () => ({
-  fetchCompdocDashboard: mocks.fetch
-}))
-vi.mock('@/features/session/stores/session', () => ({
-  useSessionStore: () => ({ getPreferences: { theme: 'light' } })
-}))
 vi.mock('naive-ui', () => ({
   useMessage: () => ({ warning: mocks.warning }),
   useThemeVars: () => ({ value: { textColor3: '#888', cardColor: '#fff' } })
@@ -92,7 +86,10 @@ describe('compliance dashboard scope', () => {
   afterEach(() => wrappers.splice(0).forEach((wrapper) => wrapper.unmount()))
 
   async function dashboard(mode = 'ata') {
-    const wrapper = mount(ComplianceDashboard, { props: { project: 'ozgur' }, global: { stubs } })
+    const wrapper = mount(ComplianceDashboard, {
+      props: { project: 'ozgur', themeName: 'light', loadDashboard: mocks.fetch },
+      global: { stubs }
+    })
     wrappers.push(wrapper)
     await flushPromises()
     if (wrapper.findComponent(CompDocPanelDashboard).exists())
@@ -140,7 +137,7 @@ describe('compliance dashboard scope', () => {
       { value: 'unused', label: 'Unused', color: '#888', count: 0, percentage: 0 }
     ]
     const wrapper = mount(CompDocStatusDashboard, {
-      props: { counts: {}, rows },
+      props: { counts: {}, rows, themeName: 'light' },
       global: { stubs }
     })
     wrappers.push(wrapper)

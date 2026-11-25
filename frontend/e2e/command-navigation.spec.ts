@@ -239,6 +239,50 @@ test('a restricted project URL requests no analytics', async ({ page }) => {
   expect(analytics).toEqual([])
 })
 
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [390, 1440]) {
+    test(`dashboard executable download in ${theme} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 850 })
+      await routeShellApi(page, theme)
+      const databasePath = String.raw`\\files\Certification\okuma.sqlite3`
+      let requests = 0
+      await page.route(
+        '**/api/projects/aesa/compliance-documents/dashboard/executable/',
+        (route) => {
+          expect(route.request().method()).toBe('POST')
+          expect(route.request().postDataJSON()).toEqual({ database_path: databasePath })
+          requests += 1
+          return requests === 1
+            ? route.fulfill({
+                status: 503,
+                json: { detail: 'Paket hazır değil.', code: 'DASHBOARD_EXECUTABLE_UNAVAILABLE' }
+              })
+            : route.fulfill({
+                contentType: 'application/octet-stream',
+                body: Buffer.from('mock binary')
+              })
+        }
+      )
+      await page.goto('/app/compdocs/home')
+      const open = page.getByRole('button', { name: 'Download executable' })
+      await open.click()
+      const dialog = page.getByRole('dialog')
+      const input = dialog.getByLabel('SQLite dosyasının Windows yolu')
+      const submit = dialog.getByRole('button', { name: 'EXE indir' })
+      await expect(submit).toBeDisabled()
+      await input.fill(databasePath)
+      await submit.click()
+      await expect(dialog.getByRole('alert')).toContainText('Paket hazır değil.')
+      const finished = page.waitForEvent('download')
+      await submit.click()
+      expect((await finished).suggestedFilename()).toBe('CertificationDashboard.exe')
+      await expect(dialog).toHaveCount(0)
+      await open.click()
+      await expect(input).toHaveValue('')
+    })
+  }
+}
+
 async function routeShellApi(
   page: Page,
   theme: 'light' | 'dark',

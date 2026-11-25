@@ -1,3 +1,4 @@
+import type { GlobalThemeOverrides } from 'naive-ui'
 import type { IPreferences } from '@/features/session/models/auth'
 
 export type ThemeName = 'dark' | 'light'
@@ -35,4 +36,10 @@ export function applyPreferredTheme(preferences?: Partial<IPreferences>): ThemeN
   const theme = resolvePreferredTheme(preferences)
   document.documentElement.setAttribute('data-theme', theme)
   return theme
+}
+
+export const themeOverrides: GlobalThemeOverrides = {
+  common: {
+    fontFamily: "v-sans, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+  }
 }

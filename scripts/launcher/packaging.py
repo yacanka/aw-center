@@ -67,7 +67,7 @@ EXCLUDED_SUFFIXES = {
 }
 EXCLUDED_SOURCE_PATHS = tuple(Path(name) for name in (
     "backend/static", "frontend/test-results", "frontend/playwright-report",
-    "frontend/.cache/mermaid", ".playwright-cli", "output",
+    "frontend/.cache/mermaid", "frontend/dist-viewer", ".playwright-cli", "output",
 ))
 
 

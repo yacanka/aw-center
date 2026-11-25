@@ -1,7 +1,18 @@
 <template>
-  <n-alert v-if="error" type="error" title="Dashboard could not be loaded" class="dashboard-alert">
+  <n-alert
+    v-if="error"
+    type="error"
+    :title="
+      summary && keepLastResult
+        ? 'Refresh failed · showing the last successful result'
+        : 'Dashboard could not be loaded'
+    "
+    class="dashboard-alert"
+  >
     {{ error }}
-    <n-button v-if="activeProject" size="small" @click="loadProject(activeProject)">Retry</n-button>
+    <n-button v-if="activeProject" size="small" @click="loadProject(activeProject, true)"
+      >Retry</n-button
+    >
   </n-alert>
 
   <n-spin :show="loading">
@@ -20,7 +31,7 @@
         </n-flex>
         <n-flex align="center">
           <n-text depth="3" class="scope-caption">Updated {{ formattedGeneratedAt }}</n-text>
-          <n-button size="small" :loading="loading" @click="loadProject(activeProject)"
+          <n-button size="small" :loading="loading" @click="loadProject(activeProject, true)"
             >Refresh</n-button
           >
         </n-flex>
@@ -62,6 +73,7 @@
       <div class="dashboard-grid">
         <div class="dashboard-column">
           <CompDocStatusDashboard
+            :theme-name="themeName"
             :statuses="summary.statuses"
             :counts="focusedAnalytics.chart_status_counts"
             :groups="publicationGroups"
@@ -69,6 +81,7 @@
             subtitle="Delivery status · percentages of all documents"
           />
           <CompDocStatusDashboard
+            :theme-name="themeName"
             title="Document CAT"
             subtitle="Category distribution"
             empty-description="No CAT data"
@@ -90,6 +103,7 @@
           </CompDocStatusDashboard>
         </div>
         <CompDocTimelineDashboard
+          :theme-name="themeName"
           :document-count="focusedAnalytics.total"
           :timeline="focusedAnalytics.timeline"
           :performance="focusedAnalytics.performance"
@@ -109,14 +123,23 @@ import {
   createCatChartRows,
   createStatusChartRows
 } from '@/features/compliance/api/compdocChartData'
-import { useCompdocDashboard } from '@/features/compliance/composables/dashboard'
+import type { ThemeName } from '@/app/services/theme'
+import {
+  useCompdocDashboard,
+  type DashboardLoader
+} from '@/features/compliance/composables/dashboard'
 import { isoToTurkishDateTime } from '@/shared/utils/time'
 import CompDocPanelDashboard from './CompDocPanelDashboard.vue'
 import CompDocRiskDashboard from './CompDocRiskDashboard.vue'
 import CompDocStatusDashboard from './CompDocStatusDashboard.vue'
 import CompDocTimelineDashboard from './CompDocTimelineDashboard.vue'
 
-const props = defineProps<{ project: string }>()
+const props = defineProps<{
+  project: string
+  loadDashboard: DashboardLoader
+  themeName: ThemeName
+  keepLastResult?: boolean
+}>()
 const {
   activeProject,
   breakdownMode,
@@ -129,7 +152,7 @@ const {
   selectedPanel,
   togglePanel,
   clearPanel
-} = useCompdocDashboard(() => props.project)
+} = useCompdocDashboard(() => props.project, props.loadDashboard, !!props.keepLastResult)
 const themeVars = useThemeVars()
 const catRows = computed(() => {
   const colors = themeVars.value

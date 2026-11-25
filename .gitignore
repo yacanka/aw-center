@@ -120,6 +120,7 @@ pnpm-debug.log*
 
 # Frontend build output and local Vite artifacts
 frontend/dist/
+frontend/dist-viewer/
 frontend/.vite/
 frontend/.vite-inspect/
 frontend/playwright-report/

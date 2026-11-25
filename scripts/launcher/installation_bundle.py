@@ -33,7 +33,8 @@ SOURCE_EXCLUSIONS = EXCLUDED_PARTS | {
     'private', 'config', 'configs', 'certificates', '.playwright-cli', '.superpowers',
     'output',
 }
-GENERATED_SOURCE_DIRECTORIES = {('frontend', '.cache', 'mermaid')}
+GENERATED_SOURCE_DIRECTORIES = {('frontend', '.cache', 'mermaid'), ('frontend', 'dist-viewer')}
+DASHBOARD_TEMPLATE = Path('packaging/dist/CertificationDashboard.exe')
 PACKAGE_MANAGER_PRIVATE_FILES = {'.npmrc', '.pypirc', '.netrc', '_netrc'}
 EXTRACTED_JSON_FILES = {
     'package.json', 'package-lock.json', 'frontend/package.json',
@@ -142,11 +143,15 @@ def _safe_path(root: Path, path: Path) -> Path:
 
 
 def _generated_source(relative: Path) -> bool:
+    if DASHBOARD_TEMPLATE.parent in relative.parents:
+        return relative != DASHBOARD_TEMPLATE
     return any(relative.parts[:len(parts)] == parts for parts in GENERATED_SOURCE_DIRECTORIES)
 
 
 def _source_packageable(path: Path, root: Path) -> bool:
     relative = path.relative_to(root)
+    if relative == DASHBOARD_TEMPLATE:
+        return path.is_file()
     unsafe_env = path.name.startswith('.env') and not path.name.endswith(('.example', '.sample'))
     return (path.is_file() and not _generated_source(relative) and not unsafe_env and path.name not in EXCLUDED_NAMES and
             path.name not in PACKAGE_MANAGER_PRIVATE_FILES and
@@ -168,8 +173,11 @@ def install_inventory(directory: Path, *, exclude: tuple[str, ...] = (), source_
         if flat and parts and parts[0] in distribution_folders:
             in_source = False
         if in_source:
-            directories[:] = [name for name in directories if name not in SOURCE_EXCLUSIONS and
-                              not _generated_source((Path(current) / name).relative_to(source))]
+            directories[:] = [
+                name for name in directories
+                if (name not in SOURCE_EXCLUSIONS or (Path(current) / name) == source / DASHBOARD_TEMPLATE.parent)
+                and not _generated_source((Path(current) / name).relative_to(source))
+            ]
         for name in directories:
             _safe_path(directory, Path(current) / name)
         for name in files:
@@ -280,6 +288,22 @@ def copy_install_source(project: Project, destination: Path) -> None:
         target = destination / source.relative_to(project.root)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+    # dist/ is intentionally absent from the source inventory walk. Admit only
+    # the canonical, unpersonalized download from a checkout or extracted media.
+    template = project.root / DASHBOARD_TEMPLATE
+    if template.exists() or template.is_symlink():
+        from backend.compliance.executable_config import template_size
+        from .installation_permissions import require_unlinked
+        require_unlinked(template)
+        target = destination / DASHBOARD_TEMPLATE
+        with template.open('rb') as original:
+            try:
+                template_size(original)
+            except ValueError as error:
+                raise LauncherError('Certification Dashboard release template is invalid') from error
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open('xb') as staged:
+                shutil.copyfileobj(original, staged)
     (destination / 'backend').mkdir(exist_ok=True)
     (destination / 'backend/.env.production.sample').write_text(PRODUCTION_SAMPLE, encoding='utf-8')
 

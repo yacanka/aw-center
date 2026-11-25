@@ -115,3 +115,52 @@ and no dependency.
 
 Regression coverage lives in `compliance.test_dashboard`, `compliance.test_risk`,
 `compdocDashboard.test.ts` and `ComplianceDashboard.ui.test.ts`.
+
+## Downloadable Windows viewer
+
+On Certification Dashboard Home, select **Download executable**, enter the full
+Windows path of an AW Center SQLite file, and select **EXE indir**. The server
+checks the user's Compliance project access and embeds the path in that download.
+Only the path travels with the file. Its recipient can see it.
+
+Open the downloaded EXE on Windows x64. It opens the dashboard in the default
+browser and keeps a small source-selection window open. If the embedded path is
+unavailable, enter the new path or use **Gözat**. A successful replacement is
+remembered for that source and Windows user. Closing the native window stops the
+viewer and removes its temporary database copy.
+
+A local database is opened read-only. For shared drives and UNC paths such as
+`\\fileserver\reports\certification.sqlite3`, publish a **completed, standalone
+SQLite backup** by atomically replacing the shared file after backup finishes.
+Refresh copies and validates the published backup before switching snapshots.
+The timestamp records the successful read. Date-dependent metrics use the current
+Istanbul date. The local dashboard shows all enabled Certification projects
+accessible in the selected file. Windows file and share permissions control
+access to the full database, including content outside the viewer.
+
+An administrator may set `AWCENTER_DASHBOARD_SHARES` to newline-separated
+`\\server\share` roots in the AW Center process environment. These published
+locations open automatically. On first use of another network location the
+recipient confirms the displayed destination before Windows connects to it.
+
+### Building the download template
+
+Build from one checkout on Windows x64 with CPython 3.11, in an isolated
+packaging environment. Use the repository's existing PyInstaller build pin.
+
+```powershell
+npm ci --prefix frontend
+npm --prefix frontend run build:viewer
+py -3.11 -m venv .cache/viewer-build-env
+.cache/viewer-build-env/Scripts/python -m pip install -r packaging/manager-requirements.txt
+.cache/viewer-build-env/Scripts/python scripts/build_certification_viewer.py
+.cache/viewer-build-env/Scripts/python scripts/verify_certification_exe.py
+```
+
+The Certification Dashboard Windows workflow produces the same template. For a
+source deployment, install the matching revision's template at
+`packaging/dist/CertificationDashboard.exe` under the AW Center installation.
+This is a private build artifact served by the authenticated download endpoint.
+Publish only the original marked template. The current format produces
+unsigned, personalized executables. Sites that require Authenticode signatures
+on every executable need a signing stage **after** personalization.

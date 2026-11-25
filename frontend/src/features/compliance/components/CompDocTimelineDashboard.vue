@@ -58,8 +58,7 @@ import type {
   DashboardMetric,
   DashboardTimeline
 } from '@/features/compliance/models/compdocDashboard'
-import { useSessionStore } from '@/features/session/stores/session'
-import { resolvePreferredTheme } from '@/app/services/theme'
+import type { ThemeName } from '@/app/services/theme'
 import {
   createPendingChartData,
   createTimelineChartData
@@ -74,6 +73,7 @@ import {
 const SHOW_PENDING_DAYS = false
 
 const props = defineProps<{
+  themeName: ThemeName
   documentCount: number
   timeline: DashboardTimeline
   performance: Record<'scheduled' | 'actual' | 'approved', DashboardMetric>
@@ -81,9 +81,7 @@ const props = defineProps<{
 }>()
 
 ensureCompdocChartsRegistered()
-const userStore = useSessionStore()
 const themeVars = useThemeVars()
-const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const hasTimeline = computed(
   () =>
     props.timeline.scheduled.length > 0 ||
@@ -99,10 +97,10 @@ const chartData = computed(() =>
   })
 )
 const chartOptions = computed(() =>
-  createTimelineChartOptions(theme.value, props.timeline.today[0]?.x, props.documentCount)
+  createTimelineChartOptions(props.themeName, props.timeline.today[0]?.x, props.documentCount)
 )
 const pendingChartData = computed(() => createPendingChartData(props.pendingDays))
-const pendingChartOptions = computed(() => createPendingChartOptions(theme.value))
+const pendingChartOptions = computed(() => createPendingChartOptions(props.themeName))
 const metrics = computed(() => [
   {
     key: 'scheduled',

@@ -1,0 +1,65 @@
+name: Certification Dashboard Windows executable
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/compliance/**'
+      - 'backend/projects/**'
+      - 'frontend/**'
+      - 'packaging/manager-requirements.txt'
+      - 'scripts/*certification*.py'
+      - 'scripts/certification_viewer/**'
+      - '.github/workflows/certification-viewer.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/compliance/**'
+      - 'backend/projects/**'
+      - 'frontend/**'
+      - 'packaging/manager-requirements.txt'
+      - 'scripts/*certification*.py'
+      - 'scripts/certification_viewer/**'
+      - '.github/workflows/certification-viewer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '26.12.1'
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run build:viewer
+      - run: python -m pip install -r packaging/manager-requirements.txt
+      - run: python scripts/build_certification_viewer.py
+      - run: python -m unittest scripts.test_certification_viewer
+      - run: python scripts/verify_certification_exe.py
+      - name: Refresh a published backup over SMB
+        shell: pwsh
+        run: |
+          $shareName = "DashboardTest-$([guid]::NewGuid().ToString('N'))"
+          $directory = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP $shareName)
+          $account = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+          New-SmbShare -Name $shareName -Path $directory.FullName -FullAccess $account
+          try {
+            python scripts/verify_certification_exe.py --share-root "\\localhost\$shareName"
+            if ($LASTEXITCODE) { throw "Packaged SMB acceptance failed." }
+          } finally {
+            Remove-SmbShare -Name $shareName -Force
+            Remove-Item -LiteralPath $directory.FullName -Recurse -Force
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: certification-dashboard-windows-x64
+          path: packaging/dist/CertificationDashboard.exe
+          if-no-files-found: error

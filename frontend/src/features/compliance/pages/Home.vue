@@ -5,6 +5,7 @@ import { useThemeVars } from 'naive-ui'
 import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import { certificationCards } from '../models/certificationProjects'
 import CertificationArtwork from '../components/CertificationArtwork.vue'
+import DashboardExecutableDownload from '../components/DashboardExecutableDownload.vue'
 
 const catalog = useProjectCatalogStore()
 const router = useRouter()
@@ -50,7 +51,8 @@ load()
       </n-button>
     </div>
   </section>
-  <n-flex v-if="cards.length" class="tools">
+  <n-flex v-if="cards.length" class="tools" align="center">
+    <DashboardExecutableDownload :project="cards[0].members[0].slug" />
     <router-link :to="{ name: 'docAnalyzer' }">Doc Analyzer</router-link>
     <router-link :to="{ name: 'coverpagecreator' }">Cover Page Creator</router-link>
   </n-flex>

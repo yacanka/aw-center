@@ -1,8 +1,7 @@
 """Independent target, release-age and metadata signals for risk policy v2."""
 
+from calendar import monthrange
 from datetime import timedelta
-
-from dateutil.relativedelta import relativedelta
 
 
 def build_risk_signals(document, today):
@@ -23,22 +22,31 @@ def stage_age_days(entries, today):
     return max(0, (today - dated_entries[-1]).days) if dated_entries else 0
 
 
+def _months_after(day, months):
+    """Advance by calendar months, clipping the day to the destination month."""
+    year_offset, month_index = divmod(day.month - 1 + months, 12)
+    year, month = day.year + year_offset, month_index + 1
+    return day.replace(year=year, month=month, day=min(day.day, monthrange(year, month)[1]))
+
+
 def _target_signal(target, release, today):
     if not target or release:
         return None
     if target < today:
-        severe = target + relativedelta(months=3) <= today
+        severe_after = _months_after(target, 3)
+        severe = severe_after <= today
         overdue_days = (today - target).days
         return _signal(
             "target_overdue", "Target overdue", 100 if severe else 80,
-            overdue_days, (target + relativedelta(months=3) - target).days if severe else 0,
+            overdue_days, (severe_after - target).days if severe else 0,
             f"Unreleased document is {overdue_days} days past its current target.",
         )
-    if target < today + relativedelta(months=1):
+    approaching_until = _months_after(today, 1)
+    if target < approaching_until:
         days_left = (target - today).days
         return _signal(
             "target_approaching", "Target approaching", 30, days_left,
-            (today + relativedelta(months=1) - today).days,
+            (approaching_until - today).days,
             f"Unreleased document reaches its current target in {days_left} days.",
         )
     return None
@@ -48,11 +56,11 @@ def _review_signal(status, release, today):
     if not release or release > today:
         return None
     if status == "authority_review":
-        thresholds = [(release + relativedelta(months=2), 30),
-                      (release + relativedelta(months=1), 20)]
+        thresholds = [(_months_after(release, 2), 30),
+                      (_months_after(release, 1), 20)]
         label = "Authority review aging"
     elif status == "airworthiness_review":
-        thresholds = [(release + relativedelta(months=1), 30),
+        thresholds = [(_months_after(release, 1), 30),
                       (release + timedelta(days=15), 20)]
         label = "Aw Review aging"
     else:

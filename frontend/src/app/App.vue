@@ -24,11 +24,11 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, watchEffect } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
-import { darkTheme, lightTheme, dateTrTR, type GlobalThemeOverrides } from 'naive-ui'
+import { darkTheme, lightTheme, dateTrTR } from 'naive-ui'
 import UiFeedbackBridge from '@/app/components/UiFeedbackBridge.vue'
 import PwaInstallPrompt from '@/app/components/PwaInstallPrompt.vue'
 import { useSessionStore } from '@/features/session/stores/session'
-import { applyPreferredTheme, resolvePreferredTheme } from './services/theme'
+import { applyPreferredTheme, resolvePreferredTheme, themeOverrides } from './services/theme'
 
 const AuthenticatedLayout = defineAsyncComponent(() => import('@/app/layouts/ProtectedLayout.vue'))
 const CertificationLayout = defineAsyncComponent(
@@ -39,11 +39,6 @@ const route = useRoute()
 const isDashboardOnly = computed(() => userStore.getUser.dashboard_only === true)
 const activeThemeName = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const activeTheme = computed(() => (activeThemeName.value === 'dark' ? darkTheme : lightTheme))
-const themeOverrides: GlobalThemeOverrides = {
-  common: {
-    fontFamily: "v-sans, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-  }
-}
 
 watchEffect(() => {
   applyPreferredTheme(userStore.getPreferences)

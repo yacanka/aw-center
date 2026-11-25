@@ -55,6 +55,13 @@ def load_environment_files(environment, base_dir=BASE_DIR):
 
 ENV_FILE = load_environment_files(env)
 
+# Network shares outside this list require confirmation before the reader opens them.
+AWCENTER_DASHBOARD_SHARES = tuple(
+    line.strip() for line in env.str("AWCENTER_DASHBOARD_SHARES", default="").splitlines()
+    if line.strip()
+)
+DASHBOARD_EXECUTABLE_TEMPLATE = BASE_DIR.parent / "packaging" / "dist" / "CertificationDashboard.exe"
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 

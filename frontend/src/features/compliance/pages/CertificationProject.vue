@@ -3,7 +3,12 @@ import { computed } from 'vue'
 import { ArrowLeft24Regular, Document24Regular } from '@vicons/fluent'
 import { useProjectCatalogStore } from '@/features/projects/stores/projectCatalog'
 import ComplianceDashboard from '../components/ComplianceDashboard.vue'
+import { fetchCompdocDashboard } from '../api/compdocDashboard'
+import { resolvePreferredTheme } from '@/app/services/theme'
+import { useSessionStore } from '@/features/session/stores/session'
 
+const session = useSessionStore()
+const themeName = computed(() => resolvePreferredTheme(session.getPreferences))
 const props = defineProps<{ project: string }>()
 const catalog = useProjectCatalogStore()
 const selected = computed(() =>
@@ -44,7 +49,12 @@ load()
   <n-alert v-else-if="catalog.error" type="error">
     {{ catalog.error }} <n-button @click="load">Tekrar dene</n-button>
   </n-alert>
-  <ComplianceDashboard v-else-if="selected" :project="project" />
+  <ComplianceDashboard
+    v-else-if="selected"
+    :project="project"
+    :load-dashboard="fetchCompdocDashboard"
+    :theme-name="themeName"
+  />
   <n-empty v-else description="Bu projeye erişiminiz yok." />
 </template>
 

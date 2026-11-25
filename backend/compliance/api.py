@@ -29,6 +29,7 @@ from users.dashboard_role import is_dashboard_user
 from .status_catalog import create_status, delete_status, status_options, status_payload
 from .compdoc_import import REQUIRED_IMPORT_FIELDS
 from .dashboard import UNISSUED_BUCKETS, build_dashboard, filter_dashboard_slice
+from .executable_download import download_executable
 from .dashboard_access import DASHBOARD_DOORS_MODULE_KEY
 from .doors_imports import (
     create_doors_confirmation,
@@ -507,6 +508,11 @@ class ReferenceOptionCollectionView(ProjectComplianceMixin, APIView):
 class DashboardView(ProjectComplianceMixin, APIView):
     def get(self, request, project_slug):
         return Response(build_dashboard(self.project))
+
+
+class DashboardExecutableView(ProjectComplianceMixin, APIView):
+    def post(self, request, project_slug):
+        return download_executable(request)
 
 
 class TransitionInputSerializer(serializers.Serializer):

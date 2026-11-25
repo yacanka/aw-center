@@ -3,10 +3,20 @@ import type {
   CompDocDashboardSummary,
   DashboardPanel
 } from '@/features/compliance/models/compdocDashboard'
-import { fetchCompdocDashboard } from '@/features/compliance/api/compdocDashboard'
 import { formatApiError } from '@/shared/api/apiError'
+
+export type DashboardLoader = (
+  project: string,
+  signal: AbortSignal,
+  refresh: boolean
+) => Promise<CompDocDashboardSummary>
+
 /** Load analytics for the authorized project selected by the route. */
-export function useCompdocDashboard(project: () => string) {
+export function useCompdocDashboard(
+  project: () => string,
+  fetchDashboard: DashboardLoader,
+  keepLastResult: boolean
+) {
   const activeProject = computed(project)
   const summary = ref<CompDocDashboardSummary | null>(null)
   const loading = ref(false)
@@ -25,7 +35,7 @@ export function useCompdocDashboard(project: () => string) {
   let activeController: AbortController | null = null
   let requestSequence = 0
 
-  async function loadProject(projectSlug: string) {
+  async function loadProject(projectSlug: string, refresh = false) {
     const sequence = ++requestSequence
     activeController?.abort()
     const controller = new AbortController()
@@ -37,14 +47,14 @@ export function useCompdocDashboard(project: () => string) {
     loading.value = true
     error.value = ''
     try {
-      const result = await fetchCompdocDashboard(projectSlug, controller.signal)
+      const result = await fetchDashboard(projectSlug, controller.signal, refresh)
       if (sequence === requestSequence) {
         summary.value = result
         if (!selectedPanel.value) selectedPanelId.value = null
       }
     } catch (requestError) {
       if (controller.signal.aborted || sequence !== requestSequence) return
-      summary.value = null
+      if (!keepLastResult) summary.value = null
       error.value = formatApiError(requestError)
     } finally {
       if (sequence === requestSequence) loading.value = false
@@ -55,7 +65,7 @@ export function useCompdocDashboard(project: () => string) {
     selectedPanelId.value = selectedPanelId.value === panel.id ? null : panel.id
   }
 
-  watch(activeProject, loadProject, { immediate: true })
+  watch(activeProject, (slug) => loadProject(slug), { immediate: true })
   onBeforeUnmount(() => {
     requestSequence += 1
     activeController?.abort()

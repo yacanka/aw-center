@@ -5,6 +5,7 @@ import importlib
 from contextlib import closing
 import json
 import sqlite3
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -97,6 +98,39 @@ class PayloadTests(unittest.TestCase):
         self.payload.prepare_source_payload(extracted, regenerated)
         self.assertEqual(self.payload.verify_source_payload(target)['fingerprint'],
                          self.payload.verify_source_payload(regenerated)['fingerprint'])
+
+    def test_dashboard_template_survives_staging_and_repackaging_without_viewer_build_files(self):
+        from backend.compliance.executable_config import database_path_trailer, mark_executable_template
+        from scripts.launcher.installation_bundle import DASHBOARD_TEMPLATE, install_inventory
+
+        template = self.source / DASHBOARD_TEMPLATE
+        template.parent.mkdir(parents=True)
+        header = b'MZ' + bytes(58) + (64).to_bytes(4, 'little') + b'PE\0\0'
+        cookie = struct.pack('!8sIIII64s', b'MEI\014\013\012\013\016', 89, 0, 1, 311, b'python311.dll')
+        template.write_bytes(header + b'x' + cookie)
+        mark_executable_template(template)
+        generated = ('frontend/dist-viewer/index.html', 'packaging/dist/viewer-build-tmp/work/viewer.spec',
+                     'packaging/dist/another.exe')
+        for name in generated:
+            path = self.source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'unrelated output')
+
+        source = self.prepare()
+        for path in generated:
+            self.assertFalse((source / path).exists())
+        manifest = self.payload.verify_source_payload(source)
+        entry = next(item for item in manifest['artifacts'] if item['path'] == DASHBOARD_TEMPLATE.as_posix())
+        self.assertIn(entry, install_inventory(source, source_state=True))
+        staged = self.payload.stage_production_source(source, self.root / 'home')
+        self.assertEqual((staged / DASHBOARD_TEMPLATE).read_bytes(), template.read_bytes())
+        extracted = Project(staged, staged / 'backend/manage.py', staged / 'frontend/package.json',
+                            staged / 'requirements.txt')
+        self.assertEqual(self.payload.prepare_source_payload(extracted, self.root / 'repacked'), manifest)
+        with template.open('ab') as personalized:
+            personalized.write(database_path_trailer(r'C:\example\source.db'))
+        with self.assertRaises(LauncherError):
+            self.payload.prepare_source_payload(self.project, self.root / 'invalid')
 
     def test_desktop_entry_and_source_diagnostics_are_in_verified_portable_payload(self):
         for name in ('source_probe', 'source_packages', 'desktop', 'desktop_startup'):

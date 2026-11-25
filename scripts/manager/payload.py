@@ -18,7 +18,7 @@ import sys
 import tempfile
 
 from scripts.launcher.installation_bundle import (
-    GENERATED_SOURCE_DIRECTORIES, _json_object, _relative_path, copy_install_source, install_inventory,
+    _generated_source, _json_object, _relative_path, copy_install_source, install_inventory,
 )
 from scripts.launcher.installation_permissions import require_private, require_unlinked, secure_path
 from scripts.launcher.installation_state import installation_lock, private_directory
@@ -54,7 +54,6 @@ REQUIRED_SOURCE_FILES = {
     'scripts/launcher/installation_verify_python.py',
 }
 GENERATED_DIRECTORIES = {
-    *GENERATED_SOURCE_DIRECTORIES,
     ('.venv',), ('.runtime',), ('frontend', 'node_modules'), ('frontend', 'dist'),
     ('frontend', 'test-results'), ('frontend', 'playwright-report'),
     ('backend', 'static'), ('backend', 'staticfiles'), ('backend', 'private_media'),
@@ -88,7 +87,7 @@ def default_source_root() -> Path:
 
 def _generated(relative: Path) -> bool:
     return ('__pycache__' in relative.parts or relative.suffix == '.pyc' or
-            relative.as_posix() in GENERATED_FILES or
+            relative.as_posix() in GENERATED_FILES or _generated_source(relative) or
             any(relative.parts[:len(parts)] == parts for parts in GENERATED_DIRECTORIES))
 
 

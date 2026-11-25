@@ -66,8 +66,7 @@ import { computed } from 'vue'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
 import type { ChartOptions } from 'chart.js'
 import { Doughnut } from 'vue-chartjs'
-import { useSessionStore } from '@/features/session/stores/session'
-import { resolvePreferredTheme } from '@/app/services/theme'
+import type { ThemeName } from '@/app/services/theme'
 import {
   createStatusChartData,
   createStatusChartRows,
@@ -81,6 +80,7 @@ import {
 
 const props = withDefaults(
   defineProps<{
+    themeName: ThemeName
     counts: Record<string, number>
     statuses?: CompdocOption[]
     selectedPanel?: string
@@ -105,9 +105,7 @@ const props = withDefaults(
 defineEmits<{ 'clear-panel': [] }>()
 
 ensureCompdocChartsRegistered()
-const userStore = useSessionStore()
 const router = useRouter()
-const theme = computed(() => resolvePreferredTheme(userStore.getPreferences))
 const themeVars = useThemeVars()
 const displayGroups = computed(() => {
   const groups = props.groups ?? [
@@ -139,7 +137,7 @@ const statusRows = computed(() =>
 const total = computed(() => statusRows.value.reduce((sum, row) => sum + row.count, 0))
 const chartData = computed(() => createStatusChartData(statusRows.value))
 const chartOptions = computed<ChartOptions<'doughnut'>>(() => {
-  const options = createStatusChartOptions(theme.value)
+  const options = createStatusChartOptions(props.themeName)
   if (!props.sliceRoute) return options
   return {
     ...options,

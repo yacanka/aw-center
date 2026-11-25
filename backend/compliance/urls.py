@@ -6,6 +6,7 @@ from .api import (
     StatusDetailView,
     ArchiveView,
     DashboardView,
+    DashboardExecutableView,
     DocumentCollectionView,
     DocumentDetailView,
     DocumentFieldsView,
@@ -42,6 +43,7 @@ urlpatterns = [
     path("fields/", DocumentFieldsView.as_view(), name="compliance-document-fields"),
     path("options/", ReferenceOptionCollectionView.as_view(), name="compliance-document-options"),
     path("dashboard/", DashboardView.as_view(), name="compliance-dashboard"),
+    path("dashboard/executable/", DashboardExecutableView.as_view(), name="compliance-dashboard-executable"),
     path("notification-policy/", NotificationPolicyView.as_view(), name="compliance-notification-policy"),
     path("numbering-options/", NumberingOptionsView.as_view(), name="compliance-numbering-options"),
     path(
