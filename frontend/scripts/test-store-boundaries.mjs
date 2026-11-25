@@ -117,7 +117,8 @@ test('preserves corrected organization and presentation mutation targets', () =>
 test('keeps registered projects read-only in organization screens', () => {
   const controller = read(join(featureRoot, 'organization/composables/organizationController.ts'))
   const requests = read(join(featureRoot, 'organization/api/organizationProjects.ts'))
-  const projectView = read(join(featureRoot, 'organization/pages/Projects.vue'))
+  const projectView = read(join(featureRoot, 'projects/pages/ProjectOverview.vue'))
+  assert.match(read(join(featureRoot, 'organization/pages/Projects.vue')), /<ProjectOverview/)
 
   assert.doesNotMatch(controller, /(create|update|delete)Project\(/)
   assert.doesNotMatch(requests, /\.(post|put|patch|delete)\([^\n]*projects/)

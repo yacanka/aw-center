@@ -1,16 +1,18 @@
 """Authenticated project catalog joined from business and technical sources."""
 
+from django.utils.cache import patch_cache_control
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from orgs.access_policy import accessible_projects, authorized_project_ids, effective_role
-from orgs.models import ProjectRoleAssignment
+from orgs.models import Project, ProjectRoleAssignment
 from users.dashboard_role import is_dashboard_user
 
+from .configuration import inspect_project_fields
 from .constants import ALLOWED_PROJECT_CAPABILITIES
-from .registry import PROJECT_DEFINITIONS
+from .registry import PROJECT_DEFINITIONS, get_project_definitions_by_capability
 
 
 def _capability_filter(raw_value: str | None) -> str:
@@ -65,3 +67,31 @@ def project_catalog(request):
         capabilities = (capability,) if dashboard_only else definition.capabilities
         payload.append(serialize_project(project, request.user, capabilities))
     return Response(payload)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def project_overview(request):
+    """Project inventory. Only unrestricted system administrators see private values."""
+    if is_dashboard_user(request.user):
+        raise PermissionDenied()
+    admin = request.user.is_superuser
+    projects = Project.objects.all() if admin else accessible_projects(request.user)
+    projects = projects.filter(slug__in=PROJECT_DEFINITIONS).order_by("name", "slug")
+    items = []
+    for project in projects:
+        capabilities = PROJECT_DEFINITIONS[project.slug].capabilities
+        item = serialize_project(project, request.user, capabilities)
+        if admin or any(item["roles"].values()):
+            items.append({**item, "enabled": project.enabled})
+    fields = {}
+    if any("jira" in item["capabilities"] for item in items):
+        fields = inspect_project_fields(
+            [project.slug for project in get_project_definitions_by_capability("jira")],
+            include_values=admin,
+        )
+    for item in items:
+        item["configuration"] = fields.get(item["slug"], {})
+    response = Response(items)
+    patch_cache_control(response, private=True, no_store=True)
+    return response

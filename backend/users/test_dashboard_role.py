@@ -89,7 +89,7 @@ class DashboardRoleTests(TestCase):
         self.login()
 
         for url in (
-            "/api/attention/", "/api/integrations/", "/api/users/", "/api/users/groups/",
+            "/api/projects/overview/", "/api/attention/", "/api/integrations/", "/api/users/", "/api/users/groups/",
             "/api/projects/ozgur/organization/panels/", "/api/jobs/", "/api/jobs/system/",
             "/api/management-reports/reports/", "/api/tools/word/jobs/translate/",
         ):

@@ -71,7 +71,11 @@ def get_project_integration_definition(slug):
     definition = get_project_definition(slug)
     if "jira" not in definition.capabilities:
         return definition
-    record = get_project_configuration()["projects"][definition.slug]
+    from .configuration import ProjectConfigurationError
+
+    record = get_project_configuration()["projects"].get(definition.slug)
+    if record is None:
+        raise ProjectConfigurationError()
     return replace(definition, **{key: value for key, value in record.items() if key != "aliases"})
 
 
@@ -93,6 +97,10 @@ def find_projects_by_jira_components(components):
             PROJECT_DEFINITIONS[slug],
             **{key: value for key, value in record.items() if key != "aliases"},
         )
-        for name in [record["jira_component"], *record["aliases"]]:
-            index[normalize_component(name)] = definition
+        names = list(record.get("aliases", ()))
+        if definition.jira_component:
+            names.append(definition.jira_component)
+        for key in {normalize_component(name) for name in names}:
+            # A shared name cannot identify an owner, regardless of file order.
+            index[key] = None if key in index else definition
     return tuple(index.get(value) for value in normalized)

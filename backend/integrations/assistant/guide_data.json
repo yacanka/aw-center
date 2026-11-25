@@ -25,6 +25,30 @@
     ]
   },
   {
+    "id": "projects",
+    "title": "Projeler",
+    "path": "/projects",
+    "purpose": "Review project services, roles and configuration status.",
+    "inputs": [
+      "Project selection"
+    ],
+    "outputs": [
+      "Project overview and field details"
+    ],
+    "steps": [
+      "Expand a project to inspect its configuration."
+    ],
+    "limitations": [
+      "Only system administrators can view configured values."
+    ],
+    "keywords": [
+      "projects",
+      "projeler",
+      "slug",
+      "şablon"
+    ]
+  },
+  {
     "id": "integrations",
     "title": "Integration Hub",
     "path": "/integrations",

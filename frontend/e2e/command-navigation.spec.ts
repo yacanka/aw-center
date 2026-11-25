@@ -376,3 +376,39 @@ function complianceProjects() {
     }
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [390, 1440]) {
+    test(`project inventory details render in ${theme} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 850 })
+      await routeShellApi(page, theme)
+      await page.route('**/api/projects/overview/', (route) =>
+        route.fulfill({
+          json: [
+            {
+              name: 'Örnek proje',
+              slug: 'ornek',
+              enabled: true,
+              capabilities: ['jira'],
+              roles: { jira: 'publisher', organization: null, compliance: null },
+              configuration: {
+                jira_component: { status: 'configured', value: 'Example Component' },
+                aliases: { status: 'missing' },
+                dcc_label: { status: 'configured' },
+                dcc_template_name: { status: 'invalid' },
+                mail_template_name: { status: 'missing' }
+              }
+            }
+          ]
+        })
+      )
+      await page.goto('/app/projects')
+      await page.getByText('Örnek proje', { exact: true }).click()
+      await expect(page.getByText('Example Component', { exact: true })).toBeVisible()
+      await expect(page.getByText('Geçersiz', { exact: true })).toBeVisible()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        width + 1
+      )
+    })
+  }
+}

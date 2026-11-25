@@ -1,6 +1,5 @@
 """Private business metadata must not change technical authorization or outputs."""
 
-from copy import deepcopy
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -12,7 +11,11 @@ from docx import Document
 
 from awcenter.workflow_test_utils import private_workflow_configuration
 from excel.cover_pages import resolve_project_label, create_cover_page_archive, REQUIRED_COLUMNS
-from projects.registry import PROJECT_DEFINITIONS, find_project_by_jira_component, get_project_definition
+from projects.configuration import ProjectConfigurationError
+from projects.registry import (
+    PROJECT_DEFINITIONS, find_project_by_jira_component, get_project_definition,
+    get_project_integration_definition,
+)
 
 
 class PrivateProjectConfigurationTests(SimpleTestCase):
@@ -42,29 +45,65 @@ class PrivateProjectConfigurationTests(SimpleTestCase):
             find_project_by_jira_component("Example Component")
         self.assertEqual(raised.exception.default_code, "PROJECT_CONFIGURATION_UNAVAILABLE")
 
-    def test_invalid_policy_cannot_change_handlers_or_grant_capabilities(self):
-        original = json.loads(self.path.read_text())
-        invalid = []
-        modified = deepcopy(original)
-        modified["projects"]["hys"]["capabilities"] = ["jira", "admin"]
-        invalid.append(modified)
-        modified = deepcopy(original)
-        modified["projects"]["hys"]["dcc_template_name"] = "../outside.docx"
-        invalid.append(modified)
-        modified = deepcopy(original)
-        modified["projects"]["hys"]["aliases"] = ["PIKU"]
-        invalid.append(modified)
-        modified = deepcopy(original)
-        del modified["projects"]["hys"]
-        invalid.append(modified)
-        for data in invalid:
-            with self.subTest(case=invalid.index(data)):
+    def test_invalid_template_and_unknown_fields_preserve_component_and_policy(self):
+        data = json.loads(self.path.read_text())
+        data["projects"]["hys"].update(
+            dcc_template_name="../outside.docx", capabilities=["admin"], dcc_controller="unknown",
+        )
+        self.path.write_text(json.dumps(data))
+        definition = find_project_by_jira_component("HYS")
+        self.assertIsNone(definition.dcc_template_name)
+        self.assertEqual(definition.mail_template_name, "hys_mail_template")
+        self.assertEqual(definition.capabilities, PROJECT_DEFINITIONS["hys"].capabilities)
+        self.assertEqual(definition.dcc_controller, PROJECT_DEFINITIONS["hys"].dcc_controller)
+
+    def test_valid_alias_and_template_survive_missing_component_and_invalid_mail(self):
+        from integrations.jira.services.template_resolver import resolve_dcc_template_path
+
+        data = json.loads(self.path.read_text())
+        data["projects"] = {"hys": {
+            "aliases": ["Alias", None, " ALIAS "], "dcc_template_name": "example.docx",
+            "mail_template_name": "invalid/name", "dcc_label": 42,
+        }}
+        self.path.write_text(json.dumps(data))
+        definition = find_project_by_jira_component("alias")
+        self.assertEqual(definition.slug, "hys")
+        self.assertIsNone(definition.mail_template_name)
+        self.assertIsNone(definition.dcc_label)
+        self.assertIsNone(definition.jira_component)
+        template = self.path.with_name("example.docx")
+        Document().save(template)
+        with patch("integrations.jira.services.template_resolver.TEMPLATE_DIR", template.parent):
+            self.assertEqual(resolve_dcc_template_path(definition), template.resolve())
+
+    def test_invalid_alias_list_preserves_component(self):
+        data = json.loads(self.path.read_text())
+        for aliases in ("Alias", ["Alias"] * 21):
+            with self.subTest(aliases=aliases):
+                data["projects"]["hys"]["aliases"] = aliases
                 self.path.write_text(json.dumps(data))
-                from rest_framework.exceptions import APIException
-                with self.assertRaises(APIException) as raised:
-                    find_project_by_jira_component("HYS")
-                self.assertNotIn(str(self.path), str(raised.exception))
-                self.assertEqual(PROJECT_DEFINITIONS["hys"].capabilities, ("jira", "compliance", "organization"))
+                self.assertEqual(find_project_by_jira_component("HYS").slug, "hys")
+                self.assertIsNone(find_project_by_jira_component("Alias"))
+
+    def test_single_configured_project_is_sufficient(self):
+        data = json.loads(self.path.read_text())
+        record = data["projects"]["hys"]
+        data["projects"] = {"hys": record, "unknown": record}
+        self.path.write_text(json.dumps(data))
+        self.assertEqual(find_project_by_jira_component("HYS").slug, "hys")
+        self.assertEqual(get_project_integration_definition("hys").dcc_template_name, record["dcc_template_name"])
+        self.assertIsNone(find_project_by_jira_component("PIKU"))
+        with self.assertRaises(ProjectConfigurationError):
+            get_project_integration_definition("piku")
+
+    def test_shared_component_is_ambiguous_but_unique_names_still_resolve(self):
+        data = json.loads(self.path.read_text())
+        data["projects"]["hys"]["aliases"] = [" piku "]
+        data["projects"]["piku"]["aliases"] = ["piku-alias"]
+        self.path.write_text(json.dumps(data))
+        self.assertIsNone(find_project_by_jira_component("PIKU"))
+        self.assertEqual(find_project_by_jira_component("piku-alias").slug, "piku")
+        self.assertEqual(find_project_by_jira_component("HYS").slug, "hys")
 
     def test_cover_page_matching_is_external_and_keeps_case_insensitive_contains(self):
         self.assertEqual(resolve_project_label("prefix-example-suffix"), "Example Work Package")

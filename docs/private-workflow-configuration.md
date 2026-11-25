@@ -37,8 +37,8 @@ approved private channel; do not reconstruct real mappings from synthetic exampl
 
 ## Project configuration schema
 
-The following is a **partial synthetic illustration**, not a deployable file:
-all installed JIRA-capable project slugs must be present exactly once. Existing
+The following synthetic example configures a single JIRA project. Other installed
+JIRA projects may be omitted. Existing
 compliance-only project capabilities remain static and cannot be added here.
 
 ```json
@@ -62,17 +62,26 @@ compliance-only project capabilities remain static and cannot be added here.
 ```
 
 JIRA component matching preserves trimming, case folding, Turkish dotted-I
-normalization and explicit aliases. Duplicate/ambiguous components are rejected.
+normalization and explicit aliases. A name shared by multiple valid projects matches none of them. Unique names still resolve.
 Labels and component names are bounded nonempty printable strings; aliases are
 bounded lists. DOCX template names are plain `.docx` filenames resolved under the
 existing trusted template directory. The JSON cannot choose an arbitrary path,
-controller, callable, capability or authorization role. Unknown schema fields,
-missing project entries and invalid template names reject the configuration.
+controller, callable, capability or authorization role. Unknown project slugs are skipped.
+Within each known project, missing, invalid and unknown fields are ignored independently.
+A valid component or alias can identify a project. Invalid aliases are dropped within
+the 20-entry limit, and an oversized list is ignored. An invalid DCC template name
+leaves the project available for matching and prevents document rendering for that project.
+A direct integration lookup for an omitted project or one with no usable fields
+returns PROJECT_CONFIGURATION_UNAVAILABLE. File-level validation,
+including schema version, duplicate JSON keys and the cover_pages contract, still applies.
 
 `projects.registry.PROJECT_DEFINITIONS` is now purely technical. Internal adapter
 consumers explicitly join the private metadata when resolving a JIRA project or
 choosing a document template. Private fields are not added to browser catalog
-responses. Technical navigation grouping and stable route keys remain unchanged;
+responses. The separate authenticated project overview exposes field states for accessible
+projects. Only system superusers outside the dashboard-only group can inspect valid
+field values and disabled projects. File paths and raw invalid input are excluded.
+Technical navigation grouping and stable route keys remain unchanged;
 this is not a project-renaming or historical-data-anonymization operation.
 
 Cover-page selection retains the previous case-insensitive **contains** rule.

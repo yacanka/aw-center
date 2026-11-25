@@ -51,6 +51,7 @@ export function createMainMenuOptions(
 function primaryOptions(): ProjectMenuOption[] {
   return [
     menuItem('AW Center', '/home', 'aw center', Home24Regular),
+    menuItem('Projeler', '/projects', 'projects', Book24Regular),
     menuItem('Integration Hub', '/integrations', 'integrations', LinkSquare24Regular),
     menuItem('Job Center', '/jobs', 'jobs', ArrowRepeatAll24Regular),
     menuItem('Management Reports', '/management-reports', 'managementReports', Document24Regular)

@@ -177,3 +177,52 @@ class ProjectRegistryApiTests(TestCase):
             for domain, role in project["roles"].items():
                 with self.subTest(slug=project["slug"], domain=domain):
                     self.assertEqual(role is not None, domain in project["capabilities"])
+
+    def test_overview_enforces_scope_and_redacts_values_even_for_staff(self):
+        url = "/api/projects/overview/"
+        self.assertIn(self.client.get(url).status_code, (401, 403))
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.client.force_authenticate(self.user)
+        self.assertEqual(self.client.get(url).data, [])
+        ProjectRoleAssignment.objects.create(project=self.ozgur, user=self.user, domain="jira", role="viewer")
+        response = self.client.get(url, {"include_values": "true"})
+        self.assertEqual([item["slug"] for item in response.data], ["ozgur"])
+        details = response.data[0]["configuration"]
+        self.assertEqual(details["jira_component"], {"status": "configured"})
+        self.assertTrue(all(set(field) == {"status"} for field in details.values()))
+        self.assertIn("no-store", response["Cache-Control"])
+
+    def test_overview_admin_sees_disabled_project_and_valid_values_only(self):
+        import json
+        from pathlib import Path
+        from awcenter.workflow_test_utils import private_workflow_configuration
+
+        self.user.is_superuser = True
+        self.client.force_authenticate(self.user)
+        self.ozgur.enabled = False
+        self.ozgur.save(update_fields=["enabled"])
+        with private_workflow_configuration() as settings:
+            path = Path(settings["PROJECT_CONFIGURATION_FILE"])
+            data = json.loads(path.read_text())
+            data["projects"] = {"ozgur": {"jira_component": "Example", "aliases": ["Alias", None],
+                                         "dcc_template_name": "../invalid.docx"}}
+            path.write_text(json.dumps(data))
+            response = self.client.get("/api/projects/overview/")
+        items = {item["slug"]: item for item in response.data}
+        self.assertFalse(items["ozgur"]["enabled"])
+        details = items["ozgur"]["configuration"]
+        self.assertEqual(details["jira_component"], {"status": "configured", "value": "Example"})
+        self.assertEqual(details["aliases"], {"status": "partial", "value": ["Alias"]})
+        self.assertEqual(details["dcc_template_name"], {"status": "invalid"})
+        self.assertEqual(details["mail_template_name"], {"status": "missing"})
+        self.assertEqual(items["hys"]["configuration"]["jira_component"], {"status": "missing"})
+        self.assertEqual(items["aksungur"]["configuration"], {})
+
+    @override_settings(PROJECT_CONFIGURATION_FILE="")
+    def test_unavailable_configuration_preserves_project_overview(self):
+        self.user.is_superuser = True
+        self.client.force_authenticate(self.user)
+        response = self.client.get("/api/projects/overview/")
+        items = {item["slug"]: item for item in response.data}
+        self.assertEqual(items["ozgur"]["configuration"]["jira_component"], {"status": "unavailable"})
