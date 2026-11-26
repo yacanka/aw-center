@@ -2,6 +2,7 @@
 from contextlib import closing, nullcontext
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sqlite3
 import ssl
@@ -30,6 +31,56 @@ class ProfileRuntimeTests(unittest.TestCase):
         self.values = dict(profile='dev', source_root=str(self.root), backend_port='8200', host='localhost')
         self.ask = Mock(return_value=('A12345', 'fixture-password'))
         self.notify = Mock()
+
+    def test_tls_key_publication_failure_restores_previous_state(self):
+        cert = self.root / 'server.crt'
+        key = self.root / 'server.key'
+        original_replace = os.replace
+
+        def fail_key(source, target):
+            if target == key:
+                raise PermissionError('key in use')
+            original_replace(source, target)
+
+        for existing_cert in (False, True):
+            with self.subTest(existing_cert=existing_cert):
+                if existing_cert:
+                    cert.write_bytes(b'previous certificate')
+                key.write_bytes(b'previous key')
+                with patch.object(runner.os, 'replace', side_effect=fail_key), self.assertRaises(PermissionError):
+                    runner._publish_tls_pair(cert, key, 'new certificate', 'new key')
+                self.assertEqual(key.read_bytes(), b'previous key')
+                self.assertEqual(cert.exists(), existing_cert)
+                if existing_cert:
+                    self.assertEqual(cert.read_bytes(), b'previous certificate')
+
+    def test_tls_generation_completes_partial_pair_in_separate_directories(self):
+        cert = self.root / 'certs' / 'server.crt'
+        key = self.root / 'keys' / 'server.key'
+        key.parent.mkdir()
+        key.write_text('old key')
+        other = key.with_name('other.key')
+        other.write_text('unrelated')
+        output = Mock(stdout=json.dumps(['new certificate', 'new key']))
+        with patch.object(runner, '_command', return_value=output):
+            runner.execute('tls', dict(self.values, profile='prod', tls_cert_file=str(cert),
+                                       tls_key_file=str(key)), self.notify, self.ask)
+        self.assertEqual(cert.read_text(), 'new certificate')
+        self.assertEqual(key.read_text(), 'new key')
+        self.assertEqual(other.read_text(), 'unrelated')
+
+    def test_tls_same_or_linked_paths_cannot_replace_existing_file(self):
+        cert = self.root / 'original'
+        cert.write_bytes(b'preserve')
+        linked = self.root / 'linked'
+        os.link(cert, linked)
+        output = Mock(stdout=json.dumps(['certificate', 'key']))
+        with patch.object(runner, '_command', return_value=output):
+            for key in (cert, linked):
+                with self.subTest(key=key), self.assertRaises(LauncherError):
+                    runner.execute('tls', dict(self.values, profile='prod', tls_cert_file=str(cert),
+                                               tls_key_file=str(key)), self.notify, self.ask)
+        self.assertEqual(cert.read_bytes(), b'preserve')
 
     def test_env_wins_without_profile_or_source_location_requirement(self):
         path = self.project.backend / 'unrelated.local.env'
@@ -290,8 +341,8 @@ class ProfileFirstStartIntegrationTests(unittest.TestCase):
         project = ProfileProject(source, source / 'backend/manage.py', source / 'frontend/package.json',
                                  source / 'requirements.txt', Path(sys.prefix))
         with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp) / 'private'
-            db = Path(temp) / 'user data.sqlite3'
+            home = Path(temp).resolve() / 'private'
+            db = Path(temp).resolve() / 'user data.sqlite3'
             with patch.object(runner.profiles, 'installation_home', return_value=home):
                 values = {'profile': 'prod', 'host': '127.0.0.1', 'source_root': str(source)}
                 connection = runner.effective_connection(values)
@@ -309,5 +360,10 @@ class ProfileFirstStartIntegrationTests(unittest.TestCase):
                 cert = paths['tls_cert_file']
                 ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(cert, paths['tls_key_file'])
                 self.assertIn(('IP Address', '127.0.0.1'), ssl._ssl._test_decode_cert(cert)['subjectAltName'])
-                with self.assertRaises(LauncherError):
-                    runner._create_tls(project, connection)
+                key = Path(paths['tls_key_file'])
+                old_cert, old_key = Path(cert).read_bytes(), key.read_bytes()
+                self.assertEqual(runner._create_tls(project, connection), paths)
+                self.assertNotEqual(Path(cert).read_bytes(), old_cert)
+                self.assertNotEqual(key.read_bytes(), old_key)
+                ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(cert, key)
+                self.assertIn(('IP Address', '127.0.0.1'), ssl._ssl._test_decode_cert(cert)['subjectAltName'])

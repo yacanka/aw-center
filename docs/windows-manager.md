@@ -8,7 +8,7 @@ ZIP’in tamamını aynı klasöre çıkarın ve `AWCenterManager.exe` dosyasın
 
 Local için başlangıç adresi `127.0.0.1`, backend portu `8000` ve frontend portu `5173` değerleridir. **Canlı yenileme** Django ve Vite’ın kaynak değişikliklerine tepkisini yönetir.
 
-Prod için makineye atanmış IPv4 adresini ve HTTPS portunu kullanın. Varsayılan port `443` değeridir. Sertifika ve özel anahtar dosyalarını seçebilirsiniz. Dosyalar eksikse TLS oluşturma düğmesi seçtiğiniz IP için kendinden imzalı bir sertifika üretir. İstemci cihazların bu sertifikaya güvenmesi gerekir.
+Prod için makineye atanmış IPv4 adresini ve HTTPS portunu kullanın. Varsayılan port `443` değeridir. Sertifika ve özel anahtar dosyalarını seçebilirsiniz. TLS oluşturma düğmesi seçtiğiniz IP için kendinden imzalı bir sertifika ve özel anahtar üretir. Seçili yollarda dosya varsa üzerine yazılır. Yenilemeden sonra istemci cihazların yeni sertifikaya güvenmesi gerekir.
 
 Her profil kendi `.env` dosyasını seçebilir. Seçili dosyadaki bağlantı değerleri formda görünür ve o dosya seçiliyken salt okunur olur. Örneğin `IPV4_ADDRESS` adresi, `PORT` Prod portunu, `DEV_FRONTEND_PORT` Local frontend portunu belirler. Dosya seçimini kaldırdığınızda elle girdiğiniz profil değerleri geri gelir. Manager seçilen dosyayı değiştirmez.
 

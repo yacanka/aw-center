@@ -17,9 +17,9 @@ from scripts.launcher import process, runtime
 from scripts.launcher.installation_backup import has_unresolved_migration, run_backed_up_migrations
 from scripts.launcher.installation_env import read_application_environment
 from scripts.launcher.installation_local_config import IDENTITY_KEYS, _database_identity, _identity_file, _read_keys
-from scripts.launcher.installation_permissions import secure_path
+from scripts.launcher.installation_permissions import require_unlinked, secure_path
 from scripts.launcher.installation_readiness import probe_http
-from scripts.launcher.installation_state import private_directory, process_environment
+from scripts.launcher.installation_state import installation_lock, private_directory, process_environment
 from scripts.launcher.job_worker import start_job_workers, worker_has_startup_marker
 from scripts.launcher.model import LauncherError
 from .profile_state import claim_storage, sqlite_path as _sqlite_path, sqlite_url as _sqlite_url
@@ -340,22 +340,42 @@ def _serve(project, values, connection, settings, notify):
 
 def _create_tls(project, connection):
     cert, key = (Path(connection[field]) for field in ('tls_cert_file', 'tls_key_file'))
-    if cert == key or cert.exists() or key.exists():
-        raise LauncherError('Sertifika ve anahtar için iki farklı, kullanılmayan dosya yolu seçin.')
     helper = Path(runtime.__file__).with_name('cert_pair.py')
     with process.frontend_environment(True):
         result = _command([project.python, '-I', helper, connection['host']], project.root, {},
                           'TLS sertifikası oluşturulamadı. Python bağımlılıklarını kontrol edin.')
     pem, private_key = json.loads(result.stdout)
-    for directory in {cert.parent, key.parent}:
-        directory.mkdir(parents=True, exist_ok=True)
-    profiles._write_new(key, private_key)
-    try:
-        profiles._write_new(cert, pem)
-    except BaseException:
-        key.unlink()
-        raise
+    with installation_lock(profiles.installation_home()):
+        for target in (cert, key):
+            require_unlinked(target)
+            if target.exists() and not target.is_file():
+                raise LauncherError('TLS sertifikası ve özel anahtar için dosya yolları seçin.')
+        if cert.resolve() == key.resolve() or (cert.exists() and key.exists() and cert.samefile(key)):
+            raise LauncherError('Sertifika ve anahtar için iki farklı dosya yolu seçin.')
+        for directory in {cert.parent, key.parent}:
+            directory.mkdir(parents=True, exist_ok=True)
+        _publish_tls_pair(cert, key, pem, private_key)
     return {'tls_cert_file': str(cert), 'tls_key_file': str(key)}
+
+
+def _publish_tls_pair(cert, key, pem, private_key):
+    # Stage beside each destination so replacement also works across volumes.
+    with tempfile.TemporaryDirectory(dir=cert.parent) as cert_stage, tempfile.TemporaryDirectory(dir=key.parent) as key_stage:
+        staged_cert, staged_key = Path(cert_stage) / 'server.crt', Path(key_stage) / 'server.key'
+        profiles._write_new(staged_cert, pem)
+        profiles._write_new(staged_key, private_key)
+        previous_cert = Path(cert_stage) / 'previous.crt'
+        if cert.exists():
+            os.link(cert, previous_cert)
+        os.replace(staged_cert, cert)
+        try:
+            os.replace(staged_key, key)
+        except BaseException:
+            if previous_cert.exists():
+                os.replace(previous_cert, cert)
+            else:
+                cert.unlink()
+            raise
 
 
 def execute(action, values, notify, ask):

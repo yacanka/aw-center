@@ -258,7 +258,7 @@ class ProfileWindow:
         operations.grid(row=3, column=0, columnspan=4, sticky='w', pady=(5, 0))
         self._button(operations, 'tls', 'Bu IP için sertifika oluştur', 0)
         self._button(operations, 'build', 'Frontend’i derle', 1)
-        ttk.Label(required, text='TLS dosyalarınız yoksa bu IP için sertifika oluşturabilirsiniz.',
+        ttk.Label(required, text='Sertifika oluşturduğunuzda seçili sertifika ve özel anahtar dosyaları yenilenir.',
                   wraplength=450).grid(row=6, column=0, columnspan=3, sticky='w')
         self.advanced_open = tk.BooleanVar(self.root, value=False)
         checks = ttk.Frame(optional)
@@ -376,6 +376,7 @@ class ProfileWindow:
             confirmed = messagebox.askokcancel(
                 'TLS sertifikası oluştur',
                 'Seçili IPv4 için kendinden imzalı bir sertifika ve özel anahtar oluşturulacak. '
+                'Seçili dosyaların üzerine yazılacak. '
                 'Tarayıcının bağlantıya güvenmesi için istemci bilgisayarlarda sertifikaya güven tanımlamanız gerekir.',
                 parent=self.root)
             if not confirmed:
