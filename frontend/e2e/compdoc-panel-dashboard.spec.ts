@@ -37,6 +37,7 @@ for (const theme of ['light', 'dark'] as const) {
           ]
         else if (path.endsWith('/compliance-documents/dashboard/')) {
           const summary = dashboardSummary()
+          summary.statuses = [{ value: 'airworthiness_review', label: 'Airworthiness Review' }]
           summary.panels[0].id = '21'
           summary.panels[0].analytics.cat_counts = { '': 1 }
           const structures = {
@@ -98,6 +99,14 @@ for (const theme of ['light', 'dark'] as const) {
       const card = page.locator('.panel-breakdown')
       const rows = card.locator('tbody tr')
       await expect(rows).toHaveCount(2)
+      const reviewHeader = card.getByText('Airworthiness Review', { exact: true })
+      await expect(reviewHeader).toBeVisible()
+      const lineCount = await reviewHeader.evaluate((header) => {
+        const range = document.createRange()
+        range.selectNodeContents(header)
+        return range.getClientRects().length
+      })
+      expect(lineCount).toBe(2)
       const distributions = page.locator('.dashboard-column .dashboard-card')
       await expect(distributions).toHaveCount(2)
       const catCard = distributions.nth(1)

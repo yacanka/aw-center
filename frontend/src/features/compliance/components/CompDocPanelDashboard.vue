@@ -33,7 +33,7 @@
       :loading="loading"
       :columns="columns"
       :data="panels"
-      :scroll-x="520"
+      :scroll-x="tableMinWidth"
       :max-height="250"
       :row-key="(row: DashboardPanel) => row.id"
       :row-props="rowProps"
@@ -88,6 +88,10 @@ const columns = computed<DataTableColumns<DashboardPanel>>(() => {
   ]
 })
 
+const tableMinWidth = computed(() =>
+  columns.value.reduce((total, column) => total + Number(column.width ?? column.minWidth), 0)
+)
+
 function statusColumn(
   title: string,
   key: string,
@@ -96,7 +100,7 @@ function statusColumn(
   return {
     title,
     key,
-    width: 88,
+    width: key === 'airworthiness_review' ? 120 : 88,
     align: 'center',
     render(row) {
       const count = readCount(row, key) + (includeDelayed ? readCount(row, 'delayed') : 0)
