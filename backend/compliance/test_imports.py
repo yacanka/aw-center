@@ -1147,7 +1147,7 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(self.panel.name, "Changed concurrently")
 
     def test_new_panels_require_a_name_and_valid_values(self):
-        for panel, ata in [(None, 29), ("New", "invalid 27"), ("x" * 256, 29)]:
+        for panel, ata in [(None, 29), ("New", "invalid 123"), ("x" * 256, 29)]:
             with self.subTest(panel=panel, ata=ata):
                 content = self.workbook(panel=panel, ata=ata)
                 preview = self.preview(content)
@@ -1157,15 +1157,26 @@ class ComplianceImportTests(TestCase):
         self.assertEqual(Panel.objects.filter(project=self.project).count(), 1)
         self.assertFalse(ComplianceDocument.objects.exists())
 
-    def test_digit_free_ata_text_is_preserved_through_preview_and_confirmation(self):
-        content = self.workbook(panel="General panel", ata="  Not  applicable  ")
-        preview = self.preview(content)
-        self.assertEqual(preview.data["rejected_count"], 0, preview.data)
-        self.assertEqual(preview.data["created_count"], 1)
-        self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
-        document = ComplianceDocument.objects.get()
-        self.assertEqual(document.panel.ata, "Not  applicable")
-        self.assertEqual(document.panel.name, "General panel")
+    def test_extracts_supported_ata_codes_from_descriptions(self):
+        for value, expected in (("12-34 ABC", "12-34"), ("ATA (1234) ABC", "12-34"),
+                                ("Chapter 12 general", "12-00")):
+            with self.subTest(value=value):
+                content = self.workbook(panel="Imported panel", ata=value)
+                preview = self.preview(content)
+                self.assertEqual(preview.data["rejected_count"], 0, preview.data)
+                self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+                self.assertEqual(ComplianceDocument.objects.get().panel.ata, expected)
+
+    def test_rejects_descriptions_without_one_unambiguous_ata_code(self):
+        for value in ("Not applicable", "part A1234B", "invalid 27-100", "12-34-56",
+                      "12-34 and 56-78"):
+            with self.subTest(value=value):
+                content = self.workbook(panel="Invalid panel", ata=value)
+                preview = self.preview(content)
+                self.assertEqual(preview.data["rejected_count"], 1, preview.data)
+                self.assertEqual(preview.data["panel_changes"], [])
+                self.assertEqual(self.confirm(content, preview.data["confirmation_token"]).status_code, 201)
+        self.assertFalse(ComplianceDocument.objects.exists())
 
     def test_catalog_updates_are_project_scoped(self):
         other = Project.objects.exclude(pk=self.project.pk).first()

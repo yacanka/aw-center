@@ -17,6 +17,15 @@ For DOORS imports, a Dashboard User with Compliance edit access can use modules
 already mapped to their projects. DocProof lookups use document numbers from
 projects the user can read.
 
+## Importing ATA chapters
+
+The Compliance Documents workbook import accepts an ATA chapter on its own or
+within a description. For example, `12-34 ABC` and `Hydraulics (1234)` both
+resolve to `12-34`, and `Chapter 12 general` resolves to `12-00`. A nonempty
+ATA cell must identify one chapter. Preview flags the row if it contains no
+recognizable chapter or more than one distinct chapter. Leave the cell blank
+when the panel has no ATA chapter.
+
 ## Dashboard response
 
 The response preserves `project`, `total`, `archived`, `overdue` and canonical

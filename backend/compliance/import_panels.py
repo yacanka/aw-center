@@ -1,5 +1,6 @@
 """Non-mutating panel resolution and catalog changes for compliance imports."""
 
+import re
 from dataclasses import dataclass
 
 from rest_framework import serializers
@@ -8,6 +9,27 @@ from rest_framework.exceptions import ValidationError
 from orgs.ata import normalize_ata_chapter
 from orgs.models import Panel, normalize_panel_name
 from orgs.serializers import PanelSerializer
+
+
+# Bound both ends so a longer number or multi-level ATA code cannot be truncated.
+_EMBEDDED_ATA = re.compile(r"(?<!\w)(?<!\d[-./])(?:\d{2}-\d{2}|\d{4}|\d{2})(?!\w|[-./]\d)")
+
+
+def _import_ata(value):
+    try:
+        chapter = normalize_ata_chapter(value)
+    except ValueError:
+        if not isinstance(value, str):
+            raise
+    else:
+        if re.fullmatch(r"\d{2}-\d{2}", chapter):
+            return chapter
+        raise ValueError("No numeric ATA chapter.")
+
+    chapters = {normalize_ata_chapter(match[0]) for match in _EMBEDDED_ATA.finditer(value)}
+    if len(chapters) != 1:
+        raise ValueError("Expected one ATA chapter.")
+    return chapters.pop()
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +92,7 @@ class ImportPanels:
 
     def _resolve_ata(self, value, name):
         try:
-            ata = normalize_ata_chapter(value)
+            ata = _import_ata(value)
         except ValueError as error:
             raise ValidationError({
                 "ata": "Use an ATA chapter such as 27, 2700, 27-00, or 27-10."
