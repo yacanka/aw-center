@@ -221,3 +221,42 @@ test('Session ID login displays its real account and failed PAT attempts clear t
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
   await expect(page.getByText('JIRA: another-user', { exact: true })).toBeVisible()
 })
+
+test('revalidates a saved token on entry and presents a replacement field after revocation', async ({
+  page
+}) => {
+  await shell(page)
+  let revoked = false
+  let restoreCount = 0
+  await page.route('**/api/integrations/jira/session/', async (route) => {
+    if (route.request().method() === 'PUT') {
+      expect(route.request().postData()).toBeNull()
+      restoreCount++
+      if (revoked)
+        return route.fulfill({
+          status: 400,
+          json: {
+            code: 'JIRA_SAVED_TOKEN_INVALID',
+            detail: 'Your saved JIRA token is no longer valid. Enter a new personal access token.'
+          }
+        })
+    }
+    return route.fulfill({
+      json: {
+        state: 'connected',
+        user: { username: 'operator', display_name: '' },
+        expires_at: null
+      }
+    })
+  })
+  await page.goto('/app/jira')
+  await expect(page.getByText('JIRA: operator', { exact: true })).toBeVisible()
+  revoked = true
+  await page.reload()
+  await expect(page.getByRole('alert').filter({ hasText: 'saved JIRA token' })).toBeVisible()
+  await expect(
+    page.getByLabel('Personal Access Token', { exact: true }).and(page.locator('input'))
+  ).toHaveValue('')
+  await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeDisabled()
+  expect(restoreCount).toBe(2)
+})

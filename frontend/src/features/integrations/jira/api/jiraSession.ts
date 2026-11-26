@@ -13,6 +13,10 @@ export async function fetchJiraConnection(): Promise<JiraConnection> {
   return (await apiClient.get<JiraConnection>(`${API_PATHS.jiraSession}/`)).data
 }
 
+export async function restoreJiraConnection(): Promise<JiraConnection> {
+  return (await apiClient.put<JiraConnection>(`${API_PATHS.jiraSession}/`)).data
+}
+
 export async function connectJira(
   credential: string,
   method: JiraAuthMethod = 'session_id'

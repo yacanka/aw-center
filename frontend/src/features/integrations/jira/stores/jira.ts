@@ -5,6 +5,7 @@ import {
   connectJira,
   disconnectJira,
   fetchJiraConnection,
+  restoreJiraConnection,
   type JiraAuthMethod,
   type JiraConnection
 } from '@/features/integrations/jira/api/jiraSession'
@@ -26,6 +27,10 @@ export const useJiraStore = defineStore('jira', {
         notifyError(formatApiError(error))
         throw error
       }
+    },
+    async restoreJiraConnection(): Promise<JiraConnection> {
+      this.jiraConnection = disconnectedJiraConnection()
+      return (this.jiraConnection = await restoreJiraConnection())
     },
     /** Exchange a one-time credential for an opaque server-side JIRA connection. */
     async connectJira(

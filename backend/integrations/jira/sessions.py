@@ -1,4 +1,4 @@
-"""Owner-scoped encrypted cache for ephemeral JIRA sessions."""
+"""Owner-scoped encrypted JIRA sessions and saved personal access tokens."""
 
 import json
 from collections.abc import Mapping
@@ -9,11 +9,14 @@ from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from jira import JIRAError
 
 from awcenter.cache_policy import production_cache_is_valid
 
+from .credential_models import JiraSavedToken
 from .client import (
     JiraConfigurationError, JiraConnector, validated_personal_access_token, validated_session_id,
 )
@@ -49,6 +52,11 @@ class JiraSessionInvalid(JiraSessionError):
     response_status = 400
 
 
+class JiraSavedTokenInvalid(JiraSessionInvalid):
+    detail = "Your saved JIRA token is no longer valid. Enter a new personal access token."
+    code = "JIRA_SAVED_TOKEN_INVALID"
+
+
 class JiraSessionUpstreamError(JiraSessionError):
     detail = "JIRA session validation is unavailable."
     code = "JIRA_SESSION_UNAVAILABLE"
@@ -77,8 +85,20 @@ class JiraSessionRecord:
 
 
 def connect_jira_session(owner, credential, *, auth_method="session_id"):
-    """Validate, encrypt, and cache one owner's replaceable JIRA session."""
+    """Save a verified PAT for future visits. Session IDs remain ephemeral."""
 
+    normalized, identity = verify_jira_credential(owner, credential, auth_method)
+    with transaction.atomic():
+        if auth_method == "personal_access_token":
+            payload = json.dumps([str(owner.pk), settings.JIRA_URL, normalized]).encode()
+            ciphertext = session_cipher().encrypt(payload).decode("ascii")
+            JiraSavedToken.objects.update_or_create(owner=owner, defaults={"ciphertext": ciphertext})
+        else:
+            JiraSavedToken.objects.filter(owner=owner).delete()
+        return store_jira_session(owner, normalized, identity, auth_method=auth_method)
+
+
+def verify_jira_credential(owner, credential, auth_method):
     ensure_jira_enabled()
     try:
         normalized = validated_credential(credential, auth_method)
@@ -102,7 +122,38 @@ def connect_jira_session(owner, credential, *, auth_method="session_id"):
         username = str(owner.get_username())
         if not username or identity["username"].casefold() != username.casefold():
             raise JiraAccountMismatch()
-    return store_jira_session(owner, normalized, identity, auth_method=auth_method)
+    return normalized, identity
+
+
+def restore_jira_session(owner):
+    """Revalidate the saved token on entry before exposing a new active connection."""
+
+    tokens = JiraSavedToken.objects.filter(owner=owner)
+    ciphertext = tokens.values_list("ciphertext", flat=True).first()
+    if ciphertext is None:
+        return get_jira_session(owner)
+    try:
+        saved_owner, server, token = json.loads(session_cipher().decrypt(ciphertext.encode()))
+        if saved_owner != str(owner.pk) or server != settings.JIRA_URL:
+            raise JiraSavedTokenInvalid()
+        token, identity = verify_jira_credential(owner, token, "personal_access_token")
+    except (InvalidToken, ValueError, TypeError, JiraSessionInvalid, JiraAccountMismatch):
+        identity = None
+
+    with transaction.atomic():
+        # Fence a delayed upstream response against a concurrent replacement or disconnect.
+        if not tokens.filter(ciphertext=ciphertext).update(ciphertext=F("ciphertext")):
+            return get_jira_session(owner)
+        if identity:
+            return store_jira_session(owner, token, identity, auth_method="personal_access_token")
+        clear_jira_session(owner)
+    raise JiraSavedTokenInvalid()
+
+
+@transaction.atomic
+def disconnect_jira_session(owner):
+    JiraSavedToken.objects.filter(owner=owner).delete()
+    clear_jira_session(owner)
 
 
 def get_jira_session(owner):
@@ -117,6 +168,8 @@ def get_jira_session(owner):
         payload = json.loads(decoded.decode("utf-8"))
         if not isinstance(payload, Mapping):
             raise ValueError("Invalid cached JIRA connection.")
+        if payload.get("server", settings.JIRA_URL) != settings.JIRA_URL:
+            raise ValueError("JIRA server changed.")
         auth_method = payload.get("auth_method", "session_id")
         record = JiraSessionRecord(
             credential=validated_credential(payload["credential"], auth_method),
@@ -179,6 +232,7 @@ def store_jira_session(owner, credential, identity, *, auth_method="session_id")
             "identity": record.identity,
             "expires_at": record.expires_at,
             "auth_method": record.auth_method,
+            "server": settings.JIRA_URL,
         },
         separators=(",", ":"),
         sort_keys=True,

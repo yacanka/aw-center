@@ -29,6 +29,7 @@ from integrations.jira.sessions import (
     store_jira_session,
 )
 from integrations.jira.client import validated_session_id
+from integrations.jira.credential_models import JiraSavedToken
 
 TEST_FERNET_KEY = Fernet.generate_key().decode("ascii")
 SESSION_URL = "/api/integrations/jira/session/"
@@ -137,6 +138,62 @@ class JiraSessionTests(TestCase):
         self.assertIsNone(get_jira_session(self.user))
 
     @patch("integrations.jira.sessions.JiraConnector")
+    def test_restore_is_owner_bound_survives_logout_and_forgets_on_disconnect(self, connector):
+        connector.return_value.current_user.return_value = {"name": self.user.username}
+        credential = "fixture-personal-access-token"
+        self.client.force_authenticate(user=None)
+        self.client.force_login(self.user)
+        self.client.post(SESSION_URL, {"personal_access_token": credential}, format="json")
+        saved = JiraSavedToken.objects.get(owner=self.user)
+        self.assertNotIn(credential, saved.ciphertext)
+        self.assertEqual(self.client.delete("/api/session/").status_code, 204)
+        self.assertIsNone(get_jira_session(self.user))
+        self.assertEqual(self.client.put(SESSION_URL).status_code, 403)
+        self.client.force_login(self.other_user)
+        self.assertEqual(self.client.put(SESSION_URL).data["state"], "disconnected")
+        self.client.force_login(self.user)
+        restore = self.client.put(SESSION_URL)
+        self.assertEqual(restore.data["state"], "connected")
+        self.assertNotIn(credential, str(restore.data))
+        self.assertEqual(restore["Cache-Control"], "no-store")
+        self.assertEqual(connector.return_value.current_user.call_count, 2)
+        self.assertEqual(self.client.delete(SESSION_URL).status_code, 204)
+        self.assertFalse(JiraSavedToken.objects.filter(owner=self.user).exists())
+        self.assertEqual(self.client.put(SESSION_URL).data["state"], "disconnected")
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_restore_rechecks_active_pat_and_reports_upstream_outage_separately(self, connector):
+        myself = connector.return_value.current_user
+        myself.return_value = {"name": self.user.username}
+        connect_jira_session(self.user, "fixture-personal-token", auth_method="personal_access_token")
+        myself.side_effect = JIRAError(status_code=503)
+        self.assertEqual(self.client.put(SESSION_URL).status_code, 502)
+        myself.side_effect = JIRAError(status_code=401)
+        response = self.client.put(SESSION_URL)
+        self.assertEqual(response.data["code"], "JIRA_SAVED_TOKEN_INVALID")
+        self.assertIsNone(get_jira_session(self.user))
+        myself.side_effect = None
+        myself.return_value = {"name": self.other_user.username}
+        self.assertEqual(self.client.put(SESSION_URL).data["code"], "JIRA_SAVED_TOKEN_INVALID")
+        myself.return_value = {"name": self.user.username}
+        self.assertEqual(self.client.put(SESSION_URL).data["state"], "connected")
+        connect_jira_session(self.user, "fixture-session-id")
+        self.assertFalse(JiraSavedToken.objects.filter(owner=self.user).exists())
+
+    @patch("integrations.jira.sessions.JiraConnector")
+    def test_token_never_sent_to_changed_server_or_for_another_owner(self, connector):
+        connector.return_value.current_user.return_value = {"name": self.user.username}
+        connect_jira_session(self.user, "fixture-personal-token", auth_method="personal_access_token")
+        connector.reset_mock()
+        with override_settings(JIRA_URL="https://other.example.test"):
+            self.assertEqual(self.client.put(SESSION_URL).data["code"], "JIRA_SAVED_TOKEN_INVALID")
+        saved = JiraSavedToken.objects.get(owner=self.user)
+        JiraSavedToken.objects.create(owner=self.other_user, ciphertext=saved.ciphertext)
+        self.client.force_authenticate(self.other_user)
+        self.assertEqual(self.client.put(SESSION_URL).data["code"], "JIRA_SAVED_TOKEN_INVALID")
+        connector.assert_not_called()
+
+    @patch("integrations.jira.sessions.JiraConnector")
     def test_pat_for_another_account_cannot_replace_an_existing_connection(self, connector):
         connector.return_value.current_user.return_value = {"name": "previous-jira-account"}
         connect_jira_session(self.user, "previous-session-fixture")
@@ -223,6 +280,7 @@ class JiraSessionTests(TestCase):
         response = client.post(SESSION_URL, {"personal_access_token": "fixture-token"}, format="json")
         self.assertEqual(response.status_code, 403)
         client.force_login(self.user)
+        self.assertEqual(client.put(SESSION_URL).status_code, 403)
         response = client.post(SESSION_URL, {"personal_access_token": "fixture-token"}, format="json")
         self.assertEqual(response.status_code, 403)
         connector.assert_not_called()
@@ -436,7 +494,7 @@ config = json.load(sys.stdin)
 django.setup()
 from integrations.jira.sessions import ensure_jira_enabled, get_jira_session, clear_jira_session
 with override_settings(DEBUG=False, AWCENTER_DEPLOYMENT_MODE="windows-native",
-        JIRA_ENABLED=True, JIRA_SESSION_ENCRYPTION_KEY=config["key"],
+        JIRA_ENABLED=True, JIRA_URL="https://jira.example.test", JIRA_SESSION_ENCRYPTION_KEY=config["key"],
         CACHES={"default": config["cache"]}):
     ensure_jira_enabled()
     record = get_jira_session(config["owner"])

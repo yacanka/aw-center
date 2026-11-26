@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { formatApiError, getApiErrorCode } from '@/shared/api/apiError'
 import { useThemeVars } from 'naive-ui'
 import { useJiraStore } from '@/features/integrations/jira/stores/jira'
 import type { JiraAuthMethod } from '@/features/integrations/jira/api/jiraSession'
@@ -17,6 +18,7 @@ const initializing = ref(true)
 const sessionId = ref('')
 const authMethod = ref<JiraAuthMethod>(restoreAuthMethod())
 const connecting = ref(false)
+const restoreWarning = ref('')
 const sessionField = ref({ visible: false, title: 'Connect to JIRA' })
 const credentialLabel = computed(() =>
   authMethod.value === 'personal_access_token' ? 'Personal Access Token' : 'Session ID'
@@ -36,6 +38,7 @@ async function connectJiraAccount(): Promise<void> {
   connecting.value = true
   try {
     await store.connectJira(credential, authMethod.value)
+    restoreWarning.value = ''
     sessionField.value.visible = false
   } catch {
     // The store presents the safe API error, including PAT account mismatches.
@@ -91,9 +94,13 @@ async function disconnectJiraAccount(): Promise<void> {
 /** Reuse the server-owned connection, or ask for a one-time credential exchange. */
 async function ensureJiraSession(): Promise<void> {
   try {
-    const connection = await store.fetchJiraConnection()
+    const connection = await store.restoreJiraConnection()
     if (connection.state !== 'connected') showSessionPopup()
-  } catch {
+  } catch (error) {
+    restoreWarning.value = formatApiError(error)
+    if (getApiErrorCode(error) === 'JIRA_SAVED_TOKEN_INVALID') {
+      changeAuthMethod('personal_access_token')
+    }
     showSessionPopup()
   } finally {
     initializing.value = false
@@ -111,6 +118,7 @@ onMounted(ensureJiraSession)
   <div v-else>
     <n-flex v-if="sessionField.visible" justify="center">
       <n-card :title="sessionField.title" class="jira-session-card">
+        <n-alert v-if="restoreWarning" type="warning" role="alert">{{ restoreWarning }}</n-alert>
         <n-tabs
           :value="authMethod"
           type="segment"
@@ -176,6 +184,10 @@ onMounted(ensureJiraSession)
               "
             />
           </n-form-item>
+          <p v-if="authMethod === 'personal_access_token'">
+            AW Center saves your verified token for future visits. Disconnect from JIRA to remove
+            it.
+          </p>
           <n-flex justify="center">
             <n-button
               attr-type="submit"

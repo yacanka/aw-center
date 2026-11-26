@@ -11,7 +11,8 @@ from awcenter.api_errors import error_response
 from .serializers import JiraSessionConnectSerializer
 from .sessions import (
     JiraSessionError,
-    clear_jira_session,
+    disconnect_jira_session,
+    restore_jira_session,
     connect_jira_session,
     get_jira_session,
     has_legacy_jira_credential,
@@ -69,11 +70,25 @@ class JiraSessionView(APIView):
             )
         return no_store_response(record.public_payload())
 
+    def put(self, request):
+        """Restore the authenticated owner's connection without a browser credential."""
+
+        invalid = reject_query_credentials(request)
+        if invalid:
+            return invalid
+        if request.data:
+            return error_response("Restore takes no credentials.", code="INVALID_INPUT", response_status=400)
+        try:
+            record = restore_jira_session(request.user)
+        except JiraSessionError as error:
+            return session_error_response(error)
+        return no_store_response(record.public_payload() if record else disconnected_payload())
+
     def delete(self, request):
         invalid = reject_query_credentials(request)
         if invalid:
             return invalid
-        clear_jira_session(request.user)
+        disconnect_jira_session(request.user)
         return no_store_response(status=204)
 
 
