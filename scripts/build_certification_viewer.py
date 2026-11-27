@@ -6,6 +6,7 @@ import struct
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,6 +28,15 @@ def tcl_tk_build_environment():
             raise SystemExit(f'Missing {library / startup_script}. Repair Tcl/Tk in the Python 3.11 installation.')
         environment[variable] = library.resolve().as_posix()
     return environment
+
+
+def write_tk_archive(path, environment):
+    with ZipFile(path, 'w', ZIP_DEFLATED) as archive:
+        for variable, destination in (('TCL_LIBRARY', '_tcl_data'), ('TK_LIBRARY', '_tk_data')):
+            library = Path(environment[variable])
+            for file in sorted(library.rglob('*')):
+                if file.is_file():
+                    archive.write(file, Path(destination) / file.relative_to(library))
 
 
 def main():
@@ -54,6 +64,8 @@ def main():
     # Stage next to the served template. A failed or concurrent build cannot truncate a download.
     with TemporaryDirectory(prefix='viewer-build-', dir=output) as temporary:
         stage = Path(temporary)
+        tk_archive = stage / 'viewer-tk.zip'
+        write_tk_archive(tk_archive, environment)
         subprocess.run([
             sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed',
             '--noupx', '--name', 'CertificationDashboard', '--paths', str(ROOT),
@@ -62,11 +74,12 @@ def main():
             '--add-data', f'{assets};viewer',
             '--add-data', f'{environment["TCL_LIBRARY"]};_tcl_data',
             '--add-data', f'{environment["TK_LIBRARY"]};_tk_data',
+            '--add-data', f'{tk_archive};.',
             str(ROOT / 'scripts/certification_viewer/entrypoint.py'),
         ], cwd=ROOT, env=environment, check=True)
         executable = stage / 'CertificationDashboard.exe'
         archive_paths = {name.replace('\\', '/') for name in CArchiveReader(str(executable)).toc}
-        missing = {'_tcl_data/init.tcl', '_tk_data/tk.tcl'} - archive_paths
+        missing = {'_tcl_data/init.tcl', '_tk_data/tk.tcl', 'viewer-tk.zip'} - archive_paths
         if missing:
             raise SystemExit(f'EXE archive is missing Tcl/Tk files: {", ".join(sorted(missing))}')
         try:

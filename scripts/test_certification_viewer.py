@@ -5,7 +5,6 @@ from http.client import HTTPConnection
 import json
 import os
 from pathlib import Path
-from shutil import copytree
 import sqlite3
 import sys
 from tempfile import TemporaryDirectory
@@ -13,6 +12,7 @@ from threading import Event, Thread
 from unittest.mock import patch
 import unittest
 from urllib.parse import urlencode
+from zipfile import ZipFile
 
 from scripts.certification_viewer.source import DatabaseSource, SourceError
 from scripts.certification_viewer.server import ViewerServer
@@ -150,7 +150,7 @@ class WindowsFileSelectionTests(unittest.TestCase):
             self.assertEqual(failure.exception.code, 1)
             self.assertIn('_tcl_data/init.tcl', (bundle / 'tk-startup-error.txt').read_text(encoding='utf-8'))
 
-    def test_frozen_tk_probe_uses_the_bundled_libraries(self):
+    def test_frozen_tk_probe_recovers_missing_extracted_libraries(self):
         import tkinter as tk
 
         from scripts.certification_viewer import entrypoint
@@ -164,17 +164,22 @@ class WindowsFileSelectionTests(unittest.TestCase):
 
         with TemporaryDirectory(prefix='aw-tcl-ğ-') as work:
             bundle = Path(work).resolve()
-            copytree(tcl_library, bundle / '_tcl_data')
-            copytree(tk_library, bundle / '_tk_data')
+            with ZipFile(bundle / 'viewer-tk.zip', 'w') as archive:
+                for source, destination in ((tcl_library, '_tcl_data'), (tk_library, '_tk_data')):
+                    library = Path(source)
+                    for file in library.rglob('*'):
+                        if file.is_file():
+                            archive.write(file, Path(destination) / file.relative_to(library))
             missing = str(bundle / 'missing')
             with (patch.dict(os.environ, TCL_LIBRARY=missing, TK_LIBRARY=missing),
                   patch.object(sys, '_MEIPASS', work, create=True),
+                  patch.object(sys, 'executable', str(bundle / 'CertificationDashboard.exe')),
                   patch.object(sys, 'argv', ['CertificationDashboard.exe', '--check-tk']),
                   patch.object(entrypoint, 'embedded_configuration', return_value=('unused', False)),
                   patch.object(entrypoint, 'run_desktop') as open_dashboard):
                 entrypoint.main()
-                self.assertEqual(Path(tk.Tcl().eval('set tcl_library')), bundle / '_tcl_data')
-                self.assertEqual(Path(os.environ['TK_LIBRARY']), bundle / '_tk_data')
+                self.assertEqual(Path(tk.Tcl().eval('set tcl_library')), bundle / 'viewer-tk' / '_tcl_data')
+                self.assertEqual(Path(os.environ['TK_LIBRARY']), bundle / 'viewer-tk' / '_tk_data')
                 open_dashboard.assert_not_called()
 
     def test_missing_embedded_path_can_be_replaced_and_remembered(self):
