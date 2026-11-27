@@ -21,15 +21,18 @@ def configure_packaged_tk(bundle):
 
 
 def main():
-    bundle = Path(sys._MEIPASS).resolve()
     if sys.argv[1:] == ['--check-tk']:
         try:
-            configure_packaged_tk(bundle)
+            configure_packaged_tk(Path(sys._MEIPASS).resolve())
             Tk().destroy()
-        except (OSError, TclError):
+        except (OSError, TclError) as exc:
+            report = Path(sys.executable).with_name('tk-startup-error.txt')
+            with report.open('x', encoding='utf-8') as stream:
+                stream.write(f'{type(exc).__name__}: {exc}\n')
             raise SystemExit(1) from None
         return
 
+    bundle = Path(sys._MEIPASS).resolve()
     configure_packaged_tk(bundle)
     try:
         path, trusted = embedded_configuration(Path(sys.executable))

@@ -135,6 +135,21 @@ class ViewerTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'nt', 'Uses native Windows path selection and Tk.')
 class WindowsFileSelectionTests(unittest.TestCase):
+    def test_frozen_tk_probe_reports_the_missing_startup_script(self):
+        from scripts.certification_viewer import entrypoint
+
+        with TemporaryDirectory() as work:
+            bundle = Path(work)
+            executable = bundle / 'CertificationDashboard.exe'
+            with (patch.object(sys, '_MEIPASS', work, create=True),
+                  patch.object(sys, 'executable', str(executable)),
+                  patch.object(sys, 'argv', [str(executable), '--check-tk'])):
+                with self.assertRaises(SystemExit) as failure:
+                    entrypoint.main()
+
+            self.assertEqual(failure.exception.code, 1)
+            self.assertIn('_tcl_data/init.tcl', (bundle / 'tk-startup-error.txt').read_text(encoding='utf-8'))
+
     def test_frozen_tk_probe_uses_the_bundled_libraries(self):
         import tkinter as tk
 

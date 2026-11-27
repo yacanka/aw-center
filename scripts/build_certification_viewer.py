@@ -41,6 +41,13 @@ def main():
     from compliance.executable_config import mark_executable_template
 
     environment = tcl_tk_build_environment()
+    probe = subprocess.run([
+        sys.executable, '-c',
+        "import tkinter; window = tkinter.Tk(); print(window.tk.call('info', 'patchlevel')); window.destroy()",
+    ], env=environment, capture_output=True, text=True, errors='replace')
+    if probe.returncode:
+        raise SystemExit(f'Build Python Tcl/Tk startup check failed:\n{probe.stderr.strip()}')
+    print(f'Build Python Tcl version: {probe.stdout.strip()}', flush=True)
     output = ROOT / 'packaging/dist'
     output.mkdir(parents=True, exist_ok=True)
     # Stage next to the served template. A failed or concurrent build cannot truncate a download.
@@ -56,7 +63,12 @@ def main():
         executable = stage / 'CertificationDashboard.exe'
         try:
             subprocess.run([executable, '--check-tk'], cwd=stage, check=True, timeout=30)
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        except subprocess.CalledProcessError as exc:
+            report = stage / 'tk-startup-error.txt'
+            detail = (report.read_text(encoding='utf-8').strip() if report.is_file()
+                      else f'Viewer exited with code {exc.returncode} before reporting a Tcl/Tk error.')
+            raise SystemExit(f'Packaged Tcl/Tk startup check failed:\n{detail}') from exc
+        except (OSError, subprocess.TimeoutExpired) as exc:
             raise SystemExit(f'Packaged Tcl/Tk startup check failed: {exc}') from exc
         mark_executable_template(executable)
         os.replace(executable, output / executable.name)
