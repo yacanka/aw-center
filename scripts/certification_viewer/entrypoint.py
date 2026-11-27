@@ -16,7 +16,7 @@ def configure_packaged_tk(bundle):
     ):
         library = bundle / directory
         if not (library / startup_script).is_file():
-            raise FileNotFoundError(f'Packaged Tcl/Tk file is missing: {directory}/{startup_script}')
+            raise FileNotFoundError(f'Packaged Tcl/Tk file is missing: {directory}/{startup_script} under {bundle}')
         os.environ[variable] = library.as_posix()
 
 

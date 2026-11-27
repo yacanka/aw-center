@@ -38,6 +38,7 @@ def main():
     if b'__DASHBOARD_SESSION__' not in (assets / 'index.html').read_bytes():
         raise SystemExit('The viewer build does not contain the browser session placeholder.')
     sys.path.insert(0, str(ROOT / 'backend'))
+    from PyInstaller.archive.readers import CArchiveReader
     from compliance.executable_config import mark_executable_template
 
     environment = tcl_tk_build_environment()
@@ -58,16 +59,23 @@ def main():
             '--noupx', '--name', 'CertificationDashboard', '--paths', str(ROOT),
             '--paths', str(ROOT / 'backend'), '--distpath', str(stage),
             '--workpath', str(stage / 'work'), '--specpath', str(stage),
-            '--add-data', f'{assets};viewer', str(ROOT / 'scripts/certification_viewer/entrypoint.py'),
+            '--add-data', f'{assets};viewer',
+            '--add-data', f'{environment["TCL_LIBRARY"]};_tcl_data',
+            '--add-data', f'{environment["TK_LIBRARY"]};_tk_data',
+            str(ROOT / 'scripts/certification_viewer/entrypoint.py'),
         ], cwd=ROOT, env=environment, check=True)
         executable = stage / 'CertificationDashboard.exe'
+        archive_paths = {name.replace('\\', '/') for name in CArchiveReader(str(executable)).toc}
+        missing = {'_tcl_data/init.tcl', '_tk_data/tk.tcl'} - archive_paths
+        if missing:
+            raise SystemExit(f'EXE archive is missing Tcl/Tk files: {", ".join(sorted(missing))}')
         try:
             subprocess.run([executable, '--check-tk'], cwd=stage, check=True, timeout=30)
         except subprocess.CalledProcessError as exc:
             report = stage / 'tk-startup-error.txt'
             detail = (report.read_text(encoding='utf-8').strip() if report.is_file()
                       else f'Viewer exited with code {exc.returncode} before reporting a Tcl/Tk error.')
-            raise SystemExit(f'Packaged Tcl/Tk startup check failed:\n{detail}') from exc
+            raise SystemExit(f'Packaged Tcl/Tk startup check failed (startup files are in the EXE archive):\n{detail}') from exc
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise SystemExit(f'Packaged Tcl/Tk startup check failed: {exc}') from exc
         mark_executable_template(executable)
