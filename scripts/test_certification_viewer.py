@@ -5,7 +5,9 @@ from http.client import HTTPConnection
 import json
 import os
 from pathlib import Path
+from shutil import copytree
 import sqlite3
+import sys
 from tempfile import TemporaryDirectory
 from threading import Event, Thread
 from unittest.mock import patch
@@ -14,6 +16,7 @@ from urllib.parse import urlencode
 
 from scripts.certification_viewer.source import DatabaseSource, SourceError
 from scripts.certification_viewer.server import ViewerServer
+from scripts.verify_certification_exe import seed
 
 
 class SampleReader:
@@ -132,11 +135,37 @@ class ViewerTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'nt', 'Uses native Windows path selection and Tk.')
 class WindowsFileSelectionTests(unittest.TestCase):
+    def test_frozen_tk_probe_uses_the_bundled_libraries(self):
+        import tkinter as tk
+
+        from scripts.certification_viewer import entrypoint
+
+        root = tk.Tk()
+        try:
+            tcl_library = root.tk.eval('set tcl_library')
+            tk_library = root.tk.eval('set tk_library')
+        finally:
+            root.destroy()
+
+        with TemporaryDirectory(prefix='aw-tcl-ğ-') as work:
+            bundle = Path(work).resolve()
+            copytree(tcl_library, bundle / '_tcl_data')
+            copytree(tk_library, bundle / '_tk_data')
+            missing = str(bundle / 'missing')
+            with (patch.dict(os.environ, TCL_LIBRARY=missing, TK_LIBRARY=missing),
+                  patch.object(sys, '_MEIPASS', work, create=True),
+                  patch.object(sys, 'argv', ['CertificationDashboard.exe', '--check-tk']),
+                  patch.object(entrypoint, 'embedded_configuration', return_value=('unused', False)),
+                  patch.object(entrypoint, 'run_desktop') as open_dashboard):
+                entrypoint.main()
+                self.assertEqual(Path(tk.Tcl().eval('set tcl_library')), bundle / '_tcl_data')
+                self.assertEqual(Path(os.environ['TK_LIBRARY']), bundle / '_tk_data')
+                open_dashboard.assert_not_called()
+
     def test_missing_embedded_path_can_be_replaced_and_remembered(self):
         import tkinter as tk
         from time import monotonic, sleep
 
-        from scripts.verify_certification_exe import seed
         from scripts.certification_viewer.desktop import ViewerWindow, remembered_source
 
         with TemporaryDirectory() as work, patch.dict(os.environ, LOCALAPPDATA=work):
